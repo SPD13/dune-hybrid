@@ -1,0 +1,15 @@
+{
+  "name": "Dune Hybrid",
+  "short_name": "Dune",
+  "description": "Cryo's Dune (1992, CD) in the browser — bring your own game files.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#120c07",
+  "theme_color": "#120c07",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

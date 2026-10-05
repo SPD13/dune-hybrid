@@ -4,7 +4,7 @@
 
 use std::collections::VecDeque;
 
-const MAGIC: &[u8; 4] = b"DHS1";
+const MAGIC: &[u8; 4] = b"DHS2";
 
 #[derive(Default)]
 pub struct Writer {

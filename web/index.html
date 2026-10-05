@@ -2,34 +2,134 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#120c07" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="description" content="Cryo's Dune (1992, CD) in your browser: the original game on an emulated PC, with touch controls and save anywhere." />
     <title>Dune Hybrid</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
-    <main id="setup" class="panel">
-      <h1>DUNE</h1>
-      <p class="sub">Cryo, 1992 · CD version 3.7 · original program on a browser PC</p>
+    <main id="setup">
+      <header>
+        <h1>DUNE</h1>
+        <p class="sub">Cryo, 1992 · CD version · the original game on a browser PC</p>
+      </header>
 
-      <section class="step">
+      <section id="resume-card" class="card" hidden>
+        <img id="resume-thumb" alt="" />
+        <div>
+          <h2>Continue</h2>
+          <p id="resume-time" class="hint"></p>
+        </div>
+        <button id="btn-continue" class="primary">Continue</button>
+      </section>
+
+      <section class="card" id="play-card">
         <h2>Game files</h2>
         <p id="files-status">Checking browser storage…</p>
         <div class="row">
-          <label class="button" for="files-input">Choose DNCDPRG.EXE and DUNE.DAT…</label>
-          <input id="files-input" type="file" multiple hidden />
-          <button id="files-forget" class="link" hidden>Forget stored files</button>
+          <label class="button" for="files-input">Import game files…</label>
+          <input id="files-input" type="file" multiple accept=".iso,.zip,.exe,.dat,.ISO,.ZIP,.EXE,.DAT" hidden />
+          <button id="files-forget" class="link" hidden>Remove stored files</button>
         </div>
         <progress id="files-progress" max="1" value="0" hidden></progress>
-        <p class="hint">Select both files from your Dune CD (3.7). They stay in this browser's private storage and are never uploaded.</p>
+        <p id="files-progress-label" class="hint" hidden></p>
+        <p class="hint">
+          Choose the Dune CD image (<code>.iso</code>, or a <code>.zip</code> containing it), or the two files
+          <code>DNCDPRG.EXE</code> and <code>DUNE.DAT</code>. Files are copied into this browser's private storage and
+          never uploaded. The game itself is not included — see <a href="https://github.com/SPD13/dune-hybrid#installation" target="_blank" rel="noopener">installation</a>.
+        </p>
+        <button id="btn-new" class="primary" disabled>New game</button>
+        <p id="message" class="message" role="status"></p>
       </section>
 
-      <button id="play" class="primary" disabled>Play</button>
-      <p id="message" class="message" role="status"></p>
+      <footer>
+        <button id="btn-options" class="link">Options</button>
+        <span>·</span>
+        <a href="https://github.com/SPD13/dune-hybrid" target="_blank" rel="noopener">About</a>
+      </footer>
     </main>
 
-    <div id="stage" hidden>
-      <canvas id="screen" width="320" height="200" tabindex="0"></canvas>
+    <div id="stage" hidden data-display="sharp">
+      <nav class="toolbar left" aria-label="Game keys">
+        <button id="btn-esc" title="Skip / back (Esc)">Esc</button>
+        <button id="btn-enter" title="Enter">↵</button>
+        <button id="btn-space" title="Space">␣</button>
+        <button id="btn-pause" title="Pause the game (P)">P</button>
+      </nav>
+      <div id="viewport">
+        <canvas id="screen" width="320" height="200" tabindex="0"></canvas>
+      </div>
+      <nav class="toolbar right" aria-label="Controls">
+        <button id="btn-menu" class="always" title="Menu (F1)" aria-label="Menu">☰</button>
+        <button id="btn-ff" title="Hold to fast-forward" aria-label="Fast-forward">⏩</button>
+        <button id="btn-quicksave" title="Quick save" aria-label="Quick save">⤓</button>
+        <button id="btn-quickload" title="Quick load" aria-label="Quick load">⤒</button>
+        <button id="btn-fullscreen" title="Fullscreen" aria-label="Fullscreen">⛶</button>
+      </nav>
     </div>
+
+    <div id="menu" class="overlay" hidden role="dialog" aria-label="Menu">
+      <div class="sheet">
+        <div class="sheet-head">
+          <h2>Paused</h2>
+          <button id="menu-resume" class="primary">Resume</button>
+        </div>
+        <h3>Save anywhere</h3>
+        <ul id="slots"></ul>
+        <h3>Options</h3>
+        <form id="options" onsubmit="return false"></form>
+        <div class="row">
+          <button id="menu-fullscreen">Fullscreen</button>
+          <button id="menu-quit" class="link">Back to title</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="options-dialog" class="overlay" hidden role="dialog" aria-label="Options">
+      <div class="sheet">
+        <div class="sheet-head">
+          <h2>Options</h2>
+          <button id="options-close" class="primary">Done</button>
+        </div>
+        <div id="options-home"></div>
+      </div>
+    </div>
+
+    <template id="options-template">
+      <label>Language <small>(text and voices where available; applies to new games)</small>
+        <select name="language"></select>
+      </label>
+      <label>Music volume <input name="music" type="range" min="0" max="1" step="0.05" /></label>
+      <label>Voices &amp; effects volume <input name="voices" type="range" min="0" max="1" step="0.05" /></label>
+      <label>Display
+        <select name="display">
+          <option value="sharp">Sharp pixels</option>
+          <option value="smooth">Smooth</option>
+          <option value="crt">CRT scanlines</option>
+        </select>
+      </label>
+      <label>Touch control
+        <select name="touchMode">
+          <option value="direct">Direct — tap where you want to click</option>
+          <option value="trackpad">Trackpad — drag the cursor, tap to click</option>
+        </select>
+      </label>
+      <label>On-screen buttons
+        <select name="buttons">
+          <option value="auto">On touch devices</option>
+          <option value="always">Always</option>
+          <option value="never">Never</option>
+        </select>
+      </label>
+      <label class="check"><input name="batterySaver" type="checkbox" /> Battery saver (skip the game's idle waiting)</label>
+    </template>
+
     <p id="toast" class="toast" role="status" hidden></p>
 
     <script type="module" src="./src/main.ts"></script>

@@ -164,6 +164,31 @@ impl Emu {
         self.m.take_audio()
     }
 
+    /// Snapshot the whole machine (compressed bytes).
+    #[wasm_bindgen(js_name = saveState)]
+    pub fn save_state(&mut self) -> Vec<u8> {
+        self.m.save_state()
+    }
+
+    /// Restore a snapshot taken with `saveState` on the same DNCDPRG.EXE.
+    #[wasm_bindgen(js_name = loadState)]
+    pub fn load_state(&mut self, data: &[u8]) -> Result<(), JsValue> {
+        self.m.load_state(data).map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// Host volume for FM music and digitized voices (1.0 = original).
+    #[wasm_bindgen(js_name = setVolume)]
+    pub fn set_volume(&mut self, music: f32, voice: f32) {
+        self.m.hw.audio.music_gain = music;
+        self.m.hw.audio.voice_gain = voice;
+    }
+
+    /// Battery saver: skip ahead while the game busy-waits.
+    #[wasm_bindgen(js_name = setBatterySaver)]
+    pub fn set_battery_saver(&mut self, on: bool) {
+        self.m.idle_skip = on;
+    }
+
     pub fn key(&mut self, scancode: u8, pressed: bool) {
         self.m.key(scancode, pressed);
     }

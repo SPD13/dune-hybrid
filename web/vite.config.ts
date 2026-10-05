@@ -28,6 +28,8 @@ function devFiles(): Plugin {
 export default defineConfig({
   base: "./",
   plugins: [devFiles()],
+  server: { port: 5174 },
+  preview: { port: 4174 },
   worker: { format: "es" },
   build: { target: "es2022" },
 });

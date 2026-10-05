@@ -8,6 +8,7 @@ Knowledge sources (no code copied unless stated):
   annotated disassembly doc/DNCDPRG.lst (from madmoose/dune-chani).
 - oplon (MIT, https://codeberg.org/sbechet/oplon): OPL2/OPL3 FM synthesis,
   used as a dependency.
+- miniz_oxide (MIT/Apache-2.0/Zlib): snapshot compression, used as a dependency.
 - SingleStepTests/80286 (MIT): hardware test vectors used to validate the CPU;
   downloaded at test time, not redistributed.
 

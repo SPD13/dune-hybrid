@@ -46,3 +46,22 @@ fn snapshot_round_trip_is_exact() {
     assert_eq!(diff, 0, "memory differs in {diff} bytes");
     assert_eq!(straight.hw.vga.dac, resumed.hw.vga.dac);
 }
+
+#[test]
+#[ignore = "needs the game files"]
+fn run_is_independent_of_slicing() {
+    // The browser advances the machine in ~14 ms slices; a headless replay may
+    // use one long call. Both must end in the same state.
+    const END: u64 = 20_000_000_000;
+    let mut whole = machine();
+    whole.run_until(END);
+    let mut sliced = machine();
+    let mut t = 0;
+    while t < END {
+        t = (t + 14_000_000).min(END);
+        sliced.run_until(t);
+    }
+    assert_eq!(whole.cpu.instructions, sliced.cpu.instructions);
+    assert_eq!(whole.regs_string(), sliced.regs_string());
+    assert!(whole.hw.mem == sliced.hw.mem, "memory differs");
+}

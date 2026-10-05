@@ -101,6 +101,11 @@ pub struct Machine {
     idle: IdleDetector,
     /// Virtual nanoseconds skipped by the battery saver (diagnostics).
     pub idle_skipped_ns: u64,
+    /// Next time a device needs servicing.
+    next_event: u64,
+    /// While sleeping (HLT or battery saver): when to wake up.
+    sleep_until: Option<u64>,
+    sleep_is_idle_skip: bool,
 }
 
 /// Detects the game's busy-wait: back-to-back INT 33h/3 polls with nothing
@@ -141,6 +146,9 @@ impl Machine {
             idle_skip: true,
             idle: IdleDetector::default(),
             idle_skipped_ns: 0,
+            next_event: 0,
+            sleep_until: None,
+            sleep_is_idle_skip: false,
         };
         for _ in 0..5 {
             m.files.push(None);
@@ -173,18 +181,33 @@ impl Machine {
 
     /// Run until virtual time `deadline_ns` (or an exit condition).
     pub fn run_until(&mut self, deadline_ns: u64) -> RunExit {
-        let mut next_event = self.hw.update(self.now_ns());
         loop {
             if let Some(code) = self.exited {
                 return RunExit::Exited(code);
             }
-            let now = self.now_ns();
+            let mut now = self.now_ns();
+            // Sleeping (HLT, or the battery saver skipping a busy-wait): time
+            // passes without instructions. The wake time persists across
+            // calls, so results do not depend on how a run is sliced.
+            if let Some(wake) = self.sleep_until {
+                if now < wake {
+                    let target = wake.min(deadline_ns);
+                    self.idle_ns += target - now;
+                    if self.sleep_is_idle_skip {
+                        self.idle_skipped_ns += target - now;
+                    }
+                    now = target;
+                }
+                if now >= wake {
+                    self.sleep_until = None;
+                }
+            }
             if now >= deadline_ns {
                 return RunExit::Deadline;
             }
             self.hw.now_ns = now;
-            if now >= next_event || self.hw.reschedule {
-                next_event = self.hw.update(now);
+            if now >= self.next_event || self.hw.reschedule {
+                self.next_event = self.hw.update(now);
                 if let Some(b) = self.mouse.deferred {
                     if now >= self.mouse.pressed_at + MIN_BUTTON_HOLD_NS {
                         self.mouse.buttons = b;
@@ -198,40 +221,30 @@ impl Machine {
                     self.cpu.interrupt(&mut self.hw, v);
                 }
             }
+            if self.cpu.halted {
+                if !self.cpu.flag(cpu::IF) {
+                    return RunExit::Stuck;
+                }
+                self.sleep_until = Some(self.next_event.max(now + 1));
+                self.sleep_is_idle_skip = false;
+                continue;
+            }
             if self.hw.trace_ports.is_some() {
                 self.hw.trace_pc = (self.cpu.sregs[CS], self.cpu.ip);
             }
             match self.cpu.step(&mut self.hw) {
-                Step::Ok => {}
+                Step::Ok | Step::Halt => {}
                 Step::Callback(n) => {
                     self.callback(n);
                     if self.idle.pending {
                         self.idle.pending = false;
                         // Same as sleeping until the next device event: nothing the
                         // loop polls can change before then.
-                        let now = self.now_ns();
-                        let wake = next_event.min(deadline_ns);
-                        if wake > now {
-                            self.idle_ns += wake - now;
-                            self.idle_skipped_ns += wake - now;
+                        if self.next_event > self.now_ns() {
+                            self.sleep_until = Some(self.next_event);
+                            self.sleep_is_idle_skip = true;
                         }
                     }
-                }
-                Step::Halt => {
-                    if !self.cpu.flag(cpu::IF) {
-                        return RunExit::Stuck;
-                    }
-                    // Sleep until the next timer event (or the deadline).
-                    let wake = next_event.min(deadline_ns).max(now + 1);
-                    self.idle_ns += wake - now;
-                    next_event = self.hw.update(self.now_ns());
-                    if self.hw.irq_pending() {
-                        self.cpu.halted = false;
-                    } else if self.now_ns() >= deadline_ns {
-                        return RunExit::Deadline;
-                    }
-                    // Halted with nothing pending: loop to wait for the next event.
-                    self.cpu.halted = !self.hw.irq_pending();
                 }
                 Step::Invalid { cs, ip, opcode } => return RunExit::Invalid { cs, ip, opcode },
             }
@@ -409,6 +422,19 @@ impl Machine {
         }
         w.u16(self.dta.0);
         w.u16(self.dta.1);
+        // Battery-saver detector: part of the timing, so part of the state.
+        let i = &self.idle;
+        w.u64(i.last_insn);
+        w.i32(i.last_state.0);
+        w.i32(i.last_state.1);
+        w.u16(i.last_state.2);
+        w.u32(i.streak);
+        w.bool(i.pending);
+        w.u64(self.idle_skipped_ns);
+        w.u64(self.next_event);
+        w.bool(self.sleep_until.is_some());
+        w.u64(self.sleep_until.unwrap_or(0));
+        w.bool(self.sleep_is_idle_skip);
         w.u32(self.files.len() as u32);
         for f in &mut self.files {
             match f {
@@ -460,6 +486,17 @@ impl Machine {
             keys.push_back(r.u16()?);
         }
         let dta = (r.u16()?, r.u16()?);
+        let idle = IdleDetector {
+            last_insn: r.u64()?,
+            last_state: (r.i32()?, r.i32()?, r.u16()?),
+            streak: r.u32()?,
+            pending: r.bool()?,
+        };
+        let idle_skipped_ns = r.u64()?;
+        let next_event = r.u64()?;
+        let sleeping = r.bool()?;
+        let wake = r.u64()?;
+        let sleep_is_idle_skip = r.bool()?;
         let nfiles = r.u32()? as usize;
         let mut files = Vec::with_capacity(nfiles);
         for _ in 0..nfiles {
@@ -482,6 +519,11 @@ impl Machine {
         self.bios_keys = keys;
         self.dta = dta;
         self.files = files;
+        self.idle = idle;
+        self.idle_skipped_ns = idle_skipped_ns;
+        self.next_event = next_event;
+        self.sleep_until = sleeping.then_some(wake);
+        self.sleep_is_idle_skip = sleep_is_idle_skip;
         self.exited = None;
         Ok(())
     }
