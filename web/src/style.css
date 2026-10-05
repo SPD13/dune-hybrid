@@ -1,0 +1,102 @@
+:root {
+  --bg: #120c07;
+  --panel: #1f150c;
+  --sand: #e3b778;
+  --sand-dim: #a98656;
+  --text: #f3e6d2;
+  --muted: #b9a68c;
+  --accent: #d9782b;
+  --danger: #e0614a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.panel {
+  max-width: 520px;
+  margin: 6vh auto;
+  padding: 28px 28px 20px;
+  background: var(--panel);
+  border: 1px solid #3a2a18;
+  border-radius: 10px;
+}
+
+h1 {
+  margin: 0;
+  font: 600 44px/1 Georgia, "Times New Roman", serif;
+  letter-spacing: 0.35em;
+  color: var(--sand);
+}
+
+.sub { margin: 6px 0 22px; color: var(--muted); }
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sand-dim);
+}
+
+.step { margin-bottom: 22px; }
+.row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.hint { color: var(--muted); font-size: 13px; }
+.check, .select { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
+select { background: #2a1d10; color: var(--text); border: 1px solid #4a3620; border-radius: 6px; padding: 4px 6px; }
+progress { width: 100%; margin-top: 10px; accent-color: var(--accent); }
+
+.button, button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 7px 14px;
+  border: 1px solid #5a4126;
+  background: #2a1d10;
+  color: var(--text);
+}
+.button:hover, button:hover:not(:disabled) { border-color: var(--sand-dim); }
+button.link { border: none; background: none; color: var(--muted); text-decoration: underline; padding: 0; }
+button.primary {
+  width: 100%;
+  padding: 11px;
+  font-weight: 600;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a0f05;
+}
+button:disabled { opacity: 0.45; cursor: default; }
+.message { min-height: 1.5em; color: var(--danger); margin: 12px 0 0; }
+
+#stage {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #000;
+}
+#stage[hidden] { display: none; }
+#screen {
+  image-rendering: pixelated;
+  outline: none;
+  cursor: none;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: min(90vw, 640px);
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: #2a1d10ee;
+  border: 1px solid #5a4126;
+}

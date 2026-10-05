@@ -7,7 +7,10 @@
 
 use std::{fs, path::PathBuf, process::ExitCode};
 
-use pc::{Machine, RunExit, fs::DirFs};
+use pc::{
+    Machine, RunExit,
+    fs::{DirFs, OverlayFs},
+};
 
 struct Args {
     dir: PathBuf,
@@ -16,10 +19,12 @@ struct Args {
     out: PathBuf,
     cmd: String,
     mips: f64,
+    /// Scripted input: "t:key:SC:1|0" or "t:mouse:X:Y:BUTTONS", comma separated.
+    events: Vec<(f64, Vec<String>)>,
 }
 
 fn parse() -> Result<Args, String> {
-    let mut a = Args { dir: ".".into(), seconds: 10.0, shot_every: 1.0, out: "out".into(), cmd: String::new(), mips: 20.0 };
+    let mut a = Args { dir: ".".into(), seconds: 10.0, shot_every: 1.0, out: "out".into(), cmd: String::new(), mips: 20.0, events: Vec::new() };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
         let mut v = || it.next().ok_or(format!("missing value for {k}"));
@@ -30,6 +35,14 @@ fn parse() -> Result<Args, String> {
             "--out" => a.out = v()?.into(),
             "--cmd" => a.cmd = v()?,
             "--mips" => a.mips = v()?.parse().map_err(|e| format!("{e}"))?,
+            "--events" => {
+                for ev in v()?.split(',') {
+                    let parts: Vec<String> = ev.split(':').map(String::from).collect();
+                    let t = parts[0].parse().map_err(|e| format!("{e}"))?;
+                    a.events.push((t, parts[1..].to_vec()));
+                }
+                a.events.sort_by(|x, y| x.0.total_cmp(&y.0));
+            }
             _ => return Err(format!("unknown option {k}")),
         }
     }
@@ -60,16 +73,41 @@ fn main() -> ExitCode {
         }
     };
     fs::create_dir_all(&args.out).unwrap();
-    let mut m = Machine::new(&exe, &args.cmd, Box::new(DirFs { root: args.dir.clone() })).unwrap();
+    // Saves go to <out>/saves; the game directory is only read.
+    let saves = args.out.join("saves");
+    fs::create_dir_all(&saves).unwrap();
+    let files = OverlayFs { game: DirFs { root: args.dir.clone() }, saves: DirFs { root: saves } };
+    let mut m = Machine::new(&exe, &args.cmd, Box::new(files)).unwrap();
+    m.trace_mouse = std::env::var_os("TRACE_MOUSE").is_some();
     m.set_speed(args.mips * 1e6);
 
     let wall = std::time::Instant::now();
     let mut rgb = vec![0u8; 320 * 200 * 3];
     let mut t = 0.0;
     let mut shot = 0;
+    let mut events = args.events.iter().peekable();
     let exit = loop {
         t += args.shot_every;
-        let r = m.run_until((t.min(args.seconds) * 1e9) as u64);
+        let end = t.min(args.seconds);
+        let mut r = RunExit::Deadline;
+        while let Some((et, ev)) = events.peek() {
+            if *et > end {
+                break;
+            }
+            r = m.run_until((*et * 1e9) as u64);
+            if r != RunExit::Deadline {
+                break;
+            }
+            match ev[0].as_str() {
+                "key" => m.key(u8::from_str_radix(&ev[1], 16).unwrap(), ev[2] == "1"),
+                "mouse" => m.mouse_input(ev[1].parse().unwrap(), ev[2].parse().unwrap(), ev[3].parse().unwrap()),
+                _ => eprintln!("unknown event {ev:?}"),
+            }
+            events.next();
+        }
+        if r == RunExit::Deadline {
+            r = m.run_until((end * 1e9) as u64);
+        }
         m.screen_rgb(&mut rgb);
         write_png(&args.out.join(format!("shot-{shot:04}.png")), &rgb);
         shot += 1;

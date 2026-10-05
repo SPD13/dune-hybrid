@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dune Hybrid</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <main id="setup" class="panel">
+      <h1>DUNE</h1>
+      <p class="sub">Cryo, 1992 · CD version 3.7 · original program on a browser PC</p>
+
+      <section class="step">
+        <h2>Game files</h2>
+        <p id="files-status">Checking browser storage…</p>
+        <div class="row">
+          <label class="button" for="files-input">Choose DNCDPRG.EXE and DUNE.DAT…</label>
+          <input id="files-input" type="file" multiple hidden />
+          <button id="files-forget" class="link" hidden>Forget stored files</button>
+        </div>
+        <progress id="files-progress" max="1" value="0" hidden></progress>
+        <p class="hint">Select both files from your Dune CD (3.7). They stay in this browser's private storage and are never uploaded.</p>
+      </section>
+
+      <button id="play" class="primary" disabled>Play</button>
+      <p id="message" class="message" role="status"></p>
+    </main>
+
+    <div id="stage" hidden>
+      <canvas id="screen" width="320" height="200" tabindex="0"></canvas>
+    </div>
+    <p id="toast" class="toast" role="status" hidden></p>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

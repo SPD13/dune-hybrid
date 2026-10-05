@@ -261,6 +261,12 @@ pub(crate) fn int1a(m: &mut Machine) {
 /// INT 33h: a Microsoft-compatible mouse driver fed by the host.
 pub(crate) fn int33(m: &mut Machine) {
     let ax = m.cpu.regs[AX];
+    if m.trace_mouse && (ax != 3 || m.int_counts[0x33] % 200_000 == 0) {
+        let msg = format!("INT33 AX={ax:04x} CX={:04x} DX={:04x} mouse=({},{}) b={} range x {}..{} y {}..{} from {:04x}:{:04x}",
+            m.cpu.regs[CX], m.cpu.regs[DX], m.mouse.x, m.mouse.y, m.mouse.buttons, m.mouse.min_x, m.mouse.max_x, m.mouse.min_y, m.mouse.max_y,
+            m.mem_read16(m.cpu.sregs[cpu::SS], m.cpu.regs[cpu::SP].wrapping_add(2)), m.mem_read16(m.cpu.sregs[cpu::SS], m.cpu.regs[cpu::SP]));
+        m.log(msg);
+    }
     match ax {
         0x00 | 0x21 => {
             m.cpu.regs[AX] = 0xffff;

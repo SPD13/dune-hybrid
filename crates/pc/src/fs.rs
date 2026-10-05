@@ -46,7 +46,7 @@ impl DirFs {
 impl FileSystem for DirFs {
     fn open(&mut self, name: &str) -> Option<Box<dyn DosFile>> {
         let path = self.find(name)?;
-        let f = std::fs::OpenOptions::new().read(true).write(true).open(&path).or_else(|_| std::fs::File::open(&path)).ok()?;
+        let f = std::fs::File::open(&path).ok()?;
         Some(Box::new(f))
     }
 
@@ -119,5 +119,24 @@ impl FileSystem for MemFs {
     }
     fn exists(&mut self, name: &str) -> bool {
         self.files.contains_key(name)
+    }
+}
+
+/// Reads game files from `game`, but creates and prefers files in `saves`, so
+/// the game directory is never written to.
+pub struct OverlayFs {
+    pub game: DirFs,
+    pub saves: DirFs,
+}
+
+impl FileSystem for OverlayFs {
+    fn open(&mut self, name: &str) -> Option<Box<dyn DosFile>> {
+        self.saves.open(name).or_else(|| self.game.open(name))
+    }
+    fn create(&mut self, name: &str) -> Option<Box<dyn DosFile>> {
+        self.saves.create(name)
+    }
+    fn exists(&mut self, name: &str) -> bool {
+        self.saves.exists(name) || self.game.exists(name)
     }
 }

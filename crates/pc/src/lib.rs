@@ -54,7 +54,14 @@ pub struct Mouse {
     pub min_y: i32,
     pub max_y: i32,
     pub visible: i32,
+    /// When buttons last went down (virtual ns) and a deferred release.
+    pressed_at: u64,
+    deferred: Option<u16>,
 }
+
+/// The game samples buttons with INT 33h/3 instead of queuing clicks, so a
+/// press is held at least this long (virtual time) before a release applies.
+const MIN_BUTTON_HOLD_NS: u64 = 60_000_000;
 
 pub struct Machine {
     pub cpu: Cpu,
@@ -76,6 +83,8 @@ pub struct Machine {
     dta: (u16, u16),
     /// Interrupt counters for diagnostics.
     pub int_counts: [u64; 256],
+    /// Log INT 33h calls (diagnostics).
+    pub trace_mouse: bool,
 }
 
 impl Machine {
@@ -96,6 +105,7 @@ impl Machine {
             files: Vec::new(),
             dta: (PSP_SEG, 0x80),
             int_counts: [0; 256],
+            trace_mouse: false,
         };
         for _ in 0..5 {
             m.files.push(None);
@@ -140,6 +150,12 @@ impl Machine {
             self.hw.now_ns = now;
             if now >= next_event {
                 next_event = self.hw.update(now);
+                if let Some(b) = self.mouse.deferred {
+                    if now >= self.mouse.pressed_at + MIN_BUTTON_HOLD_NS {
+                        self.mouse.buttons = b;
+                        self.mouse.deferred = None;
+                    }
+                }
             }
             if self.cpu.accepts_irq() && self.hw.irq_pending() {
                 if let Some(v) = self.hw.acknowledge_irq() {
@@ -269,12 +285,23 @@ impl Machine {
 
     /// Host mouse in screen pixels (320×200) and button mask (1 L, 2 R, 4 M).
     pub fn mouse_input(&mut self, px: i32, py: i32, buttons: u16) {
-        // Mode 13h mouse drivers report a 640-wide virtual screen; the game
-        // probes the granularity and halves both axes (see initialize_mouse).
+        // initialize_mouse probes the driver's granularity (seg000:e996): this
+        // driver keeps single units, so the game picks a scaler of 0 and works
+        // in screen pixels directly.
+        let now = self.now_ns();
         let m = &mut self.mouse;
-        m.x = (px * 2).clamp(m.min_x, m.max_x.max(m.min_x));
-        m.y = (py * 2).clamp(m.min_y, m.max_y.max(m.min_y));
-        m.buttons = buttons;
+        m.x = px.clamp(m.min_x, m.max_x.max(m.min_x));
+        m.y = py.clamp(m.min_y, m.max_y.max(m.min_y));
+        if buttons & !m.buttons != 0 {
+            m.pressed_at = now;
+        }
+        if m.buttons & !buttons != 0 && now < m.pressed_at + MIN_BUTTON_HOLD_NS {
+            m.deferred = Some(buttons);
+            m.buttons |= buttons;
+        } else {
+            m.deferred = None;
+            m.buttons = buttons;
+        }
     }
 
     /// The current mode 13h frame as RGB888.

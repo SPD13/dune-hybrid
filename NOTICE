@@ -1,0 +1,13 @@
+dune-hybrid
+Copyright 2026 the dune-hybrid authors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Knowledge sources (no code copied unless stated):
+- OpenRakis/Cryogenic (Apache-2.0): reference emulator setup, driver behaviour,
+  annotated disassembly doc/DNCDPRG.lst (from madmoose/dune-chani).
+- SingleStepTests/80286 (MIT): hardware test vectors used to validate the CPU;
+  downloaded at test time, not redistributed.
+
+Dune is copyright Cryo Interactive Entertainment and its successors. This
+project ships no game data: players supply their own DNCDPRG.EXE and DUNE.DAT.
