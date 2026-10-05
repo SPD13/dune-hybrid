@@ -180,6 +180,12 @@ form { display: grid; gap: 12px; }
 form label { display: grid; gap: 4px; font-size: 14px; }
 form label small { color: var(--muted); }
 form label.check { display: flex; align-items: center; gap: 8px; }
+form [hidden] { display: none; }
+details.filters { display: grid; gap: 12px; margin-top: -4px; padding: 0 0 0 12px; border-left: 2px solid var(--line); }
+details.filters[open] { padding-bottom: 4px; }
+details.filters summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+details.filters > * + * { margin-top: 12px; }
+.renderer-note:empty { display: none; }
 select, input[type="range"] { width: 100%; }
 select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: inherit; }
 input[type="range"] { accent-color: var(--accent); }
@@ -204,3 +210,4 @@ input[type="range"] { accent-color: var(--accent); }
 .songs li.ok { color: var(--text); }
 .songs li.ok::before { content: "✓ "; color: var(--accent); }
 .songs li:not(.ok)::before { content: "· "; }
+select:disabled { opacity: 0.5; }

@@ -12,5 +12,36 @@ Knowledge sources (no code copied unless stated):
 - SingleStepTests/80286 (MIT): hardware test vectors used to validate the CPU;
   downloaded at test time, not redistributed.
 
+Picture filter shaders (web/src/render/shaders), ported to GLSL ES 3.00:
+- mmpx.frag: MMPX by Morgan McGuire and Mara Gagiu
+  (https://casual-effects.com/research/McGuire2021PixelArt/), MIT License,
+  from hunterk's GLSL adaptation in libretro/glsl-shaders.
+- xbr-lv2.frag: xBR-lv2, Copyright (C) 2011-2016 Hyllian, MIT License (full
+  text in the file).
+- crt-lottes.frag: CRT shader by Timothy Lottes, public domain.
+- output.frag: the sharp-bilinear method follows Themaister's public-domain
+  shader (own implementation).
+- scale2x.frag: own implementation of the Scale2x/EPX rules (Andrea Mazzoleni).
+
+The MIT License applying to MMPX and xBR-lv2:
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to
+  deal in the Software without restriction, including without limitation the
+  rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+  sell copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+  IN THE SOFTWARE.
+
 Dune is copyright Cryo Interactive Entertainment and its successors. This
 project ships no game data: players supply their own DNCDPRG.EXE and DUNE.DAT.

@@ -4,6 +4,7 @@
 
 import { Input } from "./input";
 import { mountOptions } from "./options";
+import { createRenderer, thumbnail as frameThumbnail } from "./render";
 import { commandLine, isTouchDevice, loadSettings } from "./settings";
 import { SoundtrackPlayer, loadManifest, replacedMask, segments } from "./soundtrack";
 import { type Snapshot, loadSaves, loadSnapshots, putSave, putSnapshot } from "./storage";
@@ -61,21 +62,24 @@ export async function startSession(opts: SessionOptions) {
   }
 
   // ---- rendering ----
-  const ctx2d = canvas.getContext("2d", { alpha: false })!;
-  const image = ctx2d.createImageData(320, 200);
-  const rgba = new Uint32Array(image.data.buffer);
-  const lut = new Uint32Array(256);
+  const touch = isTouchDevice();
+  const renderer = createRenderer(canvas, stage, touch);
+  if (import.meta.env.DEV) Object.assign(window, { __renderer: renderer, __send: send });
   let pending: Uint8Array | null = null;
+  let lastFrame: Uint8Array | null = null;
+  if (import.meta.env.DEV) {
+    Object.assign(window, {
+      __lab: async (...args: unknown[]) => {
+        const { openLab } = await import("./render/lab");
+        if (lastFrame) (openLab as (...a: unknown[]) => void)(lastFrame, ...args);
+      },
+    });
+  }
   const draw = () => {
     if (pending) {
-      const f = pending;
+      lastFrame = pending;
       pending = null;
-      for (let i = 0; i < 256; i++) {
-        const p = 64000 + i * 3;
-        lut[i] = 0xff000000 | (f[p + 2] << 16) | (f[p + 1] << 8) | f[p];
-      }
-      for (let i = 0; i < 64000; i++) rgba[i] = lut[f[i]];
-      ctx2d.putImageData(image, 0, 0);
+      renderer.frame(lastFrame);
     }
     requestAnimationFrame(draw);
   };
@@ -85,12 +89,16 @@ export async function startSession(opts: SessionOptions) {
     // 320×200 shown at the original 4:3 aspect, as large as the stage allows.
     const box = $("viewport").getBoundingClientRect();
     const scale = Math.min(box.width / 320, box.height / 240);
-    canvas.style.width = `${Math.floor(320 * scale)}px`;
-    canvas.style.height = `${Math.floor(240 * scale)}px`;
+    const w = Math.floor(320 * scale);
+    const h = Math.floor(240 * scale);
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    // Render at device resolution; phones are capped at 2× to save power.
+    renderer.resize(w, h, Math.min(devicePixelRatio || 1, touch ? 2 : 3));
   };
   const remasterMask = () => (remaster && settings.remaster ? replacedMask(soundtrack) : 0);
   const applySettings = () => {
-    stage.dataset.display = settings.display;
+    renderer.setGraphics(settings.graphics);
     const showButtons = settings.buttons === "always" || (settings.buttons === "auto" && isTouchDevice());
     stage.classList.toggle("with-buttons", showButtons);
     send({ type: "volume", music: settings.music, voices: settings.voices });
@@ -116,13 +124,7 @@ export async function startSession(opts: SessionOptions) {
       waiting.set(id, resolve);
       send({ type: "snapshot", id });
     });
-  const thumbnail = () => {
-    const t = document.createElement("canvas");
-    t.width = 160;
-    t.height = 120;
-    t.getContext("2d")!.drawImage(canvas, 0, 0, 160, 120);
-    return t.toDataURL("image/jpeg", 0.7);
-  };
+  const thumbnail = () => (lastFrame ? frameThumbnail(lastFrame) : "");
   const saveSnapshot = async (name: string) => {
     const data = await snapshot();
     await putSnapshot({ name, data, time: Date.now(), thumbnail: thumbnail() });
@@ -228,6 +230,9 @@ export async function startSession(opts: SessionOptions) {
     applySettings();
   });
   const syncOptionsForm = options.sync;
+  $("options").querySelectorAll(".renderer-note").forEach((el) => {
+    el.textContent = renderer.kind === "webgl2" ? "" : "This browser has no WebGL2: upscalers are unavailable and the monitor effects are simplified.";
+  });
 
   // ---- on-screen buttons ----
   const bindTap = (id: string, code: number) => ($(id).onclick = () => input.tapKey(code));

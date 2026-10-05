@@ -74,7 +74,7 @@
       </footer>
     </main>
 
-    <div id="stage" hidden data-display="sharp">
+    <div id="stage" hidden data-display="gl">
       <nav class="toolbar left" aria-label="Game keys">
         <button id="btn-esc" title="Skip / back (Esc)">Esc</button>
         <button id="btn-enter" title="Enter">↵</button>
@@ -126,13 +126,44 @@
       </label>
       <label>Music volume <input name="music" type="range" min="0" max="1" step="0.05" /></label>
       <label>Voices &amp; effects volume <input name="voices" type="range" min="0" max="1" step="0.05" /></label>
-      <label>Display
-        <select name="display">
-          <option value="sharp">Sharp pixels</option>
+      <label>Graphics
+        <select name="graphics.preset">
+          <option value="original">Original — sharp pixels</option>
           <option value="smooth">Smooth</option>
-          <option value="crt">CRT scanlines</option>
+          <option value="scanlines">Scanlines</option>
+          <option value="crt">CRT monitor</option>
+          <option value="pixel">Pixel-art HD (MMPX)</option>
+          <option value="xbr">Smooth HD (xBR)</option>
+          <option value="custom">Custom</option>
         </select>
       </label>
+      <details class="filters">
+        <summary>Filters</summary>
+        <label>Upscaler <small>(redraws the 320×200 picture at a higher resolution)</small>
+          <select name="graphics.scaler">
+            <option value="none">None</option>
+            <option value="mmpx">MMPX — pixel art, original colours</option>
+            <option value="epx">Scale4x (EPX) — pixel art, original colours</option>
+            <option value="xbr">xBR — smooth edges</option>
+          </select>
+        </label>
+        <label>Scaling to the screen
+          <select name="graphics.output">
+            <option value="sharp">Sharp</option>
+            <option value="nearest">Nearest pixel</option>
+            <option value="smooth">Smooth</option>
+          </select>
+        </label>
+        <label>Monitor
+          <select name="graphics.crt">
+            <option value="off">None</option>
+            <option value="scanlines">Scanlines</option>
+            <option value="lottes">CRT (curvature, shadow mask; replaces the upscaler)</option>
+          </select>
+        </label>
+        <label data-when-crt>Monitor effect strength <input name="graphics.crtStrength" type="range" min="0.2" max="1" step="0.05" /></label>
+        <p class="hint renderer-note"></p>
+      </details>
       <label>Touch control
         <select name="touchMode">
           <option value="direct">Direct — tap where you want to click</option>

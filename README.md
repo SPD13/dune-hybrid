@@ -31,6 +31,7 @@ Things this edition adds that were not part of the original 1992 game:
   - automatic saving of your exact position whenever you switch apps.
 
   See [Mobile controls and gestures](#mobile-controls-and-gestures).
+- **Picture filters.** The 320×200 picture can be redrawn by pixel-art upscalers (MMPX, Scale4x, xBR), drawn at your screen's full resolution with sharp or smooth scaling, and given scanlines or a full CRT monitor look. Pick a preset or combine the filters yourself; changes apply instantly while you play. See [Picture filters](#picture-filters).
 - **Remastered soundtrack.** In 2024 the game's composer, Stéphane Picq, released a remaster of the original music, including re-rendered versions of the game's own songs. If you buy it, the game can play those recordings instead of the 1992 AdLib/FM music. They stay in sync with the action, dip under voices and fade exactly as the game's music does. See [Remastered soundtrack](#remastered-soundtrack-optional).
 
 ## Features
@@ -47,7 +48,7 @@ Things this edition adds that were not part of the original 1992 game:
 - **Continue where you left off**: the game state is saved every 30 seconds and whenever you switch away. Phones that discard background tabs lose nothing.
 - **Six languages** for text (English, French, German, Italian, Spanish, Dutch), using the game's built-in translations.
 - **Separate music and voice volume**.
-- **Display modes**: sharp pixels, smooth, or CRT scanlines.
+- **Picture filters**, switchable live: pixel-art upscalers (MMPX, Scale4x, xBR), sharp or smooth scaling at full screen resolution, scanlines or a CRT monitor effect.
 - **Battery saver**: skips the time the original program spends busy-waiting. This uses about 4× less CPU, and the picture stays pixel-for-pixel the same.
 - **Installable app (PWA)** that works offline after the first visit.
 - **Optional remastered soundtrack** (sold separately by the composer) in place of the FM music.
@@ -204,10 +205,33 @@ Snapshots belong to the exact `DNCDPRG.EXE` they were taken with.
 These are available from the title screen and from the in-game menu:
 - **Language:** affects new games. A resumed snapshot keeps the language it was started with.
 - **Music volume** and **voices & effects volume**.
-- **Display:** sharp, smooth or CRT.
+- **Graphics:** a preset, or your own combination of filters. See [Picture filters](#picture-filters).
 - **Touch control:** direct or trackpad.
 - **On-screen buttons:** automatic on touch devices, always, or never.
 - **Battery saver.**
+
+### Picture filters
+
+The game draws a 320×200 picture. The app shows it at the original 4:3 shape, rendered at your screen's full resolution with WebGL2, through up to three filters:
+
+| Step | Choices |
+|---|---|
+| **Upscaler**: redraws the picture at a higher resolution before it is scaled | *None*; *MMPX*, a pixel-art upscaler that rounds diagonals and curves but only uses the picture's own colours; *Scale4x (EPX)*, more conservative; *xBR*, smooth anti-aliased edges with a painted look |
+| **Scaling to the screen** | *Sharp*: crisp pixels without uneven sizes; *Nearest pixel*; *Smooth* |
+| **Monitor** | *None*; *Scanlines*; *CRT*: Timothy Lottes' CRT shader with curvature, scanlines, shadow mask and glow (it works from the original picture, so it replaces the upscaler) |
+
+Presets combine them:
+
+| Preset | Upscaler | Scaling | Monitor |
+|---|---|---|---|
+| Original (default) | none | sharp | none |
+| Smooth | none | smooth | none |
+| Scanlines | none | sharp | scanlines |
+| CRT monitor | none | sharp | CRT |
+| Pixel-art HD | MMPX | sharp | none |
+| Smooth HD | xBR | smooth | none |
+
+Under **Options → Graphics → Filters** each step can be changed on its own (the preset then shows *Custom*), and a slider sets the strength of the monitor effect. The filters change only what you see: the game, its snapshots and their thumbnails are unaffected. Browsers without WebGL2 fall back to a basic display with CSS smoothing and scanlines.
 
 ### Install as an app
 
@@ -291,6 +315,12 @@ A save/restore round trip is bit-exact: a run interrupted by one ends in exactly
   - ZIP central directory, with `DecompressionStream` for deflate.
 - **Save games and snapshots** live in **IndexedDB**.
 - **Frames** (palette indices plus the palette) and **audio** (48 kHz stereo, played by an AudioWorklet with ~85 ms of buffering) are posted from the worker to the page.
+- **Rendering** (`web/src/render/`) is a WebGL2 chain. The indices go to an 8-bit integer texture and the palette to a 256×1 texture. Then:
+  1. a palette pass produces RGB;
+  2. an optional upscaler pass (or two for Scale4x) runs: MMPX at 2×, Scale2x twice, or xBR-lv2 at 4×;
+  3. a final pass scales to the canvas at device resolution: nearest, sharp-bilinear or bilinear, with optional scanlines; with the CRT preset, crt-lottes runs here instead.
+
+  Drawing happens only when a frame arrives or a setting changes. On this development Mac at 2016×1512 a frame costs about 0.5–1 ms, and about 3 ms with the CRT shader. A Canvas2D path is kept as a fallback.
 - **No special server headers are needed.** The app is static and works on any HTTPS host. The service worker makes it available offline.
 
 ## Building and running it yourself
@@ -409,6 +439,8 @@ Do **not** consult the game-logic code of other unlicensed reimplementations whi
   - battery saver;
   - language, volume and display options;
   - ISO/ZIP import.
+- [x] **Picture filters:** WebGL2 pipeline with pixel-art upscalers, sharp/smooth scaling and CRT effects, all switchable live.
+- [ ] **HD sprites and text:** draw the game's sprites and font at high resolution where the originals go, by recording the game's drawing operations. First with algorithmic upscaling, then with an optional **HD asset pack** that each player generates on their own computer from their `DUNE.DAT` with an offline tool, and imports like the soundtrack.
 - [ ] **Input recorder:** deterministic replays, for bug reports and as a test corpus.
 - [x] **Remastered soundtrack** support (the composer's 2024 remaster, purchased by the player), in sync with the game.
 - [ ] **MT-32 / General MIDI music** via an emulated MPU-401 and a host synthesizer.
@@ -422,6 +454,12 @@ Do **not** consult the game-logic code of other unlicensed reimplementations whi
 - **[OpenRakis/Cryogenic](https://github.com/OpenRakis/Cryogenic)** and **[Spice86](https://github.com/OpenRakis/Spice86)** (Apache-2.0): the reference emulator, documentation of the game's drivers, and the annotated disassembly (from madmoose's `dune-chani` annotations).
 - **Music** by **Stéphane Picq**. The optional remastered soundtrack is *Dune Spice Opera 2024 remaster* by EXXOS (Stéphane Picq with Philippe Ulrich), sold separately at <https://stphanepicq.bandcamp.com/album/dune-spice-opera-2024-remaster-lp> and not included here.
 - **[oplon](https://codeberg.org/sbechet/oplon)** (MIT): OPL2/OPL3 FM synthesis.
+- **Picture filter shaders** (ported to WebGL2; details in [NOTICE](NOTICE)):
+  - **MMPX** by Morgan McGuire and Mara Gagiu (MIT), from hunterk's GLSL adaptation;
+  - **xBR-lv2** by Hyllian (MIT);
+  - **CRT shader** by Timothy Lottes (public domain);
+  - sharp-bilinear after Themaister (public domain);
+  - Scale2x/EPX after Andrea Mazzoleni's algorithm (own implementation).
 - **[miniz_oxide](https://github.com/Frommi/miniz_oxide)** (MIT/Apache-2.0/Zlib): snapshot compression.
 - **[SingleStepTests/80286](https://github.com/SingleStepTests/80286)** (MIT): CPU test vectors, downloaded at test time and not redistributed.
 - ***Dune*** (1992) © Cryo Interactive Entertainment / Virgin Games; based on the novel by Frank Herbert. No game data is included in this repository.
