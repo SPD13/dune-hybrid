@@ -11,8 +11,12 @@ fn main() {
     let mut catalog = HashMap::new();
     let (mut sheets, mut sprites) = (0, 0);
     for e in &toc {
-        let Ok(res) = gfx::dat::load(&mut f, e) else { continue };
-        let Some(list) = gfx::sheet::parse(&res) else { continue };
+        let Ok(res) = gfx::dat::load(&mut f, e) else {
+            continue;
+        };
+        let Some(list) = gfx::sheet::parse(&res) else {
+            continue;
+        };
         sheets += 1;
         sprites += list.len();
         let dims: Vec<String> = list.iter().take(6).map(|s| format!("{}x{}{}", s.width(), s.height, if s.wflags & 0x8000 != 0 { "r" } else { "" })).collect();

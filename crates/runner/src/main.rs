@@ -33,10 +33,27 @@ struct Args {
     gfx_trace: Option<PathBuf>,
     /// Start from a snapshot (as saved by the web app or `Machine::save_state`).
     snapshot: Option<PathBuf>,
+    /// Follow the drawing with the reference HD compositor at this scale.
+    hd: Option<usize>,
+    /// Also write HD screenshots.
+    hd_shots: bool,
 }
 
 fn parse() -> Result<Args, String> {
-    let mut a = Args { dir: ".".into(), seconds: 10.0, shot_every: 1.0, out: "out".into(), cmd: String::new(), mips: 20.0, events: Vec::new(), wav: None, gfx_trace: None, snapshot: None };
+    let mut a = Args {
+        dir: ".".into(),
+        seconds: 10.0,
+        shot_every: 1.0,
+        out: "out".into(),
+        cmd: String::new(),
+        mips: 20.0,
+        events: Vec::new(),
+        wav: None,
+        gfx_trace: None,
+        snapshot: None,
+        hd: None,
+        hd_shots: false,
+    };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
         let mut v = || it.next().ok_or(format!("missing value for {k}"));
@@ -50,6 +67,8 @@ fn parse() -> Result<Args, String> {
             "--wav" => a.wav = Some(v()?.into()),
             "--gfx-trace" => a.gfx_trace = Some(v()?.into()),
             "--snapshot" => a.snapshot = Some(v()?.into()),
+            "--hd" => a.hd = Some(v()?.parse().map_err(|e| format!("{e}"))?),
+            "--hd-shots" => a.hd_shots = true,
             "--events" => {
                 for ev in v()?.split(',') {
                     let parts: Vec<String> = ev.split(':').map(String::from).collect();
@@ -65,8 +84,12 @@ fn parse() -> Result<Args, String> {
 }
 
 fn write_png(path: &PathBuf, rgb: &[u8]) {
+    write_png_sized(path, 320, 200, rgb);
+}
+
+fn write_png_sized(path: &PathBuf, w: u32, h: u32, rgb: &[u8]) {
     let file = fs::File::create(path).unwrap();
-    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), 320, 200);
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), w, h);
     enc.set_color(png::ColorType::Rgb);
     enc.set_depth(png::BitDepth::Eight);
     enc.write_header().unwrap().write_image_data(rgb).unwrap();
@@ -138,7 +161,10 @@ fn main() -> ExitCode {
     m.set_speed(args.mips * 1e6);
     let gfx_stats = std::env::var_os("GFX_STATS").is_some();
     let gfx_verify = std::env::var_os("GFX_VERIFY").is_some();
-    let recorder = (gfx_verify || args.gfx_trace.is_some()).then(|| gfxcheck::Recorder::new(gfx_verify, args.gfx_trace.as_deref(), &args.dir.join("DUNE.DAT")));
+    let recorder = (gfx_verify || args.gfx_trace.is_some() || args.hd.is_some())
+        .then(|| gfxcheck::Recorder::new(gfx_verify, args.gfx_trace.as_deref(), &args.dir.join("DUNE.DAT"), args.hd));
+    let hd_overlay = std::env::var_os("HD_OVERLAY").is_some();
+    let mut hd_totals = gfx::compose::PresentStats::default();
     if gfx_stats || recorder.is_some() {
         m.gfx.enabled = true;
     }
@@ -208,6 +234,29 @@ fn main() -> ExitCode {
         audio.extend(m.take_audio());
         m.screen_rgb(&mut rgb);
         write_png(&args.out.join(format!("shot-{shot:04}.png")), &rgb);
+        if let Some(rec) = &recorder
+            && let Some(hd) = rec.borrow().hd.as_ref().map(|f| &f.comp)
+        {
+            {
+                let k = hd.k;
+                let mut big = vec![0u8; 320 * k * 200 * k * 3];
+                // The DAC holds 6-bit values; scale to 8 bits for the PNG.
+                let dac8 = m.hw.vga.dac.map(|c| c.map(|v| (v << 2) | (v >> 4)));
+                let st = hd.present(&m.hw.mem[0xa0000..0xa0000 + 64000], &dac8, &mut big, hd_overlay);
+                hd_totals.hd += st.hd;
+                hd_totals.fallback += st.fallback;
+                hd_totals.dominance_errors += st.dominance_errors;
+                println!(
+                    "hd {shot:04}: {:.1}% HD, {:.1}% fallback, {} dominance errors",
+                    st.hd as f64 / 640.0,
+                    st.fallback as f64 / 640.0,
+                    st.dominance_errors
+                );
+                if args.hd_shots {
+                    write_png_sized(&args.out.join(format!("hd-{shot:04}.png")), (320 * k) as u32, (200 * k) as u32, &big);
+                }
+            }
+        }
         shot += 1;
         if r != RunExit::Deadline || t >= args.seconds {
             break r;
@@ -256,11 +305,27 @@ fn main() -> ExitCode {
     for l in &m.log {
         println!("log: {l}");
     }
+    if hd_totals.hd + hd_totals.fallback > 0 {
+        let n = (hd_totals.hd + hd_totals.fallback) as f64 / 100.0;
+        println!(
+            "hd total: {:.1}% HD, {:.1}% fallback, {} dominance errors",
+            hd_totals.hd as f64 / n,
+            hd_totals.fallback as f64 / n,
+            hd_totals.dominance_errors
+        );
+    }
     if gfx_stats {
         let calls: Vec<String> = m.gfx.counts.iter().enumerate().filter(|(_, c)| **c > 0).map(|(i, c)| format!("{i}:{c}")).collect();
         println!("gfx slot calls: {}", calls.join(" "));
         let var = |off: usize| u16::from_le_bytes([m.hw.mem[pc::GAME_DS as usize * 16 + off], m.hw.mem[pc::GAME_DS as usize * 16 + off + 1]]);
-        println!("gfx buffers: [DBD8]={:04x} [DBD6]={:04x} [DBDE]={:04x} [DBDA] (target)={:04x} [DC32]={:04x}", var(0xdbd8), var(0xdbd6), var(0xdbde), var(0xdbda), var(0xdc32));
+        println!(
+            "gfx buffers: [DBD8]={:04x} [DBD6]={:04x} [DBDE]={:04x} [DBDA] (target)={:04x} [DC32]={:04x}",
+            var(0xdbd8),
+            var(0xdbd6),
+            var(0xdbde),
+            var(0xdbda),
+            var(0xdc32)
+        );
     }
     m.gfx.hook = None;
     if let Some(rec) = &recorder {

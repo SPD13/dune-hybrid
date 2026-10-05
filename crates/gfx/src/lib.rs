@@ -12,9 +12,11 @@
 //!   transparent, colour = nibble + palette offset) or 8 bits per pixel
 //!   (palette offset FEh opaque, FFh with 0 transparent), raw or RLE.
 
+pub mod compose;
 pub mod dat;
 pub mod hash;
 pub mod hsq;
+pub mod mmpx;
 pub mod model;
 pub mod ops;
 pub mod sheet;

@@ -16,9 +16,7 @@ use pc::{
 };
 
 fn game_dir() -> PathBuf {
-    std::env::var_os("DUNE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Cryogenic/dune"))
+    std::env::var_os("DUNE_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Cryogenic/dune"))
 }
 
 /// Where test sprites are copied (top of conventional memory, unused by
@@ -98,8 +96,12 @@ fn driver_matches_model_for_every_sprite() {
     let mut by_kind: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
     let mut failures: Vec<String> = Vec::new();
     for e in &toc {
-        let Ok(res) = gfx::dat::load(&mut f, e) else { continue };
-        let Some(list) = sheet::parse(&res) else { continue };
+        let Ok(res) = gfx::dat::load(&mut f, e) else {
+            continue;
+        };
+        let Some(list) = sheet::parse(&res) else {
+            continue;
+        };
         for s in list.iter().filter(|s| s.data_len > 0) {
             // Copy header + data to SRC_SEG:0000; the pixels start at 4.
             let bytes = &res[s.data - 4..s.data + s.data_len];
@@ -115,7 +117,12 @@ fn driver_matches_model_for_every_sprite() {
             }
             if matches!(s.format(), Format::Nibble { .. }) {
                 let (x, y) = (21u16, 13u16);
-                for (x0, y0, x1, y1) in [(0, 0, 320, 200), (x + 3, y + 2, x + w.saturating_sub(5), y + h.saturating_sub(1)), (x + w / 2, 0, 320, 200), (0, y + h / 2, x + w / 3, 200)] {
+                for (x0, y0, x1, y1) in [
+                    (0, 0, 320, 200),
+                    (x + 3, y + 2, x + w.saturating_sub(5), y + h.saturating_sub(1)),
+                    (x + w / 2, 0, 320, 200),
+                    (0, y + h / 2, x + w / 3, 200),
+                ] {
                     let rect = [x0, y0, x1, y1];
                     for (i, v) in rect.iter().enumerate() {
                         let a = ((ss as usize) << 4) + clip_bp.wrapping_add(2 * i as u16) as usize;
@@ -149,7 +156,10 @@ fn driver_matches_model_for_every_sprite() {
                         continue;
                     }
                     Err(err) => {
-                        by_kind.get_mut(&format!("slot {slot:2} {fmt:8} {} flips {}", if s.wflags & 0x8000 != 0 { "rle" } else { "raw" }, (r.di >> 13) & 3)).unwrap().2 += 1;
+                        by_kind
+                            .get_mut(&format!("slot {slot:2} {fmt:8} {} flips {}", if s.wflags & 0x8000 != 0 { "rle" } else { "raw" }, (r.di >> 13) & 3))
+                            .unwrap()
+                            .2 += 1;
                         hangs.push(format!("{} #{} {what} slot {slot} pal {:02x} wflags {:04x}: {err}", e.name, s.index, s.pal, r.di));
                         continue;
                     }
@@ -158,13 +168,26 @@ fn driver_matches_model_for_every_sprite() {
                     continue;
                 }
                 mismatched += 1;
-                by_kind.get_mut(&format!("slot {slot:2} {fmt:8} {} flips {}", if s.wflags & 0x8000 != 0 { "rle" } else { "raw" }, (r.di >> 13) & 3)).unwrap().1 += 1;
+                by_kind
+                    .get_mut(&format!("slot {slot:2} {fmt:8} {} flips {}", if s.wflags & 0x8000 != 0 { "rle" } else { "raw" }, (r.di >> 13) & 3))
+                    .unwrap()
+                    .1 += 1;
                 let diffs: Vec<usize> = (0..0x10000).filter(|&i| real[i] != expect[i]).collect();
                 if failures.len() < 30 {
                     let i = diffs[0];
                     failures.push(format!(
                         "{} #{} {what} slot {slot} {}x{} pal {:02x} wflags {:04x}: {} bytes differ, first ({},{}) real {:02x} model {:02x}; regs {r:x?}",
-                        e.name, s.index, w, h, s.pal, r.di, diffs.len(), i % 320, i / 320, real[i], expect[i]
+                        e.name,
+                        s.index,
+                        w,
+                        h,
+                        s.pal,
+                        r.di,
+                        diffs.len(),
+                        i % 320,
+                        i / 320,
+                        real[i],
+                        expect[i]
                     ));
                 }
             }

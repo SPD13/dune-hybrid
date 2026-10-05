@@ -111,6 +111,20 @@ pub enum DrawOp {
     CopyRect { src: u16, x: u16, y: u16, w: u16, h: u16 },
     /// Slot 18: copy 48640 bytes (152 lines) from segment `src`.
     CopyTop { src: u16 },
+    /// Slot 36: a dithered colour ramp of `len` pixels from (x, y) (floors
+    /// and walls): colour `ramp >> 8` (8.8 fixed point, + `step` per pixel)
+    /// plus -1..2 from a noise generator (`noise` shifted right, XORed with
+    /// `pattern` when a 1 falls out). Leftwards when `backwards`.
+    Gradient { x: u16, y: u16, len: u16, ramp: u16, step: u16, noise: u16, pattern: u16, backwards: bool },
+    /// Slot 25: save the rectangle `rect` of the buffer `src` into a packed
+    /// buffer at `dst:at` (row after row, no padding).
+    SaveRect { rect: Rect, src: u16, dst: u16, at: u16 },
+    /// Slot 26: write a packed rectangle from `src:from` back into `rect`.
+    RestoreRect { rect: Rect, src: u16, from: u16 },
+    /// Slot 37: enlarge the region of `src` at (x, y) to 320 × ~152 at the
+    /// target's Y offset, by pixel replication; `variant` 1-7 picks the
+    /// factor (8/7, 4/3, 3/2, 2, 3, 4, 8).
+    Zoom { src: u16, x: u16, y: u16, variant: u8 },
     /// Slot 33: set the Y offset to `lines` × 320.
     SetYOffset { lines: u16 },
     /// Palette, retrace, mode and other calls that do not draw.
@@ -153,11 +167,7 @@ impl DrawOp {
                 // Flips are ignored (raw) or masked off (RLE) by this slot.
                 let wflags = if r.di & 0x8000 != 0 { 0x8000 | (r.di & 0x1fff) } else { r.di };
                 let sprite = SpriteRef { wflags, height: r.cl(), format, seg: r.ds, off: r.si };
-                if matches!(format, Format::Nibble { .. }) {
-                    BlitClipped { sprite, x: r.dx, y: r.bx, clip: rect_at(r.ss, r.bp) }
-                } else {
-                    Other { slot }
-                }
+                if matches!(format, Format::Nibble { .. }) { BlitClipped { sprite, x: r.dx, y: r.bx, clip: rect_at(r.ss, r.bp) } } else { Other { slot } }
             }
             35 => {
                 let sprite = SpriteRef { wflags: r.di, height: 0, format: Format::Nibble { pal: r.ch() }, seg: r.ds, off: r.si };
@@ -176,6 +186,10 @@ impl DrawOp {
             14 => CopyRect { src: r.si, x: r.dx, y: r.bx, w: r.bp, h: r.ax },
             18 => CopyTop { src: r.si },
             33 => SetYOffset { lines: r.ax },
+            25 => SaveRect { rect: rect_at(r.ss, r.bp), src: r.es, dst: r.ds, at: r.si },
+            26 => RestoreRect { rect: rect_at(r.ss, r.bp), src: r.ds, from: r.si },
+            37 if (1..=7).contains(&r.bp) => Zoom { src: r.ds, x: r.dx, y: r.bx, variant: r.bp as u8 },
+            36 => Gradient { x: r.dx, y: r.bx, len: r.cx, ramp: r.ax, step: r.di, noise: r.bp, pattern: r.si, backwards: r.flags & 0x400 != 0 },
             // 0 mode, 1 info, 2/41/32/28 palette and retrace, 20/34 no-ops.
             0 | 1 | 2 | 20 | 28 | 32 | 34 | 41 => NoDraw,
             _ => Other { slot },
@@ -186,6 +200,7 @@ impl DrawOp {
     pub fn target(&self, r: &Regs) -> Option<u16> {
         match self {
             DrawOp::NoDraw | DrawOp::SetYOffset { .. } => None,
+            DrawOp::SaveRect { dst, .. } => Some(*dst),
             _ => Some(r.es),
         }
     }

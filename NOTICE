@@ -22,6 +22,7 @@ Picture filter shaders (web/src/render/shaders), ported to GLSL ES 3.00:
 - output.frag: the sharp-bilinear method follows Themaister's public-domain
   shader (own implementation).
 - scale2x.frag: own implementation of the Scale2x/EPX rules (Andrea Mazzoleni).
+- crates/gfx/src/mmpx.rs: the same MMPX rules ported to Rust (MIT, as above).
 
 The MIT License applying to MMPX and xBR-lv2:
 

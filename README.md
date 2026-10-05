@@ -405,9 +405,31 @@ GFX_STATS=1 ./target/release/dune-run --dir path/to/game --seconds 60           
 | 7 | 1-bit glyph (text) | yes |
 | 8, 9, 10 | clear, fill rectangle | yes |
 | 11–16, 18 | buffer and rectangle copies | yes |
+| 25, 26 | save a rectangle to memory, and put it back | yes |
+| 36 | dithered colour ramps (floors, walls) | yes |
+| 37 | room zoom behind dialogue portraits (7 factors) | yes |
 | 0–2, 20, 28, 32–34, 41 | mode, palette, retrace, Y offset | (no drawing) |
 | 3, 4 | mouse cursor | not yet |
-| 19, 23–27, 29, 30, 36, 37 | lines, globe, map, transitions, floor gradients | not yet |
+| 19, 23, 24, 27, 29, 30 | lines, globe, map, transitions | not yet (followed by resynchronisation) |
+
+### Reference HD compositor
+
+`gfx::compose` is the CPU reference for the HD renderer. It keeps an HD *shadow* of every buffer the game draws into, at k× (2 or 4), together with the low-resolution picture each shadow depicts (its *provenance*). It follows each driver call through the same exact traversal as the model:
+- **Sprites** are magnified with MMPX (a pixel-art scaler that keeps the game's own palette values, so fades and palette effects still apply).
+- **Glyphs** get a smoothed, anti-aliased mask.
+- **Fills and ramps** become solid blocks.
+- **Copies, saved rectangles and zooms** carry the source's HD blocks along; a zoom shows the matching part of each source block.
+- **Unmodelled calls** (transitions, the globe…): when the call returns, the target is compared with memory. Changed bytes take the HD block of another buffer that depicts the same value at the same offset; anything else becomes low-resolution.
+
+When a frame is shown, a pixel uses its HD block only if the real screen holds what the shadow depicts, there and at its eight neighbours. Everything else (pictures the game draws with its own code, the cursor) falls back to the low-resolution pixel. The HD picture can therefore never show something the game did not draw.
+
+```sh
+./target/release/dune-run --dir path/to/game --seconds 30 --hd 4 --hd-shots --out out   # out/hd-NNNN.png at 1280×800
+HD_OVERLAY=1 ...   # tint HD pixels green, fallbacks red, blocks that would misrepresent their pixel blue
+```
+
+On the scripted palace and dialogue scenes, 99–100% of the screen comes from HD blocks. The map and globe are mostly drawn by the game's own code and fall back for now. Following the drawing costs about 0.5 s of CPU per minute of play.
+
 
 ### Tests
 
@@ -421,6 +443,12 @@ cargo test --release
 
 ```sh
 cargo test -p pc --release -- --ignored snapshot
+```
+
+**Reference HD compositor.** The palace and the Leto dialogue at 4×: no HD block may misrepresent its pixel, fallback must stay under 5%, and each image must match its golden hash (`PRINT_GOLDEN=1` prints new ones):
+
+```sh
+cargo test -p runner --release -- --ignored hd_golden
 ```
 
 **Graphics driver conformance.** Every sprite of every sheet in DUNE.DAT (2330 of them) is drawn by the game's own driver, then compared with `gfx::model`:
@@ -480,7 +508,8 @@ Do **not** consult the game-logic code of other unlicensed reimplementations whi
   - ISO/ZIP import.
 - [x] **Picture filters:** WebGL2 pipeline with pixel-art upscalers, sharp/smooth scaling and CRT effects, all switchable live.
 - [x] **Drawing-operation recorder:** the game's DNVGA driver calls are recorded and decoded. An exact model of the driver is verified against the real one, call by call in play and for every sprite in DUNE.DAT. See [Graphics recording](#graphics-recording).
-- [ ] **HD sprites and text:** draw the game's sprites and font at high resolution where the originals go, using the recorded drawing operations. First with algorithmic upscaling, then with an optional **HD asset pack** that each player generates on their own computer from their `DUNE.DAT` with an offline tool, and imports like the soundtrack.
+- [x] **Reference HD compositor:** HD shadows of the game's buffers with exact provenance; MMPX sprites and smoothed text; golden-image tests. See [Reference HD compositor](#reference-hd-compositor).
+- [ ] **HD sprites and text in the browser:** the same compositor in the web app (GPU), selectable in Options. First with algorithmic upscaling, then with an optional **HD asset pack** that each player generates on their own computer from their `DUNE.DAT` with an offline tool, and imports like the soundtrack.
 - [ ] **Input recorder:** deterministic replays, for bug reports and as a test corpus.
 - [x] **Remastered soundtrack** support (the composer's 2024 remaster, purchased by the player), in sync with the game.
 - [ ] **MT-32 / General MIDI music** via an emulated MPU-401 and a host synthesizer.
