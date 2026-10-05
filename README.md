@@ -106,23 +106,30 @@ The game's composer, **Stéphane Picq**, released **[Dune Spice Opera 2024 remas
 3. **Import it** in the app: on the title screen, in the **Remastered soundtrack** card, choose **Import soundtrack ZIP…** and select that ZIP file. Don't extract it.
 4. The card lists the game songs that now use the remastered recordings. The option **Remastered soundtrack** (title screen and in-game menu) switches between the remaster and the original FM music at any time.
 
-The app keeps only the eight game tracks from the ZIP (about 62 MB), in the browser's private storage. Nothing is uploaded. **Remove soundtrack** deletes them.
+### Track mapping
 
-### Which songs are replaced
+The album has 22 tracks. The app uses only the **eight game tracks (13–20)**. It recognises them by the `PC_<NAME>` label in their file name and MP3 title tag, which is the game's internal name for each song:
 
-| In-game song | Remastered track |
-|---|---|
-| MORNING (intro) | PC_MORNING |
-| SEKENCE | PC_SEKENCE |
-| ARRAKIS (palace) | PC_ARRAKIS |
-| BAGDAD | PC_BAGDAD |
-| SIETCHM | PC_SIETCH |
-| WATER | PC_WATER |
-| WARSONG | PC_WARSONG |
-| WORMINTR, WORMSUIT | PC_WORMINTR+WORMSUIT (one track, split at 2:52.4) |
-| CRYOMUS (Cryo logo jingle) | — (no remaster; the original plays) |
+| Album track | Length | Replaces in-game song | Kept on the device |
+|---|---|---|---|
+| 13 · PC_ARRAKIS [2024 remaster] | 3:09 | ARRAKIS (palace) | ✅ |
+| 14 · PC_BAGDAD [2024 remaster] | 4:18 | BAGDAD | ✅ |
+| 15 · PC_MORNING [2024 remaster] | 4:57 | MORNING (intro) | ✅ |
+| 16 · PC_SEKENCE [2024 remaster] | 3:33 | SEKENCE | ✅ |
+| 17 · PC_SIETCH [2024 remaster] | 1:30 | SIETCHM | ✅ |
+| 18 · PC_WARSONG [2024 remaster] | 1:21 | WARSONG | ✅ |
+| 19 · PC_WATER [2024 remaster] | 1:24 | WATER | ✅ |
+| 20 · PC_WORMINTR+WORMSUIT [2024 remaster] | 6:24 | WORMINTR (0:00–2:52.4) and WORMSUIT (2:52.4–end) | ✅ |
+| — | — | CRYOMUS (Cryo logo jingle): no remaster, the original FM music plays | — |
+| 1–12 · *Spice Opera* album (Dune Theme, Emotion Control, Ecolove, Water Of Life, Revelation, Free Men, Wake Up, Too!, Chani's Eyes, Sign Of The Worm, Spice Opéra, Dune Variation) | — | not used | ❌ |
+| 21–22 · Bonus tracks (Dune Theme overclocked, Cryogenia) | — | not used | ❌ |
+| Cover and booklet images | — | not used | ❌ |
 
-The album's other tracks (the *Spice Opera* arrangements and the bonus tracks) are longer studio arrangements that don't follow the game's timing, so they are not used in-game.
+**Only the eight tracks marked ✅ are kept on your device** (about 62 MB), copied into the browser's private storage.
+- **Not stored:** the album arrangements, the bonus tracks and the images. The ZIP itself isn't kept either; the app reads the eight tracks out of it during the import and then no longer needs it.
+- **Why the album arrangements aren't used:** they are longer studio versions that don't follow the game's timing.
+- **Not uploaded:** nothing is sent anywhere.
+- **Removing:** **Remove soundtrack** on the title screen deletes the eight stored tracks.
 
 ## Playing
 
