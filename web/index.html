@@ -67,6 +67,25 @@
         <p id="music-message" class="message" role="status"></p>
       </section>
 
+      <section class="card" id="hdpack-card">
+        <h2>HD art pack <small>(optional)</small></h2>
+        <p id="hdpack-status" class="hint"></p>
+        <div class="row">
+          <label class="button" for="hdpack-input">Import HD art pack…</label>
+          <input id="hdpack-input" type="file" accept=".zip,.ZIP" hidden />
+          <button id="hdpack-forget" class="link" hidden>Remove pack</button>
+        </div>
+        <progress id="hdpack-progress" max="1" value="0" hidden></progress>
+        <p class="hint">
+          A pack holds high-resolution versions of the game's sprites, made on your own computer from your DUNE.DAT
+          with the <code>dune-hd</code> tool and the upscaler of your choice
+          (see <a href="https://github.com/SPD13/dune-hybrid#hd-art-packs" target="_blank" rel="noopener">HD art packs</a>).
+          It is used when <em>HD sprites and text</em> is on. Packs are derived from the game's copyrighted art:
+          keep yours for your own use and do not share it.
+        </p>
+        <p id="hdpack-message" class="message" role="status"></p>
+      </section>
+
       <footer>
         <button id="btn-options" class="link">Options</button>
         <span>·</span>

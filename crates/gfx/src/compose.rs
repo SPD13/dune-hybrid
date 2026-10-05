@@ -75,8 +75,15 @@ impl Shadow {
 /// A sprite magnified: `w` × `h` texels, `None` where transparent.
 struct HdSprite {
     w: usize,
-    texels: Vec<Option<u8>>,
+    texels: Vec<Option<Texel>>,
+    /// From an art pack: its blocks may average dithering out, so they are
+    /// not forced to show their own pixel's colour.
+    from_art: bool,
 }
+
+/// Supplies HD art for a sprite (by `hash::sprite_hash`) at scale `k`:
+/// typically an HD art pack.
+pub type ArtSource = Box<dyn FnMut(u64, usize) -> Option<crate::pack::PackSprite>>;
 
 /// A glyph's smoothed mask: coverage 0-255 per texel.
 struct HdGlyph {
@@ -109,6 +116,11 @@ pub struct Compositor {
     pub unfollowed: u64,
     /// Debug: report every write to this offset (any buffer) on stderr.
     pub watch: Option<u16>,
+    /// HD art to use instead of the built-in MMPX, when it has the sprite.
+    art: Option<ArtSource>,
+    /// Sprites drawn from `art` / magnified with MMPX (cache misses).
+    pub art_hits: u64,
+    pub art_misses: u64,
 }
 
 const SCREEN: u16 = 0xa000;
@@ -127,7 +139,18 @@ impl Compositor {
             glyphs: HashMap::new(),
             unfollowed: 0,
             watch: None,
+            art: None,
+            art_hits: 0,
+            art_misses: 0,
         }
+    }
+
+    /// Use HD art from `art` (an HD art pack) where it has a sprite.
+    pub fn set_art(&mut self, art: Option<ArtSource>) {
+        self.art = art;
+        self.sprites.clear();
+        self.sprite_order.clear();
+        self.sprite_texels = 0;
     }
 
     /// Forget everything (after a snapshot restore): shadows are re-seeded
@@ -264,6 +287,42 @@ impl Compositor {
         };
         let key = fnv64(&data[..used]) ^ ((s.wflags & 0x81ff) as u64) << 40 ^ (s.height as u64) << 52 ^ (pal as u64) << 32 ^ (self.k as u64) << 60;
         if !self.sprites.contains_key(&key) {
+            let art = self.art_texels(s, &data[..used], img.stride, img.height);
+            let from_art = art.is_some();
+            let texels = art.unwrap_or_else(|| self.mmpx_texels(s, &img, dac));
+            self.sprite_texels += texels.len();
+            self.sprites.insert(key, HdSprite { w: img.stride * self.k, texels, from_art });
+            self.sprite_order.push_back(key);
+            while self.sprite_texels > self.sprite_budget && self.sprite_order.len() > 1 {
+                let old = self.sprite_order.pop_front().unwrap();
+                if let Some(s) = self.sprites.remove(&old) {
+                    self.sprite_texels -= s.texels.len();
+                }
+            }
+        }
+        Source::Sprite(key)
+    }
+
+    /// The sprite's texels from the art source, if it has them at this scale.
+    fn art_texels(&mut self, s: &SpriteRef, data: &[u8], stride: usize, height: usize) -> Option<Vec<Option<Texel>>> {
+        let k = self.k;
+        let art = self.art.as_mut()?;
+        let found = art(crate::hash::sprite_hash(data, s.wflags, s.height), k).filter(|p| p.w == stride * k && p.h == height * k);
+        let Some(p) = found else {
+            self.art_misses += 1;
+            return None;
+        };
+        self.art_hits += 1;
+        let global = |v: u8| match s.format {
+            Format::Nibble { pal } => v.wrapping_add(pal),
+            _ => v,
+        };
+        Some(p.px.iter().map(|t| (t[3] >= 128).then(|| Texel { a: global(t[0]), b: global(t[1]), t: t[2] })).collect())
+    }
+
+    /// The sprite magnified by MMPX (palette values kept).
+    fn mmpx_texels(&self, s: &SpriteRef, img: &sprite::Image, dac: &Dac) -> Vec<Option<Texel>> {
+        {
             // Global palette values; 0x100 is "transparent".
             let vals: Vec<u16> = img
                 .px
@@ -288,18 +347,9 @@ impl Compositor {
                 w *= 2;
                 h *= 2;
             }
-            let texels: Vec<Option<u8>> = px.into_iter().map(|v| (v < 256).then_some(v as u8)).collect();
-            self.sprite_texels += texels.len();
-            self.sprites.insert(key, HdSprite { w, texels });
-            self.sprite_order.push_back(key);
-            while self.sprite_texels > self.sprite_budget && self.sprite_order.len() > 1 {
-                let old = self.sprite_order.pop_front().unwrap();
-                if let Some(s) = self.sprites.remove(&old) {
-                    self.sprite_texels -= s.texels.len();
-                }
-            }
+            let _ = (w, h);
+            px.into_iter().map(|v| (v < 256).then(|| Texel::solid(v as u8))).collect()
         }
-        Source::Sprite(key)
     }
 
     fn glyph(&mut self, bits: &[u8], w: u8, h: u8) -> u64 {
@@ -546,7 +596,7 @@ impl HdSink<'_> {
     }
 
     /// Texel (`tx`, `ty`) of a sprite block, honouring flips.
-    fn sprite_texel(&self, key: u64, col: u16, row: u16, tx: usize, ty: usize) -> Option<u8> {
+    fn sprite_texel(&self, key: u64, col: u16, row: u16, tx: usize, ty: usize) -> Option<Texel> {
         let s = &self.sprites[&key];
         let k = self.k;
         let tx = if self.mirror_x { k - 1 - tx } else { tx };
@@ -636,17 +686,17 @@ impl Sink for HdSink<'_> {
         match (px, self.source) {
             (Px::Sprite { col, row }, Source::Sprite(key)) => {
                 let key = *key;
-                let mut texels: Vec<Option<u8>> = (0..k * k).map(|i| self.sprite_texel(key, col, row, i % k, i / k)).collect();
+                let mut texels: Vec<Option<Texel>> = (0..k * k).map(|i| self.sprite_texel(key, col, row, i % k, i / k)).collect();
                 // Keep the block mostly this pixel's colour (HD art must
                 // depict the low-resolution picture).
-                let own = texels.iter().filter(|t| **t == Some(value)).count();
-                if own * 2 < k * k {
-                    texels.iter_mut().for_each(|t| *t = Some(value));
+                let own = texels.iter().filter(|t| t.map(|t| t.dominant()) == Some(value)).count();
+                if own * 2 < k * k && !self.sprites[&key].from_art {
+                    texels.iter_mut().for_each(|t| *t = Some(Texel::solid(value)));
                 }
                 let block = self.block(at);
                 for (b, t) in block.iter_mut().zip(texels) {
-                    if let Some(v) = t {
-                        *b = Texel::solid(v);
+                    if let Some(t) = t {
+                        *b = t;
                     }
                 }
             }
@@ -674,12 +724,12 @@ impl Sink for HdSink<'_> {
             // where it stays a minority of the block.
             (Px::Sprite { col, row }, Source::Sprite(key)) => {
                 let key = *key;
-                let texels: Vec<Option<u8>> = (0..k * k).map(|i| self.sprite_texel(key, col, row, i % k, i / k)).collect();
+                let texels: Vec<Option<Texel>> = (0..k * k).map(|i| self.sprite_texel(key, col, row, i % k, i / k)).collect();
                 if texels.iter().filter(|t| t.is_some()).count() * 2 < k * k {
                     let block = self.block(at);
                     for (b, t) in block.iter_mut().zip(texels) {
-                        if let Some(v) = t {
-                            *b = Texel::solid(v);
+                        if let Some(t) = t {
+                            *b = t;
                         }
                     }
                 }

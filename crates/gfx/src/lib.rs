@@ -19,6 +19,7 @@ pub mod hsq;
 pub mod mmpx;
 pub mod model;
 pub mod ops;
+pub mod pack;
 pub mod sheet;
 pub mod sprite;
 

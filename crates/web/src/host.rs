@@ -123,12 +123,19 @@ struct Hd {
     visible: bool,
 }
 
+/// An HD art pack: the ZIP Blob and where its entries are.
+struct Pack {
+    file: BlobFile,
+    index: gfx::pack::PackIndex,
+}
+
 #[wasm_bindgen]
 pub struct Emu {
     m: Machine,
     frame: Vec<u8>,
     saves: Rc<RefCell<HashMap<String, Vec<u8>>>>,
     hd: Option<Rc<RefCell<Hd>>>,
+    pack: Option<Rc<RefCell<Pack>>>,
 }
 
 #[wasm_bindgen]
@@ -141,7 +148,7 @@ impl Emu {
         let fs = WebFs { dat, saves: saves.clone(), on_save };
         let mut m = Machine::new(exe, cmdline, Box::new(fs)).map_err(|e| JsValue::from_str(&e))?;
         m.set_speed(20e6);
-        Ok(Emu { m, frame: vec![0; 64000 + 768], saves, hd: None })
+        Ok(Emu { m, frame: vec![0; 64000 + 768], saves, hd: None, pack: None })
     }
 
     /// Provide an existing save file before the game starts.
@@ -200,6 +207,34 @@ impl Emu {
         Ok(())
     }
 
+    /// Use an HD art pack (a ZIP made by `dune-hd`) for HD sprites.
+    #[wasm_bindgen(js_name = setHdPack)]
+    pub fn set_hd_pack(&mut self, zip: Option<Blob>) -> Result<(), JsValue> {
+        self.pack = match zip {
+            Some(blob) => {
+                let reader = FileReaderSync::new()?;
+                let len = blob.size() as u64;
+                let mut file = BlobFile { blob, reader, pos: 0, len };
+                let index = gfx::pack::PackIndex::read(&mut file).map_err(|e| JsValue::from_str(&e.to_string()))?;
+                Some(Rc::new(RefCell::new(Pack { file, index })))
+            }
+            None => None,
+        };
+        if let Some(hd) = &self.hd {
+            hd.borrow_mut().follower.comp.set_art(self.art_source());
+        }
+        Ok(())
+    }
+
+    fn art_source(&self) -> Option<gfx::compose::ArtSource> {
+        let pack = self.pack.clone()?;
+        Some(Box::new(move |hash, k| {
+            let mut p = pack.borrow_mut();
+            let Pack { file, index } = &mut *p;
+            index.sprite(file, hash, k)
+        }))
+    }
+
     /// Show HD frames or not (the drawing is still followed).
     #[wasm_bindgen(js_name = setHdVisible)]
     pub fn set_hd_visible(&mut self, visible: bool) {
@@ -225,8 +260,9 @@ impl Emu {
             return;
         }
         let mut follower = gfx::compose::Follower::new(k);
-        // About 2 bytes per texel: 48 MB at 4×, 16 MB at 2×.
-        follower.comp.sprite_budget = if k == 4 { 24 << 20 } else { 8 << 20 };
+        // About 4 bytes per cached sprite texel: 64 MB at 4×, 24 MB at 2×.
+        follower.comp.sprite_budget = if k == 4 { 16 << 20 } else { 6 << 20 };
+        follower.comp.set_art(self.art_source());
         let size = 320 * k * 200 * k * 4;
         let hd = Rc::new(RefCell::new(Hd { follower, cur: vec![0; size], screen: vec![0; 64000], fallback: vec![0; 200], full: true, visible: true }));
         let h = hd.clone();

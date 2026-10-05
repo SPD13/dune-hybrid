@@ -38,6 +38,26 @@ export async function store(name: GameFileName, data: Blob, onProgress: (f: numb
   return writeStream(name, data.stream(), data.size, onProgress);
 }
 
+/** Copy any file into OPFS under `name` (streamed). */
+export async function storeAs(name: string, data: Blob, onProgress: (f: number) => void): Promise<File> {
+  await navigator.storage.persist?.();
+  return writeStream(name, data.stream(), data.size, onProgress);
+}
+
+/** An OPFS file by name, if present. */
+export async function storedAs(name: string): Promise<File | null> {
+  try {
+    const file = await (await (await opfs()).getFileHandle(name)).getFile();
+    return file.size > 0 ? file : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function removeStored(name: string): Promise<void> {
+  await (await opfs()).removeEntry(name).catch(() => {});
+}
+
 /** Temporary OPFS file used while unpacking archives. */
 export async function scratchFile(name: string, stream: ReadableStream<Uint8Array>, size: number, onProgress: (f: number) => void): Promise<File> {
   return writeStream(`scratch-${name}`, stream, size, onProgress);

@@ -7,6 +7,8 @@ export type ToWorker =
       type: "start";
       exe: ArrayBuffer;
       dat: Blob;
+      /** HD art pack (stored ZIP) for HD sprites and text. */
+      hdPack?: Blob;
       cmdline: string;
       saves: { name: string; data: Uint8Array }[];
       snapshot?: Uint8Array;
@@ -104,6 +106,13 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       emu.setVolume(m.music, m.voices);
       emu.setBatterySaver(m.batterySaver);
       emu.setReplacedSongs(m.replacedSongs);
+      if (m.hdPack) {
+        try {
+          emu.setHdPack(m.hdPack);
+        } catch (err) {
+          post({ type: "log", text: `HD pack: ${err}` });
+        }
+      }
       emu.setHd(m.hd);
       emu.setHdVisible(m.hdVisible);
       if (m.snapshot) {

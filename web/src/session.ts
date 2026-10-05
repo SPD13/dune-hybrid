@@ -22,6 +22,8 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 export interface SessionOptions {
   exe: Blob;
   dat: Blob;
+  /** HD art pack (stored ZIP), if imported. */
+  hdPack?: Blob;
   snapshot?: Uint8Array;
   onExit: () => void;
 }
@@ -329,6 +331,7 @@ export async function startSession(opts: SessionOptions) {
       type: "start",
       exe,
       dat: opts.dat,
+      hdPack: opts.hdPack,
       cmdline: commandLine(settings),
       saves,
       snapshot: opts.snapshot,

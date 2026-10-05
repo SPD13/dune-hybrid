@@ -46,9 +46,31 @@ function devSoundtrack(): Plugin {
   };
 }
 
+// Dev server only: /dev-hdpack.zip serves a locally generated HD art pack
+// for automated tests (`?devpack`). Set DUNE_HDPACK or default to
+// ../../dune-hd-pack.zip (outside the repository: packs are never committed).
+function devHdPack(): Plugin {
+  return {
+    name: "dev-hdpack",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/dev-hdpack.zip", (_req, res) => {
+        const path = process.env.DUNE_HDPACK ?? resolve(__dirname, "../../dune-hd-pack.zip");
+        if (!existsSync(path)) {
+          res.statusCode = 404;
+          res.end("set DUNE_HDPACK");
+          return;
+        }
+        res.setHeader("Content-Length", statSync(path).size);
+        createReadStream(path).pipe(res);
+      });
+    },
+  };
+}
+
 export default defineConfig({
   base: "./",
-  plugins: [devFiles(), devSoundtrack()],
+  plugins: [devFiles(), devSoundtrack(), devHdPack()],
   server: { port: 5174 },
   preview: { port: 4174 },
   worker: { format: "es" },

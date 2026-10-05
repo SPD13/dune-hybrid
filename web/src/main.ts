@@ -1,6 +1,7 @@
 // Title screen: game file import/status, Continue (resume point), New game,
 // options. Then hands over to the play session.
 
+import { datTocHash, forgetPack, importPack, packFile, packInfo } from "./hdpack";
 import { EXE_SHA256, importGameFiles, sha256 } from "./import";
 import { mountOptions } from "./options";
 import { startSession } from "./session";
@@ -30,6 +31,7 @@ async function refresh() {
     $("resume-card").hidden = true;
     return;
   }
+  refreshPack();
   const hash = await sha256(files["DNCDPRG.EXE"]!);
   status.textContent =
     hash === EXE_SHA256
@@ -85,15 +87,55 @@ $("files-forget").addEventListener("click", async () => {
   await refresh();
 });
 
-function play(snapshot?: Uint8Array) {
+async function play(snapshot?: Uint8Array) {
   $("setup").hidden = true;
   startSession({
     exe: files["DNCDPRG.EXE"]!,
     dat: files["DUNE.DAT"]!,
+    hdPack: (await packFile()) ?? undefined,
     snapshot,
     onExit: () => location.reload(),
   });
 }
+
+// ---- optional HD art pack ----
+async function refreshPack() {
+  const info = packInfo();
+  const status = $("hdpack-status");
+  $("hdpack-forget").hidden = !info;
+  if (!info) {
+    status.textContent = "Not imported: HD sprites and text use the built-in pixel-art upscaler.";
+    return;
+  }
+  const mb = (info.bytes / 1e6).toFixed(0);
+  status.textContent = `${info.sprites} sprites upscaled with ${info.model?.name ?? "?"} (${info.model?.license ?? "?"}), ${mb} MB. Turn on Options → HD sprites and text to use it.`;
+  const dat = files["DUNE.DAT"];
+  if (dat && info.toc && (await datTocHash(dat)) !== info.toc) {
+    status.textContent += " Warning: it was made from a different DUNE.DAT, so most sprites will not match.";
+  }
+}
+
+$<HTMLInputElement>("hdpack-input").addEventListener("change", async (e) => {
+  const zip = (e.target as HTMLInputElement).files?.[0];
+  if (!zip) return;
+  const bar = $<HTMLProgressElement>("hdpack-progress");
+  const msg = $("hdpack-message");
+  msg.textContent = "";
+  bar.hidden = false;
+  try {
+    await importPack(zip, (f) => (bar.value = f));
+  } catch (err) {
+    msg.textContent = String((err as Error).message ?? err);
+  } finally {
+    bar.hidden = true;
+    refreshPack();
+  }
+});
+
+$("hdpack-forget").addEventListener("click", async () => {
+  await forgetPack();
+  refreshPack();
+});
 
 $("btn-new").addEventListener("click", () => play());
 $("btn-continue").addEventListener("click", async () => {
@@ -135,6 +177,7 @@ $<HTMLInputElement>("music-input").addEventListener("change", async (e) => {
     bar.hidden = true;
     clearScratch().catch(() => {});
     refreshMusic();
+refreshPack();
   }
 });
 
@@ -149,6 +192,12 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has("devmusic") 
   const blob = await (await fetch("dev-soundtrack.zip")).blob();
   await importSoundtrack(new File([blob], "soundtrack.zip"), () => {});
   refreshMusic();
+}
+
+if (import.meta.env.DEV && new URLSearchParams(location.search).has("devpack") && !packInfo()) {
+  const blob = await (await fetch("dev-hdpack.zip")).blob();
+  await importPack(new File([blob], "dune-hd-pack.zip"), () => {});
+  refreshPack();
 }
 
 const optionsDialog = $("options-dialog");

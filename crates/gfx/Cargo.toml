@@ -6,3 +6,4 @@ license.workspace = true
 description = "Dune's DNVGA drawing operations: decoding, sprite formats and an exact low-resolution model"
 
 [dependencies]
+png = "0.18"

@@ -252,6 +252,42 @@ Some pictures still fall back to the low-resolution image, through the filters a
 
 Needs WebGL2. It uses more memory: up to about 70 MB at 4×, 20 MB at 2×.
 
+With an [HD art pack](#hd-art-packs) imported, sprites use the pack's art instead of the built-in upscaler.
+
+### HD art packs
+
+An HD art pack holds high-resolution versions of the game's sprites, made on **your own computer** from **your own DUNE.DAT** with `dune-hd` (part of this repository) and an upscaler of your choice, such as an AI model. You then import the pack on the setup page (**HD art pack → Import**). It is used whenever **HD sprites and text** is on.
+
+> **Packs are derived from the game's copyrighted artwork.** Make one for your own use and do not share it. This project does not distribute packs.
+
+**How a pack is made:**
+1. Every distinct sprite (about 1,950) is taken out of DUNE.DAT and shown in its colours: the sheet's own palette over the palette the game used when drawing it, if you provide a trace from `dune-run --gfx-trace`.
+2. Each sprite is upscaled 4× by the chosen upscaler. Transparent areas are filled from the edges first, so the model sees no halos.
+3. The result is projected back onto the game's palette. Each HD pixel becomes one of the colours around its original pixel, or a mix of two, with the original's exact silhouette. Palette fades, day/night and recolouring still work, and the art stays where the game draws it.
+4. Art whose local colours drift too far from the original (`--max-drift`, default 0.05 in OKLab), and very small sprites (`--min-size`, default 6 px), are left to the built-in upscaler.
+5. The pack is a ZIP holding 4× and 2× art per sprite, a manifest (which records the upscaler and its licence), a notice and an HTML report.
+
+```sh
+cargo build --release
+# Built-in upscaling only (no extra software; mostly for testing):
+./target/release/dune-hd build --dat path/to/DUNE.DAT --out dune-hd-pack.zip
+
+# With an external upscaler, run once over a folder of PNGs ({in}, {out}, {scale}).
+# Example: Real-ESRGAN's ncnn build (BSD-3-Clause), on macOS, Windows or Linux:
+./target/release/dune-hd build --dat path/to/DUNE.DAT --out dune-hd-pack.zip \
+    --backend command \
+    --command "/path/to/realesrgan-ncnn-vulkan -m /path/to/models -i {in} -o {out} -n realesrgan-x4plus-anime -s {scale} -f png" \
+    --model-name realesrgan-x4plus-anime --model-license BSD-3-Clause --model-source https://github.com/xinntao/Real-ESRGAN \
+    --previews --trace out/gfx.jsonl
+```
+
+**Options:**
+- `--previews` writes, for each sprite, the original, the upscaler's output and the final result side by side to `work/preview/`.
+- `work/report.html` lists every sprite with its drift and whether it went into the pack.
+- Upscaled images are cached in `work/cache/`, so trying different settings does not re-run the model.
+
+**Choosing a model:** generic photo or anime models smooth away the game's dithering and give a painted look. Whether that suits Dune is a matter of taste, so look at the previews. Check each model's licence: many published upscaling models are licensed for non-commercial use only.
+
 ### Install as an app
 
 In Chrome/Edge use **Install app**; on iOS Safari use **Share → Add to Home Screen**. The app then opens fullscreen in landscape and works offline. The game files stay in the browser's storage for that site.
@@ -377,6 +413,7 @@ npm run preview     # serve dist at http://localhost:4174
 |---|---|
 | `crates/cpu` | 80286 interpreter and its hardware test harness |
 | `crates/pc` | The PC: devices, BIOS/DOS services, sound, snapshots, battery saver, graphics driver call recorder |
+| `crates/hdpack` | `dune-hd`: the HD art pack generator |
 | `crates/gfx` | The game's drawing operations: DNVGA call decoding, sprite formats, an exact low-resolution model of the driver, DUNE.DAT and sprite sheets |
 | `crates/runner` | `dune-run`: headless native runner for development and regression checks |
 | `crates/web` | WebAssembly bindings (`Emu`) used by the worker |
@@ -531,7 +568,7 @@ Do **not** consult the game-logic code of other unlicensed reimplementations whi
 - [x] **Drawing-operation recorder:** the game's DNVGA driver calls are recorded and decoded. An exact model of the driver is verified against the real one, call by call in play and for every sprite in DUNE.DAT. See [Graphics recording](#graphics-recording).
 - [x] **Reference HD compositor:** HD shadows of the game's buffers with exact provenance; MMPX sprites and smoothed text; golden-image tests. See [Reference HD compositor](#reference-hd-compositor).
 - [x] **HD sprites and text in the browser** (experimental): the compositor runs in the worker; the GPU resolves its texels with the live palette. Selectable in Options.
-- [ ] **HD asset pack:** an offline tool generates HD art from your own DUNE.DAT (with AI upscalers of your choice), to import like the soundtrack. First with algorithmic upscaling, then with an optional **HD asset pack** that each player generates on their own computer from their `DUNE.DAT` with an offline tool, and imports like the soundtrack.
+- [x] **HD art packs:** `dune-hd` generates HD art from your own DUNE.DAT with the upscaler of your choice; the pack is imported like the soundtrack. See [HD art packs](#hd-art-packs). First with algorithmic upscaling, then with an optional **HD asset pack** that each player generates on their own computer from their `DUNE.DAT` with an offline tool, and imports like the soundtrack.
 - [ ] **Input recorder:** deterministic replays, for bug reports and as a test corpus.
 - [x] **Remastered soundtrack** support (the composer's 2024 remaster, purchased by the player), in sync with the game.
 - [ ] **MT-32 / General MIDI music** via an emulated MPU-401 and a host synthesizer.

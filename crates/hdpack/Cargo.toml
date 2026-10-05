@@ -1,0 +1,17 @@
+[package]
+name = "hdpack"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "dune-hd: generates an HD art pack for Dune Hybrid from the player's own DUNE.DAT"
+
+[[bin]]
+name = "dune-hd"
+path = "src/main.rs"
+
+[dependencies]
+gfx = { workspace = true }
+png = "0.18"
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

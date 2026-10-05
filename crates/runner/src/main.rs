@@ -37,6 +37,8 @@ struct Args {
     hd: Option<usize>,
     /// Also write HD screenshots.
     hd_shots: bool,
+    /// HD art pack (from `dune-hd`) for the HD compositor.
+    hd_pack: Option<PathBuf>,
 }
 
 fn parse() -> Result<Args, String> {
@@ -53,6 +55,7 @@ fn parse() -> Result<Args, String> {
         snapshot: None,
         hd: None,
         hd_shots: false,
+        hd_pack: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
@@ -69,6 +72,7 @@ fn parse() -> Result<Args, String> {
             "--snapshot" => a.snapshot = Some(v()?.into()),
             "--hd" => a.hd = Some(v()?.parse().map_err(|e| format!("{e}"))?),
             "--hd-shots" => a.hd_shots = true,
+            "--hd-pack" => a.hd_pack = Some(v()?.into()),
             "--events" => {
                 for ev in v()?.split(',') {
                     let parts: Vec<String> = ev.split(':').map(String::from).collect();
@@ -167,6 +171,14 @@ fn main() -> ExitCode {
     let mut hd_totals = gfx::compose::PresentStats::default();
     if gfx_stats || recorder.is_some() {
         m.gfx.enabled = true;
+    }
+    if let (Some(rec), Some(path)) = (&recorder, &args.hd_pack)
+        && let Some(hd) = rec.borrow_mut().hd.as_mut()
+    {
+        let mut file = fs::File::open(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let index = gfx::pack::PackIndex::read(&mut file).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        println!("hd pack: {} entries", index.len());
+        hd.comp.set_art(Some(Box::new(move |hash, k| index.sprite(&mut file, hash, k))));
     }
     if let Some(rec) = &recorder {
         let rec = rec.clone();
@@ -304,6 +316,12 @@ fn main() -> ExitCode {
     }
     for l in &m.log {
         println!("log: {l}");
+    }
+    if let Some(rec) = &recorder
+        && let Some(hd) = rec.borrow().hd.as_ref()
+        && args.hd_pack.is_some()
+    {
+        println!("hd pack: {} sprites from the pack, {} without art", hd.comp.art_hits, hd.comp.art_misses);
     }
     if hd_totals.hd + hd_totals.fallback > 0 {
         let n = (hd_totals.hd + hd_totals.fallback) as f64 / 100.0;
