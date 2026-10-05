@@ -123,10 +123,10 @@ The album has 22 tracks. The app uses only the **eight game tracks (13–20)**. 
 | — | — | CRYOMUS (Cryo logo jingle): no remaster, the original FM music plays | — |
 | 1–12 · *Spice Opera* album (Dune Theme, Emotion Control, Ecolove, Water Of Life, Revelation, Free Men, Wake Up, Too!, Chani's Eyes, Sign Of The Worm, Spice Opéra, Dune Variation) | — | not used | ❌ |
 | 21–22 · Bonus tracks (Dune Theme overclocked, Cryogenia) | — | not used | ❌ |
-| Cover and booklet images | — | not used | ❌ |
+| Cover images (3 JPEG files) | — | not used | ❌ |
 
 **Only the eight tracks marked ✅ are kept on your device** (about 62 MB), copied into the browser's private storage.
-- **Not stored:** the album arrangements, the bonus tracks and the images. The ZIP itself isn't kept either; the app reads the eight tracks out of it during the import and then no longer needs it.
+- **Not stored:** the album arrangements, the bonus tracks and the cover images. The ZIP itself isn't kept either; the app reads the eight tracks out of it during the import and then no longer needs it.
 - **Why the album arrangements aren't used:** they are longer studio versions that don't follow the game's timing.
 - **Not uploaded:** nothing is sent anywhere.
 - **Removing:** **Remove soundtrack** on the title screen deletes the eight stored tracks.
