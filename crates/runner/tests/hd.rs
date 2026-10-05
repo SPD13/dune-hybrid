@@ -20,7 +20,7 @@ fn game_dir() -> PathBuf {
 }
 
 fn regs(c: &DriverCall) -> Regs {
-    Regs { ax: c.ax, bx: c.bx, cx: c.cx, dx: c.dx, si: c.si, di: c.di, bp: c.bp, ds: c.ds, es: c.es, ss: c.ss, flags: c.flags, y_offset: c.y_offset }
+    c.regs()
 }
 
 enum Input {

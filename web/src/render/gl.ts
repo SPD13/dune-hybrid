@@ -3,6 +3,8 @@
 //   indices (R8UI 320×200) + palette (256×1)
 //     → palette pass → RGB 320×200
 //     → optional upscaler (MMPX 2×, Scale4x, xBR-lv2 4×)
+//     → with HD sprites and text: the worker's k× HD screen resolved with
+//       the palette, falling back to the picture above where needed
 //     → output pass to the canvas: nearest / sharp-bilinear / smooth,
 //       plus light scanlines; or the crt-lottes pass on the 320×200 RGB.
 //
@@ -10,6 +12,7 @@
 
 import type { Graphics } from "../settings";
 import crtLottesFrag from "./shaders/crt-lottes.frag?raw";
+import hdFrag from "./shaders/hd.frag?raw";
 import vert from "./shaders/fullscreen.vert?raw";
 import mmpxFrag from "./shaders/mmpx.frag?raw";
 import outputFrag from "./shaders/output.frag?raw";
@@ -37,7 +40,13 @@ interface Target {
 export class GlRenderer implements Renderer {
   readonly kind = "webgl2";
   private gl: WebGL2RenderingContext;
-  private programs!: Record<"palette" | "scale2x" | "mmpx" | "xbr" | "output" | "lottes", Program>;
+  private programs!: Record<"palette" | "scale2x" | "mmpx" | "xbr" | "output" | "lottes" | "hd", Program>;
+  /** The HD screen texels (k×), when the worker sends them. */
+  private hdTex: WebGLTexture | null = null;
+  private hdScale = 0;
+  private hdReady = false;
+  /** Debug: tint HD pixels green and fallbacks red (`?hdoverlay`). */
+  hdOverlay = import.meta.env.DEV && new URLSearchParams(location.search).has("hdoverlay");
   private index!: WebGLTexture;
   private palette!: WebGLTexture;
   private targets = new Map<string, Target>();
@@ -111,6 +120,7 @@ export class GlRenderer implements Renderer {
       xbr: compile(xbrFrag),
       output: compile(outputFrag),
       lottes: compile(crtLottesFrag),
+      hd: compile(hdFrag),
     };
     this.vao = gl.createVertexArray()!;
 
@@ -170,6 +180,28 @@ export class GlRenderer implements Renderer {
     gl.bindTexture(gl.TEXTURE_2D, this.palette);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RGB, gl.UNSIGNED_BYTE, f, W * H);
     this.draw();
+  }
+
+  /** Rows of the HD screen (header: k, 0, first row u16, end row u16,
+   * fallback count u16). Uploaded as they arrive: they are incremental. */
+  hd(hd: Uint8Array) {
+    if (this.lost) return;
+    const gl = this.gl;
+    const k = hd[0];
+    const y0 = hd[2] | (hd[3] << 8);
+    const y1 = hd[4] | (hd[5] << 8);
+    if (k !== this.hdScale || !this.hdTex) {
+      this.hdReady = false;
+      if (this.hdTex) gl.deleteTexture(this.hdTex);
+      this.hdTex = this.texture(gl.RGBA8, W * k, H * k, gl.NEAREST);
+      this.hdScale = k;
+    }
+    // The first message after (re)enabling covers the whole screen.
+    if (y0 === 0 && y1 === H * k) this.hdReady = true;
+    if (y1 > y0) {
+      gl.bindTexture(gl.TEXTURE_2D, this.hdTex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W * k, y1 - y0, gl.RGBA, gl.UNSIGNED_BYTE, hd, 8);
+    }
   }
 
   setGraphics(g: Graphics) {
@@ -235,7 +267,21 @@ export class GlRenderer implements Renderer {
         gl.uniform1i(u("uBloom"), this.bloom ? 1 : 0);
       });
     } else {
-      const src = this.upscale(g, base);
+      let src = this.upscale(g, base);
+      if (g.hd !== "off" && this.hdTex && this.hdScale && this.hdReady) {
+        const k = this.hdScale;
+        const low = src;
+        const out = this.target("hd", W * k, H * k);
+        this.pass(P.hd, out, [this.hdTex, this.palette, low.tex], (u) => {
+          gl.uniform1i(u("uHd"), 0);
+          gl.uniform1i(u("uPal"), 1);
+          gl.uniform1i(u("uLow"), 2);
+          gl.uniform2i(u("uLowSize"), low.w, low.h);
+          gl.uniform2f(u("uHdSize"), W * k, H * k);
+          gl.uniform1i(u("uOverlay"), this.hdOverlay ? 1 : 0);
+        });
+        src = out;
+      }
       this.pass(P.output, null, [src.tex], (u) => {
         gl.uniform1i(u("uSrc"), 0);
         gl.uniform2f(u("uSrcSize"), src.w, src.h);

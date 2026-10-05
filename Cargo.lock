@@ -339,6 +339,7 @@ dependencies = [
 name = "web"
 version = "0.1.0"
 dependencies = [
+ "gfx",
  "js-sys",
  "pc",
  "wasm-bindgen",

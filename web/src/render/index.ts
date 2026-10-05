@@ -10,6 +10,8 @@ export interface Renderer {
   readonly kind: "webgl2" | "canvas2d";
   /** A frame from the worker: 64000 palette indices then 256 RGB triples. */
   frame(f: Uint8Array): void;
+  /** Changed rows of the HD screen (HD sprites and text), in order. */
+  hd(rows: Uint8Array): void;
   setGraphics(g: Graphics): void;
   /** The canvas's CSS size and the device pixel ratio to render at. */
   resize(cssWidth: number, cssHeight: number, dpr: number): void;

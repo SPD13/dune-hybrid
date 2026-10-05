@@ -106,11 +106,29 @@ impl WebFs {
     }
 }
 
+/// HD sprites and text: the reference compositor following the game's
+/// drawing, and the last HD screen sent to the page.
+struct Hd {
+    follower: gfx::compose::Follower,
+    /// The HD screen texels as last presented.
+    cur: Vec<u8>,
+    /// The low-resolution screen they were presented against.
+    screen: Vec<u8>,
+    /// Pixels falling back to low resolution, per screen row.
+    fallback: Vec<u16>,
+    /// Present and send the whole screen next time (after enabling or a restore).
+    full: bool,
+    /// Send HD frames (following continues while hidden, so turning HD on
+    /// shows the current scene at once).
+    visible: bool,
+}
+
 #[wasm_bindgen]
 pub struct Emu {
     m: Machine,
     frame: Vec<u8>,
     saves: Rc<RefCell<HashMap<String, Vec<u8>>>>,
+    hd: Option<Rc<RefCell<Hd>>>,
 }
 
 #[wasm_bindgen]
@@ -123,7 +141,7 @@ impl Emu {
         let fs = WebFs { dat, saves: saves.clone(), on_save };
         let mut m = Machine::new(exe, cmdline, Box::new(fs)).map_err(|e| JsValue::from_str(&e))?;
         m.set_speed(20e6);
-        Ok(Emu { m, frame: vec![0; 64000 + 768], saves })
+        Ok(Emu { m, frame: vec![0; 64000 + 768], saves, hd: None })
     }
 
     /// Provide an existing save file before the game starts.
@@ -173,8 +191,99 @@ impl Emu {
     /// Restore a snapshot taken with `saveState` on the same DNCDPRG.EXE.
     #[wasm_bindgen(js_name = loadState)]
     pub fn load_state(&mut self, data: &[u8]) -> Result<(), JsValue> {
-        self.m.load_state(data).map_err(|e| JsValue::from_str(&e))
+        self.m.load_state(data).map_err(|e| JsValue::from_str(&e))?;
+        if let Some(hd) = &self.hd {
+            let mut hd = hd.borrow_mut();
+            hd.follower.reset();
+            hd.full = true;
+        }
+        Ok(())
     }
+
+    /// Show HD frames or not (the drawing is still followed).
+    #[wasm_bindgen(js_name = setHdVisible)]
+    pub fn set_hd_visible(&mut self, visible: bool) {
+        if let Some(hd) = &self.hd {
+            let mut hd = hd.borrow_mut();
+            hd.full |= visible && !hd.visible;
+            hd.visible = visible;
+        }
+    }
+
+    /// Follow the drawing for HD sprites and text at `k`× (2 or 4); any
+    /// other value stops following.
+    #[wasm_bindgen(js_name = setHd)]
+    pub fn set_hd(&mut self, k: u32) {
+        let k = k as usize;
+        if k != 2 && k != 4 {
+            self.hd = None;
+            self.m.gfx.enabled = false;
+            self.m.gfx.hook = None;
+            return;
+        }
+        if self.hd.as_ref().is_some_and(|h| h.borrow().follower.comp.k == k) {
+            return;
+        }
+        let mut follower = gfx::compose::Follower::new(k);
+        // About 2 bytes per texel: 48 MB at 4×, 16 MB at 2×.
+        follower.comp.sprite_budget = if k == 4 { 24 << 20 } else { 8 << 20 };
+        let size = 320 * k * 200 * k * 4;
+        let hd = Rc::new(RefCell::new(Hd { follower, cur: vec![0; size], screen: vec![0; 64000], fallback: vec![0; 200], full: true, visible: true }));
+        let h = hd.clone();
+        self.m.gfx.enabled = true;
+        self.m.gfx.hook = Some(Box::new(move |e, hw| {
+            let mut h = h.borrow_mut();
+            match e {
+                pc::gfx::GfxEvent::Enter(c) => {
+                    h.follower.enter(c.slot, &c.regs(), gfx::Mem(&hw.mem), &hw.vga.dac);
+                }
+                pc::gfx::GfxEvent::Return { .. } => h.follower.leave(gfx::Mem(&hw.mem)),
+            }
+        }));
+        self.hd = Some(hd);
+    }
+
+    /// The HD screen rows that changed since the last call, as texels to
+    /// resolve with the palette (see `gfx::compose::Compositor::present_texels`).
+    /// Header (8 bytes): k, 0, first row (u16), end row (u16), pixels
+    /// falling back to low resolution (u16); then the rows. Empty when HD is
+    /// off; header only when nothing changed.
+    #[wasm_bindgen(js_name = hdFrame)]
+    pub fn hd_frame(&mut self) -> Vec<u8> {
+        let Some(hd) = &self.hd else { return Vec::new() };
+        let mut hd = hd.borrow_mut();
+        if !hd.visible {
+            return Vec::new();
+        }
+        let Hd { follower, cur, screen, fallback, full, .. } = &mut *hd;
+        let k = follower.comp.k;
+        let now = &self.m.hw.mem[0xa0000..0xa0000 + 64000];
+        // Rows to present: shadow changes, screen changes, and their
+        // neighbours (a pixel's HD depends on its neighbours).
+        let mut touched = follower.comp.take_screen_dirty();
+        for (y, t) in touched.iter_mut().enumerate() {
+            *t |= *full || now[y * 320..(y + 1) * 320] != screen[y * 320..(y + 1) * 320];
+        }
+        *full = false;
+        let rows: Vec<bool> = (0..200).map(|y| touched[y.max(1) - 1] || touched[y] || touched[(y + 1).min(199)]).collect();
+        let (Some(first), Some(last)) = (rows.iter().position(|&r| r), rows.iter().rposition(|&r| r)) else {
+            let mut out = vec![k as u8, 0, 0, 0, 0, 0];
+            out.extend_from_slice(&(fallback.iter().map(|&n| n as u32).sum::<u32>().min(65535) as u16).to_le_bytes());
+            return out;
+        };
+        follower.comp.present_texels(now, cur, &rows, fallback);
+        screen.copy_from_slice(now);
+        let row = 320 * k * 4;
+        let (y0, y1) = (first * k, (last + 1) * k);
+        let mut out = Vec::with_capacity(8 + (y1 - y0) * row);
+        out.extend_from_slice(&[k as u8, 0]);
+        out.extend_from_slice(&(y0 as u16).to_le_bytes());
+        out.extend_from_slice(&(y1 as u16).to_le_bytes());
+        out.extend_from_slice(&(fallback.iter().map(|&n| n as u32).sum::<u32>().min(65535) as u16).to_le_bytes());
+        out.extend_from_slice(&cur[y0 * row..y1 * row]);
+        out
+    }
+
 
     /// Host volume for FM music and digitized voices (1.0 = original).
     #[wasm_bindgen(js_name = setVolume)]

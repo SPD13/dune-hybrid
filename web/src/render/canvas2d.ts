@@ -32,4 +32,6 @@ export class Canvas2dRenderer implements Renderer {
   }
 
   resize() {}
+
+  hd() {}
 }

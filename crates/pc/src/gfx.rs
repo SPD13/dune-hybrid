@@ -45,6 +45,26 @@ pub struct DriverCall {
     pub depth: u8,
 }
 
+impl DriverCall {
+    /// The registers in the form `gfx` decodes.
+    pub fn regs(&self) -> gfx::Regs {
+        gfx::Regs {
+            ax: self.ax,
+            bx: self.bx,
+            cx: self.cx,
+            dx: self.dx,
+            si: self.si,
+            di: self.di,
+            bp: self.bp,
+            ds: self.ds,
+            es: self.es,
+            ss: self.ss,
+            flags: self.flags,
+            y_offset: self.y_offset,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GfxEvent {
     Enter(DriverCall),

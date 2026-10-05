@@ -31,6 +31,7 @@ Things this edition adds that were not part of the original 1992 game:
   - automatic saving of your exact position whenever you switch apps.
 
   See [Mobile controls and gestures](#mobile-controls-and-gestures).
+- **HD sprites and text** (experimental). The app follows how the game draws each picture and redraws its sprites, text and backgrounds at 2× or 4× resolution, where the game draws them, in the game's own colours. Palette fades and day/night changes still apply. See [HD sprites and text](#hd-sprites-and-text-experimental).
 - **Picture filters.** The 320×200 picture can be redrawn by pixel-art upscalers (MMPX, Scale4x, xBR), drawn at your screen's full resolution with sharp or smooth scaling, and given scanlines or a full CRT monitor look. Pick a preset or combine the filters yourself; changes apply instantly while you play. See [Picture filters](#picture-filters).
 - **Remastered soundtrack.** In 2024 the game's composer, Stéphane Picq, released a remaster of the original music, including re-rendered versions of the game's own songs. If you buy it, the game can play those recordings instead of the 1992 AdLib/FM music. They stay in sync with the action, dip under voices and fade exactly as the game's music does. See [Remastered soundtrack](#remastered-soundtrack-optional).
 
@@ -206,6 +207,7 @@ These are available from the title screen and from the in-game menu:
 - **Language:** affects new games. A resumed snapshot keeps the language it was started with.
 - **Music volume** and **voices & effects volume**.
 - **Graphics:** a preset, or your own combination of filters. See [Picture filters](#picture-filters).
+- **HD sprites and text:** off, automatic (4× on computers, 2× on phones), 2× or 4×. See [HD sprites and text](#hd-sprites-and-text-experimental).
 - **Touch control:** direct or trackpad.
 - **On-screen buttons:** automatic on touch devices, always, or never.
 - **Battery saver.**
@@ -232,6 +234,23 @@ Presets combine them:
 | Smooth HD | xBR | smooth | none |
 
 Under **Options → Graphics → Filters** each step can be changed on its own (the preset then shows *Custom*), and sliders set the xBR smoothing and the strength of the monitor effect. The filters change only what you see: the game, its snapshots and their thumbnails are unaffected. Browsers without WebGL2 fall back to a basic display with CSS smoothing and scanlines.
+
+### HD sprites and text (experimental)
+
+With **Options → Graphics → HD sprites and text** on, the game's art and font are drawn at 2× or 4× resolution:
+- **Sprites** (characters, rooms, objects, the interface) are magnified with MMPX, a pixel-art upscaler that keeps the game's own colours.
+- **Text** is smoothed and anti-aliased.
+- **The zoomed room** behind a speaking character follows its HD art.
+
+The game still decides what is drawn and where. The app watches each drawing operation, keeps an HD version of every off-screen buffer, and shows a pixel in HD only where the real low-resolution screen still matches it, at that pixel and its neighbours. So the HD picture never shows anything the game did not draw.
+
+Some pictures still fall back to the low-resolution image, through the filters above:
+- the mouse cursor;
+- the map and globe, which the game draws with its own code;
+- some transition effects;
+- right after a saved game or snapshot is loaded: the HD picture builds up as soon as the game redraws a scene, for example in the next room.
+
+Needs WebGL2. It uses more memory: up to about 70 MB at 4×, 20 MB at 2×.
 
 ### Install as an app
 
@@ -319,6 +338,8 @@ A save/restore round trip is bit-exact: a run interrupted by one ends in exactly
   1. a palette pass produces RGB;
   2. an optional upscaler pass (or two for Scale4x) runs: MMPX at 2×, Scale2x twice, or xBR-lv2 at 4×;
   3. a final pass scales to the canvas at device resolution: nearest, sharp-bilinear or bilinear, with optional scanlines; with the CRT preset, crt-lottes runs here instead.
+
+  With HD sprites and text, the worker follows the game's drawing with `gfx::compose` in WebAssembly and sends only the rows of the HD screen that changed. Each texel holds two palette indices and a blend weight. A resolve pass turns them into colours with the live palette, before the output pass; low-resolution pixels come from the filtered picture.
 
   Drawing happens only when a frame arrives or a setting changes. On this development Mac at 2016×1512 a frame costs about 0.5–1 ms, and about 3 ms with the CRT shader. A Canvas2D path is kept as a fallback.
 - **No special server headers are needed.** The app is static and works on any HTTPS host. The service worker makes it available offline.
@@ -509,7 +530,8 @@ Do **not** consult the game-logic code of other unlicensed reimplementations whi
 - [x] **Picture filters:** WebGL2 pipeline with pixel-art upscalers, sharp/smooth scaling and CRT effects, all switchable live.
 - [x] **Drawing-operation recorder:** the game's DNVGA driver calls are recorded and decoded. An exact model of the driver is verified against the real one, call by call in play and for every sprite in DUNE.DAT. See [Graphics recording](#graphics-recording).
 - [x] **Reference HD compositor:** HD shadows of the game's buffers with exact provenance; MMPX sprites and smoothed text; golden-image tests. See [Reference HD compositor](#reference-hd-compositor).
-- [ ] **HD sprites and text in the browser:** the same compositor in the web app (GPU), selectable in Options. First with algorithmic upscaling, then with an optional **HD asset pack** that each player generates on their own computer from their `DUNE.DAT` with an offline tool, and imports like the soundtrack.
+- [x] **HD sprites and text in the browser** (experimental): the compositor runs in the worker; the GPU resolves its texels with the live palette. Selectable in Options.
+- [ ] **HD asset pack:** an offline tool generates HD art from your own DUNE.DAT (with AI upscalers of your choice), to import like the soundtrack. First with algorithmic upscaling, then with an optional **HD asset pack** that each player generates on their own computer from their `DUNE.DAT` with an offline tool, and imports like the soundtrack.
 - [ ] **Input recorder:** deterministic replays, for bug reports and as a test corpus.
 - [x] **Remastered soundtrack** support (the composer's 2024 remaster, purchased by the player), in sync with the game.
 - [ ] **MT-32 / General MIDI music** via an emulated MPU-401 and a host synthesizer.

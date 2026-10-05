@@ -15,6 +15,9 @@ export type ToWorker =
       batterySaver: boolean;
       /** Songs replaced by remastered recordings (bit n = song n). */
       replacedSongs: number;
+      /** HD sprites and text: scale followed (2 or 4, 0 for none) and shown. */
+      hd: number;
+      hdVisible: boolean;
     }
   | { type: "key"; code: number; pressed: boolean }
   | { type: "mouse"; x: number; y: number; buttons: number }
@@ -23,12 +26,14 @@ export type ToWorker =
   | { type: "volume"; music: number; voices: number }
   | { type: "batterySaver"; on: boolean }
   | { type: "replaced"; mask: number }
+  | { type: "hd"; scale: number; visible: boolean }
   | { type: "snapshot"; id: number }
   | { type: "load"; data: Uint8Array };
 
 export type FromWorker =
   | { type: "started" }
-  | { type: "frame"; frame: Uint8Array }
+  /** `hd`: changed rows of the HD screen (see Emu.hdFrame), when HD is on. */
+  | { type: "frame"; frame: Uint8Array; hd?: Uint8Array }
   | { type: "audio"; audio: Float32Array }
   | { type: "music"; events: Uint32Array; state: Uint32Array }
   | { type: "save"; name: string; data: Uint8Array }
@@ -60,7 +65,6 @@ function loop() {
       return;
     }
     const status = emu.runMs(elapsed * speed);
-    busy += performance.now() - now;
     const audio = emu.takeAudio();
     // Fast-forward plays silently: sped-up audio would only be noise.
     if (audio.length && speed === 1) post({ type: "audio", audio }, [audio.buffer]);
@@ -71,11 +75,15 @@ function loop() {
       post({ type: "music", events, state }, [events.buffer, state.buffer]);
     }
     const frame = emu.frame();
-    post({ type: "frame", frame }, [frame.buffer]);
+    const hd = emu.hdFrame();
+    if (hd.length > 8) post({ type: "frame", frame, hd }, [frame.buffer, hd.buffer]);
+    else post({ type: "frame", frame }, [frame.buffer]);
     if (now - lastStats > 2000) {
       lastStats = now;
       post({ type: "stats", virtual: emu.virtualSeconds(), wall: (now - t0) / 1000, busy: busy / 1000 });
     }
+    // Busy time: emulation plus frame (and HD) preparation.
+    busy += performance.now() - now;
     const log = emu.takeLog();
     if (log) post({ type: "log", text: log });
     if (status === 0) timer = setTimeout(tick, 1000 / 70);
@@ -96,6 +104,8 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       emu.setVolume(m.music, m.voices);
       emu.setBatterySaver(m.batterySaver);
       emu.setReplacedSongs(m.replacedSongs);
+      emu.setHd(m.hd);
+      emu.setHdVisible(m.hdVisible);
       if (m.snapshot) {
         try {
           emu.loadState(m.snapshot);
@@ -129,6 +139,10 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       break;
     case "replaced":
       emu?.setReplacedSongs(m.mask);
+      break;
+    case "hd":
+      emu?.setHd(m.scale);
+      emu?.setHdVisible(m.visible);
       break;
     case "snapshot":
       if (emu) {

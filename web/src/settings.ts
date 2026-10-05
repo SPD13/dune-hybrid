@@ -9,6 +9,8 @@ export type Buttons = "auto" | "always" | "never";
 export type Scaler = "none" | "mmpx" | "epx" | "xbr";
 export type Output = "nearest" | "sharp" | "smooth";
 export type Crt = "off" | "scanlines" | "lottes";
+/** HD sprites and text: off, or the scale (auto: 2× on touch devices, else 4×). */
+export type Hd = "off" | "auto" | "2" | "4";
 export type Preset = "original" | "smooth" | "scanlines" | "crt" | "pixel" | "xbr" | "custom";
 
 export interface Graphics {
@@ -19,6 +21,7 @@ export interface Graphics {
   crtStrength: number; // 0..1
   /** How much of the xBR result to use (the rest is the original pixel). */
   xbrAmount: number; // 0..1
+  hd: Hd;
 }
 
 export const PRESETS: Record<Exclude<Preset, "custom">, Pick<Graphics, "scaler" | "output" | "crt">> = {
@@ -54,7 +57,7 @@ export const DEFAULTS: Settings = {
   language: "ENG",
   music: 0.8,
   voices: 1,
-  graphics: { preset: "original", ...PRESETS.original, crtStrength: 0.8, xbrAmount: 0.6 },
+  graphics: { preset: "original", ...PRESETS.original, crtStrength: 0.8, xbrAmount: 0.6, hd: "off" },
   touchMode: "direct",
   buttons: "auto",
   batterySaver: true,
@@ -96,6 +99,15 @@ export function saveSettings(s: Settings) {
 export function commandLine(s: Settings): string {
   return `ADP330 SBP2227 ${s.language}`;
 }
+
+/** The HD scale to follow the drawing at (also while HD is off, so
+ * turning it on shows the current scene at once). */
+export function hdScale(g: Graphics, touch: boolean): number {
+  return g.hd === "2" || g.hd === "4" ? Number(g.hd) : touch ? 2 : 4;
+}
+
+/** Whether HD sprites and text are shown (not with the CRT shader). */
+export const hdVisible = (g: Graphics) => g.hd !== "off" && g.crt !== "lottes";
 
 /** True on devices whose primary pointer is a finger. */
 export const isTouchDevice = () => matchMedia("(pointer: coarse)").matches;

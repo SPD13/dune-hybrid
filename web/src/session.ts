@@ -5,7 +5,7 @@
 import { Input } from "./input";
 import { mountOptions } from "./options";
 import { createRenderer, thumbnail as frameThumbnail } from "./render";
-import { commandLine, isTouchDevice, loadSettings } from "./settings";
+import { commandLine, hdScale, hdVisible, isTouchDevice, loadSettings } from "./settings";
 import { SoundtrackPlayer, loadManifest, replacedMask, segments } from "./soundtrack";
 import { type Snapshot, loadSaves, loadSnapshots, putSave, putSnapshot } from "./storage";
 import type { FromWorker, ToWorker } from "./worker";
@@ -106,6 +106,9 @@ export async function startSession(opts: SessionOptions) {
     remaster?.setUserVolume(settings.remaster ? settings.music : 0);
     if (settings.remaster) remaster?.resync();
     send({ type: "batterySaver", on: settings.batterySaver });
+    // HD needs the GPU path.
+    const gpu = renderer.kind === "webgl2";
+    send({ type: "hd", scale: gpu ? hdScale(settings.graphics, touch) : 0, visible: gpu && hdVisible(settings.graphics) });
     requestAnimationFrame(fit);
   };
   window.addEventListener("resize", fit);
@@ -275,6 +278,7 @@ export async function startSession(opts: SessionOptions) {
     switch (m.type) {
       case "frame":
         pending = m.frame;
+        if (m.hd) renderer.hd(m.hd);
         break;
       case "audio":
         audioNode?.port.postMessage(m.audio, [m.audio.buffer]);
@@ -332,6 +336,8 @@ export async function startSession(opts: SessionOptions) {
       voices: settings.voices,
       batterySaver: settings.batterySaver,
       replacedSongs: remasterMask(),
+      hd: renderer.kind === "webgl2" ? hdScale(settings.graphics, touch) : 0,
+      hdVisible: renderer.kind === "webgl2" && hdVisible(settings.graphics),
     },
     [exe],
   );

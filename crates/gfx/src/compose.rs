@@ -59,13 +59,16 @@ pub struct Shadow {
     /// Bytes whose HD block is only the low-resolution pixel magnified.
     pub lowres: Vec<bool>,
     pub hd: Vec<Texel>,
+    /// Rows (of 320 bytes) whose shadow changed since the last
+    /// [`Compositor::take_screen_dirty`].
+    pub dirty: Vec<bool>,
 }
 
 impl Shadow {
     fn seeded(k: usize, mem: Mem, seg: u16) -> Shadow {
         let low = mem.bytes(seg, 0, 0x10000);
         let hd = low.iter().flat_map(|&v| std::iter::repeat_n(Texel::solid(v), k * k)).collect();
-        Shadow { low, lowres: vec![true; 0x10000], hd }
+        Shadow { low, lowres: vec![true; 0x10000], hd, dirty: vec![true; 205] }
     }
 }
 
@@ -96,6 +99,11 @@ pub struct Compositor {
     pub k: usize,
     buffers: HashMap<u16, Shadow>,
     sprites: HashMap<u64, HdSprite>,
+    /// Insertion order of `sprites`, for evicting the oldest.
+    sprite_order: std::collections::VecDeque<u64>,
+    sprite_texels: usize,
+    /// Upper bound on cached HD sprite texels (memory is ~1 byte each).
+    pub sprite_budget: usize,
     glyphs: HashMap<u64, HdGlyph>,
     /// Calls the compositor could not follow (unmodelled slots).
     pub unfollowed: u64,
@@ -109,7 +117,17 @@ impl Compositor {
     /// `k` is 2 or 4.
     pub fn new(k: usize) -> Compositor {
         assert!(k == 2 || k == 4);
-        Compositor { k, buffers: HashMap::new(), sprites: HashMap::new(), glyphs: HashMap::new(), unfollowed: 0, watch: None }
+        Compositor {
+            k,
+            buffers: HashMap::new(),
+            sprites: HashMap::new(),
+            sprite_order: Default::default(),
+            sprite_texels: 0,
+            sprite_budget: 64 << 20,
+            glyphs: HashMap::new(),
+            unfollowed: 0,
+            watch: None,
+        }
     }
 
     /// Forget everything (after a snapshot restore): shadows are re-seeded
@@ -152,6 +170,7 @@ impl Compositor {
                 continue;
             }
             dst.low[o] = v;
+            dst.dirty[o / 320] = true;
             match order.iter().map(|seg| &self.buffers[seg]).find(|src| src.low[o] == v) {
                 Some(src) => {
                     dst.hd[o * kk..(o + 1) * kk].copy_from_slice(&src.hd[o * kk..(o + 1) * kk]);
@@ -269,8 +288,16 @@ impl Compositor {
                 w *= 2;
                 h *= 2;
             }
-            let texels = px.into_iter().map(|v| (v < 256).then_some(v as u8)).collect();
+            let texels: Vec<Option<u8>> = px.into_iter().map(|v| (v < 256).then_some(v as u8)).collect();
+            self.sprite_texels += texels.len();
             self.sprites.insert(key, HdSprite { w, texels });
+            self.sprite_order.push_back(key);
+            while self.sprite_texels > self.sprite_budget && self.sprite_order.len() > 1 {
+                let old = self.sprite_order.pop_front().unwrap();
+                if let Some(s) = self.sprites.remove(&old) {
+                    self.sprite_texels -= s.texels.len();
+                }
+            }
         }
         Source::Sprite(key)
     }
@@ -297,21 +324,7 @@ impl Compositor {
         for p in 0..64000usize {
             let (x, y) = (p % 320, p / 320);
             let v = screen[p];
-            // HD only where the shadow depicts this pixel and its neighbours
-            // (an HD block's edges come from its neighbours' art).
-            let hd = shadow.filter(|s| {
-                !s.lowres[p]
-                    && (-1i32..=1).all(|dy| {
-                        (-1i32..=1).all(|dx| {
-                            let (nx, ny) = (x as i32 + dx, y as i32 + dy);
-                            if !(0..320).contains(&nx) || !(0..200).contains(&ny) {
-                                return true;
-                            }
-                            let q = (ny * 320 + nx) as usize;
-                            s.low[q] == screen[q]
-                        })
-                    })
-            });
+            let hd = shadow.filter(|s| shows_hd(s, screen, p));
             match hd {
                 Some(s) => {
                     stats.hd += 1;
@@ -355,6 +368,80 @@ impl Compositor {
         }
         stats
     }
+}
+
+impl Compositor {
+    /// Screen rows whose shadow changed since the last call (all of them
+    /// before the screen is first drawn).
+    pub fn take_screen_dirty(&mut self) -> Vec<bool> {
+        match self.buffers.get_mut(&SCREEN) {
+            Some(s) => {
+                let rows = s.dirty[..200].to_vec();
+                s.dirty.fill(false);
+                rows
+            }
+            None => vec![true; 200],
+        }
+    }
+
+    /// The screen at `k`× as HD texels for a GPU to resolve with the live
+    /// palette: RGBA8 per texel, R = a, G = b, B = t (weight of b), A = 255
+    /// for HD texels and 0 where the pixel falls back to low resolution.
+    /// Only the screen rows marked in `rows` are written; `row_fallback`
+    /// receives those rows' counts of low-resolution pixels.
+    pub fn present_texels(&self, screen: &[u8], out: &mut [u8], rows: &[bool], row_fallback: &mut [u16]) -> PresentStats {
+        let k = self.k;
+        let ow = 320 * k;
+        assert!(out.len() >= ow * 200 * k * 4);
+        let mut stats = PresentStats::default();
+        let shadow = self.buffers.get(&SCREEN);
+        for (y, _) in rows.iter().enumerate().filter(|(_, r)| **r) {
+            row_fallback[y] = 0;
+        }
+        for p in (0..64000usize).filter(|p| rows[p / 320]) {
+            let (x, y) = (p % 320, p / 320);
+            match shadow.filter(|s| shows_hd(s, screen, p)) {
+                Some(s) => {
+                    stats.hd += 1;
+                    for (i, t) in s.hd[p * k * k..(p + 1) * k * k].iter().enumerate() {
+                        let o = ((y * k + i / k) * ow + x * k + i % k) * 4;
+                        out[o..o + 4].copy_from_slice(&[t.a, t.b, t.t, 255]);
+                    }
+                }
+                None => {
+                    stats.fallback += 1;
+                    row_fallback[y] += 1;
+                    for i in 0..k * k {
+                        let o = ((y * k + i / k) * ow + x * k + i % k) * 4;
+                        out[o..o + 4].copy_from_slice(&[screen[p], screen[p], 0, 0]);
+                    }
+                }
+            }
+        }
+        stats
+    }
+}
+
+/// HD only where the shadow depicts this pixel and its eight neighbours
+/// (an HD block's edges come from its neighbours' art).
+#[inline]
+fn shows_hd(s: &Shadow, screen: &[u8], p: usize) -> bool {
+    if s.lowres[p] {
+        return false;
+    }
+    let (x, y) = ((p % 320) as i32, (p / 320) as i32);
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let (nx, ny) = (x + dx, y + dy);
+            if (0..320).contains(&nx) && (0..200).contains(&ny) {
+                let q = (ny * 320 + nx) as usize;
+                if s.low[q] != screen[q] {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 /// Drives a [`Compositor`] from driver call events: calls are followed at
@@ -421,6 +508,7 @@ struct HdSink<'a> {
 impl HdSink<'_> {
     fn block(&mut self, at: u16) -> &mut [Texel] {
         let kk = self.k * self.k;
+        self.dst.dirty[at as usize / 320] = true;
         &mut self.dst.hd[at as usize * kk..(at as usize + 1) * kk]
     }
 
@@ -483,6 +571,7 @@ impl HdSink<'_> {
                 if from != at {
                     self.dst.hd.copy_within(from_u * kk..(from_u + 1) * kk, at_u * kk);
                 }
+                self.dst.dirty[at_u / 320] = true;
                 self.dst.lowres[at_u] = lowres;
             }
             _ => {
