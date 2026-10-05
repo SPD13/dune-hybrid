@@ -1,5 +1,5 @@
 import { SCANCODES } from "./keymap";
-import { REQUIRED, forget, store, stored } from "./storage";
+import { REQUIRED, forget, loadSaves, putSave, store, stored } from "./storage";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const setup = $("setup");
@@ -74,8 +74,25 @@ function fitCanvas() {
   canvas.style.height = `${Math.floor(240 * scale)}px`;
 }
 
+async function startAudio(): Promise<AudioWorkletNode | null> {
+  try {
+    const ctx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
+    await ctx.audioWorklet.addModule(new URL("audio-worklet.js", document.baseURI));
+    const node = new AudioWorkletNode(ctx, "dune-audio", { numberOfInputs: 0, outputChannelCount: [2] });
+    node.connect(ctx.destination);
+    const resume = () => ctx.state !== "running" && ctx.resume().catch(() => {});
+    resume();
+    for (const ev of ["pointerdown", "keydown"]) window.addEventListener(ev, resume);
+    return node;
+  } catch (err) {
+    console.warn("audio unavailable", err);
+    return null;
+  }
+}
+
 play.addEventListener("click", async () => {
   play.disabled = true;
+  const audio = await startAudio();
   const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
   const ctx = canvas.getContext("2d", { alpha: false })!;
   const image = ctx.createImageData(320, 200);
@@ -86,6 +103,19 @@ play.addEventListener("click", async () => {
   worker.onmessage = (e) => {
     const m = e.data;
     if (m.type === "frame") pending = m.frame;
+    else if (m.type === "audio") {
+      if (import.meta.env.DEV) {
+        const w = window as unknown as { __audioFrames?: number; __audioPeak?: number };
+        w.__audioFrames = (w.__audioFrames ?? 0) + m.audio.length / 2;
+        for (let i = 0; i < m.audio.length; i += 16) w.__audioPeak = Math.max(w.__audioPeak ?? 0, Math.abs(m.audio[i]));
+      }
+      audio?.port.postMessage(m.audio, [m.audio.buffer]);
+    }
+    else if (m.type === "save") {
+      putSave({ name: m.name, data: m.data }).catch((err) => console.error("save failed", err));
+      // The game rewrites DUNE37S0.SAV (its start state) on every launch.
+      if (m.name !== "DUNE37S0.SAV") showToast(`Saved ${m.name}`, 2000);
+    }
     else if (m.type === "started") toast.hidden = true;
     else if (m.type === "log") console.debug(m.text);
     else if (m.type === "stats") {
@@ -136,7 +166,8 @@ play.addEventListener("click", async () => {
   window.addEventListener("keyup", key(false));
 
   const exe = await files["DNCDPRG.EXE"]!.arrayBuffer();
-  worker.postMessage({ type: "start", exe, dat: files["DUNE.DAT"], cmdline: "" }, [exe]);
+  const saves = await loadSaves().catch(() => []);
+  worker.postMessage({ type: "start", exe, dat: files["DUNE.DAT"], cmdline: "ADP330 SBP2227", saves }, [exe]);
   setup.hidden = true;
   stage.hidden = false;
   showToast("Starting…");

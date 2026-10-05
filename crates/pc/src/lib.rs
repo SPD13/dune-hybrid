@@ -10,6 +10,7 @@ mod bios;
 mod dos;
 pub mod fs;
 pub mod hw;
+pub mod sound;
 
 use std::collections::VecDeque;
 
@@ -148,7 +149,7 @@ impl Machine {
                 return RunExit::Deadline;
             }
             self.hw.now_ns = now;
-            if now >= next_event {
+            if now >= next_event || self.hw.reschedule {
                 next_event = self.hw.update(now);
                 if let Some(b) = self.mouse.deferred {
                     if now >= self.mouse.pressed_at + MIN_BUTTON_HOLD_NS {
@@ -162,6 +163,9 @@ impl Machine {
                     self.int_counts[v as usize] += 1;
                     self.cpu.interrupt(&mut self.hw, v);
                 }
+            }
+            if self.hw.trace_ports.is_some() {
+                self.hw.trace_pc = (self.cpu.sregs[CS], self.cpu.ip);
             }
             match self.cpu.step(&mut self.hw) {
                 Step::Ok => {}
@@ -302,6 +306,13 @@ impl Machine {
             m.deferred = None;
             m.buttons = buttons;
         }
+    }
+
+    /// Audio produced so far (interleaved stereo f32 at 48 kHz), drained.
+    pub fn take_audio(&mut self) -> Vec<f32> {
+        let now = self.now_ns();
+        self.hw.audio_catch_up(now);
+        std::mem::take(&mut self.hw.audio.out)
     }
 
     /// The current mode 13h frame as RGB888.

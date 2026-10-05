@@ -3,7 +3,7 @@
 import init, { Emu } from "./pkg/web.js";
 
 type In =
-  | { type: "start"; exe: ArrayBuffer; dat: Blob; cmdline: string }
+  | { type: "start"; exe: ArrayBuffer; dat: Blob; cmdline: string; saves: { name: string; data: Uint8Array }[] }
   | { type: "key"; code: number; pressed: boolean }
   | { type: "mouse"; x: number; y: number; buttons: number };
 
@@ -22,6 +22,8 @@ function loop() {
     const status = emu!.runMs(Math.min(now - last, 100));
     busy += performance.now() - now;
     last = now;
+    const audio = emu!.takeAudio();
+    if (audio.length) post({ type: "audio", audio }, [audio.buffer]);
     const frame = emu!.frame();
     post({ type: "frame", frame }, [frame.buffer]);
     if (now - lastStats > 2000) {
@@ -43,6 +45,7 @@ self.onmessage = async (e: MessageEvent<In>) => {
     emu = new Emu(new Uint8Array(m.exe), m.dat, m.cmdline, (name: string, data: Uint8Array) =>
       post({ type: "save", name, data }),
     );
+    for (const s of m.saves) emu.putFile(s.name, s.data);
     post({ type: "started" });
     loop();
   } else if (emu && m.type === "key") {

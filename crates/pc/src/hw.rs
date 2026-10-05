@@ -6,6 +6,8 @@ use std::collections::VecDeque;
 
 use cpu::Bus;
 
+use crate::sound::{self, Audio};
+
 /// 1 MB + HMA.
 pub const MEM_SIZE: usize = 0x11_0000;
 const PIT_HZ: f64 = 1_193_182.0;
@@ -271,6 +273,13 @@ pub struct Hardware {
     pub unknown_ports: Vec<(u16, bool)>,
     /// Joystick port bits (no joystick: buttons up, axes never time out).
     game_port: u8,
+    pub audio: Audio,
+    /// Diagnostics: log sound/DMA/PIC port traffic (port, value, write?).
+    pub trace_ports: Option<Vec<(u64, u16, u8, bool)>>,
+    /// CS:IP of the current instruction (maintained only while tracing).
+    pub trace_pc: (u16, u16),
+    /// Set when a device changed its schedule; the machine re-polls `update`.
+    pub reschedule: bool,
 }
 
 impl Hardware {
@@ -284,6 +293,10 @@ impl Hardware {
             now_ns: 0,
             unknown_ports: Vec::new(),
             game_port: 0xf0,
+            audio: Audio::new(),
+            trace_ports: None,
+            reschedule: false,
+            trace_pc: (0, 0),
         }
     }
 
@@ -320,9 +333,17 @@ impl Hardware {
         self.pic[0].pending().is_some()
     }
 
+    /// Render sound up to `now`; raises the Sound Blaster IRQ when a block ends.
+    pub fn audio_catch_up(&mut self, now: u64) {
+        if self.audio.catch_up(now, &self.mem) {
+            self.raise_irq(sound::SB_IRQ);
+        }
+    }
+
     /// Advance timers to `now_ns`; returns the next time something is due.
     pub fn update(&mut self, now_ns: u64) -> u64 {
         self.now_ns = now_ns;
+        self.audio_catch_up(now_ns);
         let period = Pit::period_ns(self.pit.ch[0].reload).max(1);
         if now_ns >= self.pit.next_irq0_ns {
             self.raise_irq(0);
@@ -338,7 +359,11 @@ impl Hardware {
                 self.raise_irq(1);
             }
         }
-        self.pit.next_irq0_ns
+        self.reschedule = false;
+        match self.audio.next_event_ns(now_ns) {
+            Some(t) => t.min(self.pit.next_irq0_ns),
+            None => self.pit.next_irq0_ns,
+        }
     }
 
     /// Queue a raw set-1 scancode (make, or make|0x80 for break).
@@ -380,6 +405,14 @@ impl Bus for Hardware {
 
     fn in8(&mut self, port: u16) -> u8 {
         let now = self.now_ns;
+        if let Some(v) = self.audio.read(port, now) {
+            if let Some(t) = &mut self.trace_ports {
+                if !matches!(port, 0x388 | 0x38a) && t.len() < 20000 {
+                    t.push((now, port, v, false));
+                }
+            }
+            return v;
+        }
         match port {
             0x20 | 0x21 => self.pic[0].read(port == 0x20),
             0xa0 | 0xa1 => self.pic[1].read(port == 0xa0),
@@ -417,6 +450,19 @@ impl Bus for Hardware {
 
     fn out8(&mut self, port: u16, v: u8) {
         let now = self.now_ns;
+        if let Some(t) = &mut self.trace_ports {
+            if matches!(port, 0x00..=0x0f | 0x20 | 0x21 | 0x81..=0x87 | 0x220..=0x22f | 0x388..=0x38b) && t.len() < 20000 {
+                t.push((now, port, v, true));
+            }
+        }
+        if matches!(port, 0x00..=0x0f | 0x81..=0x83 | 0x87 | 0x388..=0x38b | 0x220..=0x22f) {
+            // Sound state changes take effect at this instant.
+            self.audio_catch_up(now);
+            if self.audio.write(port, v, now) {
+                self.reschedule = true;
+                return;
+            }
+        }
         match port {
             0x20 | 0x21 => self.pic[0].write(port == 0x20, v),
             0xa0 | 0xa1 => self.pic[1].write(port == 0xa0, v),
@@ -447,6 +493,9 @@ impl Bus for Hardware {
             _ => {
                 if self.unknown_ports.len() < 256 && !self.unknown_ports.contains(&(port, true)) {
                     self.unknown_ports.push((port, true));
+                    if self.trace_ports.is_some() {
+                        eprintln!("unknown OUT {port:03x} {v:02x} from {:04x}:{:04x}", self.trace_pc.0, self.trace_pc.1);
+                    }
                 }
             }
         }

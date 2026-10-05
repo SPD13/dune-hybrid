@@ -21,10 +21,11 @@ struct Args {
     mips: f64,
     /// Scripted input: "t:key:SC:1|0" or "t:mouse:X:Y:BUTTONS", comma separated.
     events: Vec<(f64, Vec<String>)>,
+    wav: Option<PathBuf>,
 }
 
 fn parse() -> Result<Args, String> {
-    let mut a = Args { dir: ".".into(), seconds: 10.0, shot_every: 1.0, out: "out".into(), cmd: String::new(), mips: 20.0, events: Vec::new() };
+    let mut a = Args { dir: ".".into(), seconds: 10.0, shot_every: 1.0, out: "out".into(), cmd: String::new(), mips: 20.0, events: Vec::new(), wav: None };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
         let mut v = || it.next().ok_or(format!("missing value for {k}"));
@@ -35,6 +36,7 @@ fn parse() -> Result<Args, String> {
             "--out" => a.out = v()?.into(),
             "--cmd" => a.cmd = v()?,
             "--mips" => a.mips = v()?.parse().map_err(|e| format!("{e}"))?,
+            "--wav" => a.wav = Some(v()?.into()),
             "--events" => {
                 for ev in v()?.split(',') {
                     let parts: Vec<String> = ev.split(':').map(String::from).collect();
@@ -55,6 +57,27 @@ fn write_png(path: &PathBuf, rgb: &[u8]) {
     enc.set_color(png::ColorType::Rgb);
     enc.set_depth(png::BitDepth::Eight);
     enc.write_header().unwrap().write_image_data(rgb).unwrap();
+}
+
+fn write_wav(path: &PathBuf, samples: &[f32]) {
+    let mut d = Vec::with_capacity(44 + samples.len() * 2);
+    let data_len = (samples.len() * 2) as u32;
+    d.extend_from_slice(b"RIFF");
+    d.extend_from_slice(&(36 + data_len).to_le_bytes());
+    d.extend_from_slice(b"WAVEfmt ");
+    d.extend_from_slice(&16u32.to_le_bytes());
+    d.extend_from_slice(&1u16.to_le_bytes());
+    d.extend_from_slice(&2u16.to_le_bytes());
+    d.extend_from_slice(&pc::sound::OUTPUT_RATE.to_le_bytes());
+    d.extend_from_slice(&(pc::sound::OUTPUT_RATE * 4).to_le_bytes());
+    d.extend_from_slice(&4u16.to_le_bytes());
+    d.extend_from_slice(&16u16.to_le_bytes());
+    d.extend_from_slice(b"data");
+    d.extend_from_slice(&data_len.to_le_bytes());
+    for &s in samples {
+        d.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+    }
+    fs::write(path, d).unwrap();
 }
 
 fn main() -> ExitCode {
@@ -79,12 +102,17 @@ fn main() -> ExitCode {
     let files = OverlayFs { game: DirFs { root: args.dir.clone() }, saves: DirFs { root: saves } };
     let mut m = Machine::new(&exe, &args.cmd, Box::new(files)).unwrap();
     m.trace_mouse = std::env::var_os("TRACE_MOUSE").is_some();
+    if std::env::var_os("TRACE_PORTS").is_some() {
+        m.hw.trace_ports = Some(Vec::new());
+    }
     m.set_speed(args.mips * 1e6);
 
     let wall = std::time::Instant::now();
     let mut rgb = vec![0u8; 320 * 200 * 3];
     let mut t = 0.0;
     let mut shot = 0;
+    let mut audio: Vec<f32> = Vec::new();
+    m.hw.audio.enabled = args.wav.is_some();
     let mut events = args.events.iter().peekable();
     let exit = loop {
         t += args.shot_every;
@@ -108,6 +136,7 @@ fn main() -> ExitCode {
         if r == RunExit::Deadline {
             r = m.run_until((end * 1e9) as u64);
         }
+        audio.extend(m.take_audio());
         m.screen_rgb(&mut rgb);
         write_png(&args.out.join(format!("shot-{shot:04}.png")), &rgb);
         shot += 1;
@@ -116,6 +145,11 @@ fn main() -> ExitCode {
         }
     };
     let elapsed = wall.elapsed().as_secs_f64();
+    if let Some(w) = &args.wav {
+        write_wav(w, &audio);
+        let peak = audio.iter().fold(0f32, |a, &b| a.max(b.abs()));
+        println!("audio: {:.1}s, peak {peak:.3}", audio.len() as f64 / 2.0 / pc::sound::OUTPUT_RATE as f64);
+    }
     println!("exit: {exit:?} after {:.2}s virtual, {:.2}s wall, {:.1} MIPS real", m.now_ns() as f64 / 1e9, elapsed, m.cpu.instructions as f64 / elapsed / 1e6);
     println!("cpu: {}", m.regs_string());
     println!("vga mode {:02x}; PIT {:.1} Hz", m.hw.vga.mode, m.hw.pit.irq0_hz());
@@ -126,6 +160,11 @@ fn main() -> ExitCode {
     }
     if !m.console.is_empty() {
         println!("console: {:?}", m.console);
+    }
+    if let Some(t) = &m.hw.trace_ports {
+        for (ns, port, v, w) in t.iter().take(400) {
+            println!("port {:9.3}ms {} {port:03x} {v:02x}", *ns as f64 / 1e6, if *w { "OUT" } else { "IN " });
+        }
     }
     for l in &m.log {
         println!("log: {l}");

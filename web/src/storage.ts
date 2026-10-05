@@ -34,3 +34,36 @@ export async function forget(): Promise<void> {
   const root = await navigator.storage.getDirectory();
   for (const name of REQUIRED) await root.removeEntry(name).catch(() => {});
 }
+
+export interface SaveFile {
+  name: string;
+  data: Uint8Array;
+}
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("dune-hybrid", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("saves", { keyPath: "name" });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function loadSaves(): Promise<SaveFile[]> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction("saves").objectStore("saves").getAll();
+    req.onsuccess = () => resolve(req.result as SaveFile[]);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function putSave(save: SaveFile): Promise<void> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("saves", "readwrite");
+    tx.objectStore("saves").put(save);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}

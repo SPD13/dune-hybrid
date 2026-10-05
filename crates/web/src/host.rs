@@ -110,6 +110,7 @@ impl WebFs {
 pub struct Emu {
     m: Machine,
     frame: Vec<u8>,
+    saves: Rc<RefCell<HashMap<String, Vec<u8>>>>,
 }
 
 #[wasm_bindgen]
@@ -118,16 +119,17 @@ impl Emu {
     /// is called when the game closes a file it wrote.
     #[wasm_bindgen(constructor)]
     pub fn new(exe: &[u8], dat: Blob, cmdline: &str, on_save: Function) -> Result<Emu, JsValue> {
-        let fs = WebFs { dat, saves: Rc::new(RefCell::new(HashMap::new())), on_save };
+        let saves = Rc::new(RefCell::new(HashMap::new()));
+        let fs = WebFs { dat, saves: saves.clone(), on_save };
         let mut m = Machine::new(exe, cmdline, Box::new(fs)).map_err(|e| JsValue::from_str(&e))?;
         m.set_speed(20e6);
-        Ok(Emu { m, frame: vec![0; 64000 + 768] })
+        Ok(Emu { m, frame: vec![0; 64000 + 768], saves })
     }
 
     /// Provide an existing save file before the game starts.
     #[wasm_bindgen(js_name = putFile)]
-    pub fn put_file(&mut self, _name: &str, _data: &[u8]) {
-        // Saves arrive in M3; DUNE.DAT is the only file needed to boot.
+    pub fn put_file(&mut self, name: &str, data: &[u8]) {
+        self.saves.borrow_mut().insert(pc::fs::normalize(name), data.to_vec());
     }
 
     /// Run for `ms` of virtual time. Returns 0 to continue, 1 if the game
@@ -154,6 +156,12 @@ impl Emu {
             }
         }
         self.frame.clone()
+    }
+
+    /// Audio produced since the last call: interleaved stereo f32, 48 kHz.
+    #[wasm_bindgen(js_name = takeAudio)]
+    pub fn take_audio(&mut self) -> Vec<f32> {
+        self.m.take_audio()
     }
 
     pub fn key(&mut self, scancode: u8, pressed: bool) {

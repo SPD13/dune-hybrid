@@ -9,7 +9,7 @@ Cryo's **Dune** (1992, CD version 3.7) running in the browser. The original `DNC
 | Crate | What |
 |---|---|
 | `crates/cpu` | Real-mode 80286 interpreter, validated against 1.44 M hardware test vectors |
-| `crates/pc` | The PC: 8259 PIC, 8254 PIT, keyboard controller, VGA mode 13h, BIOS/DOS/mouse services (Rust callbacks behind ROM stubs) |
+| `crates/pc` | The PC: 8259 PIC, 8254 PIT, keyboard controller, VGA mode 13h, OPL3 + Sound Blaster Pro + DMA, BIOS/DOS/mouse services (Rust callbacks behind ROM stubs) |
 | `crates/runner` | `dune-run`: headless native runner (screenshots, scripted input, diagnostics) |
 | `crates/web` | wasm-bindgen host used by the browser worker |
 | `web/` | Vite + TypeScript page: picks and stores the game files, runs the worker, draws and forwards input |
@@ -27,6 +27,7 @@ cargo build --release
 - `--dir` is the folder holding `DNCDPRG.EXE` and `DUNE.DAT`.
 - Screenshots are written to `out/shot-NNNN.png`.
 - Saves go to `out/saves`; the game folder is never written to.
+- Pass `--cmd "ADP330 SBP2227"` for sound (AdLib music + Sound Blaster Pro at 220h, IRQ 7, DMA 1, as in Cryogenic) and `--wav out.wav` to record it.
 - Events take the form `time:key:SCANCODE(hex):1|0` or `time:mouse:X:Y:BUTTONS`.
 
 ## Run in the browser
@@ -51,5 +52,5 @@ cargo test -p cpu --release -- --ignored single_step
 ## Status
 
 - [x] M1: the original boots in the browser and plays the intro; keyboard and mouse work.
-- [ ] M2: sound (OPL3 music, Sound Blaster voices), save games in IndexedDB.
+- [x] M2: sound (OPL3 music via `oplon`, Sound Blaster Pro voices with 8237 DMA), save games in IndexedDB.
 - [ ] M3: an override table, so routines are ported to Rust and checked against the original in-process.
