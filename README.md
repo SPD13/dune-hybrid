@@ -4,6 +4,7 @@
 
 > **The game itself is not included.** You need the original game files (`DNCDPRG.EXE` and `DUNE.DAT` from the Dune CD). See [Installation](#installation).
 
+- [What's new](#whats-new)
 - [Features](#features)
 - [Installation](#installation)
 - [Playing](#playing)
@@ -14,6 +15,21 @@
 - [Credits and licenses](#credits-and-licenses)
 
 ---
+
+## What's new
+
+Things this edition adds that were not part of the original 1992 game:
+
+- **Play on any device with a web browser.** The original needed an MS-DOS PC with a CD-ROM drive, a VGA card and a Sound Blaster. It now runs on Windows, macOS, Linux and ChromeOS computers, Android phones and tablets, iPhones and iPads, with nothing to install and no DOS or emulator setup. It is built on standard web technology meant for any recent browser (Chrome, Edge, Safari, Firefox). So far it has been tested in Chrome on desktop; reports from other browsers and real phones are welcome.
+- **Mobile support.** The game is fully playable on phones and tablets:
+  - touch controls, with a choice of direct tapping or trackpad-style control;
+  - on-screen buttons for the keys the game needs;
+  - landscape and portrait layouts that respect notches and rounded corners;
+  - fullscreen, and the screen kept awake while you play;
+  - installation to the home screen;
+  - automatic saving of your exact position whenever you switch apps.
+
+  See [Mobile controls and gestures](#mobile-controls-and-gestures).
 
 ## Features
 
@@ -85,6 +101,51 @@ Afterwards, **New game** starts from the intro, and **Continue** resumes your la
 | On-screen buttons | **Left:** Esc, Enter, Space, P. **Right:** ☰ menu, ⏩ fast-forward (hold), ⤓ quick save to slot 1, ⤒ quick load slot 1, ⛶ fullscreen. |
 
 The on-screen buttons appear automatically on touch devices; change this under **Options**. On a wide screen they sit beside the picture. In portrait they sit below it.
+
+### Mobile controls and gestures
+
+The game is played with a mouse pointer, so on a touchscreen your finger drives that pointer. Choose how under **Options → Touch control**.
+
+**Direct mode** (the default): the pointer is where your finger is.
+
+| Gesture | Effect |
+|---|---|
+| Tap | Moves the pointer there and clicks (left button). |
+| Touch and drag | Holds the left button down while the pointer follows your finger, then releases when you lift it. |
+
+The game sees the pointer move before the button goes down, so menus highlight correctly. A press always lasts at least 60 ms, so even very quick taps register.
+
+**Trackpad mode**: the screen works like a laptop touchpad. It's more precise on small phones, where a finger hides the menu text it touches.
+
+| Gesture | Effect |
+|---|---|
+| One-finger drag, anywhere | Moves the pointer by the drag distance, about 1.6× faster than your finger. |
+| Quick tap (under ¼ s, almost no movement) | Clicks where the pointer is, not under your finger. |
+| Two-finger tap | Right click. |
+
+Drags never click, so you can reposition the pointer freely before tapping.
+
+**On-screen buttons:**
+
+| Button | Effect |
+|---|---|
+| **Esc** | Skip a cutscene or the intro, leave a screen (the original Esc key). |
+| **↵** (Enter) and **␣** (Space) | The original Enter and Space keys. |
+| **P** | The game's own pause. |
+| **☰** | Opens the menu and pauses everything: save slots, options, fullscreen, back to title. |
+| **⏩** (hold) | Fast-forward at 4× speed while held, for long flights and travel; sound is muted meanwhile. |
+| **⤓** / **⤒** | Quick save to slot 1 / quick load from slot 1. |
+| **⛶** | Fullscreen. On phones that support it, this also locks the screen to landscape. |
+
+**Layout and behaviour on phones:**
+- **Landscape** (recommended): the picture fills the screen height, with the buttons in the side margins.
+- **Portrait:** the picture is at the top, with the buttons below within reach of your thumbs.
+- Notches, rounded corners and home indicators are avoided automatically.
+- **Page behaviour:** the game area does not scroll or zoom when touched, and double-tap zoom is disabled.
+- **Sound** starts with your first tap; browsers require a touch before playing audio.
+- **Background:** switching apps or locking the phone pauses the game and saves a **Continue** point. Coming back resumes exactly there, even if the system closed the tab meanwhile.
+- **Screen:** it stays awake while you play.
+- **For the best experience**, add the app to your home screen (see [Install as an app](#install-as-an-app)). It then starts fullscreen in landscape, without browser bars.
 
 ### Saving
 
@@ -297,6 +358,7 @@ Do **not** consult the game-logic code of other unlicensed reimplementations whi
 
 ## Credits and licenses
 
+- **Built with [Claude Code](https://claude.com/claude-code):** this project was created with Claude Code, Anthropic's agentic coding tool, working with the project's maintainer. That covers the emulator, the CPU validation, the sound hardware, the web app and this documentation.
 - **This project:** Apache License 2.0 (see [LICENSE](LICENSE) and [NOTICE](NOTICE)).
 - **[OpenRakis/Cryogenic](https://github.com/OpenRakis/Cryogenic)** and **[Spice86](https://github.com/OpenRakis/Spice86)** (Apache-2.0): the reference emulator, documentation of the game's drivers, and the annotated disassembly (from madmoose's `dune-chani` annotations).
 - **[oplon](https://codeberg.org/sbechet/oplon)** (MIT): OPL2/OPL3 FM synthesis.
