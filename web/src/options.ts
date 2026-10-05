@@ -35,6 +35,7 @@ export function mountOptions(form: HTMLElement, onChange: (s: Settings) => void)
     }
     const g = (s as unknown as Settings).graphics;
     form.querySelectorAll<HTMLElement>("[data-when-crt]").forEach((el) => (el.hidden = g.crt === "off"));
+    form.querySelectorAll<HTMLElement>("[data-when-xbr]").forEach((el) => (el.hidden = g.scaler !== "xbr" || g.crt === "lottes"));
     // The CRT shader works from the original picture with its own resampling.
     for (const n of ["graphics.scaler", "graphics.output"]) form.querySelector<Field>(`[name="${n}"]`)!.disabled = g.crt === "lottes";
   };

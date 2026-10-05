@@ -17,6 +17,8 @@ export interface Graphics {
   output: Output;
   crt: Crt;
   crtStrength: number; // 0..1
+  /** How much of the xBR result to use (the rest is the original pixel). */
+  xbrAmount: number; // 0..1
 }
 
 export const PRESETS: Record<Exclude<Preset, "custom">, Pick<Graphics, "scaler" | "output" | "crt">> = {
@@ -52,7 +54,7 @@ export const DEFAULTS: Settings = {
   language: "ENG",
   music: 0.8,
   voices: 1,
-  graphics: { preset: "original", ...PRESETS.original, crtStrength: 0.8 },
+  graphics: { preset: "original", ...PRESETS.original, crtStrength: 0.8, xbrAmount: 0.6 },
   touchMode: "direct",
   buttons: "auto",
   batterySaver: true,

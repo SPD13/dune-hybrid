@@ -216,7 +216,7 @@ The game draws a 320×200 picture. The app shows it at the original 4:3 shape, r
 
 | Step | Choices |
 |---|---|
-| **Upscaler**: redraws the picture at a higher resolution before it is scaled | *None*; *MMPX*, a pixel-art upscaler that rounds diagonals and curves but only uses the picture's own colours; *Scale4x (EPX)*, more conservative; *xBR*, smooth anti-aliased edges with a painted look |
+| **Upscaler**: redraws the picture at a higher resolution before it is scaled | *None*; *MMPX*, a pixel-art upscaler that rounds diagonals and curves but only uses the picture's own colours; *Scale4x (EPX)*, more conservative; *xBR*, smooth anti-aliased edges with a painted look, blended with the original pixels by an adjustable amount (60% by default, so the game's small font keeps the holes of letters like "a" and "e") |
 | **Scaling to the screen** | *Sharp*: crisp pixels without uneven sizes; *Nearest pixel*; *Smooth* |
 | **Monitor** | *None*; *Scanlines*; *CRT*: Timothy Lottes' CRT shader with curvature, scanlines, shadow mask and glow (it works from the original picture, so it replaces the upscaler) |
 
@@ -231,7 +231,7 @@ Presets combine them:
 | Pixel-art HD | MMPX | sharp | none |
 | Smooth HD | xBR | smooth | none |
 
-Under **Options → Graphics → Filters** each step can be changed on its own (the preset then shows *Custom*), and a slider sets the strength of the monitor effect. The filters change only what you see: the game, its snapshots and their thumbnails are unaffected. Browsers without WebGL2 fall back to a basic display with CSS smoothing and scanlines.
+Under **Options → Graphics → Filters** each step can be changed on its own (the preset then shows *Custom*), and sliders set the xBR smoothing and the strength of the monitor effect. The filters change only what you see: the game, its snapshots and their thumbnails are unaffected. Browsers without WebGL2 fall back to a basic display with CSS smoothing and scanlines.
 
 ### Install as an app
 

@@ -26,12 +26,15 @@
 
    SPDX-License-Identifier: MIT
    Ported to GLSL ES 3.00 (texelFetch neighbourhood, scale as a uniform,
-   CORNER_C + SMOOTH_TIPS, small_details off) for dune-hybrid.
+   CORNER_C + SMOOTH_TIPS, small_details off) for dune-hybrid, with an
+   amount control: the game's 4-pixel-wide font loses its holes ("a", "e")
+   under full-strength xBR, so the result can be blended with the source.
 */
 precision highp float;
 uniform sampler2D uSrc;
 uniform ivec2 uSrcSize;
 uniform float uScale;
+uniform float uAmount; // 1 = full xBR; lower keeps more of the original pixel
 out vec4 o;
 
 #define XBR_EQ_THRESHOLD 15.0
@@ -128,5 +131,6 @@ void main() {
   res2 = mix(res2, mix(F, B, px.y), maximos.y);
   res2 = mix(res2, mix(D, H, px.w), maximos.w);
 
-  o = vec4(mix(res1, res2, step(c_df(E, res1), c_df(E, res2))), 1.0);
+  vec3 res = mix(res1, res2, step(c_df(E, res1), c_df(E, res2)));
+  o = vec4(mix(E, res, uAmount), 1.0);
 }

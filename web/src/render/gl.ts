@@ -270,6 +270,7 @@ export class GlRenderer implements Renderer {
           gl.uniform1i(u("uSrc"), 0);
           gl.uniform2i(u("uSrcSize"), W, H);
           gl.uniform1f(u("uScale"), 4);
+          gl.uniform1f(u("uAmount"), g.xbrAmount);
         });
         return out;
       }

@@ -39,7 +39,7 @@ export function openLab(
     lab.append(cell);
     const r = GlRenderer.create(canvas, false);
     if (!r) continue;
-    r.resize(w, h, devicePixelRatio);
+    r.resize(w, h, Math.min(devicePixelRatio, 8000 / w));
     r.setGraphics({ ...DEFAULTS.graphics, ...(name === "custom" ? {} : PRESETS[name as Exclude<Preset, "custom">]), ...extra });
     r.frame(frame);
   }
