@@ -52,7 +52,7 @@ export async function scanIso(iso: Blob): Promise<Found> {
   return found;
 }
 
-interface ZipEntry {
+export interface ZipEntry {
   name: string;
   method: number;
   compressed: number;
@@ -60,7 +60,7 @@ interface ZipEntry {
   localOffset: number;
 }
 
-async function zipEntries(zip: Blob): Promise<ZipEntry[]> {
+export async function zipEntries(zip: Blob): Promise<ZipEntry[]> {
   const tailStart = Math.max(0, zip.size - 65557);
   const tail = await bytes(zip, tailStart, zip.size);
   let eocd = -1;
@@ -93,8 +93,16 @@ async function zipEntries(zip: Blob): Promise<ZipEntry[]> {
   return out;
 }
 
+/** The bytes of a stored (uncompressed) ZIP entry, or null if compressed. */
+export async function storedEntry(zip: Blob, e: ZipEntry): Promise<Blob | null> {
+  if (e.method !== 0) return null;
+  const local = await bytes(zip, e.localOffset, e.localOffset + 30);
+  const dataStart = e.localOffset + 30 + u16(local, 26) + u16(local, 28);
+  return zip.slice(dataStart, dataStart + e.size);
+}
+
 /** Stream one ZIP entry's contents into a scratch OPFS file. */
-async function unzipEntry(zip: Blob, e: ZipEntry, progress: Progress): Promise<Blob> {
+export async function unzipEntry(zip: Blob, e: ZipEntry, progress: Progress): Promise<Blob> {
   const local = await bytes(zip, e.localOffset, e.localOffset + 30);
   const dataStart = e.localOffset + 30 + u16(local, 26) + u16(local, 28);
   let stream = zip.slice(dataStart, dataStart + e.compressed).stream();

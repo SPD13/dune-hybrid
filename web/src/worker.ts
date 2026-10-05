@@ -13,6 +13,8 @@ export type ToWorker =
       music: number;
       voices: number;
       batterySaver: boolean;
+      /** Songs replaced by remastered recordings (bit n = song n). */
+      replacedSongs: number;
     }
   | { type: "key"; code: number; pressed: boolean }
   | { type: "mouse"; x: number; y: number; buttons: number }
@@ -20,6 +22,7 @@ export type ToWorker =
   | { type: "speed"; factor: number }
   | { type: "volume"; music: number; voices: number }
   | { type: "batterySaver"; on: boolean }
+  | { type: "replaced"; mask: number }
   | { type: "snapshot"; id: number }
   | { type: "load"; data: Uint8Array };
 
@@ -27,6 +30,7 @@ export type FromWorker =
   | { type: "started" }
   | { type: "frame"; frame: Uint8Array }
   | { type: "audio"; audio: Float32Array }
+  | { type: "music"; events: Uint32Array; state: Uint32Array }
   | { type: "save"; name: string; data: Uint8Array }
   | { type: "snapshot"; id: number; data: Uint8Array }
   | { type: "loaded"; ok: boolean; message?: string }
@@ -46,6 +50,7 @@ function loop() {
   const t0 = last;
   let lastStats = last;
   let busy = 0;
+  let lastMusic = 0;
   const tick = () => {
     const now = performance.now();
     const elapsed = Math.min(now - last, 100);
@@ -59,6 +64,12 @@ function loop() {
     const audio = emu.takeAudio();
     // Fast-forward plays silently: sped-up audio would only be noise.
     if (audio.length && speed === 1) post({ type: "audio", audio }, [audio.buffer]);
+    const events = emu.takeMusicEvents();
+    const state = emu.musicState();
+    if (events.length || now - lastMusic > 250) {
+      lastMusic = now;
+      post({ type: "music", events, state }, [events.buffer, state.buffer]);
+    }
     const frame = emu.frame();
     post({ type: "frame", frame }, [frame.buffer]);
     if (now - lastStats > 2000) {
@@ -84,6 +95,7 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       for (const s of m.saves) emu.putFile(s.name, s.data);
       emu.setVolume(m.music, m.voices);
       emu.setBatterySaver(m.batterySaver);
+      emu.setReplacedSongs(m.replacedSongs);
       if (m.snapshot) {
         try {
           emu.loadState(m.snapshot);
@@ -114,6 +126,9 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       break;
     case "batterySaver":
       emu?.setBatterySaver(m.on);
+      break;
+    case "replaced":
+      emu?.setReplacedSongs(m.mask);
       break;
     case "snapshot":
       if (emu) {

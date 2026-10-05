@@ -200,7 +200,8 @@ pub(crate) fn int21(m: &mut Machine) {
         0x3f => {
             let (h, count) = (m.cpu.regs[BX] as usize, m.cpu.regs[CX] as usize);
             let (seg, off) = (m.cpu.sregs[DS], m.cpu.regs[DX]);
-            let Some(Some(crate::OpenFile { f, .. })) = m.files.get_mut(h) else {
+            let now = m.now_ns();
+            let Some(Some(crate::OpenFile { f, name })) = m.files.get_mut(h) else {
                 if h < 5 {
                     m.cpu.regs[AX] = 0;
                 } else {
@@ -208,6 +209,10 @@ pub(crate) fn int21(m: &mut Machine) {
                 }
                 return;
             };
+            if let Some(t) = &mut m.trace_reads {
+                let pos = f.stream_position().unwrap_or(0);
+                t.push((now, name.clone(), pos, count as u32));
+            }
             let mut buf = vec![0u8; count];
             let mut n = 0;
             while n < count {

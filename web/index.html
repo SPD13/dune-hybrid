@@ -48,6 +48,25 @@
         <p id="message" class="message" role="status"></p>
       </section>
 
+      <section class="card" id="music-card">
+        <h2>Remastered soundtrack <small>(optional)</small></h2>
+        <p id="music-status" class="hint"></p>
+        <ul id="music-songs" class="songs"></ul>
+        <div class="row">
+          <label class="button" for="music-input">Import soundtrack ZIP…</label>
+          <input id="music-input" type="file" accept=".zip,.ZIP" hidden />
+          <button id="music-forget" class="link" hidden>Remove soundtrack</button>
+        </div>
+        <progress id="music-progress" max="1" value="0" hidden></progress>
+        <p class="hint">
+          Stéphane Picq, the game's composer, released a remaster of the original music:
+          <a href="https://stphanepicq.bandcamp.com/album/dune-spice-opera-2024-remaster-lp" target="_blank" rel="noopener">Dune Spice Opera 2024 remaster</a>.
+          It is copyrighted: buy it on Bandcamp, download the <strong>MP3</strong> ZIP, and import it here.
+          The game then plays the remastered recordings instead of its FM music. The files stay in this browser.
+        </p>
+        <p id="music-message" class="message" role="status"></p>
+      </section>
+
       <footer>
         <button id="btn-options" class="link">Options</button>
         <span>·</span>
@@ -128,6 +147,7 @@
         </select>
       </label>
       <label class="check"><input name="batterySaver" type="checkbox" /> Battery saver (skip the game's idle waiting)</label>
+      <label class="check"><input name="remaster" type="checkbox" /> Remastered soundtrack (when imported)</label>
     </template>
 
     <p id="toast" class="toast" role="status" hidden></p>

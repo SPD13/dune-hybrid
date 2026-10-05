@@ -9,7 +9,9 @@
 mod bios;
 mod dos;
 pub mod fs;
+mod hsq;
 pub mod hw;
+pub mod music;
 pub mod sound;
 pub mod state;
 
@@ -26,6 +28,11 @@ use cpu::{AX, BX, CS, CX, DS, DX, ES, SP, SS};
 pub const LOAD_SEG: u16 = 0x1000;
 pub const PSP_SEG: u16 = LOAD_SEG - 0x10;
 const ENV_SEG: u16 = 0x0f00;
+/// The game's data segment at run time (relocated 0F4Bh).
+pub const GAME_DS: u16 = LOAD_SEG + 0x0f4b;
+/// `[DBCDh]`: the music driver's status byte (bit 7 playing, bit 6 fading).
+const GAME_MUSIC_STATUS: u16 = 0xdbcd;
+
 /// Top of conventional memory (640 KB).
 pub const MEM_TOP_SEG: u16 = 0xa000;
 /// BIOS stub area: one 8-byte stub per interrupt vector.
@@ -94,6 +101,8 @@ pub struct Machine {
     pub int_counts: [u64; 256],
     /// Log INT 33h calls (diagnostics).
     pub trace_mouse: bool,
+    /// Diagnostics: (virtual ns, file, position, length) of every file read.
+    pub trace_reads: Option<Vec<(u64, String, u64, u32)>>,
     /// Identifies the loaded program; snapshots only restore onto the same one.
     pub program_id: u64,
     /// Battery saver: skip ahead when the game spins polling the mouse.
@@ -106,6 +115,11 @@ pub struct Machine {
     /// While sleeping (HLT or battery saver): when to wake up.
     sleep_until: Option<u64>,
     sleep_is_idle_skip: bool,
+    /// Song start/stop/fade tracking for replacement soundtracks.
+    pub music: music::MusicTracker,
+    /// Songs (bit n = song n) whose FM rendition is muted because the host
+    /// plays a replacement recording.
+    pub replaced_songs: u16,
 }
 
 /// Detects the game's busy-wait: back-to-back INT 33h/3 polls with nothing
@@ -142,6 +156,7 @@ impl Machine {
             dta: (PSP_SEG, 0x80),
             int_counts: [0; 256],
             trace_mouse: false,
+            trace_reads: None,
             program_id: state::fnv64(exe),
             idle_skip: true,
             idle: IdleDetector::default(),
@@ -149,6 +164,8 @@ impl Machine {
             next_event: 0,
             sleep_until: None,
             sleep_is_idle_skip: false,
+            music: music::MusicTracker::default(),
+            replaced_songs: 0,
         };
         for _ in 0..5 {
             m.files.push(None);
@@ -208,6 +225,7 @@ impl Machine {
             self.hw.now_ns = now;
             if now >= self.next_event || self.hw.reschedule {
                 self.next_event = self.hw.update(now);
+                self.music.refresh(&self.hw.mem);
                 if let Some(b) = self.mouse.deferred {
                     if now >= self.mouse.pressed_at + MIN_BUTTON_HOLD_NS {
                         self.mouse.buttons = b;
@@ -231,6 +249,12 @@ impl Machine {
             }
             if self.hw.trace_ports.is_some() {
                 self.hw.trace_pc = (self.cpu.sregs[CS], self.cpu.ip);
+            }
+            if self.music.watch[0] != 0 {
+                let pc = self.cpu.phys(self.cpu.sregs[CS], self.cpu.ip);
+                if let Some(entry) = self.music.hit(pc) {
+                    self.on_music_call(entry);
+                }
             }
             match self.cpu.step(&mut self.hw) {
                 Step::Ok | Step::Halt => {}
@@ -435,6 +459,7 @@ impl Machine {
         w.bool(self.sleep_until.is_some());
         w.u64(self.sleep_until.unwrap_or(0));
         w.bool(self.sleep_is_idle_skip);
+        w.u8(self.music.current);
         w.u32(self.files.len() as u32);
         for f in &mut self.files {
             match f {
@@ -497,6 +522,7 @@ impl Machine {
         let sleeping = r.bool()?;
         let wake = r.u64()?;
         let sleep_is_idle_skip = r.bool()?;
+        let current_song = r.u8()?;
         let nfiles = r.u32()? as usize;
         let mut files = Vec::with_capacity(nfiles);
         for _ in 0..nfiles {
@@ -524,6 +550,9 @@ impl Machine {
         self.next_event = next_event;
         self.sleep_until = sleeping.then_some(wake);
         self.sleep_is_idle_skip = sleep_is_idle_skip;
+        self.music.current = current_song;
+        self.hw.audio.opl_muted = current_song != 0 && self.replaced_songs & (1 << current_song) != 0;
+        self.music.events.clear();
         self.exited = None;
         Ok(())
     }
@@ -549,6 +578,61 @@ impl Machine {
             }
         } else {
             self.idle.streak = 0;
+        }
+    }
+}
+
+impl Machine {
+    /// The game is entering one of its music driver's entry points.
+    fn on_music_call(&mut self, entry: usize) {
+        use music::MusicEvent::*;
+        let c = &self.cpu;
+        let e = match entry {
+            0 => {
+                let (seg, off) = (c.sregs[cpu::ES], c.regs[cpu::SI]);
+                let data: Vec<u8> = (0..32u16).map(|i| self.mem_read(seg, off.wrapping_add(i))).collect();
+                let song = self.music.identify(self.fs.as_mut(), &data);
+                Play { song }
+            }
+            1 => Stop,
+            2 => Resume,
+            _ => Fade { ticks: c.regs[AX], volume: c.reg8(3) },
+        };
+        let now = self.now_ns();
+        if let Play { song } = e {
+            self.hw.audio_catch_up(now);
+            self.hw.audio.opl_muted = song != 0 && self.replaced_songs & (1 << song) != 0;
+            self.hw.audio.reset_opl_quiet(now);
+        }
+        self.music.push(now, e);
+    }
+}
+
+/// What the game's music system is doing, read from game memory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct MusicState {
+    /// Song the game last started and has not stopped (see [`SONG_NAMES`]);
+    /// 0 = none or unrecognized.
+    pub song: u8,
+    /// Driver status: bit 7 playing, bit 6 fading.
+    pub status: u8,
+    /// A digitized voice/effect is playing on the Sound Blaster.
+    pub voice: bool,
+    /// Milliseconds since the FM music last produced sound (muted or not):
+    /// a long quiet while a song is "playing" means it ended on its own.
+    pub quiet_ms: u32,
+}
+
+/// Song numbers used by the game, in its resource order.
+pub const SONG_NAMES: [&str; 10] = ["SEKENCE", "WATER", "WORMSUIT", "WORMINTR", "WARSONG", "MORNING", "SIETCHM", "BAGDAD", "ARRAKIS", "CRYOMUS"];
+
+impl Machine {
+    pub fn music_state(&self) -> MusicState {
+        MusicState {
+            song: self.music.current,
+            status: self.mem_read(GAME_DS, GAME_MUSIC_STATUS),
+            voice: self.hw.audio.sb_playing(),
+            quiet_ms: (self.hw.audio.opl_quiet_ns(self.now_ns()) / 1_000_000).min(u32::MAX as u64) as u32,
         }
     }
 }

@@ -7,6 +7,7 @@
 - [What's new](#whats-new)
 - [Features](#features)
 - [Installation](#installation)
+- [Remastered soundtrack (optional)](#remastered-soundtrack-optional)
 - [Playing](#playing)
 - [How it works](#how-it-works)
 - [Building and running it yourself](#building-and-running-it-yourself)
@@ -30,6 +31,7 @@ Things this edition adds that were not part of the original 1992 game:
   - automatic saving of your exact position whenever you switch apps.
 
   See [Mobile controls and gestures](#mobile-controls-and-gestures).
+- **Remastered soundtrack.** In 2024 the game's composer, Stéphane Picq, released a remaster of the original music, including re-rendered versions of the game's own songs. If you buy it, the game can play those recordings instead of the 1992 AdLib/FM music. They stay in sync with the action, dip under voices and fade exactly as the game's music does. See [Remastered soundtrack](#remastered-soundtrack-optional).
 
 ## Features
 
@@ -48,6 +50,7 @@ Things this edition adds that were not part of the original 1992 game:
 - **Display modes**: sharp pixels, smooth, or CRT scanlines.
 - **Battery saver**: skips the time the original program spends busy-waiting. This uses about 4× less CPU, and the picture stays pixel-for-pixel the same.
 - **Installable app (PWA)** that works offline after the first visit.
+- **Optional remastered soundtrack** (sold separately by the composer) in place of the FM music.
 
 ## Installation
 
@@ -87,6 +90,39 @@ The files are copied into the browser's private storage (about 400 MB) and then 
 **Not supported:** 7-Zip/RAR archives and BIN/CUE images; extract or convert them first. If the browser can't store files (some private modes), the game runs from the selected files for that session only.
 
 Afterwards, **New game** starts from the intro, and **Continue** resumes your last session.
+
+## Remastered soundtrack (optional)
+
+The game's composer, **Stéphane Picq**, released **[Dune Spice Opera 2024 remaster](https://stphanepicq.bandcamp.com/album/dune-spice-opera-2024-remaster-lp)** (EXXOS, Stéphane Picq with Philippe Ulrich). Besides the remastered *Spice Opera* album, it contains the **full in-game soundtrack**: the game's own songs re-rendered in high quality, labelled with the game's internal names (`PC_ARRAKIS`, `PC_MORNING`, …). This app can play those recordings instead of the original AdLib/OPL3 FM music.
+
+> ⚠️ **This music is copyrighted and is not included in this project.** To use it you must **buy your own copy** from the composer's Bandcamp page:
+> **<https://stphanepicq.bandcamp.com/album/dune-spice-opera-2024-remaster-lp>**
+> Please support the artist; do not share the files.
+
+### How to get and use it
+
+1. **Buy** the album on [Bandcamp](https://stphanepicq.bandcamp.com/album/dune-spice-opera-2024-remaster-lp).
+2. **Download** it from Bandcamp in the **MP3** format. You get a ZIP file named like `EXXOS (Stéphane Picq with Philippe Ulrich) - Dune Spice Opera 2024 remaster_MP3.zip`, about 240 MB.
+3. **Import it** in the app: on the title screen, in the **Remastered soundtrack** card, choose **Import soundtrack ZIP…** and select that ZIP file. Don't extract it.
+4. The card lists the game songs that now use the remastered recordings. The option **Remastered soundtrack** (title screen and in-game menu) switches between the remaster and the original FM music at any time.
+
+The app keeps only the eight game tracks from the ZIP (about 62 MB), in the browser's private storage. Nothing is uploaded. **Remove soundtrack** deletes them.
+
+### Which songs are replaced
+
+| In-game song | Remastered track |
+|---|---|
+| MORNING (intro) | PC_MORNING |
+| SEKENCE | PC_SEKENCE |
+| ARRAKIS (palace) | PC_ARRAKIS |
+| BAGDAD | PC_BAGDAD |
+| SIETCHM | PC_SIETCH |
+| WATER | PC_WATER |
+| WARSONG | PC_WARSONG |
+| WORMINTR, WORMSUIT | PC_WORMINTR+WORMSUIT (one track, split at 2:52.4) |
+| CRYOMUS (Cryo logo jingle) | — (no remaster; the original plays) |
+
+The album's other tracks (the *Spice Opera* arrangements and the bonus tracks) are longer studio arrangements that don't follow the game's timing, so they are not used in-game.
 
 ## Playing
 
@@ -229,6 +265,17 @@ In Chrome/Edge use **Install app**; on iOS Safari use **Share → Add to Home Sc
 
 A save/restore round trip is bit-exact: a run interrupted by one ends in exactly the same state as an uninterrupted one (`crates/pc/tests/snapshot.rs`).
 
+### Remastered soundtrack
+
+- **Finding the tracks:** the importer finds the game tracks in the purchased ZIP by their `PC_<NAME>` labels. These appear in the file names and in the MP3 title tags (tracks 13–20).
+- **Following the game's music calls:** the game drives its music driver through a table of far pointers at `DS:3971h` (play, with the song data at ES:SI), `DS:3975h` (stop) and `DS:397Dh` (fade to a volume over a number of 200 Hz ticks). The emulator watches those entry points (`crates/pc/src/music.rs`) and identifies each song by comparing its data with the songs in DUNE.DAT. The page plays the matching recording, in sync, and mutes only that song's FM rendition.
+- **Volume:** the game lowers its music under voices (volume 230 → 140 over 0.5 s, back to 230 over 2 s) and fades it out between scenes. The recording follows the same ramps.
+- **Song endings:** when the game's song ends by itself, the emulator notices its (still synthesized, muted) FM output going silent and the recording fades out. If the recording ends first, it loops.
+- **Verified sync:**
+  - The game's in-game recording of MORNING matches PC_MORNING at the same tempo (within 0.4%) from the same starting point.
+  - The lengths computed from the game's song data (`tools/song-length.py`) match the remastered tracks, with each loop section played once.
+  - The worm track is split where WORMINTR ends according to the song data (172.1 s), adjusted to the remaster's audible transition at 172.4 s.
+
 ### The web app
 
 - **Game files** are stored in the **Origin Private File System**. The worker reads `DUNE.DAT` on demand through `FileReaderSync`, so the 400 MB file is never loaded into memory.
@@ -275,7 +322,7 @@ npm run preview     # serve dist at http://localhost:4174
 | `crates/runner` | `dune-run`: headless native runner for development and regression checks |
 | `crates/web` | WebAssembly bindings (`Emu`) used by the worker |
 | `web/` | The web app (Vite + TypeScript) |
-| `tools/` | Test-data helpers |
+| `tools/` | Helpers: CPU test-data conversion (`sst-compact.py`), song lengths from the game's music data (`song-length.py`) |
 
 ### Headless runner
 
@@ -292,7 +339,11 @@ cargo build --release
 - **Environment switches:**
   - `TRACE_PORTS=1` logs sound/DMA/PIC port traffic, plus the code address of unknown port writes;
   - `TRACE_MOUSE=1` logs mouse-driver calls;
-  - `NO_IDLE_SKIP=1` disables the battery saver.
+  - `NO_IDLE_SKIP=1` disables the battery saver;
+  - `TRACE_MUSIC=1` logs the game's music calls (play/stop/fade, with the song identified) and voice activity;
+  - `TRACE_READS=1` logs which DUNE.DAT resources are read and when;
+  - `MUSIC_ONLY=1` mutes voices in the recorded WAV;
+  - `REPLACED_SONGS=<hex mask>` mutes the FM rendition of those songs, as the web app does when the remaster plays.
 
 ### Tests
 
@@ -352,6 +403,7 @@ Do **not** consult the game-logic code of other unlicensed reimplementations whi
   - language, volume and display options;
   - ISO/ZIP import.
 - [ ] **Input recorder:** deterministic replays, for bug reports and as a test corpus.
+- [x] **Remastered soundtrack** support (the composer's 2024 remaster, purchased by the player), in sync with the game.
 - [ ] **MT-32 / General MIDI music** via an emulated MPU-401 and a host synthesizer.
 - [ ] **Override mechanism:** replace original routines with Rust ports, verified in-process against the original. This is the path to HD text and graphics, replacement soundtracks and, eventually, a native engine.
 - [ ] Firefox and Safari testing on real devices.
@@ -361,6 +413,7 @@ Do **not** consult the game-logic code of other unlicensed reimplementations whi
 - **Built with [Claude Code](https://claude.com/claude-code):** this project was created with Claude Code, Anthropic's agentic coding tool, working with the project's maintainer. That covers the emulator, the CPU validation, the sound hardware, the web app and this documentation.
 - **This project:** Apache License 2.0 (see [LICENSE](LICENSE) and [NOTICE](NOTICE)).
 - **[OpenRakis/Cryogenic](https://github.com/OpenRakis/Cryogenic)** and **[Spice86](https://github.com/OpenRakis/Spice86)** (Apache-2.0): the reference emulator, documentation of the game's drivers, and the annotated disassembly (from madmoose's `dune-chani` annotations).
+- **Music** by **Stéphane Picq**. The optional remastered soundtrack is *Dune Spice Opera 2024 remaster* by EXXOS (Stéphane Picq with Philippe Ulrich), sold separately at <https://stphanepicq.bandcamp.com/album/dune-spice-opera-2024-remaster-lp> and not included here.
 - **[oplon](https://codeberg.org/sbechet/oplon)** (MIT): OPL2/OPL3 FM synthesis.
 - **[miniz_oxide](https://github.com/Frommi/miniz_oxide)** (MIT/Apache-2.0/Zlib): snapshot compression.
 - **[SingleStepTests/80286](https://github.com/SingleStepTests/80286)** (MIT): CPU test vectors, downloaded at test time and not redistributed.

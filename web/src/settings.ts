@@ -13,6 +13,8 @@ export interface Settings {
   touchMode: TouchMode;
   buttons: Buttons;
   batterySaver: boolean;
+  /** Use the imported remastered soundtrack instead of the FM music. */
+  remaster: boolean;
 }
 
 export const DEFAULTS: Settings = {
@@ -23,6 +25,7 @@ export const DEFAULTS: Settings = {
   touchMode: "direct",
   buttons: "auto",
   batterySaver: true,
+  remaster: true,
 };
 
 export const LANGUAGES: Record<Language, string> = {

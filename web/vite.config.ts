@@ -25,9 +25,30 @@ function devFiles(): Plugin {
   };
 }
 
+// Dev server only: /dev-soundtrack.zip serves a locally purchased soundtrack
+// ZIP for automated tests (`?devmusic`). Set DUNE_SOUNDTRACK to its path.
+function devSoundtrack(): Plugin {
+  return {
+    name: "dev-soundtrack",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/dev-soundtrack.zip", (_req, res) => {
+        const path = process.env.DUNE_SOUNDTRACK;
+        if (!path || !existsSync(path)) {
+          res.statusCode = 404;
+          res.end("set DUNE_SOUNDTRACK");
+          return;
+        }
+        res.setHeader("Content-Length", statSync(path).size);
+        createReadStream(path).pipe(res);
+      });
+    },
+  };
+}
+
 export default defineConfig({
   base: "./",
-  plugins: [devFiles()],
+  plugins: [devFiles(), devSoundtrack()],
   server: { port: 5174 },
   preview: { port: 4174 },
   worker: { format: "es" },

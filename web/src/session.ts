@@ -5,6 +5,7 @@
 import { Input } from "./input";
 import { mountOptions } from "./options";
 import { commandLine, isTouchDevice, loadSettings } from "./settings";
+import { SoundtrackPlayer, loadManifest, replacedMask, segments } from "./soundtrack";
 import { type Snapshot, loadSaves, loadSnapshots, putSave, putSnapshot } from "./storage";
 import type { FromWorker, ToWorker } from "./worker";
 
@@ -42,11 +43,16 @@ export async function startSession(opts: SessionOptions) {
 
   // ---- audio ----
   let audioNode: AudioWorkletNode | null = null;
+  // Remastered soundtrack (optional, imported by the player).
+  const soundtrack = segments(loadManifest());
+  let remaster: SoundtrackPlayer | null = null;
   try {
     const ctx = new AudioContext({ sampleRate: 48000, latencyHint: "interactive" });
     await ctx.audioWorklet.addModule(new URL("audio-worklet.js", document.baseURI));
     audioNode = new AudioWorkletNode(ctx, "dune-audio", { numberOfInputs: 0, outputChannelCount: [2] });
     audioNode.connect(ctx.destination);
+    if (soundtrack.size) remaster = await SoundtrackPlayer.create(ctx, soundtrack);
+    if (import.meta.env.DEV) Object.assign(window, { __remaster: remaster, __audioCtx: ctx });
     const resume = () => ctx.state !== "running" && ctx.resume().catch(() => {});
     resume();
     for (const ev of ["pointerdown", "keydown"]) window.addEventListener(ev, resume);
@@ -82,11 +88,15 @@ export async function startSession(opts: SessionOptions) {
     canvas.style.width = `${Math.floor(320 * scale)}px`;
     canvas.style.height = `${Math.floor(240 * scale)}px`;
   };
+  const remasterMask = () => (remaster && settings.remaster ? replacedMask(soundtrack) : 0);
   const applySettings = () => {
     stage.dataset.display = settings.display;
     const showButtons = settings.buttons === "always" || (settings.buttons === "auto" && isTouchDevice());
     stage.classList.toggle("with-buttons", showButtons);
     send({ type: "volume", music: settings.music, voices: settings.voices });
+    send({ type: "replaced", mask: remasterMask() });
+    remaster?.setUserVolume(settings.remaster ? settings.music : 0);
+    if (settings.remaster) remaster?.resync();
     send({ type: "batterySaver", on: settings.batterySaver });
     requestAnimationFrame(fit);
   };
@@ -125,7 +135,11 @@ export async function startSession(opts: SessionOptions) {
 
   // ---- pause / visibility ----
   let menuOpen = false;
-  const setPaused = (p: boolean) => send({ type: "pause", paused: p });
+  let fastForward = false;
+  const setPaused = (p: boolean) => {
+    send({ type: "pause", paused: p });
+    remaster?.setSuspended(p || fastForward);
+  };
   let wakeLock: { release(): Promise<void> } | null = null;
   const requestWakeLock = async () => {
     try {
@@ -225,10 +239,14 @@ export async function startSession(opts: SessionOptions) {
   const ffOn = (e: Event) => {
     e.preventDefault();
     send({ type: "speed", factor: 4 });
+    fastForward = true;
+    remaster?.setSuspended(true);
     ff.classList.add("active");
   };
   const ffOff = () => {
     send({ type: "speed", factor: 1 });
+    fastForward = false;
+    remaster?.setSuspended(menuOpen || document.hidden);
     ff.classList.remove("active");
   };
   ff.addEventListener("pointerdown", ffOn);
@@ -255,6 +273,9 @@ export async function startSession(opts: SessionOptions) {
         break;
       case "audio":
         audioNode?.port.postMessage(m.audio, [m.audio.buffer]);
+        break;
+      case "music":
+        if (settings.remaster) remaster?.update(m.events, m.state);
         break;
       case "save":
         putSave({ name: m.name, data: m.data }).catch((err) => console.error("save failed", err));
@@ -305,6 +326,7 @@ export async function startSession(opts: SessionOptions) {
       music: settings.music,
       voices: settings.voices,
       batterySaver: settings.batterySaver,
+      replacedSongs: remasterMask(),
     },
     [exe],
   );

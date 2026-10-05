@@ -197,3 +197,10 @@ input[type="range"] { accent-color: var(--accent); }
   border: 1px solid #5a4126;
   z-index: 20;
 }
+
+.card h2 small { text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: normal; }
+.songs { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px 12px; font-size: 13px; }
+.songs li { color: var(--muted); }
+.songs li.ok { color: var(--text); }
+.songs li.ok::before { content: "✓ "; color: var(--accent); }
+.songs li:not(.ok)::before { content: "· "; }

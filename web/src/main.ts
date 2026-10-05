@@ -4,6 +4,7 @@
 import { EXE_SHA256, importGameFiles, sha256 } from "./import";
 import { mountOptions } from "./options";
 import { startSession } from "./session";
+import { SONGS, forgetSoundtrack, importSoundtrack, loadManifest, segments } from "./soundtrack";
 import { type GameFileName, REQUIRED, clearScratch, forgetGameFiles, getSnapshot, store, stored } from "./storage";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -99,6 +100,56 @@ $("btn-continue").addEventListener("click", async () => {
   const snap = await getSnapshot("auto");
   play(snap?.data);
 });
+
+// ---- optional remastered soundtrack ----
+function refreshMusic() {
+  const segs = segments(loadManifest());
+  const list = $("music-songs");
+  list.replaceChildren(
+    ...Object.entries(SONGS).map(([id, name]) => {
+      const li = document.createElement("li");
+      li.textContent = name;
+      li.className = segs.has(Number(id)) ? "ok" : "";
+      li.title = segs.has(Number(id)) ? "Remastered recording" : "Original FM music";
+      return li;
+    }),
+  );
+  $("music-forget").hidden = segs.size === 0;
+  $("music-status").textContent = segs.size
+    ? `${segs.size} of 10 game songs use the remastered recordings (CRYOMUS, the Cryo logo jingle, has no remaster).`
+    : "Not imported: the game uses its original AdLib/OPL3 music.";
+}
+
+$<HTMLInputElement>("music-input").addEventListener("change", async (e) => {
+  const zip = (e.target as HTMLInputElement).files?.[0];
+  if (!zip) return;
+  const bar = $<HTMLProgressElement>("music-progress");
+  const msg = $("music-message");
+  msg.textContent = "";
+  bar.hidden = false;
+  try {
+    await importSoundtrack(zip, (_label, f) => (bar.value = f));
+  } catch (err) {
+    msg.textContent = String((err as Error).message ?? err);
+  } finally {
+    bar.hidden = true;
+    clearScratch().catch(() => {});
+    refreshMusic();
+  }
+});
+
+$("music-forget").addEventListener("click", async () => {
+  await forgetSoundtrack();
+  refreshMusic();
+});
+
+refreshMusic();
+
+if (import.meta.env.DEV && new URLSearchParams(location.search).has("devmusic") && !loadManifest()) {
+  const blob = await (await fetch("dev-soundtrack.zip")).blob();
+  await importSoundtrack(new File([blob], "soundtrack.zip"), () => {});
+  refreshMusic();
+}
 
 const optionsDialog = $("options-dialog");
 const optionsForm = document.createElement("form");

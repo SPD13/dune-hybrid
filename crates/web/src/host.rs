@@ -189,6 +189,41 @@ impl Emu {
         self.m.idle_skip = on;
     }
 
+    /// Songs (bit n = song n, see `pc::SONG_NAMES`) the page plays from a
+    /// replacement recording; their FM rendition is muted while they play.
+    #[wasm_bindgen(js_name = setReplacedSongs)]
+    pub fn set_replaced_songs(&mut self, mask: u16) {
+        self.m.replaced_songs = mask;
+        let cur = self.m.music.current;
+        self.m.hw.audio.opl_muted = cur != 0 && mask & (1 << cur) != 0;
+    }
+
+    /// Music events since the last call, flattened as
+    /// [time_ms, kind, a, b] per event: kind 1 play(a = song), 2 stop,
+    /// 3 resume, 4 fade(a = ticks, b = volume).
+    #[wasm_bindgen(js_name = takeMusicEvents)]
+    pub fn take_music_events(&mut self) -> Vec<u32> {
+        use pc::music::MusicEvent::*;
+        let mut out = Vec::new();
+        while let Some((at, e)) = self.m.music.events.pop_front() {
+            let (kind, a, b) = match e {
+                Play { song } => (1, song as u32, 0),
+                Stop => (2, 0, 0),
+                Resume => (3, 0, 0),
+                Fade { ticks, volume } => (4, ticks as u32, volume as u32),
+            };
+            out.extend_from_slice(&[(at / 1_000_000) as u32, kind, a, b]);
+        }
+        out
+    }
+
+    /// [song, driver status, voice playing (0/1), ms since FM music was audible].
+    #[wasm_bindgen(js_name = musicState)]
+    pub fn music_state(&self) -> Vec<u32> {
+        let s = self.m.music_state();
+        vec![s.song as u32, s.status as u32, s.voice as u32, s.quiet_ms]
+    }
+
     pub fn key(&mut self, scancode: u8, pressed: bool) {
         self.m.key(scancode, pressed);
     }

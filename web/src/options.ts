@@ -28,6 +28,7 @@ export function mountOptions(form: HTMLElement, onChange: (s: Settings) => void)
       touchMode: field("touchMode").value as Settings["touchMode"],
       buttons: field("buttons").value as Settings["buttons"],
       batterySaver: (field("batterySaver") as HTMLInputElement).checked,
+      remaster: (field("remaster") as HTMLInputElement).checked,
     };
     saveSettings(s);
     onChange(s);

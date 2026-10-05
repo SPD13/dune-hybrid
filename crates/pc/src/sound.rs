@@ -292,6 +292,11 @@ impl SoundBlaster {
 pub struct Audio {
     /// Host volume for the FM music and the digitized voices (0.0..=1.0+).
     pub music_gain: f32,
+    /// FM music muted because a replacement recording plays instead. The
+    /// chip still runs, so the game's timing and [`Audio::opl_quiet_ns`] hold.
+    pub opl_muted: bool,
+    /// Virtual time of the last audible FM output (for "song ended" detection).
+    last_opl_sound_ns: u64,
     pub voice_gain: f32,
     pub opl: Opl,
     pub sb: SoundBlaster,
@@ -308,6 +313,8 @@ impl Audio {
         Audio {
             music_gain: 1.0,
             voice_gain: 1.0,
+            opl_muted: false,
+            last_opl_sound_ns: 0,
             opl: Opl::new(),
             sb: SoundBlaster::new(),
             dma: Dma::new(),
@@ -325,12 +332,16 @@ impl Audio {
             return false;
         }
         let n = (target - self.frames_rendered).min(OUTPUT_RATE as u64);
+        let first_frame = target - n;
         self.frames_rendered = target;
         let mut irq = false;
         let sb_step = self.sb.byte_rate() / OUTPUT_RATE as f64 / if self.sb.stereo() { 2.0 } else { 1.0 };
-        for _ in 0..n {
+        for i in 0..n {
             let (l, r) = self.opl.chip.render_frame();
-            let g = self.music_gain / 32768.0;
+            if l.abs() + r.abs() > 96 {
+                self.last_opl_sound_ns = ((first_frame + i) as f64 * NS_PER_FRAME) as u64;
+            }
+            let g = if self.opl_muted { 0.0 } else { self.music_gain / 32768.0 };
             let (mut fl, mut fr) = (l as f32 * g, r as f32 * g);
             // Sound Blaster: step through DMA bytes at the DSP rate.
             if self.sb.active && !self.sb.paused {
@@ -380,6 +391,21 @@ impl Audio {
             irq = true;
         }
         irq
+    }
+
+    /// Restart the silence clock (a new song starts now).
+    pub fn reset_opl_quiet(&mut self, now: u64) {
+        self.last_opl_sound_ns = now;
+    }
+
+    /// How long the FM music has been silent (whether muted or not).
+    pub fn opl_quiet_ns(&self, now: u64) -> u64 {
+        now.saturating_sub(self.last_opl_sound_ns)
+    }
+
+    /// A digitized sound is currently being played.
+    pub fn sb_playing(&self) -> bool {
+        self.sb.active && !self.sb.paused && self.sb.speaker
     }
 
     /// When the Sound Blaster next needs servicing (end of its DMA block or

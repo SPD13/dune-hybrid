@@ -103,6 +103,15 @@ fn main() -> ExitCode {
     let mut m = Machine::new(&exe, &args.cmd, Box::new(files)).unwrap();
     m.trace_mouse = std::env::var_os("TRACE_MOUSE").is_some();
     m.idle_skip = std::env::var_os("NO_IDLE_SKIP").is_none();
+    if let Ok(mask) = std::env::var("REPLACED_SONGS") {
+        m.replaced_songs = u16::from_str_radix(mask.trim_start_matches("0x"), 16).unwrap_or(0);
+    }
+    if std::env::var_os("MUSIC_ONLY").is_some() {
+        m.hw.audio.voice_gain = 0.0;
+    }
+    if std::env::var_os("TRACE_READS").is_some() {
+        m.trace_reads = Some(Vec::new());
+    }
     if std::env::var_os("TRACE_PORTS").is_some() {
         m.hw.trace_ports = Some(Vec::new());
     }
@@ -115,6 +124,8 @@ fn main() -> ExitCode {
     let mut audio: Vec<f32> = Vec::new();
     m.hw.audio.enabled = args.wav.is_some();
     let mut events = args.events.iter().peekable();
+    let trace_music = std::env::var_os("TRACE_MUSIC").is_some();
+    let mut last_music = pc::MusicState::default();
     let exit = loop {
         t += args.shot_every;
         let end = t.min(args.seconds);
@@ -135,7 +146,32 @@ fn main() -> ExitCode {
             events.next();
         }
         if r == RunExit::Deadline {
-            r = m.run_until((end * 1e9) as u64);
+            if trace_music {
+                // Step in 10 ms slices to log music state changes.
+                let mut tt = m.now_ns();
+                while tt < (end * 1e9) as u64 && r == RunExit::Deadline {
+                    tt += 10_000_000;
+                    r = m.run_until(tt.min((end * 1e9) as u64));
+                    while let Some((at, e)) = m.music.events.pop_front() {
+                        let name = |s: u8| s.checked_sub(1).and_then(|i| pc::SONG_NAMES.get(i as usize)).copied().unwrap_or("?");
+                        match e {
+                            pc::music::MusicEvent::Play { song } => println!("event {:8.2}s PLAY {song} {}", at as f64 / 1e9, name(song)),
+                            other => println!("event {:8.2}s {other:?}", at as f64 / 1e9),
+                        }
+                    }
+                    let ms = m.music_state();
+                    if ms.voice != last_music.voice {
+                        println!("voice {:8.2}s {}", m.now_ns() as f64 / 1e9, if ms.voice { "on" } else { "off" });
+                    }
+                    if (ms.song, ms.status) != (last_music.song, last_music.status) {
+                        let name = ms.song.checked_sub(1).and_then(|i| pc::SONG_NAMES.get(i as usize)).unwrap_or(&"-");
+                        println!("music {:8.2}s song {:2} {name:9} status {:02x}", m.now_ns() as f64 / 1e9, ms.song, ms.status);
+                    }
+                    last_music = ms;
+                }
+            } else {
+                r = m.run_until((end * 1e9) as u64);
+            }
         }
         audio.extend(m.take_audio());
         m.screen_rgb(&mut rgb);
@@ -166,6 +202,29 @@ fn main() -> ExitCode {
     if let Some(t) = &m.hw.trace_ports {
         for (ns, port, v, w) in t.iter().take(400) {
             println!("port {:9.3}ms {} {port:03x} {v:02x}", *ns as f64 / 1e6, if *w { "OUT" } else { "IN " });
+        }
+    }
+    if let Some(reads) = &m.trace_reads {
+        // Name DUNE.DAT reads after the archive's table of contents.
+        let dat = fs::read(args.dir.join("DUNE.DAT")).unwrap_or_default();
+        let count = u16::from_le_bytes([dat[0], dat[1]]) as usize;
+        let mut toc = Vec::new();
+        for i in 0..count {
+            let e = &dat[2 + i * 25..2 + (i + 1) * 25];
+            let name: String = e[..16].iter().take_while(|&&b| b != 0).map(|&b| b as char).collect();
+            let size = u32::from_le_bytes(e[16..20].try_into().unwrap()) as u64;
+            let off = u32::from_le_bytes(e[20..24].try_into().unwrap()) as u64;
+            if !name.is_empty() {
+                toc.push((off, size, name));
+            }
+        }
+        let mut last = String::new();
+        for (ns, file, pos, len) in reads {
+            let res = toc.iter().find(|(o, s, _)| *pos >= *o && *pos < o + s).map(|t| t.2.clone()).unwrap_or_else(|| file.clone());
+            if res != last && !res.ends_with(".VOC") && !res.ends_with(".HNM") {
+                println!("read {:8.3}s {res} ({len} bytes)", *ns as f64 / 1e9);
+            }
+            last = res;
         }
     }
     for l in &m.log {
