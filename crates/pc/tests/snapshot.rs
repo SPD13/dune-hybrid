@@ -65,3 +65,21 @@ fn run_is_independent_of_slicing() {
     assert_eq!(whole.regs_string(), sliced.regs_string());
     assert!(whole.hw.mem == sliced.hw.mem, "memory differs");
 }
+
+#[test]
+#[ignore = "needs the game files"]
+fn graphics_recorder_does_not_change_the_run() {
+    // Recording driver calls only watches: the machine must end in exactly
+    // the same state with it on (and a hook attached) as with it off.
+    const END: u64 = 20_000_000_000;
+    let mut plain = machine();
+    plain.run_until(END);
+    let mut recorded = machine();
+    recorded.gfx.enabled = true;
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0u64));
+    let seen = calls.clone();
+    recorded.gfx.hook = Some(Box::new(move |_, _| seen.set(seen.get() + 1)));
+    recorded.run_until(END);
+    assert!(calls.get() > 100, "recorder saw {} events", calls.get());
+    assert_eq!(plain.save_state(), recorded.save_state());
+}

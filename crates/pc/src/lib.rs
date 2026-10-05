@@ -9,7 +9,7 @@
 mod bios;
 mod dos;
 pub mod fs;
-mod hsq;
+pub mod gfx;
 pub mod hw;
 pub mod music;
 pub mod sound;
@@ -120,6 +120,8 @@ pub struct Machine {
     /// Songs (bit n = song n) whose FM rendition is muted because the host
     /// plays a replacement recording.
     pub replaced_songs: u16,
+    /// Graphics driver call recording (off unless enabled).
+    pub gfx: gfx::GfxRecorder,
 }
 
 /// Detects the game's busy-wait: back-to-back INT 33h/3 polls with nothing
@@ -166,6 +168,7 @@ impl Machine {
             sleep_is_idle_skip: false,
             music: music::MusicTracker::default(),
             replaced_songs: 0,
+            gfx: gfx::GfxRecorder::default(),
         };
         for _ in 0..5 {
             m.files.push(None);
@@ -226,6 +229,7 @@ impl Machine {
             if now >= self.next_event || self.hw.reschedule {
                 self.next_event = self.hw.update(now);
                 self.music.refresh(&self.hw.mem);
+                self.gfx.refresh(&self.hw.mem);
                 if let Some(b) = self.mouse.deferred {
                     if now >= self.mouse.pressed_at + MIN_BUTTON_HOLD_NS {
                         self.mouse.buttons = b;
@@ -250,10 +254,14 @@ impl Machine {
             if self.hw.trace_ports.is_some() {
                 self.hw.trace_pc = (self.cpu.sregs[CS], self.cpu.ip);
             }
-            if self.music.watch[0] != 0 {
+            let watch_music = self.music.watch[0] != 0;
+            if watch_music || self.gfx.active() {
                 let pc = self.cpu.phys(self.cpu.sregs[CS], self.cpu.ip);
-                if let Some(entry) = self.music.hit(pc) {
+                if watch_music && let Some(entry) = self.music.hit(pc) {
                     self.on_music_call(entry);
+                }
+                if self.gfx.active() {
+                    self.watch_gfx(pc);
                 }
             }
             match self.cpu.step(&mut self.hw) {
@@ -402,6 +410,34 @@ impl Machine {
     /// The current mode 13h frame as RGB888.
     pub fn screen_rgb(&self, out: &mut [u8]) {
         self.hw.vga.render_rgb(&self.hw.mem, out);
+    }
+
+    /// Call `seg:off` as a far procedure with the current registers and step
+    /// the CPU (no interrupts or devices) until it returns, at most
+    /// `max_insns` instructions. For tests and tools.
+    pub fn call_far(&mut self, seg: u16, off: u16, max_insns: u64) -> Result<(), String> {
+        const RET_CS: u16 = 0xffff;
+        const RET_IP: u16 = 0x0000;
+        let sp = self.cpu.regs[SP].wrapping_sub(4);
+        let ss = self.cpu.sregs[SS];
+        self.cpu.regs[SP] = sp;
+        self.mem_write16(ss, sp, RET_IP);
+        self.mem_write16(ss, sp.wrapping_add(2), RET_CS);
+        self.cpu.sregs[CS] = seg;
+        self.cpu.ip = off;
+        let done_sp = sp.wrapping_add(4);
+        for _ in 0..max_insns {
+            if self.cpu.sregs[CS] == RET_CS && self.cpu.ip == RET_IP && self.cpu.regs[SP] == done_sp {
+                return Ok(());
+            }
+            match self.cpu.step(&mut self.hw) {
+                Step::Ok => {}
+                Step::Callback(n) => self.callback(n),
+                Step::Halt => return Err(format!("HLT at {}", self.regs_string())),
+                Step::Invalid { cs, ip, opcode } => return Err(format!("invalid opcode {opcode:04x} at {cs:04x}:{ip:04x}")),
+            }
+        }
+        Err(format!("no return after {max_insns} instructions: {}", self.regs_string()))
     }
 
     /// Close every open file (flushes in-memory saves).
@@ -553,6 +589,7 @@ impl Machine {
         self.music.current = current_song;
         self.hw.audio.opl_muted = current_song != 0 && self.replaced_songs & (1 << current_song) != 0;
         self.music.events.clear();
+        self.gfx.reset();
         self.exited = None;
         Ok(())
     }
@@ -583,6 +620,50 @@ impl Machine {
 }
 
 impl Machine {
+    /// Graphics recorder: a call into a driver slot, or the innermost call returning.
+    #[inline]
+    fn watch_gfx(&mut self, pc: u32) {
+        let sp = self.cpu.regs[SP];
+        if self.gfx.returns_at(pc, sp) {
+            let now = self.now_ns();
+            self.gfx.leave(now, &self.hw);
+        }
+        if let Some(slot) = self.gfx.slot_at(pc) {
+            self.on_gfx_call(slot);
+        }
+    }
+
+    #[cold]
+    fn on_gfx_call(&mut self, slot: u8) {
+        let c = &self.cpu;
+        let ss = c.sregs[SS];
+        let sp = c.regs[SP];
+        // Far call: return IP, CS on the stack.
+        let ret_ip = self.mem_read16(ss, sp);
+        let ret_cs = self.mem_read16(ss, sp.wrapping_add(2));
+        let drv = self.gfx.drv;
+        let call = gfx::DriverCall {
+            slot,
+            at_ns: self.now_ns(),
+            ax: c.regs[AX],
+            bx: c.regs[BX],
+            cx: c.regs[CX],
+            dx: c.regs[DX],
+            si: c.regs[cpu::SI],
+            di: c.regs[cpu::DI],
+            bp: c.regs[cpu::BP],
+            ds: c.sregs[DS],
+            es: c.sregs[ES],
+            ss,
+            flags: c.flags(),
+            drv,
+            y_offset: self.mem_read16(drv, gfx::DRV_Y_OFFSET),
+            depth: 0,
+        };
+        let ret = self.cpu.phys(ret_cs, ret_ip);
+        self.gfx.enter(call, ret, sp.wrapping_add(4), &self.hw);
+    }
+
     /// The game is entering one of its music driver's entry points.
     fn on_music_call(&mut self, entry: usize) {
         use music::MusicEvent::*;

@@ -14,12 +14,11 @@
 //! The machine watches those four entry addresses. Songs are identified by
 //! comparing the data at ES:SI with the songs in DUNE.DAT.
 
-use std::{
-    collections::VecDeque,
-    io::{Read, Seek, SeekFrom},
-};
+use std::collections::VecDeque;
 
-use crate::{GAME_DS, SONG_NAMES, fs::FileSystem, hsq};
+use gfx::dat;
+
+use crate::{GAME_DS, SONG_NAMES, fs::FileSystem};
 
 const VTABLE: [u16; 4] = [0x3971, 0x3975, 0x3979, 0x397d];
 const FINGERPRINT: usize = 32;
@@ -69,26 +68,11 @@ impl MusicTracker {
     fn load_fingerprints(fs: &mut dyn FileSystem) -> Vec<(u8, Vec<u8>)> {
         let mut out = Vec::new();
         let Some(mut f) = fs.open("DUNE.DAT") else { return out };
-        let mut head = [0u8; 2];
-        if f.read_exact(&mut head).is_err() {
-            return out;
-        }
-        let count = u16::from_le_bytes(head) as usize;
-        let mut toc = vec![0u8; count * 25];
-        if f.read_exact(&mut toc).is_err() {
-            return out;
-        }
-        for e in toc.chunks_exact(25) {
-            let name: String = e[..16].iter().take_while(|&&b| b != 0).map(|&b| b as char).collect();
-            let Some(stem) = name.strip_suffix(".HSQ") else { continue };
+        let Ok(toc) = dat::toc(&mut f) else { return out };
+        for e in &toc {
+            let Some(stem) = e.name.strip_suffix(".HSQ") else { continue };
             let Some(idx) = SONG_NAMES.iter().position(|&n| n == stem) else { continue };
-            let size = u32::from_le_bytes(e[16..20].try_into().unwrap()) as usize;
-            let off = u32::from_le_bytes(e[20..24].try_into().unwrap()) as u64;
-            let mut raw = vec![0u8; size];
-            if f.seek(SeekFrom::Start(off)).is_err() || f.read_exact(&mut raw).is_err() {
-                continue;
-            }
-            if let Ok(data) = hsq::unpack_if_hsq(&raw) {
+            if let Ok(data) = dat::load(&mut f, e) {
                 let n = data.len().min(FINGERPRINT);
                 out.push((idx as u8 + 1, data[..n].to_vec()));
             }

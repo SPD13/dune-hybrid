@@ -355,7 +355,8 @@ npm run preview     # serve dist at http://localhost:4174
 | Path | What |
 |---|---|
 | `crates/cpu` | 80286 interpreter and its hardware test harness |
-| `crates/pc` | The PC: devices, BIOS/DOS services, sound, snapshots, battery saver |
+| `crates/pc` | The PC: devices, BIOS/DOS services, sound, snapshots, battery saver, graphics driver call recorder |
+| `crates/gfx` | The game's drawing operations: DNVGA call decoding, sprite formats, an exact low-resolution model of the driver, DUNE.DAT and sprite sheets |
 | `crates/runner` | `dune-run`: headless native runner for development and regression checks |
 | `crates/web` | WebAssembly bindings (`Emu`) used by the worker |
 | `web/` | The web app (Vite + TypeScript) |
@@ -381,6 +382,32 @@ cargo build --release
   - `TRACE_READS=1` logs which DUNE.DAT resources are read and when;
   - `MUSIC_ONLY=1` mutes voices in the recorded WAV;
   - `REPLACED_SONGS=<hex mask>` mutes the FM rendition of those songs, as the web app does when the remaster plays.
+- **Start from a snapshot:** `--snapshot FILE` (a state saved by the web app or `Machine::save_state`); `--seconds` and `--events` then count from the snapshot.
+
+### Graphics recording
+
+The game draws everything through its DNVGA driver, a jump table of 46 entry points. `crates/pc` can watch those calls (`Machine::gfx`), and `crates/gfx` decodes them and models what each one does to the target buffer:
+
+```sh
+./target/release/dune-run --dir path/to/game --seconds 60 --gfx-trace out/gfx.jsonl   # every call, decoded
+GFX_VERIFY=1 ./target/release/dune-run --dir path/to/game --seconds 60               # model vs real driver
+GFX_STATS=1 ./target/release/dune-run --dir path/to/game --seconds 60                # calls per slot
+```
+
+- **The trace** has one JSON object per call. Each records the slot, registers and target buffer (`screen`, `fb1`, `fb2`, `scratch`). Sprites also get their position, size, flips, palette offset, a content hash and the sheet and index they come from in DUNE.DAT; `src: scratch` marks images the game decoded itself first. A record with the VGA palette is written whenever it changes.
+- **The check** applies the model to a copy of the target segment when a call starts and compares it with memory when the call returns, then prints per-slot counts and the first mismatches.
+
+| Slots | Operation | Modelled |
+|---|---|---|
+| 5 | sprite: 4-bit or 8-bit, raw or RLE, mirrored or upside down | yes (except mirrored 8-bit RLE: the driver's own code for it is broken and the game never uses it) |
+| 6 | sprite clipped to a rectangle | yes |
+| 35 | scaled sprite (also used for flipped raw 4-bit sprites) | yes |
+| 7 | 1-bit glyph (text) | yes |
+| 8, 9, 10 | clear, fill rectangle | yes |
+| 11–16, 18 | buffer and rectangle copies | yes |
+| 0–2, 20, 28, 32–34, 41 | mode, palette, retrace, Y offset | (no drawing) |
+| 3, 4 | mouse cursor | not yet |
+| 19, 23–27, 29, 30, 36, 37 | lines, globe, map, transitions, floor gradients | not yet |
 
 ### Tests
 
@@ -394,6 +421,18 @@ cargo test --release
 
 ```sh
 cargo test -p pc --release -- --ignored snapshot
+```
+
+**Graphics driver conformance.** Every sprite of every sheet in DUNE.DAT (2330 of them) is drawn by the game's own driver, then compared with `gfx::model`:
+- slot 5 at several positions and flips, including a non-zero Y offset;
+- slot 6 with clip rectangles;
+- slot 35 at several scales.
+
+The test also checks that the call recorder leaves the run unchanged:
+
+```sh
+cargo test -p runner --release -- --ignored driver
+cargo test -p pc --release -- --ignored graphics_recorder
 ```
 
 **CPU against hardware captures** (one-time data download):
@@ -440,7 +479,8 @@ Do **not** consult the game-logic code of other unlicensed reimplementations whi
   - language, volume and display options;
   - ISO/ZIP import.
 - [x] **Picture filters:** WebGL2 pipeline with pixel-art upscalers, sharp/smooth scaling and CRT effects, all switchable live.
-- [ ] **HD sprites and text:** draw the game's sprites and font at high resolution where the originals go, by recording the game's drawing operations. First with algorithmic upscaling, then with an optional **HD asset pack** that each player generates on their own computer from their `DUNE.DAT` with an offline tool, and imports like the soundtrack.
+- [x] **Drawing-operation recorder:** the game's DNVGA driver calls are recorded and decoded. An exact model of the driver is verified against the real one, call by call in play and for every sprite in DUNE.DAT. See [Graphics recording](#graphics-recording).
+- [ ] **HD sprites and text:** draw the game's sprites and font at high resolution where the originals go, using the recorded drawing operations. First with algorithmic upscaling, then with an optional **HD asset pack** that each player generates on their own computer from their `DUNE.DAT` with an offline tool, and imports like the soundtrack.
 - [ ] **Input recorder:** deterministic replays, for bug reports and as a test corpus.
 - [x] **Remastered soundtrack** support (the composer's 2024 remaster, purchased by the player), in sync with the game.
 - [ ] **MT-32 / General MIDI music** via an emulated MPU-401 and a host synthesizer.

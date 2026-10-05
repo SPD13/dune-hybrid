@@ -4,6 +4,13 @@
 //!
 //! Boots DNCDPRG.EXE from `--dir` (DUNE.DAT alongside), runs for the given
 //! virtual time and writes PNG screenshots plus a log summary.
+//!
+//! Graphics: `--gfx-trace FILE` writes every DNVGA driver call as JSON lines
+//! (decoded operation, target buffer, sprite hash and sheet), `GFX_VERIFY=1`
+//! checks `gfx::model` against the real driver call by call, `GFX_STATS=1`
+//! counts calls per slot. `--snapshot FILE` starts from a saved state.
+
+mod gfxcheck;
 
 use std::{fs, path::PathBuf, process::ExitCode};
 
@@ -22,10 +29,14 @@ struct Args {
     /// Scripted input: "t:key:SC:1|0" or "t:mouse:X:Y:BUTTONS", comma separated.
     events: Vec<(f64, Vec<String>)>,
     wav: Option<PathBuf>,
+    /// Write every graphics driver call (JSON lines).
+    gfx_trace: Option<PathBuf>,
+    /// Start from a snapshot (as saved by the web app or `Machine::save_state`).
+    snapshot: Option<PathBuf>,
 }
 
 fn parse() -> Result<Args, String> {
-    let mut a = Args { dir: ".".into(), seconds: 10.0, shot_every: 1.0, out: "out".into(), cmd: String::new(), mips: 20.0, events: Vec::new(), wav: None };
+    let mut a = Args { dir: ".".into(), seconds: 10.0, shot_every: 1.0, out: "out".into(), cmd: String::new(), mips: 20.0, events: Vec::new(), wav: None, gfx_trace: None, snapshot: None };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
         let mut v = || it.next().ok_or(format!("missing value for {k}"));
@@ -37,6 +48,8 @@ fn parse() -> Result<Args, String> {
             "--cmd" => a.cmd = v()?,
             "--mips" => a.mips = v()?.parse().map_err(|e| format!("{e}"))?,
             "--wav" => a.wav = Some(v()?.into()),
+            "--gfx-trace" => a.gfx_trace = Some(v()?.into()),
+            "--snapshot" => a.snapshot = Some(v()?.into()),
             "--events" => {
                 for ev in v()?.split(',') {
                     let parts: Vec<String> = ev.split(':').map(String::from).collect();
@@ -115,8 +128,27 @@ fn main() -> ExitCode {
     if std::env::var_os("TRACE_PORTS").is_some() {
         m.hw.trace_ports = Some(Vec::new());
     }
+    if let Some(path) = &args.snapshot {
+        let data = fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        if let Err(e) = m.load_state(&data) {
+            eprintln!("snapshot: {e}");
+            return ExitCode::FAILURE;
+        }
+    }
     m.set_speed(args.mips * 1e6);
+    let gfx_stats = std::env::var_os("GFX_STATS").is_some();
+    let gfx_verify = std::env::var_os("GFX_VERIFY").is_some();
+    let recorder = (gfx_verify || args.gfx_trace.is_some()).then(|| gfxcheck::Recorder::new(gfx_verify, args.gfx_trace.as_deref(), &args.dir.join("DUNE.DAT")));
+    if gfx_stats || recorder.is_some() {
+        m.gfx.enabled = true;
+    }
+    if let Some(rec) = &recorder {
+        let rec = rec.clone();
+        m.gfx.hook = Some(Box::new(move |e, hw| rec.borrow_mut().on_event(e, hw)));
+    }
 
+    // Times (--seconds, --events) count from the start, or from the snapshot.
+    let t0 = m.now_ns() as f64 / 1e9;
     let wall = std::time::Instant::now();
     let mut rgb = vec![0u8; 320 * 200 * 3];
     let mut t = 0.0;
@@ -134,7 +166,7 @@ fn main() -> ExitCode {
             if *et > end {
                 break;
             }
-            r = m.run_until((*et * 1e9) as u64);
+            r = m.run_until(((t0 + *et) * 1e9) as u64);
             if r != RunExit::Deadline {
                 break;
             }
@@ -149,9 +181,9 @@ fn main() -> ExitCode {
             if trace_music {
                 // Step in 10 ms slices to log music state changes.
                 let mut tt = m.now_ns();
-                while tt < (end * 1e9) as u64 && r == RunExit::Deadline {
+                while tt < ((t0 + end) * 1e9) as u64 && r == RunExit::Deadline {
                     tt += 10_000_000;
-                    r = m.run_until(tt.min((end * 1e9) as u64));
+                    r = m.run_until(tt.min(((t0 + end) * 1e9) as u64));
                     while let Some((at, e)) = m.music.events.pop_front() {
                         let name = |s: u8| s.checked_sub(1).and_then(|i| pc::SONG_NAMES.get(i as usize)).copied().unwrap_or("?");
                         match e {
@@ -170,7 +202,7 @@ fn main() -> ExitCode {
                     last_music = ms;
                 }
             } else {
-                r = m.run_until((end * 1e9) as u64);
+                r = m.run_until(((t0 + end) * 1e9) as u64);
             }
         }
         audio.extend(m.take_audio());
@@ -206,18 +238,12 @@ fn main() -> ExitCode {
     }
     if let Some(reads) = &m.trace_reads {
         // Name DUNE.DAT reads after the archive's table of contents.
-        let dat = fs::read(args.dir.join("DUNE.DAT")).unwrap_or_default();
-        let count = u16::from_le_bytes([dat[0], dat[1]]) as usize;
-        let mut toc = Vec::new();
-        for i in 0..count {
-            let e = &dat[2 + i * 25..2 + (i + 1) * 25];
-            let name: String = e[..16].iter().take_while(|&&b| b != 0).map(|&b| b as char).collect();
-            let size = u32::from_le_bytes(e[16..20].try_into().unwrap()) as u64;
-            let off = u32::from_le_bytes(e[20..24].try_into().unwrap()) as u64;
-            if !name.is_empty() {
-                toc.push((off, size, name));
-            }
-        }
+        let toc: Vec<(u64, u64, String)> = fs::File::open(args.dir.join("DUNE.DAT"))
+            .and_then(|mut f| gfx::dat::toc(&mut f))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| (e.offset as u64, e.size as u64, e.name))
+            .collect();
         let mut last = String::new();
         for (ns, file, pos, len) in reads {
             let res = toc.iter().find(|(o, s, _)| *pos >= *o && *pos < o + s).map(|t| t.2.clone()).unwrap_or_else(|| file.clone());
@@ -229,6 +255,28 @@ fn main() -> ExitCode {
     }
     for l in &m.log {
         println!("log: {l}");
+    }
+    if gfx_stats {
+        let calls: Vec<String> = m.gfx.counts.iter().enumerate().filter(|(_, c)| **c > 0).map(|(i, c)| format!("{i}:{c}")).collect();
+        println!("gfx slot calls: {}", calls.join(" "));
+        let var = |off: usize| u16::from_le_bytes([m.hw.mem[pc::GAME_DS as usize * 16 + off], m.hw.mem[pc::GAME_DS as usize * 16 + off + 1]]);
+        println!("gfx buffers: [DBD8]={:04x} [DBD6]={:04x} [DBDE]={:04x} [DBDA] (target)={:04x} [DC32]={:04x}", var(0xdbd8), var(0xdbd6), var(0xdbde), var(0xdbda), var(0xdc32));
+    }
+    m.gfx.hook = None;
+    if let Some(rec) = &recorder {
+        let rec = rec.borrow();
+        if gfx_verify {
+            print!("gfx verify:\n{}", rec.summary());
+            for r in &rec.reports {
+                println!("  {r}");
+            }
+        }
+    }
+    if let Some(path) = std::env::var_os("DUMP_DRIVER") {
+        // The graphics driver's code segment (far pointers at DS:38B5 + 4n).
+        let seg = u16::from_le_bytes([m.hw.mem[pc::GAME_DS as usize * 16 + 0x38b7], m.hw.mem[pc::GAME_DS as usize * 16 + 0x38b8]]) as usize;
+        fs::write(&path, &m.hw.mem[seg * 16..seg * 16 + 0x10000]).unwrap();
+        println!("driver segment {seg:04x} dumped to {path:?}");
     }
     ExitCode::SUCCESS
 }

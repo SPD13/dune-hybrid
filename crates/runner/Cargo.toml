@@ -11,4 +11,5 @@ path = "src/main.rs"
 
 [dependencies]
 pc = { workspace = true }
+gfx = { workspace = true }
 png = "0.18"

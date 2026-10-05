@@ -88,6 +88,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "gfx"
+version = "0.1.0"
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -147,6 +151,7 @@ name = "pc"
 version = "0.1.0"
 dependencies = [
  "cpu",
+ "gfx",
  "miniz_oxide 0.8.9",
  "oplon",
 ]
@@ -192,6 +197,7 @@ dependencies = [
 name = "runner"
 version = "0.1.0"
 dependencies = [
+ "gfx",
  "pc",
  "png",
 ]
