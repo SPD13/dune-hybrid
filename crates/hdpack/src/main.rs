@@ -140,7 +140,7 @@ fn run(args: &Args) -> std::io::Result<()> {
     if let Some(n) = args.limit {
         assets.truncate(n);
     }
-    eprintln!("{} sprites ({} with observed palettes)", assets.len(), assets.iter().filter(|a| observed.by_sprite.contains_key(&a.hash)).count());
+    eprintln!("{} sprites ({} with observed palettes)", assets.len(), assets.iter().filter(|a| observed.by_sprite.contains_key(&a.content)).count());
     match args.cmd.as_str() {
         "extract" => extract(args, &assets),
         "build" => build(args, &assets),
@@ -159,7 +159,7 @@ fn extract(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
     for a in assets {
         let name = format!("{}-{:03}-{:016x}.png", a.res.trim_end_matches(".HSQ"), a.part, a.hash);
         art::write_png(&dir.join(&name), a.stride, a.height, true, &colour_image(a))?;
-        list.push(json!({"id": format!("{:016x}", a.hash), "res": a.res, "part": a.part, "w": a.stride, "h": a.height, "width": a.width, "format": a.format_name(), "file": name}));
+        list.push(json!({"id": format!("{:016x}", a.content), "res": a.res, "part": a.part, "w": a.stride, "h": a.height, "width": a.width, "format": a.format_name(), "file": name}));
     }
     std::fs::write(dir.join("catalog.json"), serde_json::to_string_pretty(&list)?)?;
     eprintln!("wrote {} previews to {}", assets.len(), dir.display());
@@ -288,7 +288,7 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
     let (mut kept, mut dropped, mut bytes) = (0, 0, 0usize);
     for (i, pair) in &results {
         let a = &assets[*i];
-        let id = format!("{:016x}", a.hash);
+        let id = format!("{:016x}", a.content);
         let big_enough = a.width >= args.min_size && a.height >= args.min_size;
         let (q4, q2, ok) = match pair {
             Some((t4, t2)) => (t4.quality, t4.drift, big_enough && t4.drift <= args.max_drift && t2.drift <= args.max_drift),
@@ -320,12 +320,12 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
     }
     let manifest = json!({
         "format": "dune-hybrid-hd-pack",
-        "version": 1,
+        "version": 2,
         "generator": format!("dune-hd {}", env!("CARGO_PKG_VERSION")),
         "game": {"toc": format!("{:016x}", catalog::toc_hash(&args.dat)?)},
         "scales": [4, 2],
         "texels": "RGBA: R = a, G = b (palette-local values: nibbles for 4-bit sprites), B = weight of b (0-255), A = coverage",
-        "hash": "gfx::hash::sprite_hash of the sprite's data, width and height",
+        "hash": "gfx::hash::image_hash of the sprite's decoded picture (palette-local values) and size",
         "model": {"name": args.model.0, "license": args.model.1, "source": args.model.2},
         "assets": manifest_assets,
         "notice": NOTICE,

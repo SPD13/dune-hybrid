@@ -170,7 +170,12 @@ impl DrawOp {
                 if matches!(format, Format::Nibble { .. }) { BlitClipped { sprite, x: r.dx, y: r.bx, clip: rect_at(r.ss, r.bp) } } else { Other { slot } }
             }
             35 => {
-                let sprite = SpriteRef { wflags: r.di, height: 0, format: Format::Nibble { pal: r.ch() }, seg: r.ds, off: r.si };
+                // The source is raw 4-bit rows (the game decodes RLE sprites
+                // into its scratch buffer first; the RLE bit may still be
+                // set). Its height follows from the rows the scaling reads.
+                let out_h = r.cl() as u32;
+                let height = if out_h == 0 { 0 } else { (((out_h - 1) * r.bp as u32) >> 8) + 1 }.min(255) as u8;
+                let sprite = SpriteRef { wflags: r.di & 0x7fff, height, format: Format::Nibble { pal: r.ch() }, seg: r.ds, off: r.si };
                 BlitScaled { sprite, x: r.dx, y: r.bx, out_w: r.ax & 0x3ff, out_h: r.cl() as u16, step: r.bp }
             }
             7 => {

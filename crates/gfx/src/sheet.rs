@@ -7,7 +7,7 @@
 //! pixel data.
 
 use crate::{
-    hash::sprite_hash,
+    hash::{image_hash, sprite_hash},
     ops::Format,
     sprite::{self, Image},
 };
@@ -21,7 +21,10 @@ pub struct SheetSprite {
     pub height: u8,
     pub pal: u8,
     pub data_len: usize,
+    /// `hash::sprite_hash` of the stored data.
     pub hash: u64,
+    /// `hash::image_hash` of the decoded picture.
+    pub content: u64,
 }
 
 impl SheetSprite {
@@ -57,12 +60,13 @@ pub fn parse(res: &[u8]) -> Option<Vec<SheetSprite>> {
         let pal = res[start + 3];
         if wflags & 0x1ff == 0 || height == 0 {
             // Empty slots exist in some sheets.
-            out.push(SheetSprite { index, data: start + 4, wflags, height, pal, data_len: 0, hash: 0 });
+            out.push(SheetSprite { index, data: start + 4, wflags, height, pal, data_len: 0, hash: 0, content: 0 });
             continue;
         }
-        let (_, used) = sprite::decode(&res[start + 4..end], wflags, height, Format::from_pal(pal))?;
+        let (img, used) = sprite::decode(&res[start + 4..end], wflags, height, Format::from_pal(pal))?;
         let data = &res[start + 4..start + 4 + used];
-        out.push(SheetSprite { index, data: start + 4, wflags, height, pal, data_len: used, hash: sprite_hash(data, wflags, height) });
+        let content = image_hash(&img.px, img.stride, img.height);
+        out.push(SheetSprite { index, data: start + 4, wflags, height, pal, data_len: used, hash: sprite_hash(data, wflags, height), content });
     }
     Some(out)
 }

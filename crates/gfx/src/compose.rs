@@ -81,7 +81,7 @@ struct HdSprite {
     from_art: bool,
 }
 
-/// Supplies HD art for a sprite (by `hash::sprite_hash`) at scale `k`:
+/// Supplies HD art for a sprite (by `hash::image_hash`) at scale `k`:
 /// typically an HD art pack.
 pub type ArtSource = Box<dyn FnMut(u64, usize) -> Option<crate::pack::PackSprite>>;
 
@@ -218,7 +218,8 @@ impl Compositor {
         self.ensure(SCREEN, mem);
         self.ensure(target, mem);
         let source = match op {
-            DrawOp::Blit { sprite, .. } | DrawOp::BlitClipped { sprite, .. } | DrawOp::BlitScaled { sprite, .. } => self.sprite_source(sprite, mem, dac),
+            DrawOp::Blit { sprite, .. } | DrawOp::BlitClipped { sprite, .. } => self.sprite_source(sprite, mem, dac, false),
+            DrawOp::BlitScaled { sprite, .. } => self.sprite_source(sprite, mem, dac, true),
             DrawOp::Glyph { w, h, seg, off, .. } => {
                 let bits = mem.bytes(*seg, *off, *h as usize);
                 Source::Glyph(self.glyph(&bits, *w, *h))
@@ -265,7 +266,9 @@ impl Compositor {
     /// Where a sprite's HD texels come from: its magnified art, or the HD
     /// shadow of the buffer it is read from (images the game composed itself,
     /// e.g. subtitle lines).
-    fn sprite_source(&mut self, s: &SpriteRef, mem: Mem, dac: &Dac) -> Source {
+    /// `scaled`: drawn through the scaling path, which only reads the rows it
+    /// needs, so the sprite may be taller than `s.height`.
+    fn sprite_source(&mut self, s: &SpriteRef, mem: Mem, dac: &Dac, scaled: bool) -> Source {
         let lin = ((s.seg as usize) << 4) + s.off as usize;
         if !matches!(s.format, Format::Nibble { .. }) && !s.rle() {
             for &seg in self.buffers.keys() {
@@ -287,7 +290,25 @@ impl Compositor {
         };
         let key = fnv64(&data[..used]) ^ ((s.wflags & 0x81ff) as u64) << 40 ^ (s.height as u64) << 52 ^ (pal as u64) << 32 ^ (self.k as u64) << 60;
         if !self.sprites.contains_key(&key) {
-            let art = self.art_texels(s, &data[..used], img.stride, img.height);
+            let mut art = self.art_texels(s, &img);
+            // A scaled draw does not say how tall its (raw) sprite is: the
+            // game decoded the whole sprite there, so try a few more rows.
+            if art.is_none() && scaled && self.art.is_some() {
+                for h in s.height as usize + 1..=(s.height as usize + 16).min(255) {
+                    let raw = mem.bytes(s.seg, s.off, rb * h);
+                    if let Some((taller, _)) = sprite::decode(&raw, s.wflags & 0x7fff, h as u8, s.format) {
+                        art = self.art_texels(s, &taller);
+                        if art.is_some() {
+                            break;
+                        }
+                    }
+                }
+            }
+            if art.is_some() {
+                self.art_hits += 1;
+            } else if self.art.is_some() {
+                self.art_misses += 1;
+            }
             let from_art = art.is_some();
             let texels = art.unwrap_or_else(|| self.mmpx_texels(s, &img, dac));
             self.sprite_texels += texels.len();
@@ -304,15 +325,11 @@ impl Compositor {
     }
 
     /// The sprite's texels from the art source, if it has them at this scale.
-    fn art_texels(&mut self, s: &SpriteRef, data: &[u8], stride: usize, height: usize) -> Option<Vec<Option<Texel>>> {
+    fn art_texels(&mut self, s: &SpriteRef, img: &sprite::Image) -> Option<Vec<Option<Texel>>> {
         let k = self.k;
+        let (stride, height) = (img.stride, img.height);
         let art = self.art.as_mut()?;
-        let found = art(crate::hash::sprite_hash(data, s.wflags, s.height), k).filter(|p| p.w == stride * k && p.h == height * k);
-        let Some(p) = found else {
-            self.art_misses += 1;
-            return None;
-        };
-        self.art_hits += 1;
+        let p = art(crate::hash::image_hash(&img.px, stride, height), k).filter(|p| p.w == stride * k && p.h == height * k)?;
         let global = |v: u8| match s.format {
             Format::Nibble { pal } => v.wrapping_add(pal),
             _ => v,

@@ -7,8 +7,11 @@ use gfx::{dat, ops::Format, sheet};
 use crate::palette::{self, Palette};
 
 pub struct Asset {
-    /// `gfx::hash::sprite_hash`: what the game's drawing calls are matched on.
+    /// `gfx::hash::sprite_hash` of the stored data (names the upscaler cache).
     pub hash: u64,
+    /// `gfx::hash::image_hash` of the picture: what the game's drawing calls
+    /// are matched on, however the game stores or copies the sprite.
+    pub content: u64,
     pub res: String,
     pub part: usize,
     pub format: Format,
@@ -100,13 +103,14 @@ pub fn extract(dat_path: &Path, observed: &Observed) -> std::io::Result<Vec<Asse
         let Ok(res) = dat::load(&mut f, e) else { continue };
         let Some(list) = sheet::parse(&res) else { continue };
         for s in list {
-            if s.data_len == 0 || !seen.insert(s.hash) {
+            if s.data_len == 0 || !seen.insert(s.content) {
                 continue;
             }
             let Some(img) = s.image(&res) else { continue };
-            let base = observed.by_sprite.get(&s.hash).or(observed.common.as_ref()).copied().unwrap_or_else(palette::grey);
+            let base = observed.by_sprite.get(&s.content).or(observed.common.as_ref()).copied().unwrap_or_else(palette::grey);
             out.push(Asset {
                 hash: s.hash,
+                content: s.content,
                 res: e.name.clone(),
                 part: s.index,
                 format: s.format(),

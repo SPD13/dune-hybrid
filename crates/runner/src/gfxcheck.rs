@@ -15,7 +15,7 @@ use std::{
     rc::Rc,
 };
 
-use gfx::{DrawOp, Mem, Regs, hash::sprite_hash, model, ops::Format, sprite};
+use gfx::{DrawOp, Mem, Regs, hash::image_hash, model, ops::Format, sprite};
 use pc::gfx::{DriverCall, GfxEvent, SLOTS};
 
 /// The low-resolution model, remembering which bytes it wrote.
@@ -77,7 +77,7 @@ impl Recorder {
                         continue;
                     };
                     for s in gfx::sheet::parse(&res).unwrap_or_default() {
-                        catalog.entry(s.hash).or_insert((e.name.clone(), s.index));
+                        catalog.entry(s.content).or_insert((e.name.clone(), s.index));
                     }
                 }
             }
@@ -223,7 +223,7 @@ fn trace_line(c: &DriverCall, op: &DrawOp, mem: &[u8], catalog: &HashMap<u64, (S
             // Enough for the worst-case RLE of this size.
             let max = (sprite::row_bytes(s.format, s.wflags) * s.height as usize * 2 + 16).min(0x10000 - s.off as usize);
             let data = Mem(mem).bytes(s.seg, s.off, max);
-            let hash = sprite::decode(&data, s.wflags, s.height, s.format).map(|(_, used)| sprite_hash(&data[..used], s.wflags, s.height));
+            let hash = sprite::decode(&data, s.wflags, s.height, s.format).map(|(img, _)| image_hash(&img.px, img.stride, img.height));
             // The game's scratch buffer (DS:4C60): images it decoded itself.
             let lin = ((s.seg as usize) << 4) + s.off as usize;
             let scratch = (pc::GAME_DS as usize) * 16 + 0x4c60;
