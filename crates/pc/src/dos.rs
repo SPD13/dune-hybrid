@@ -74,7 +74,7 @@ fn error(m: &mut Machine, code: u16) {
     m.set_cf(true);
 }
 
-fn alloc_handle(m: &mut Machine, f: Box<dyn fs::DosFile>) -> Option<u16> {
+fn alloc_handle(m: &mut Machine, name: &str, f: Box<dyn fs::DosFile>) -> Option<u16> {
     let slot = m.files.iter().skip(5).position(|f| f.is_none()).map(|i| i + 5);
     let h = match slot {
         Some(h) => h,
@@ -84,7 +84,7 @@ fn alloc_handle(m: &mut Machine, f: Box<dyn fs::DosFile>) -> Option<u16> {
         }
         None => return None,
     };
-    m.files[h] = Some(f);
+    m.files[h] = Some(crate::OpenFile { name: name.to_string(), f });
     Some(h as u16)
 }
 
@@ -176,7 +176,7 @@ pub(crate) fn int21(m: &mut Machine) {
             let name = fs::normalize(&m.read_asciiz(m.cpu.sregs[DS], m.cpu.regs[DX]));
             let f = if ah == 0x3c { m.fs.create(&name) } else { m.fs.open(&name) };
             match f {
-                Some(f) => match alloc_handle(m, f) {
+                Some(f) => match alloc_handle(m, &name, f) {
                     Some(h) => {
                         m.log(format!("open {name} -> {h}"));
                         m.cpu.regs[AX] = h;
@@ -192,7 +192,7 @@ pub(crate) fn int21(m: &mut Machine) {
         0x3e => {
             let h = m.cpu.regs[BX] as usize;
             match m.files.get_mut(h).and_then(|f| f.take()) {
-                Some(mut f) => f.close(),
+                Some(mut of) => of.f.close(),
                 None if h < 5 => {}
                 None => error(m, 6),
             }
@@ -200,7 +200,7 @@ pub(crate) fn int21(m: &mut Machine) {
         0x3f => {
             let (h, count) = (m.cpu.regs[BX] as usize, m.cpu.regs[CX] as usize);
             let (seg, off) = (m.cpu.sregs[DS], m.cpu.regs[DX]);
-            let Some(Some(f)) = m.files.get_mut(h) else {
+            let Some(Some(crate::OpenFile { f, .. })) = m.files.get_mut(h) else {
                 if h < 5 {
                     m.cpu.regs[AX] = 0;
                 } else {
@@ -232,7 +232,7 @@ pub(crate) fn int21(m: &mut Machine) {
                 return;
             }
             match m.files.get_mut(h) {
-                Some(Some(f)) => {
+                Some(Some(crate::OpenFile { f, .. })) => {
                     let n = f.write(&data).unwrap_or(0);
                     m.cpu.regs[AX] = n as u16;
                 }
@@ -249,7 +249,7 @@ pub(crate) fn int21(m: &mut Machine) {
                 _ => SeekFrom::End(off),
             };
             match m.files.get_mut(h) {
-                Some(Some(f)) => match f.seek(whence) {
+                Some(Some(crate::OpenFile { f, .. })) => match f.seek(whence) {
                     Ok(p) => {
                         m.cpu.regs[AX] = p as u16;
                         m.cpu.regs[DX] = (p >> 16) as u16;

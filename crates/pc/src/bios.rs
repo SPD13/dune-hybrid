@@ -280,6 +280,7 @@ pub(crate) fn int33(m: &mut Machine) {
         0x01 => m.mouse.visible += 1,
         0x02 => m.mouse.visible -= 1,
         0x03 => {
+            m.note_mouse_poll();
             m.cpu.regs[BX] = m.mouse.buttons;
             m.cpu.regs[CX] = m.mouse.x as u16;
             m.cpu.regs[DX] = m.mouse.y as u16;

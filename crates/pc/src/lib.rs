@@ -11,6 +11,7 @@ mod dos;
 pub mod fs;
 pub mod hw;
 pub mod sound;
+pub mod state;
 
 use std::collections::VecDeque;
 
@@ -43,6 +44,13 @@ pub enum RunExit {
     Stuck,
     /// An opcode the interpreter does not implement.
     Invalid { cs: u16, ip: u16, opcode: u16 },
+}
+
+/// A DOS file handle: the host file plus the name it was opened under (so a
+/// snapshot can reopen it).
+pub(crate) struct OpenFile {
+    pub name: String,
+    pub f: Box<dyn fs::DosFile>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -80,13 +88,35 @@ pub struct Machine {
     pub console: String,
     /// Diagnostics: unhandled services etc.
     pub log: VecDeque<String>,
-    files: Vec<Option<Box<dyn fs::DosFile>>>,
+    files: Vec<Option<OpenFile>>,
     dta: (u16, u16),
     /// Interrupt counters for diagnostics.
     pub int_counts: [u64; 256],
     /// Log INT 33h calls (diagnostics).
     pub trace_mouse: bool,
+    /// Identifies the loaded program; snapshots only restore onto the same one.
+    pub program_id: u64,
+    /// Battery saver: skip ahead when the game spins polling the mouse.
+    pub idle_skip: bool,
+    idle: IdleDetector,
+    /// Virtual nanoseconds skipped by the battery saver (diagnostics).
+    pub idle_skipped_ns: u64,
 }
+
+/// Detects the game's busy-wait: back-to-back INT 33h/3 polls with nothing
+/// but a handful of instructions in between and an unchanged mouse.
+#[derive(Default)]
+struct IdleDetector {
+    last_insn: u64,
+    last_state: (i32, i32, u16),
+    streak: u32,
+    pending: bool,
+}
+
+/// Polls closer than this many instructions count as a tight loop.
+const IDLE_GAP: u64 = 400;
+/// Consecutive tight polls before skipping time.
+const IDLE_STREAK: u32 = 32;
 
 impl Machine {
     /// Build a machine with `exe` loaded and ready to run. `cmdline` is the
@@ -107,6 +137,10 @@ impl Machine {
             dta: (PSP_SEG, 0x80),
             int_counts: [0; 256],
             trace_mouse: false,
+            program_id: state::fnv64(exe),
+            idle_skip: true,
+            idle: IdleDetector::default(),
+            idle_skipped_ns: 0,
         };
         for _ in 0..5 {
             m.files.push(None);
@@ -169,7 +203,20 @@ impl Machine {
             }
             match self.cpu.step(&mut self.hw) {
                 Step::Ok => {}
-                Step::Callback(n) => self.callback(n),
+                Step::Callback(n) => {
+                    self.callback(n);
+                    if self.idle.pending {
+                        self.idle.pending = false;
+                        // Same as sleeping until the next device event: nothing the
+                        // loop polls can change before then.
+                        let now = self.now_ns();
+                        let wake = next_event.min(deadline_ns);
+                        if wake > now {
+                            self.idle_ns += wake - now;
+                            self.idle_skipped_ns += wake - now;
+                        }
+                    }
+                }
                 Step::Halt => {
                     if !self.cpu.flag(cpu::IF) {
                         return RunExit::Stuck;
@@ -323,7 +370,143 @@ impl Machine {
     /// Close every open file (flushes in-memory saves).
     pub fn close_all(&mut self) {
         for f in self.files.iter_mut().flatten() {
-            f.close();
+            f.f.close();
+        }
+    }
+}
+
+// ---- snapshots ----
+
+impl Machine {
+    /// Snapshot the whole machine (compressed). Call between `run_until` calls.
+    pub fn save_state(&mut self) -> Vec<u8> {
+        use std::io::Seek;
+        let mut w = state::Writer::default();
+        let c = &self.cpu;
+        for r in c.regs {
+            w.u16(r);
+        }
+        for r in c.sregs {
+            w.u16(r);
+        }
+        w.u16(c.ip);
+        w.u16(c.flags());
+        w.bool(c.halted);
+        w.u64(c.instructions);
+        w.bool(c.irq_inhibit);
+        w.u32(c.addr_mask);
+        w.f64(self.ns_per_insn);
+        w.u64(self.idle_ns);
+        self.hw.save(&mut w);
+        let m = &self.mouse;
+        for v in [m.x, m.y, m.min_x, m.max_x, m.min_y, m.max_y, m.visible] {
+            w.i32(v);
+        }
+        w.u16(m.buttons);
+        w.u32(self.bios_keys.len() as u32);
+        for &k in &self.bios_keys {
+            w.u16(k);
+        }
+        w.u16(self.dta.0);
+        w.u16(self.dta.1);
+        w.u32(self.files.len() as u32);
+        for f in &mut self.files {
+            match f {
+                Some(of) => {
+                    w.bool(true);
+                    w.str(&of.name);
+                    w.u64(of.f.stream_position().unwrap_or(0));
+                }
+                None => w.bool(false),
+            }
+        }
+        state::pack(self.program_id, &w.buf)
+    }
+
+    /// Restore a snapshot taken with [`Machine::save_state`] on the same program.
+    pub fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
+        use std::io::{Seek, SeekFrom};
+        let raw = state::unpack(self.program_id, data)?;
+        let mut r = state::Reader::new(&raw);
+        let mut cpu = Cpu::new();
+        for v in cpu.regs.iter_mut() {
+            *v = r.u16()?;
+        }
+        for v in cpu.sregs.iter_mut() {
+            *v = r.u16()?;
+        }
+        cpu.ip = r.u16()?;
+        let flags = r.u16()?;
+        cpu.set_flags(flags);
+        cpu.halted = r.bool()?;
+        cpu.instructions = r.u64()?;
+        cpu.irq_inhibit = r.bool()?;
+        cpu.addr_mask = r.u32()?;
+        let ns_per_insn = r.f64()?;
+        let idle_ns = r.u64()?;
+        self.hw.load(&mut r)?;
+        let mut m = self.mouse;
+        m.x = r.i32()?;
+        m.y = r.i32()?;
+        m.min_x = r.i32()?;
+        m.max_x = r.i32()?;
+        m.min_y = r.i32()?;
+        m.max_y = r.i32()?;
+        m.visible = r.i32()?;
+        m.buttons = r.u16()?;
+        let nkeys = r.u32()?;
+        let mut keys = VecDeque::new();
+        for _ in 0..nkeys {
+            keys.push_back(r.u16()?);
+        }
+        let dta = (r.u16()?, r.u16()?);
+        let nfiles = r.u32()? as usize;
+        let mut files = Vec::with_capacity(nfiles);
+        for _ in 0..nfiles {
+            if r.bool()? {
+                let name = r.str()?;
+                let pos = r.u64()?;
+                let mut f = self.fs.open(&name).ok_or_else(|| format!("snapshot needs {name}"))?;
+                f.seek(SeekFrom::Start(pos)).map_err(|e| e.to_string())?;
+                files.push(Some(OpenFile { name, f }));
+            } else {
+                files.push(None);
+            }
+        }
+        // Commit only once everything parsed.
+        self.close_all();
+        self.cpu = cpu;
+        self.ns_per_insn = ns_per_insn;
+        self.idle_ns = idle_ns;
+        self.mouse = m;
+        self.bios_keys = keys;
+        self.dta = dta;
+        self.files = files;
+        self.exited = None;
+        Ok(())
+    }
+}
+
+impl Machine {
+    /// Called by INT 33h/3: track tight polling loops.
+    pub(crate) fn note_mouse_poll(&mut self) {
+        if !self.idle_skip {
+            return;
+        }
+        let insn = self.cpu.instructions;
+        let state = (self.mouse.x, self.mouse.y, self.mouse.buttons);
+        let tight = insn.wrapping_sub(self.idle.last_insn) < IDLE_GAP;
+        let quiet = state == self.idle.last_state && self.bios_keys.is_empty() && !self.hw.key_pending();
+        self.idle.last_insn = insn;
+        self.idle.last_state = state;
+        if tight && quiet {
+            self.idle.streak += 1;
+            if self.idle.streak >= IDLE_STREAK {
+                self.idle.streak = 0;
+                self.idle.pending = true;
+            }
+        } else {
+            self.idle.streak = 0;
         }
     }
 }

@@ -20,6 +20,9 @@ pub const SB_DMA: usize = 1;
 /// OPL3 register interface around the `oplon` synthesis core.
 pub struct Opl {
     chip: Opl2,
+    /// Last value written to every register of both banks (for snapshots:
+    /// the synthesis core is rebuilt by replaying them).
+    regs: [[u8; 256]; 2],
     addr: [u16; 2],
     timer: [u8; 2],
     timer_start_ns: [Option<u64>; 2],
@@ -29,7 +32,7 @@ pub struct Opl {
 
 impl Opl {
     fn new() -> Self {
-        Opl { chip: Opl2::new(OUTPUT_RATE), addr: [0; 2], timer: [0; 2], timer_start_ns: [None; 2], timer_mask: 0, status: 0 }
+        Opl { chip: Opl2::new(OUTPUT_RATE), regs: [[0; 256]; 2], addr: [0; 2], timer: [0; 2], timer_start_ns: [None; 2], timer_mask: 0, status: 0 }
     }
 
     fn status(&mut self, now: u64) -> u8 {
@@ -51,6 +54,7 @@ impl Opl {
 
     fn write_data(&mut self, bank: usize, v: u8, now: u64) {
         let reg = self.addr[bank];
+        self.regs[bank][reg as usize & 0xff] = v;
         if bank == 0 {
             match reg {
                 0x02 => self.timer[0] = v,
@@ -286,6 +290,9 @@ impl SoundBlaster {
 
 /// All sound devices plus the output buffer the host drains.
 pub struct Audio {
+    /// Host volume for the FM music and the digitized voices (0.0..=1.0+).
+    pub music_gain: f32,
+    pub voice_gain: f32,
     pub opl: Opl,
     pub sb: SoundBlaster,
     pub dma: Dma,
@@ -298,7 +305,16 @@ pub struct Audio {
 
 impl Audio {
     pub fn new() -> Self {
-        Audio { opl: Opl::new(), sb: SoundBlaster::new(), dma: Dma::new(), out: Vec::new(), frames_rendered: 0, enabled: true }
+        Audio {
+            music_gain: 1.0,
+            voice_gain: 1.0,
+            opl: Opl::new(),
+            sb: SoundBlaster::new(),
+            dma: Dma::new(),
+            out: Vec::new(),
+            frames_rendered: 0,
+            enabled: true,
+        }
     }
 
     /// Render output frames up to virtual time `now`. Returns true when the
@@ -314,7 +330,8 @@ impl Audio {
         let sb_step = self.sb.byte_rate() / OUTPUT_RATE as f64 / if self.sb.stereo() { 2.0 } else { 1.0 };
         for _ in 0..n {
             let (l, r) = self.opl.chip.render_frame();
-            let (mut fl, mut fr) = (l as f32 / 32768.0, r as f32 / 32768.0);
+            let g = self.music_gain / 32768.0;
+            let (mut fl, mut fr) = (l as f32 * g, r as f32 * g);
             // Sound Blaster: step through DMA bytes at the DSP rate.
             if self.sb.active && !self.sb.paused {
                 self.sb.phase += sb_step;
@@ -349,8 +366,9 @@ impl Audio {
                 }
             }
             if self.sb.speaker {
-                fl += self.sb.last[0] * 0.5;
-                fr += self.sb.last[1] * 0.5;
+                let g = 0.5 * self.voice_gain;
+                fl += self.sb.last[0] * g;
+                fr += self.sb.last[1] * g;
             }
             if self.enabled {
                 self.out.push(fl);
@@ -426,5 +444,127 @@ impl Audio {
 impl Default for Audio {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ---- snapshots ----
+
+use crate::state::{Reader, Result, Writer};
+
+impl Audio {
+    pub(crate) fn save(&self, w: &mut Writer) {
+        let o = &self.opl;
+        for bank in &o.regs {
+            w.buf.extend_from_slice(bank);
+        }
+        w.u16(o.addr[0]);
+        w.u16(o.addr[1]);
+        w.u8(o.timer[0]);
+        w.u8(o.timer[1]);
+        for t in o.timer_start_ns {
+            w.bool(t.is_some());
+            w.u64(t.unwrap_or(0));
+        }
+        w.u8(o.timer_mask);
+        w.u8(o.status);
+
+        let d = &self.dma;
+        for c in 0..4 {
+            w.u16(d.base_addr[c]);
+            w.u16(d.base_count[c]);
+            w.u16(d.cur_addr[c]);
+            w.u16(d.cur_count[c]);
+            w.u8(d.page[c]);
+            w.u8(d.mode[c]);
+            w.bool(d.masked[c]);
+            w.bool(d.reached_tc[c]);
+        }
+        w.bool(d.flip_flop);
+
+        let sb = &self.sb;
+        w.bool(sb.reset_latch);
+        w.deque(&sb.out);
+        w.bool(sb.cmd.is_some());
+        w.u8(sb.cmd.unwrap_or(0));
+        w.bytes(&sb.args);
+        w.u8(sb.time_constant);
+        w.u16(sb.block_len);
+        w.bool(sb.speaker);
+        w.u32(sb.dma_left);
+        w.bool(sb.auto_init);
+        w.bool(sb.active);
+        w.bool(sb.paused);
+        w.f64(sb.phase);
+        w.bool(sb.irq_pending);
+        w.u8(sb.mixer_index);
+        w.buf.extend_from_slice(&sb.mixer);
+        w.u64(self.frames_rendered);
+    }
+
+    pub(crate) fn load(&mut self, r: &mut Reader) -> Result<()> {
+        let mut regs = [[0u8; 256]; 2];
+        for bank in &mut regs {
+            for v in bank.iter_mut() {
+                *v = r.u8()?;
+            }
+        }
+        // Rebuild the synthesis core: OPL3 mode first, then every register.
+        let mut chip = Opl2::new(OUTPUT_RATE);
+        chip.write_reg_high(0x05, regs[1][0x05]);
+        chip.write_reg_high(0x04, regs[1][0x04]);
+        for reg in 0x20..=0xffusize {
+            chip.write_reg(reg as u8, regs[0][reg]);
+            chip.write_reg_high(reg as u8, regs[1][reg]);
+        }
+        let o = &mut self.opl;
+        o.chip = chip;
+        o.regs = regs;
+        o.addr = [r.u16()?, r.u16()?];
+        o.timer = [r.u8()?, r.u8()?];
+        for t in &mut o.timer_start_ns {
+            let some = r.bool()?;
+            let v = r.u64()?;
+            *t = some.then_some(v);
+        }
+        o.timer_mask = r.u8()?;
+        o.status = r.u8()?;
+
+        let d = &mut self.dma;
+        for c in 0..4 {
+            d.base_addr[c] = r.u16()?;
+            d.base_count[c] = r.u16()?;
+            d.cur_addr[c] = r.u16()?;
+            d.cur_count[c] = r.u16()?;
+            d.page[c] = r.u8()?;
+            d.mode[c] = r.u8()?;
+            d.masked[c] = r.bool()?;
+            d.reached_tc[c] = r.bool()?;
+        }
+        d.flip_flop = r.bool()?;
+
+        let sb = &mut self.sb;
+        sb.reset_latch = r.bool()?;
+        sb.out = r.deque()?;
+        let has_cmd = r.bool()?;
+        let cmd = r.u8()?;
+        sb.cmd = has_cmd.then_some(cmd);
+        sb.args = r.bytes()?.to_vec();
+        sb.time_constant = r.u8()?;
+        sb.block_len = r.u16()?;
+        sb.speaker = r.bool()?;
+        sb.dma_left = r.u32()?;
+        sb.auto_init = r.bool()?;
+        sb.active = r.bool()?;
+        sb.paused = r.bool()?;
+        sb.phase = r.f64()?;
+        sb.irq_pending = r.bool()?;
+        sb.mixer_index = r.u8()?;
+        for v in sb.mixer.iter_mut() {
+            *v = r.u8()?;
+        }
+        sb.last = [0.0; 2];
+        self.frames_rendered = r.u64()?;
+        self.out.clear();
+        Ok(())
     }
 }

@@ -102,6 +102,7 @@ fn main() -> ExitCode {
     let files = OverlayFs { game: DirFs { root: args.dir.clone() }, saves: DirFs { root: saves } };
     let mut m = Machine::new(&exe, &args.cmd, Box::new(files)).unwrap();
     m.trace_mouse = std::env::var_os("TRACE_MOUSE").is_some();
+    m.idle_skip = std::env::var_os("NO_IDLE_SKIP").is_none();
     if std::env::var_os("TRACE_PORTS").is_some() {
         m.hw.trace_ports = Some(Vec::new());
     }
@@ -152,6 +153,7 @@ fn main() -> ExitCode {
     }
     println!("exit: {exit:?} after {:.2}s virtual, {:.2}s wall, {:.1} MIPS real", m.now_ns() as f64 / 1e9, elapsed, m.cpu.instructions as f64 / elapsed / 1e6);
     println!("cpu: {}", m.regs_string());
+    println!("battery saver skipped {:.1}% of virtual time", m.idle_skipped_ns as f64 / m.now_ns() as f64 * 100.0);
     println!("vga mode {:02x}; PIT {:.1} Hz", m.hw.vga.mode, m.hw.pit.irq0_hz());
     let ints: Vec<String> = m.int_counts.iter().enumerate().filter(|(_, c)| **c > 0).map(|(i, c)| format!("{i:02x}:{c}")).collect();
     println!("interrupts: {}", ints.join(" "));

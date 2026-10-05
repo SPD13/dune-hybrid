@@ -366,6 +366,11 @@ impl Hardware {
         }
     }
 
+    /// Keyboard input waiting to be delivered.
+    pub fn key_pending(&self) -> bool {
+        self.kbd.full || !self.kbd.queue.is_empty()
+    }
+
     /// Queue a raw set-1 scancode (make, or make|0x80 for break).
     pub fn key_scancode(&mut self, sc: u8) {
         if self.kbd.queue.len() < 64 {
@@ -499,5 +504,114 @@ impl Bus for Hardware {
                 }
             }
         }
+    }
+}
+
+// ---- snapshots ----
+
+use crate::state::{Reader, Result, Writer};
+
+impl Pic {
+    fn save(&self, w: &mut Writer) {
+        for v in [self.irr, self.imr, self.isr, self.base, self.init_step] {
+            w.u8(v);
+        }
+        w.bool(self.icw4);
+        w.bool(self.read_isr);
+    }
+    fn load(&mut self, r: &mut Reader) -> Result<()> {
+        self.irr = r.u8()?;
+        self.imr = r.u8()?;
+        self.isr = r.u8()?;
+        self.base = r.u8()?;
+        self.init_step = r.u8()?;
+        self.icw4 = r.bool()?;
+        self.read_isr = r.bool()?;
+        Ok(())
+    }
+}
+
+impl Pit {
+    fn save(&self, w: &mut Writer) {
+        for c in &self.ch {
+            w.u32(c.reload);
+            w.u8(c.mode);
+            w.u8(c.access);
+            w.bool(c.write_hi);
+            w.bool(c.read_hi);
+            w.bool(c.latch.is_some());
+            w.u16(c.latch.unwrap_or(0));
+            w.u8(c.pending_lo);
+            w.u64(c.start_ns);
+        }
+        w.u64(self.next_irq0_ns);
+        w.u8(self.speaker_ctl);
+        w.bool(self.refresh);
+    }
+    fn load(&mut self, r: &mut Reader) -> Result<()> {
+        for c in &mut self.ch {
+            c.reload = r.u32()?;
+            c.mode = r.u8()?;
+            c.access = r.u8()?;
+            c.write_hi = r.bool()?;
+            c.read_hi = r.bool()?;
+            let latched = r.bool()?;
+            let l = r.u16()?;
+            c.latch = latched.then_some(l);
+            c.pending_lo = r.u8()?;
+            c.start_ns = r.u64()?;
+        }
+        self.next_irq0_ns = r.u64()?;
+        self.speaker_ctl = r.u8()?;
+        self.refresh = r.bool()?;
+        Ok(())
+    }
+}
+
+impl Hardware {
+    pub(crate) fn save(&self, w: &mut Writer) {
+        w.bytes(&self.mem);
+        self.pic[0].save(w);
+        self.pic[1].save(w);
+        self.pit.save(w);
+        w.deque(&self.kbd.queue);
+        w.u8(self.kbd.data);
+        w.bool(self.kbd.full);
+        for c in &self.vga.dac {
+            w.u8(c[0]);
+            w.u8(c[1]);
+            w.u8(c[2]);
+        }
+        for v in [self.vga.write_index, self.vga.read_index, self.vga.component, self.vga.read_component, self.vga.mode, self.vga.pel_mask, self.game_port] {
+            w.u8(v);
+        }
+        self.audio.save(w);
+    }
+
+    pub(crate) fn load(&mut self, r: &mut Reader) -> Result<()> {
+        let mem = r.bytes()?;
+        if mem.len() != self.mem.len() {
+            return Err("snapshot memory size mismatch".into());
+        }
+        self.mem.copy_from_slice(mem);
+        self.pic[0].load(r)?;
+        self.pic[1].load(r)?;
+        self.pit.load(r)?;
+        self.kbd.queue = r.deque()?;
+        self.kbd.data = r.u8()?;
+        self.kbd.full = r.bool()?;
+        for c in &mut self.vga.dac {
+            *c = [r.u8()?, r.u8()?, r.u8()?];
+        }
+        self.vga.write_index = r.u8()?;
+        self.vga.read_index = r.u8()?;
+        self.vga.component = r.u8()?;
+        self.vga.read_component = r.u8()?;
+        self.vga.mode = r.u8()?;
+        self.vga.pel_mask = r.u8()?;
+        self.game_port = r.u8()?;
+        self.audio.load(r)?;
+        self.reschedule = true;
+        Ok(())
     }
 }

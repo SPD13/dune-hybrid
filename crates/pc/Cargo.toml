@@ -8,3 +8,4 @@ description = "A minimal DOS PC for running Dune CD: memory, PIC, PIT, VGA, keyb
 [dependencies]
 cpu = { workspace = true }
 oplon = "1"
+miniz_oxide = "0.8"

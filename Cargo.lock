@@ -147,6 +147,7 @@ name = "pc"
 version = "0.1.0"
 dependencies = [
  "cpu",
+ "miniz_oxide 0.8.9",
  "oplon",
 ]
 
