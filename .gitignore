@@ -1,0 +1,10 @@
+/target
+*.DAT
+*.EXE
+*.dat
+*.exe
+*.SAV
+/out
+node_modules/
+dist/
+/tests-data

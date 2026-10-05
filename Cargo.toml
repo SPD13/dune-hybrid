@@ -1,0 +1,14 @@
+[workspace]
+resolver = "3"
+members = ["crates/cpu"]
+
+[workspace.package]
+edition = "2024"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+cpu = { path = "crates/cpu" }
+pc = { path = "crates/pc" }
+
+[profile.release]
+debug = 1
