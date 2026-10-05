@@ -1,0 +1,14 @@
+[package]
+name = "runner"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Headless native runner: boots DNCDPRG.EXE and writes screenshots"
+
+[[bin]]
+name = "dune-run"
+path = "src/main.rs"
+
+[dependencies]
+pc = { workspace = true }
+png = "0.18"
