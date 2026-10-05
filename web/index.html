@@ -102,9 +102,17 @@
       </nav>
       <div id="viewport">
         <canvas id="screen" width="320" height="200" tabindex="0"></canvas>
+        <div id="compare" hidden>
+          <span class="compare-label left">Enhanced</span>
+          <span class="compare-label right">Original</span>
+          <div class="compare-divider" role="slider" aria-label="Compare: drag to show more of either side" aria-valuemin="0" aria-valuemax="100" tabindex="0">
+            <span class="compare-grip">⇆</span>
+          </div>
+        </div>
       </div>
       <nav class="toolbar right" aria-label="Controls">
         <button id="btn-menu" class="always" title="Menu (F1)" aria-label="Menu">☰</button>
+        <button id="btn-compare" class="always" title="Compare with the original rendering" aria-label="Compare with the original" aria-pressed="false" hidden>⇆</button>
         <button id="btn-ff" title="Hold to fast-forward" aria-label="Fast-forward">⏩</button>
         <button id="btn-quicksave" title="Quick save" aria-label="Quick save">⤓</button>
         <button id="btn-quickload" title="Quick load" aria-label="Quick load">⤒</button>

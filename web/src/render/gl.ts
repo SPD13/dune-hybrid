@@ -45,6 +45,7 @@ export class GlRenderer implements Renderer {
   private hdTex: WebGLTexture | null = null;
   private hdScale = 0;
   private hdReady = false;
+  private compare: number | null = null;
   /** Debug: tint HD pixels green and fallbacks red (`?hdoverlay`). */
   hdOverlay = import.meta.env.DEV && new URLSearchParams(location.search).has("hdoverlay");
   private index!: WebGLTexture;
@@ -204,6 +205,12 @@ export class GlRenderer implements Renderer {
     }
   }
 
+  /** Compare mode: the divider's position (0-1 of the width), or null. */
+  setCompare(split: number | null) {
+    this.compare = split;
+    this.redraw();
+  }
+
   setGraphics(g: Graphics) {
     this.graphics = { ...g };
     this.redraw();
@@ -289,6 +296,21 @@ export class GlRenderer implements Renderer {
         gl.uniform1i(u("uMode"), OUTPUT_MODE[g.output]);
         gl.uniform1f(u("uScan"), g.crt === "scanlines" ? g.crtStrength : 0);
       });
+    }
+    if (this.compare !== null) {
+      // Compare mode: the default rendering (sharp pixels, no filters or
+      // HD) right of the divider, the current one left of it.
+      const x = Math.round(this.compare * this.canvas.width);
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(x, 0, this.canvas.width - x, this.canvas.height);
+      this.pass(P.output, null, [base.tex], (u) => {
+        gl.uniform1i(u("uSrc"), 0);
+        gl.uniform2f(u("uSrcSize"), W, H);
+        gl.uniform2f(u("uOutSize"), this.canvas.width, this.canvas.height);
+        gl.uniform1i(u("uMode"), OUTPUT_MODE.sharp);
+        gl.uniform1f(u("uScan"), 0);
+      });
+      gl.disable(gl.SCISSOR_TEST);
     }
     this.lastDrawMs = performance.now() - t0;
   }

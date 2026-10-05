@@ -235,6 +235,10 @@ Presets combine them:
 
 Under **Options → Graphics → Filters** each step can be changed on its own (the preset then shows *Custom*), and sliders set the xBR smoothing and the strength of the monitor effect. The filters change only what you see: the game, its snapshots and their thumbnails are unaffected. Browsers without WebGL2 fall back to a basic display with CSS smoothing and scanlines.
 
+### Compare with the original
+
+The **⇆** button (top right while playing, next to the menu button) splits the screen. Your current rendering (filters, HD sprites and text, HD art pack) is on the left, and the default rendering (sharp pixels, nothing added) on the right. Drag the divider, or focus it and use the arrow keys (Shift for bigger steps), to show more of either side; press ⇆ again to leave. It is off by default and needs WebGL2.
+
 ### HD sprites and text (experimental)
 
 With **Options → Graphics → HD sprites and text** on, the game's art and font are drawn at 2× or 4× resolution:

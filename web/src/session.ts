@@ -97,7 +97,58 @@ export async function startSession(opts: SessionOptions) {
     canvas.style.height = `${h}px`;
     // Render at device resolution; phones are capped at 2× to save power.
     renderer.resize(w, h, Math.min(devicePixelRatio || 1, touch ? 2 : 3));
+    placeCompare();
   };
+
+  // ---- compare mode: original rendering right of a draggable divider ----
+  let compare: number | null = null;
+  const compareBox = $("compare");
+  const divider = compareBox.querySelector<HTMLElement>(".compare-divider")!;
+  const compareButton = $("btn-compare");
+  compareButton.hidden = renderer.kind !== "webgl2";
+  const placeCompare = () => {
+    if (compare === null) return;
+    Object.assign(compareBox.style, {
+      left: `${canvas.offsetLeft}px`,
+      top: `${canvas.offsetTop}px`,
+      width: `${canvas.offsetWidth}px`,
+      height: `${canvas.offsetHeight}px`,
+    });
+    divider.style.left = `${compare * 100}%`;
+    divider.setAttribute("aria-valuenow", String(Math.round(compare * 100)));
+  };
+  const setCompare = (split: number | null) => {
+    compare = split === null ? null : Math.min(1, Math.max(0, split));
+    compareBox.hidden = compare === null;
+    compareButton.classList.toggle("active", compare !== null);
+    compareButton.setAttribute("aria-pressed", String(compare !== null));
+    renderer.setCompare(compare);
+    placeCompare();
+  };
+  compareButton.onclick = () => setCompare(compare === null ? 0.5 : null);
+  divider.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      divider.setPointerCapture(e.pointerId);
+    } catch {
+      // synthetic events
+    }
+  });
+  divider.addEventListener("pointermove", (e) => {
+    if (!divider.hasPointerCapture?.(e.pointerId) && e.buttons === 0) return;
+    e.stopPropagation();
+    const r = canvas.getBoundingClientRect();
+    setCompare((e.clientX - r.left) / r.width);
+  });
+  divider.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 0.1 : 0.02;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      e.stopPropagation();
+      setCompare((compare ?? 0.5) + (e.key === "ArrowLeft" ? -step : step));
+    }
+  });
   const remasterMask = () => (remaster && settings.remaster ? replacedMask(soundtrack) : 0);
   const applySettings = () => {
     renderer.setGraphics(settings.graphics);
@@ -114,6 +165,7 @@ export async function startSession(opts: SessionOptions) {
     requestAnimationFrame(fit);
   };
   window.addEventListener("resize", fit);
+  if (import.meta.env.DEV) Object.assign(window, { __compare: (v: number | null) => setCompare(v) });
   window.visualViewport?.addEventListener("resize", fit);
 
   // ---- input ----

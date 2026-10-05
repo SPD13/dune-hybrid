@@ -12,6 +12,9 @@ export interface Renderer {
   frame(f: Uint8Array): void;
   /** Changed rows of the HD screen (HD sprites and text), in order. */
   hd(rows: Uint8Array): void;
+  /** Compare mode (WebGL2 only): default rendering right of `split` (0-1
+   * of the width), the current one left of it; null turns it off. */
+  setCompare(split: number | null): void;
   setGraphics(g: Graphics): void;
   /** The canvas's CSS size and the device pixel ratio to render at. */
   resize(cssWidth: number, cssHeight: number, dpr: number): void;
