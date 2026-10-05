@@ -328,7 +328,9 @@ impl Compositor {
             match hd {
                 Some(s) => {
                     stats.hd += 1;
-                    let block = &s.hd[p * k * k..(p + 1) * k * k];
+                    let near = neighbourhood(screen, p);
+                    let block: Vec<Texel> = s.hd[p * k * k..(p + 1) * k * k].iter().map(|&t| fresh(t, v, &near)).collect();
+                    let block = &block[..];
                     let agree = block.iter().filter(|t| t.dominant() == v).count();
                     let wrong = agree * 2 < k * k;
                     if self.watch == Some(p as u16) {
@@ -403,7 +405,9 @@ impl Compositor {
             match shadow.filter(|s| shows_hd(s, screen, p)) {
                 Some(s) => {
                     stats.hd += 1;
-                    for (i, t) in s.hd[p * k * k..(p + 1) * k * k].iter().enumerate() {
+                    let near = neighbourhood(screen, p);
+                    for (i, &t) in s.hd[p * k * k..(p + 1) * k * k].iter().enumerate() {
+                        let t = fresh(t, screen[p], &near);
                         let o = ((y * k + i / k) * ow + x * k + i % k) * 4;
                         out[o..o + 4].copy_from_slice(&[t.a, t.b, t.t, 255]);
                     }
@@ -420,6 +424,35 @@ impl Compositor {
         }
         stats
     }
+}
+
+/// The values of pixel `p` and its eight neighbours on the screen.
+#[inline]
+fn neighbourhood(screen: &[u8], p: usize) -> [u8; 9] {
+    let (x, y) = ((p % 320) as i32, (p / 320) as i32);
+    let mut out = [screen[p]; 9];
+    let mut i = 0;
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let (nx, ny) = (x + dx, y + dy);
+            if (0..320).contains(&nx) && (0..200).contains(&ny) {
+                out[i] = screen[(ny * 320 + nx) as usize];
+            }
+            i += 1;
+        }
+    }
+    out
+}
+
+/// An HD texel may only show the pixel's own colour or a colour around it:
+/// a sprite's rounded corners take their neighbours' colours, but those
+/// neighbours may since have been covered by another sprite (a portrait's
+/// hair drawn next to its face). Such stale colours become the pixel's own.
+#[inline]
+fn fresh(t: Texel, own: u8, near: &[u8; 9]) -> Texel {
+    let a = if near.contains(&t.a) { t.a } else { own };
+    let b = if near.contains(&t.b) { t.b } else { own };
+    Texel { a, b, t: t.t }
 }
 
 /// HD only where the shadow depicts this pixel and its eight neighbours
