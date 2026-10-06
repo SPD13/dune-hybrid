@@ -35,12 +35,16 @@ pub struct Texel {
     pub a: u8,
     pub b: u8,
     pub t: u8,
+    /// A deliberate blend across pixels (smooth magnification of zoomed
+    /// pictures): exempt from the rules that keep a block close to its own
+    /// pixel and its immediate neighbours' colours.
+    pub free: bool,
 }
 
 impl Texel {
     #[inline]
     pub const fn solid(v: u8) -> Texel {
-        Texel { a: v, b: v, t: 0 }
+        Texel { a: v, b: v, t: 0, free: false }
     }
     /// The palette index this texel mostly shows.
     #[inline]
@@ -344,7 +348,7 @@ impl Compositor {
             Format::Nibble { pal } => v.wrapping_add(pal),
             _ => v,
         };
-        Some(p.px.iter().map(|t| (t[3] >= 128).then(|| Texel { a: global(t[0]), b: global(t[1]), t: t[2] })).collect())
+        Some(p.px.iter().map(|t| (t[3] >= 128).then(|| Texel { a: global(t[0]), b: global(t[1]), t: t[2], free: false })).collect())
     }
 
     /// The sprite magnified by MMPX (palette values kept).
@@ -408,7 +412,7 @@ impl Compositor {
                     let near = neighbourhood(screen, p);
                     let block: Vec<Texel> = s.hd[p * k * k..(p + 1) * k * k].iter().map(|&t| fresh(t, v, &near)).collect();
                     let block = &block[..];
-                    let agree = block.iter().filter(|t| t.dominant() == v).count();
+                    let agree = block.iter().filter(|t| t.free || t.dominant() == v).count();
                     let wrong = agree * 2 < k * k;
                     if self.watch == Some(p as u16) {
                         eprintln!("present {p}: screen {v:02x} low {:02x} block {block:?} wrong {wrong}", s.low[p]);
@@ -527,9 +531,12 @@ fn neighbourhood(screen: &[u8], p: usize) -> [u8; 9] {
 /// hair drawn next to its face). Such stale colours become the pixel's own.
 #[inline]
 fn fresh(t: Texel, own: u8, near: &[u8; 9]) -> Texel {
+    if t.free {
+        return t;
+    }
     let a = if near.contains(&t.a) { t.a } else { own };
     let b = if near.contains(&t.b) { t.b } else { own };
-    Texel { a, b, t: t.t }
+    Texel { a, b, t: t.t, free: false }
 }
 
 /// HD only where the shadow depicts this pixel and its eight neighbours
@@ -654,21 +661,54 @@ impl HdSink<'_> {
         let src = if seg == self.target { Some(&*self.dst) } else { self.others.get(&seg) };
         let (block, lowres) = match src {
             Some(s) if s.low[from_u] == value => {
-                let sb = &s.hd[from_u * k * k..(from_u + 1) * k * k];
+                // Magnify the source's HD art smoothly: each texel samples it
+                // bilinearly (between texel centres, across neighbouring
+                // source pixels), keeping the two strongest palette colours.
+                let texel_at = |tx: isize, ty: isize| -> Texel {
+                    // tx, ty in source texels relative to this source pixel.
+                    let (px, py) = (tx.div_euclid(k as isize), ty.div_euclid(k as isize));
+                    let o = from_u as isize + py * 320 + px;
+                    let o = o.rem_euclid(0x10000) as usize;
+                    let (ix, iy) = (tx.rem_euclid(k as isize) as usize, ty.rem_euclid(k as isize) as usize);
+                    s.hd[o * k * k + iy * k + ix]
+                };
                 let block: Vec<Texel> = (0..k * k)
                     .map(|i| {
                         let (tx, ty) = (i % k, i / k);
-                        let sx = (ix as usize * k + tx) / nx as usize;
-                        let sy = (iy as usize * k + ty) / ny as usize;
-                        sb[sy.min(k - 1) * k + sx.min(k - 1)]
+                        // Position in source texels (centres at j + 0.5).
+                        let u = (ix as f32 + (tx as f32 + 0.5) / k as f32) / nx as f32 * k as f32 - 0.5;
+                        let v = (iy as f32 + (ty as f32 + 0.5) / k as f32) / ny as f32 * k as f32 - 0.5;
+                        let (x0, y0) = (u.floor(), v.floor());
+                        let (fx, fy) = (u - x0, v - y0);
+                        let (x0, y0) = (x0 as isize, y0 as isize);
+                        let mut weights: Vec<(u8, f32)> = Vec::with_capacity(8);
+                        let mut add = |c: u8, w: f32| {
+                            if w <= 0.0 {
+                                return;
+                            }
+                            match weights.iter_mut().find(|(i, _)| *i == c) {
+                                Some(e) => e.1 += w,
+                                None => weights.push((c, w)),
+                            }
+                        };
+                        for (dx, dy, w) in [(0, 0, (1.0 - fx) * (1.0 - fy)), (1, 0, fx * (1.0 - fy)), (0, 1, (1.0 - fx) * fy), (1, 1, fx * fy)] {
+                            let t = texel_at(x0 + dx, y0 + dy);
+                            let tb = t.t as f32 / 255.0;
+                            add(t.a, w * (1.0 - tb));
+                            add(t.b, w * tb);
+                        }
+                        weights.sort_by(|p, q| q.1.total_cmp(&p.1));
+                        match weights.as_slice() {
+                            [(a, wa), (b, wb), ..] => Texel { a: *a, b: *b, t: (wb / (wa + wb) * 255.0).round() as u8, free: true },
+                            [(a, _)] => Texel { a: *a, b: *a, t: 0, free: true },
+                            [] => Texel::solid(value),
+                        }
                     })
                     .collect();
                 (block, s.lowres[from_u])
             }
             _ => (vec![Texel::solid(value); k * k], true),
         };
-        let own = block.iter().filter(|t| t.dominant() == value).count();
-        let block = if own * 2 < k * k { vec![Texel::solid(value); k * k] } else { block };
         self.block(at).copy_from_slice(&block);
         self.dst.lowres[at as usize] = lowres;
         self.dst.low[at as usize] = value;
@@ -748,7 +788,7 @@ impl Sink for HdSink<'_> {
                 let block = self.block(at);
                 for (b, c) in block.iter_mut().zip(cover) {
                     let under = bg.unwrap_or(b.dominant());
-                    *b = Texel { a: fg, b: under, t: 255 - c };
+                    *b = Texel { a: fg, b: under, t: 255 - c, free: false };
                 }
             }
             (Px::Cursor { col, row }, Source::Cursor(key)) => {
@@ -758,9 +798,9 @@ impl Sink for HdSink<'_> {
                 for ((b, v), w) in block.iter_mut().zip(visible).zip(white) {
                     *b = if v >= 128 {
                         // Inside: black outline to white fill.
-                        Texel { a: 0, b: 15, t: w }
+                        Texel { a: 0, b: 15, t: w, free: false }
                     } else {
-                        Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v }
+                        Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v, free: false }
                     };
                 }
             }
@@ -776,7 +816,7 @@ impl Sink for HdSink<'_> {
             let block = self.block(at);
             for ((b, v), w) in block.iter_mut().zip(visible).zip(white) {
                 if v > 0 {
-                    *b = Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v };
+                    *b = Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v, free: false };
                 }
             }
             return;
@@ -806,7 +846,7 @@ impl Sink for HdSink<'_> {
                 let block = self.block(at);
                 for (b, c) in block.iter_mut().zip(cover) {
                     if c > 0 {
-                        *b = Texel { a: fg, b: b.dominant(), t: 255 - c };
+                        *b = Texel { a: fg, b: b.dominant(), t: 255 - c, free: false };
                     }
                 }
             }

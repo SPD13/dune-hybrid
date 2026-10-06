@@ -244,7 +244,7 @@ The **⇆** button (top right while playing, next to the menu button) splits the
 With **Options → Graphics → HD sprites and text** on, the game's art and font are drawn at 2× or 4× resolution:
 - **Sprites** (characters, rooms, objects, the interface) are magnified with MMPX, a pixel-art upscaler that keeps the game's own colours.
 - **Text** is smoothed and anti-aliased.
-- **The zoomed room** behind a speaking character follows its HD art.
+- **The zoomed room** behind a speaking character is magnified smoothly from its HD art (interpolated between the room's HD texels), instead of the original's big square pixels.
 - **The mouse cursor** is redrawn with smooth, anti-aliased outlines.
 
 The game still decides what is drawn and where. The app watches each drawing operation, keeps an HD version of every off-screen buffer, and shows a pixel in HD only where the real low-resolution screen still matches it, at that pixel and its neighbours. So the HD picture never shows anything the game did not draw.
