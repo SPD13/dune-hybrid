@@ -8,6 +8,7 @@
 - [Features](#features)
 - [Installation](#installation)
 - [Remastered soundtrack (optional)](#remastered-soundtrack-optional)
+- [HD art packs](#hd-art-packs)
 - [Playing](#playing)
 - [How it works](#how-it-works)
 - [Building and running it yourself](#building-and-running-it-yourself)
@@ -32,6 +33,7 @@ Things this edition adds that were not part of the original 1992 game:
 
   See [Mobile controls and gestures](#mobile-controls-and-gestures).
 - **HD sprites and text** (experimental). The app follows how the game draws each picture and redraws its sprites, text and backgrounds at 2× or 4× resolution, where the game draws them, in the game's own colours. Palette fades and day/night changes still apply. See [HD sprites and text](#hd-sprites-and-text-experimental).
+- **HD art packs.** With your own copy of the game, you can generate high-resolution art for every sprite with an AI upscaler of your choice and import it. Packs are not provided: they are made from the game's copyrighted art. See [HD art packs](#hd-art-packs).
 - **Picture filters.** The 320×200 picture can be redrawn by pixel-art upscalers (MMPX, Scale4x, xBR), drawn at your screen's full resolution with sharp or smooth scaling, and given scanlines or a full CRT monitor look. Pick a preset or combine the filters yourself; changes apply instantly while you play. See [Picture filters](#picture-filters).
 - **Remastered soundtrack.** In 2024 the game's composer, Stéphane Picq, released a remaster of the original music, including re-rendered versions of the game's own songs. If you buy it, the game can play those recordings instead of the 1992 AdLib/FM music. They stay in sync with the action, dip under voices and fade exactly as the game's music does. See [Remastered soundtrack](#remastered-soundtrack-optional).
 
@@ -132,6 +134,79 @@ The album has 22 tracks. The app uses only the **eight game tracks (13–20)**. 
 - **Why the album arrangements aren't used:** they are longer studio versions that don't follow the game's timing.
 - **Not uploaded:** nothing is sent anywhere.
 - **Removing:** **Remove soundtrack** on the title screen deletes the eight stored tracks.
+
+## HD art packs
+
+An **HD art pack** holds high-resolution versions of the game's sprites (characters, rooms, objects, the interface), redrawn by an upscaler of your choice, typically an AI model. Imported on the setup page, it replaces the built-in upscaling of **HD sprites and text** wherever it has a sprite. The art stays exactly where the game draws it and keeps the game's palette, so fades and day/night still work.
+
+> **⚠️ HD art packs are not provided.**
+> A pack is derived from the game's artwork, which is copyrighted (Dune © Cryo Interactive Entertainment / Virgin Games). This project does not include or distribute packs, and never will.
+> **You need your own copy of the game to make one:** the generator reads the art from your `DUNE.DAT`, on your own computer, and the pack it writes is for your personal use with your copy of the game. **Do not share packs or upload them anywhere.** Every pack carries a notice saying so.
+
+### How to make and use a pack
+
+1. **Have the game files.** You need `DUNE.DAT` from your Dune CD (see [Installation](#installation)).
+2. **Build the generator**, `dune-hd`, from this repository (it needs [Rust](https://rustup.rs)):
+   ```sh
+   git clone https://github.com/SPD13/dune-hybrid.git && cd dune-hybrid
+   cargo build --release
+   ```
+3. **Get an upscaler** (optional, but this is what makes the difference). Any program that upscales a folder of PNG images 4× works. For example, Real-ESRGAN's ncnn build runs on macOS, Windows and Linux without Python; download it from its [releases page](https://github.com/xinntao/Real-ESRGAN/releases) (the project is licensed BSD-3-Clause). Check the licence of any model you use.
+4. **Generate the pack** (a few minutes on a recent computer; upscaled images are cached, so later runs are faster):
+   ```sh
+   ./target/release/dune-hd build --dat /path/to/DUNE.DAT --out dune-hd-pack.zip \
+       --backend command \
+       --command "/path/to/realesrgan-ncnn-vulkan -m /path/to/models -i {in} -o {out} -n realesr-animevideov3-x4 -s {scale} -f png" \
+       --model-name realesr-animevideov3-x4 --model-license BSD-3-Clause \
+       --model-source https://github.com/xinntao/Real-ESRGAN --previews
+   ```
+   Without an upscaler, `./target/release/dune-hd build --dat /path/to/DUNE.DAT --out dune-hd-pack.zip` builds a pack with the built-in pixel-art upscaler (useful for testing).
+5. **Check the result.** `work/report.html` lists every sprite and whether it went into the pack. With `--previews`, `work/preview/` shows each sprite's original, the upscaler's output and the final art side by side.
+6. **Import it.** On the setup page, **HD art pack → Import HD art pack…**, then pick `dune-hd-pack.zip`. The pack is copied into the browser's private storage; nothing is uploaded.
+7. **Turn it on.** **Options → Graphics → HD sprites and text**. Start a new game or enter another room so the game redraws the scene, and press **⇆** to [compare](#compare-with-the-original) with the original.
+
+The setup page warns if a pack was made from a different `DUNE.DAT`. Remove a pack with **Remove pack**, and make it again after updating the app if it asks you to.
+
+### How a pack is made
+
+1. Every distinct sprite (about 1,950) is taken out of DUNE.DAT and shown in its colours: the sheet's own palette over the palette the game used when drawing it, if you provide a trace from `dune-run --gfx-trace`.
+2. Each sprite is upscaled 4× by the chosen upscaler. Transparent areas are filled from the edges first, so the model sees no halos.
+3. The result is projected back onto the game's palette. Each HD pixel becomes one of the colours around its original pixel, or a mix of two, with the original's exact silhouette. Palette fades, day/night and recolouring still work, and the art stays where the game draws it.
+4. Art whose local colours drift too far from the original (`--max-drift`, default 0.05 in OKLab), and very small sprites (`--min-size`, default 6 px), are left to the built-in upscaler.
+5. The pack is a ZIP holding 4× and 2× art per sprite, a manifest (which records the upscaler and its licence), a notice and an HTML report.
+
+### Command reference
+
+```sh
+cargo build --release
+# Built-in upscaling only (no extra software; mostly for testing):
+./target/release/dune-hd build --dat path/to/DUNE.DAT --out dune-hd-pack.zip
+
+# With an external upscaler, run once over a folder of PNGs ({in}, {out}, {scale}).
+# Example: Real-ESRGAN's ncnn build (BSD-3-Clause), on macOS, Windows or Linux:
+./target/release/dune-hd build --dat path/to/DUNE.DAT --out dune-hd-pack.zip \
+    --backend command \
+    --command "/path/to/realesrgan-ncnn-vulkan -m /path/to/models -i {in} -o {out} -n realesr-animevideov3-x4 -s {scale} -f png" \
+    --model-name realesr-animevideov3-x4 --model-license BSD-3-Clause --model-source https://github.com/xinntao/Real-ESRGAN \
+    --previews --trace out/gfx.jsonl
+```
+
+**Other options:**
+- `--previews` writes, for each sprite, the original, the upscaler's output and the final result side by side to `work/preview/`.
+- `work/report.html` lists every sprite with its drift and whether it went into the pack.
+- Upscaled images are cached in `work/cache/`, so trying different settings does not re-run the model.
+
+### Small details such as faces
+
+Characters and statues are only a few pixels across, and models easily smear their features. Two settings, on by default for external upscalers, prevent that:
+- `--prescale 2` enlarges each sprite 2× (pixel for pixel) before the model and shrinks the result back, so the model reads each original pixel as a feature rather than noise.
+- `--guard 0.04` puts back the faithful built-in version wherever the AI art drifts from the original locally (OKLab, after a 3×3 average) or flattens a clear feature such as an eye.
+
+Tried on Leto standing in the throne room and on the animated statue below the screen, `realesr-animevideov3-x4` with these defaults kept faces readable, while `realesrgan-x4plus-anime` without them smeared them. `--prescale 1 --guard 0` turns both off.
+
+### Choosing a model
+
+Generic photo or anime models smooth away the game's dithering and give a painted look. Whether that suits Dune is a matter of taste, so look at the previews. Check each model's licence: many published upscaling models are licensed for non-commercial use only.
 
 ## Playing
 
@@ -256,47 +331,7 @@ Some pictures still fall back to the low-resolution image, through the filters a
 
 Needs WebGL2. It uses more memory: up to about 70 MB at 4×, 20 MB at 2×.
 
-With an [HD art pack](#hd-art-packs) imported, sprites use the pack's art instead of the built-in upscaler.
-
-### HD art packs
-
-An HD art pack holds high-resolution versions of the game's sprites, made on **your own computer** from **your own DUNE.DAT** with `dune-hd` (part of this repository) and an upscaler of your choice, such as an AI model. You then import the pack on the setup page (**HD art pack → Import**). It is used whenever **HD sprites and text** is on.
-
-> **Packs are derived from the game's copyrighted artwork.** Make one for your own use and do not share it. This project does not distribute packs.
-
-**How a pack is made:**
-1. Every distinct sprite (about 1,950) is taken out of DUNE.DAT and shown in its colours: the sheet's own palette over the palette the game used when drawing it, if you provide a trace from `dune-run --gfx-trace`.
-2. Each sprite is upscaled 4× by the chosen upscaler. Transparent areas are filled from the edges first, so the model sees no halos.
-3. The result is projected back onto the game's palette. Each HD pixel becomes one of the colours around its original pixel, or a mix of two, with the original's exact silhouette. Palette fades, day/night and recolouring still work, and the art stays where the game draws it.
-4. Art whose local colours drift too far from the original (`--max-drift`, default 0.05 in OKLab), and very small sprites (`--min-size`, default 6 px), are left to the built-in upscaler.
-5. The pack is a ZIP holding 4× and 2× art per sprite, a manifest (which records the upscaler and its licence), a notice and an HTML report.
-
-```sh
-cargo build --release
-# Built-in upscaling only (no extra software; mostly for testing):
-./target/release/dune-hd build --dat path/to/DUNE.DAT --out dune-hd-pack.zip
-
-# With an external upscaler, run once over a folder of PNGs ({in}, {out}, {scale}).
-# Example: Real-ESRGAN's ncnn build (BSD-3-Clause), on macOS, Windows or Linux:
-./target/release/dune-hd build --dat path/to/DUNE.DAT --out dune-hd-pack.zip \
-    --backend command \
-    --command "/path/to/realesrgan-ncnn-vulkan -m /path/to/models -i {in} -o {out} -n realesr-animevideov3-x4 -s {scale} -f png" \
-    --model-name realesr-animevideov3-x4 --model-license BSD-3-Clause --model-source https://github.com/xinntao/Real-ESRGAN \
-    --previews --trace out/gfx.jsonl
-```
-
-**Options:**
-- `--previews` writes, for each sprite, the original, the upscaler's output and the final result side by side to `work/preview/`.
-- `work/report.html` lists every sprite with its drift and whether it went into the pack.
-- Upscaled images are cached in `work/cache/`, so trying different settings does not re-run the model.
-
-**Small details such as faces.** Characters and statues are only a few pixels across, and models easily smear their features. Two settings, on by default for external upscalers, prevent that:
-- `--prescale 2` enlarges each sprite 2× (pixel for pixel) before the model and shrinks the result back, so the model reads each original pixel as a feature rather than noise.
-- `--guard 0.04` puts back the faithful built-in version wherever the AI art drifts from the original locally (OKLab, after a 3×3 average) or flattens a clear feature such as an eye.
-
-Tried on Leto standing in the throne room and on the animated statue below the screen, `realesr-animevideov3-x4` with these defaults kept faces readable, while `realesrgan-x4plus-anime` without them smeared them. `--prescale 1 --guard 0` turns both off.
-
-**Choosing a model:** generic photo or anime models smooth away the game's dithering and give a painted look. Whether that suits Dune is a matter of taste, so look at the previews. Check each model's licence: many published upscaling models are licensed for non-commercial use only.
+With an [HD art pack](#hd-art-packs) imported, **HD sprites and text** uses the pack's art for every sprite it contains, and the built-in upscaler for the rest. Packs are not provided; see the link for how to make one from your own copy of the game.
 
 ### Install as an app
 
@@ -600,4 +635,4 @@ Do **not** consult the game-logic code of other unlicensed reimplementations whi
   - Scale2x/EPX after Andrea Mazzoleni's algorithm (own implementation).
 - **[miniz_oxide](https://github.com/Frommi/miniz_oxide)** (MIT/Apache-2.0/Zlib): snapshot compression.
 - **[SingleStepTests/80286](https://github.com/SingleStepTests/80286)** (MIT): CPU test vectors, downloaded at test time and not redistributed.
-- ***Dune*** (1992) © Cryo Interactive Entertainment / Virgin Games; based on the novel by Frank Herbert. No game data is included in this repository.
+- ***Dune*** (1992) © Cryo Interactive Entertainment / Virgin Games; based on the novel by Frank Herbert. No game data is included in this repository, and no HD art packs are provided: players generate them from their own copy of the game, for their own use.
