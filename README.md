@@ -587,6 +587,8 @@ cd .. && cargo test -p cpu --release -- --ignored single_step
 
 **Automated browser runs:** in development, `http://localhost:5174/?devfiles` imports the game files from `../../Cryogenic/dune` (or `$DUNE_DIR`) through a route that exists only on the dev server. Game files are never part of a build.
 
+**Trailer:** `http://localhost:5174/?devtrailer` records the project trailer (`web/src/dev/trailer.ts`). It plays one scripted run of the game, stepping it frame by frame. Every frame goes through the app's own renderer, with the game files and the HD pack imported in that browser, and ffmpeg encodes it to `out/trailer/trailer.mp4`. Add `&stills` to check the storyboard with one still per second, or use `?devtrailer&thumb` to render the thumbnail. The output stays out of git because it shows the game's art.
+
 ### Reference emulator
 
 Behaviour is compared against **Cryogenic/Spice86** (OpenRakis), the reference emulator. Run it headless with its MCP server:

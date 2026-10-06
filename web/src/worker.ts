@@ -20,6 +20,8 @@ export type ToWorker =
       /** HD sprites and text: scale followed (2 or 4, 0 for none) and shown. */
       hd: number;
       hdVisible: boolean;
+      /** Dev (trailer recorder): no timer loop; the page sends "step". */
+      manual?: boolean;
     }
   | { type: "key"; code: number; pressed: boolean }
   | { type: "mouse"; x: number; y: number; buttons: number }
@@ -30,7 +32,9 @@ export type ToWorker =
   | { type: "replaced"; mask: number }
   | { type: "hd"; scale: number; visible: boolean }
   | { type: "snapshot"; id: number }
-  | { type: "load"; data: Uint8Array };
+  | { type: "load"; data: Uint8Array }
+  /** Manual mode: run until `until` ms of virtual time since boot, then answer "stepped". */
+  | { type: "step"; until: number };
 
 export type FromWorker =
   | { type: "started" }
@@ -44,7 +48,8 @@ export type FromWorker =
   | { type: "stats"; virtual: number; wall: number; busy: number }
   | { type: "log"; text: string }
   | { type: "exit" }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "stepped"; frame: Uint8Array; hd: Uint8Array; audio: Float32Array; status: number };
 
 let emu: Emu | null = null;
 let paused = false;
@@ -125,7 +130,7 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       }
       post({ type: "started" });
       clearTimeout(timer);
-      loop();
+      if (!m.manual) loop();
       break;
     }
     case "key":
@@ -157,6 +162,15 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       if (emu) {
         const data = emu.saveState();
         post({ type: "snapshot", id: m.id, data }, [data.buffer]);
+      }
+      break;
+    case "step":
+      if (emu) {
+        const status = emu.runUntilMs(m.until);
+        const frame = emu.frame();
+        const hd = emu.hdFrame();
+        const audio = emu.takeAudio();
+        post({ type: "stepped", frame, hd, audio, status }, [frame.buffer, hd.buffer, audio.buffer]);
       }
       break;
     case "load":

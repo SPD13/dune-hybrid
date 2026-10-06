@@ -229,3 +229,8 @@ if (!import.meta.env.DEV && "serviceWorker" in navigator) {
 }
 
 preflight();
+
+// Dev only: `?devtrailer` records the project trailer (src/dev/trailer.ts).
+if (import.meta.env.DEV && new URLSearchParams(location.search).has("devtrailer")) {
+  import("./dev/trailer").then((m) => m.recordTrailer()).catch((err) => console.error("[trailer]", err));
+}

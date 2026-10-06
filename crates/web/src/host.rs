@@ -161,7 +161,19 @@ impl Emu {
     /// exited, 2 if the CPU got stuck or hit an unimplemented opcode.
     #[wasm_bindgen(js_name = runMs)]
     pub fn run_ms(&mut self, ms: f64) -> u32 {
-        let deadline = self.m.now_ns() + (ms * 1e6) as u64;
+        self.run_to(self.m.now_ns() + (ms * 1e6) as u64)
+    }
+
+    /// Run until `ms` of virtual time since boot: unlike `runMs`, the end
+    /// does not depend on where earlier slices stopped (an instruction can
+    /// overrun a deadline), so scripted input lands at the same instant
+    /// however the run is sliced.
+    #[wasm_bindgen(js_name = runUntilMs)]
+    pub fn run_until_ms(&mut self, ms: f64) -> u32 {
+        self.run_to((ms * 1e6) as u64)
+    }
+
+    fn run_to(&mut self, deadline: u64) -> u32 {
         match self.m.run_until(deadline) {
             RunExit::Deadline => 0,
             RunExit::Exited(_) => 1,

@@ -27,3 +27,6 @@ __pycache__/
 *.wav
 /work
 /web/work
+
+# macOS folder metadata
+.DS_Store
