@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="56" viewBox="0 0 240 56" role="img" aria-label="Play here">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e58a3c"/>
+      <stop offset="1" stop-color="#b85f1c"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="238" height="54" rx="10" fill="url(#g)" stroke="#e3b778" stroke-width="2"/>
+  <path d="M32 18 L32 38 L49 28 Z" fill="#120c07"/>
+  <text x="62" y="35.5" fill="#120c07" font-family="Georgia, 'Times New Roman', serif" font-size="20" font-weight="bold" letter-spacing="2">PLAY HERE</text>
+</svg>

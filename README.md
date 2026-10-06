@@ -1,5 +1,7 @@
 # Dune Hybrid
 
+<p align="center"><a href="https://dune.spd13.us/" title="Play Dune in your browser (Ctrl/Cmd-click for a new tab)"><img src="docs/play-button.svg" alt="Play here" width="240" height="56"></a></p>
+
 **Cryo's *Dune* (1992, CD version) in your web browser.** The page runs the original DOS program on a small PC emulator written in Rust and compiled to WebAssembly. It works on desktop, tablets and phones (touch controls, save anywhere, installable as an app) and runs offline once loaded.
 
 > **The game itself is not included.** You need the original game files (`DNCDPRG.EXE` and `DUNE.DAT` from the Dune CD). See [Installation](#installation).
