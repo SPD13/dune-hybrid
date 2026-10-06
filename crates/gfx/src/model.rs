@@ -25,6 +25,8 @@ pub enum Px {
     Glyph { col: u8, row: u8, on: bool },
     /// A solid fill (or clear).
     Fill,
+    /// Pixel (`col`, `row`) of the mouse cursor (drawn, not transparent).
+    Cursor { col: u8, row: u8 },
     /// A ramp pixel: `ramp` is the undithered colour (8.8 fixed point).
     Gradient { ramp: u16 },
     /// Byte `at` of segment `seg`, copied.
@@ -204,6 +206,44 @@ pub fn walk<S: Sink>(op: &DrawOp, r: &Regs, mem: Mem, dst: &mut S) -> bool {
                     }
                     d_row = d_row.wrapping_add(320);
                 }
+            }
+        }
+        DrawOp::Cursor { x, y, seg, off } => {
+            // Hotspot first; the position is clamped at the screen's edge.
+            let x = x.saturating_sub(mem.u16(seg, off));
+            let y = y.saturating_sub(mem.u16(seg, off.wrapping_add(2)));
+            let rows = if y > 184 { 200 - y.min(200) } else { 16 };
+            let w = (320u16.wrapping_sub(x)).min(16);
+            let mut row_start = screen_offset(x, y, yo);
+            let mut save: u16 = 0xfa00;
+            for r in 0..rows {
+                let mask = mem.u16(seg, off.wrapping_add(4 + 2 * r));
+                let shape = mem.u16(seg, off.wrapping_add(4 + 32 + 2 * r));
+                for c in 0..w {
+                    let at = row_start.wrapping_add(c);
+                    let under = mem.u8(0xa000, at);
+                    dst.put(save, under, Px::Copy { seg: 0xa000, at });
+                    save = save.wrapping_add(1);
+                    let bit = 0x8000 >> c;
+                    let px = Px::Cursor { col: c as u8, row: r as u8 };
+                    if mask & bit == 0 {
+                        dst.put(at, if shape & bit != 0 { 15 } else { 0 }, px);
+                    } else {
+                        dst.skip(at, px);
+                    }
+                }
+                row_start = row_start.wrapping_add(320);
+            }
+        }
+        DrawOp::CursorRestore { at, w, h } => {
+            let mut row = at;
+            let mut save: u16 = 0xfa00;
+            for _ in 0..h {
+                for c in 0..w {
+                    dst.put(row.wrapping_add(c), mem.u8(0xa000, save), Px::Copy { seg: 0xa000, at: save });
+                    save = save.wrapping_add(1);
+                }
+                row = row.wrapping_add(320);
             }
         }
         DrawOp::SetYOffset { .. } | DrawOp::NoDraw => {}

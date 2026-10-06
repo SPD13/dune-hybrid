@@ -56,7 +56,7 @@ fn hd_golden() {
     for (t, b) in [(18.0, 0), (18.2, 1), (18.4, 0)] {
         script.push((t, Input::Mouse(130, 179, b)));
     }
-    let scenes = [(12.0, "palace", 0x341a_6f84_61fb_20c9_u64), (22.0, "dialogue", 0x8f6e_0190_6c98_851c_u64)];
+    let scenes = [(12.0, "palace", 0x226b_28d0_2658_bdb5_u64), (22.0, "dialogue", 0x1e18_a20a_4850_b862_u64)];
 
     let mut events = script.into_iter().peekable();
     let k = 4;

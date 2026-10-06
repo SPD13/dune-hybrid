@@ -245,11 +245,11 @@ With **Options → Graphics → HD sprites and text** on, the game's art and fon
 - **Sprites** (characters, rooms, objects, the interface) are magnified with MMPX, a pixel-art upscaler that keeps the game's own colours.
 - **Text** is smoothed and anti-aliased.
 - **The zoomed room** behind a speaking character follows its HD art.
+- **The mouse cursor** is redrawn with smooth, anti-aliased outlines.
 
 The game still decides what is drawn and where. The app watches each drawing operation, keeps an HD version of every off-screen buffer, and shows a pixel in HD only where the real low-resolution screen still matches it, at that pixel and its neighbours. So the HD picture never shows anything the game did not draw.
 
 Some pictures still fall back to the low-resolution image, through the filters above:
-- the mouse cursor;
 - the map and globe, which the game draws with its own code;
 - some transition effects;
 - right after a saved game or snapshot is loaded: the HD picture builds up as soon as the game redraws a scene, for example in the next room.
@@ -477,7 +477,7 @@ GFX_STATS=1 ./target/release/dune-run --dir path/to/game --seconds 60           
 | 36 | dithered colour ramps (floors, walls) | yes |
 | 37 | room zoom behind dialogue portraits (7 factors) | yes |
 | 0–2, 20, 28, 32–34, 41 | mode, palette, retrace, Y offset | (no drawing) |
-| 3, 4 | mouse cursor | not yet |
+| 3, 4 | mouse cursor (draw with save-under at A000:FA00, restore) | yes |
 | 19, 23, 24, 27, 29, 30 | lines, globe, map, transitions | not yet (followed by resynchronisation) |
 
 ### Reference HD compositor

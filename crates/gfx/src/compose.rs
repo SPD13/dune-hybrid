@@ -112,6 +112,7 @@ pub struct Compositor {
     /// Upper bound on cached HD sprite texels (memory is ~1 byte each).
     pub sprite_budget: usize,
     glyphs: HashMap<u64, HdGlyph>,
+    cursors: HashMap<u64, HdCursor>,
     /// Calls the compositor could not follow (unmodelled slots).
     pub unfollowed: u64,
     /// Debug: report every write to this offset (any buffer) on stderr.
@@ -137,6 +138,7 @@ impl Compositor {
             sprite_texels: 0,
             sprite_budget: 64 << 20,
             glyphs: HashMap::new(),
+            cursors: HashMap::new(),
             unfollowed: 0,
             watch: None,
             art: None,
@@ -224,6 +226,13 @@ impl Compositor {
                 let bits = mem.bytes(*seg, *off, *h as usize);
                 Source::Glyph(self.glyph(&bits, *w, *h))
             }
+            DrawOp::Cursor { seg, off, .. } => {
+                let record = mem.bytes(*seg, *off, 4 + 64);
+                let key = fnv64(&record) ^ (self.k as u64) << 56;
+                let k = self.k;
+                self.cursors.entry(key).or_insert_with(|| smooth_cursor(&record, k));
+                Source::Cursor(key)
+            }
             _ => Source::None,
         };
         let (mirror_x, mirror_y) = match op {
@@ -244,6 +253,7 @@ impl Compositor {
             source: &source,
             sprites: &self.sprites,
             glyphs: &self.glyphs,
+            cursors: &self.cursors,
             mirror_x,
             mirror_y,
             fg,
@@ -583,6 +593,7 @@ enum Source {
     None,
     Sprite(u64),
     Glyph(u64),
+    Cursor(u64),
     /// 8-bit pixels read from another (tracked) buffer, `stride` per row.
     Buffer {
         seg: u16,
@@ -599,6 +610,7 @@ struct HdSink<'a> {
     source: &'a Source,
     sprites: &'a HashMap<u64, HdSprite>,
     glyphs: &'a HashMap<u64, HdGlyph>,
+    cursors: &'a HashMap<u64, HdCursor>,
     mirror_x: bool,
     mirror_y: bool,
     fg: u8,
@@ -606,6 +618,15 @@ struct HdSink<'a> {
 }
 
 impl HdSink<'_> {
+    /// The cursor's smoothed coverage (visible, white) for one pixel's block.
+    fn cursor_cover(&self, key: u64, col: u8, row: u8) -> (Vec<u8>, Vec<u8>) {
+        let c = &self.cursors[&key];
+        let k = self.k;
+        let w = 16 * k;
+        let at = |i: usize| (row as usize * k + i / k) * w + col as usize * k + i % k;
+        ((0..k * k).map(|i| c.visible[at(i)]).collect(), (0..k * k).map(|i| c.white[at(i)]).collect())
+    }
+
     fn block(&mut self, at: u16) -> &mut [Texel] {
         let kk = self.k * self.k;
         self.dst.dirty[at as usize / 320] = true;
@@ -730,12 +751,36 @@ impl Sink for HdSink<'_> {
                     *b = Texel { a: fg, b: under, t: 255 - c };
                 }
             }
+            (Px::Cursor { col, row }, Source::Cursor(key)) => {
+                let (visible, white) = self.cursor_cover(*key, col, row);
+                let visible = balance(visible, true);
+                let block = self.block(at);
+                for ((b, v), w) in block.iter_mut().zip(visible).zip(white) {
+                    *b = if v >= 128 {
+                        // Inside: black outline to white fill.
+                        Texel { a: 0, b: 15, t: w }
+                    } else {
+                        Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v }
+                    };
+                }
+            }
             _ => self.block(at).fill(Texel::solid(value)),
         }
     }
 
     fn skip(&mut self, at: u16, px: Px) {
         let k = self.k;
+        if let (Px::Cursor { col, row }, Source::Cursor(key)) = (px, self.source) {
+            let (visible, white) = self.cursor_cover(*key, col, row);
+            let visible = balance(visible, false);
+            let block = self.block(at);
+            for ((b, v), w) in block.iter_mut().zip(visible).zip(white) {
+                if v > 0 {
+                    *b = Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v };
+                }
+            }
+            return;
+        }
         match (px, self.source) {
             // HD sprite art reaching into a transparent neighbour: draw it
             // where it stays a minority of the block.
@@ -787,11 +832,33 @@ fn balance(mut cover: Vec<u8>, on: bool) -> Vec<u8> {
 /// centres and thresholded at one half, 4×4 samples per texel. Strokes keep
 /// their width; corners and diagonals come out rounded and anti-aliased.
 fn smooth_glyph(bits: &[u8], w: usize, h: usize, k: usize) -> HdGlyph {
+    let cover = smooth_bits(w, h, k, |x, y| (bits[y] << x) & 0x80 != 0);
+    HdGlyph { w: w * k, h: h * k, cover }
+}
+
+/// The mouse cursor magnified `k`×: coverage of its visible part, and of
+/// its colour-15 part, both smoothed like glyphs.
+struct HdCursor {
+    visible: Vec<u8>,
+    white: Vec<u8>,
+}
+
+fn smooth_cursor(record: &[u8], k: usize) -> HdCursor {
+    let word = |i: usize| u16::from_le_bytes([record[4 + 2 * i], record[5 + 2 * i]]);
+    let visible = smooth_bits(16, 16, k, |x, y| word(y) & (0x8000 >> x) == 0);
+    let white = smooth_bits(16, 16, k, |x, y| word(y) & (0x8000 >> x) == 0 && word(16 + y) & (0x8000 >> x) != 0);
+    HdCursor { visible, white }
+}
+
+/// A 1-bit image (`on(x, y)`) magnified `k`×: interpolated between pixel
+/// centres and thresholded at one half, 4×4 samples per texel; coverage
+/// 0-255 per texel.
+fn smooth_bits(w: usize, h: usize, k: usize, on: impl Fn(usize, usize) -> bool) -> Vec<u8> {
     let on = |x: isize, y: isize| -> f32 {
         if x < 0 || y < 0 || x >= w as isize || y >= h as isize {
             return 0.0;
         }
-        ((bits[y as usize] << x) & 0x80 != 0) as u8 as f32
+        on(x as usize, y as usize) as u8 as f32
     };
     let sample = |u: f32, v: f32| -> bool {
         // Pixel centres sit at i + 0.5.
@@ -819,7 +886,7 @@ fn smooth_glyph(bits: &[u8], w: usize, h: usize, k: usize) -> HdGlyph {
             cover[ty * gw + tx] = (n * 255 / (S * S)) as u8;
         }
     }
-    HdGlyph { w: gw, h: gh, cover }
+    cover
 }
 
 #[cfg(test)]

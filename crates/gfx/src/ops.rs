@@ -20,6 +20,8 @@ pub struct Regs {
     pub ss: u16,
     pub flags: u16,
     pub y_offset: u16,
+    /// The driver's segment (some calls use the driver's own variables).
+    pub drv: u16,
 }
 
 impl Regs {
@@ -125,6 +127,14 @@ pub enum DrawOp {
     /// target's Y offset, by pixel replication; `variant` 1-7 picks the
     /// factor (8/7, 4/3, 3/2, 2, 3, 4, 8).
     Zoom { src: u16, x: u16, y: u16, variant: u8 },
+    /// Slot 3: the mouse cursor at (x, y) on the screen, from the record at
+    /// `seg:off`: hotspot x, hotspot y, then 16 rows of a 1-bit mask (1 =
+    /// transparent) and 16 rows of a 1-bit shape (1 = colour 15, else 0),
+    /// MSB first. The pixels it covers are saved to A000:FA00 first.
+    Cursor { x: u16, y: u16, seg: u16, off: u16 },
+    /// Slot 4: put back the pixels the cursor covered (from A000:FA00);
+    /// `at`, `w` and `h` are where it was drawn (driver variables).
+    CursorRestore { at: u16, w: u16, h: u16 },
     /// Slot 33: set the Y offset to `lines` × 320.
     SetYOffset { lines: u16 },
     /// Palette, retrace, mode and other calls that do not draw.
@@ -191,6 +201,8 @@ impl DrawOp {
             14 => CopyRect { src: r.si, x: r.dx, y: r.bx, w: r.bp, h: r.ax },
             18 => CopyTop { src: r.si },
             33 => SetYOffset { lines: r.ax },
+            3 => Cursor { x: r.dx, y: r.bx, seg: r.ds, off: r.si },
+            4 => CursorRestore { at: mem.u16(r.drv, 0x18a), w: mem.u16(r.drv, 0x18c), h: mem.u16(r.drv, 0x18e) },
             25 => SaveRect { rect: rect_at(r.ss, r.bp), src: r.es, dst: r.ds, at: r.si },
             26 => RestoreRect { rect: rect_at(r.ss, r.bp), src: r.ds, from: r.si },
             37 if (1..=7).contains(&r.bp) => Zoom { src: r.ds, x: r.dx, y: r.bx, variant: r.bp as u8 },
@@ -206,6 +218,7 @@ impl DrawOp {
         match self {
             DrawOp::NoDraw | DrawOp::SetYOffset { .. } => None,
             DrawOp::SaveRect { dst, .. } => Some(*dst),
+            DrawOp::Cursor { .. } | DrawOp::CursorRestore { .. } => Some(0xa000),
             _ => Some(r.es),
         }
     }
