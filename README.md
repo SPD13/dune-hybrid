@@ -75,7 +75,7 @@ Options:
 
 ### 2. Open the app
 
-Open **<https://spd13.github.io/dune-hybrid/>** (the app is static: it runs entirely in your browser), or run it yourself (see [Building and running it yourself](#building-and-running-it-yourself)).
+Open **<https://dune.spd13.us/>** (the app is static: it runs entirely in your browser), or run it yourself (see [Building and running it yourself](#building-and-running-it-yourself)).
 
 ### 3. Import the files (once)
 
