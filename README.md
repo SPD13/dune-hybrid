@@ -280,8 +280,8 @@ cargo build --release
 # Example: Real-ESRGAN's ncnn build (BSD-3-Clause), on macOS, Windows or Linux:
 ./target/release/dune-hd build --dat path/to/DUNE.DAT --out dune-hd-pack.zip \
     --backend command \
-    --command "/path/to/realesrgan-ncnn-vulkan -m /path/to/models -i {in} -o {out} -n realesrgan-x4plus-anime -s {scale} -f png" \
-    --model-name realesrgan-x4plus-anime --model-license BSD-3-Clause --model-source https://github.com/xinntao/Real-ESRGAN \
+    --command "/path/to/realesrgan-ncnn-vulkan -m /path/to/models -i {in} -o {out} -n realesr-animevideov3-x4 -s {scale} -f png" \
+    --model-name realesr-animevideov3-x4 --model-license BSD-3-Clause --model-source https://github.com/xinntao/Real-ESRGAN \
     --previews --trace out/gfx.jsonl
 ```
 
@@ -289,6 +289,12 @@ cargo build --release
 - `--previews` writes, for each sprite, the original, the upscaler's output and the final result side by side to `work/preview/`.
 - `work/report.html` lists every sprite with its drift and whether it went into the pack.
 - Upscaled images are cached in `work/cache/`, so trying different settings does not re-run the model.
+
+**Small details such as faces.** Characters and statues are only a few pixels across, and models easily smear their features. Two settings, on by default for external upscalers, prevent that:
+- `--prescale 2` enlarges each sprite 2× (pixel for pixel) before the model and shrinks the result back, so the model reads each original pixel as a feature rather than noise.
+- `--guard 0.04` puts back the faithful built-in version wherever the AI art drifts from the original locally (OKLab, after a 3×3 average) or flattens a clear feature such as an eye.
+
+Tried on Leto standing in the throne room and on the animated statue below the screen, `realesr-animevideov3-x4` with these defaults kept faces readable, while `realesrgan-x4plus-anime` without them smeared them. `--prescale 1 --guard 0` turns both off.
 
 **Choosing a model:** generic photo or anime models smooth away the game's dithering and give a painted look. Whether that suits Dune is a matter of taste, so look at the previews. Check each model's licence: many published upscaling models are licensed for non-commercial use only.
 

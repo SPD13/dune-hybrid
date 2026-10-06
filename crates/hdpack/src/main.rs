@@ -21,6 +21,15 @@
 //!                          too much on tiny images)
 //!   --previews             write original / upscaled / result images per
 //!                          sprite to WORK/preview
+//!   --prescale N           enlarge sprites N× (pixel-exact) before the
+//!                          upscaler and shrink its output back: models then
+//!                          see each original pixel as a feature instead of
+//!                          noise, which keeps small faces readable
+//!                          (default 2 with --backend command)
+//!   --guard D              where the art drifts locally from the original by
+//!                          more than D, or flattens a clear feature (an eye),
+//!                          use the built-in upscaling for those pixels
+//!                          (default 0.04 with --backend command; 0 = off)
 //!
 //! The pack is made from your copy of the game and is for your own use:
 //! do not redistribute it.
@@ -56,6 +65,8 @@ struct Args {
     limit: Option<usize>,
     max_drift: f32,
     min_size: usize,
+    prescale: usize,
+    guard: Option<f32>,
     /// Write side-by-side previews (original, upscaled, projected) per sprite.
     previews: bool,
 }
@@ -75,6 +86,8 @@ fn parse() -> Result<Args, String> {
         limit: None,
         max_drift: 0.05,
         min_size: 6,
+        prescale: 0,
+        guard: None,
         previews: false,
     };
     let mut backend = "mmpx".to_string();
@@ -96,6 +109,8 @@ fn parse() -> Result<Args, String> {
             "--max-drift" => a.max_drift = v()?.parse().map_err(|e| format!("{e}"))?,
             "--min-size" => a.min_size = v()?.parse().map_err(|e| format!("{e}"))?,
             "--previews" => a.previews = true,
+            "--prescale" => a.prescale = v()?.parse().map_err(|e| format!("{e}"))?,
+            "--guard" => a.guard = Some(v()?.parse::<f32>().map_err(|e| format!("{e}"))?).filter(|g| *g > 0.0).or(Some(0.0)),
             _ => return Err(format!("unknown option {k}")),
         }
     }
@@ -108,7 +123,14 @@ fn parse() -> Result<Args, String> {
             a.model = ("nearest".into(), "-".into(), "-".into());
             Backend::Nearest
         }
-        "command" => Backend::Command { template: template.ok_or("--backend command needs --command TEMPLATE")? },
+        "command" => {
+            // Defaults that keep small details (faces) for AI upscalers.
+            if a.prescale == 0 {
+                a.prescale = 2;
+            }
+            a.guard = a.guard.or(Some(0.04));
+            Backend::Command { template: template.ok_or("--backend command needs --command TEMPLATE")? }
+        }
         other => return Err(format!("unknown backend {other}")),
     };
     Ok(a)
@@ -178,7 +200,7 @@ fn upscale(args: &Args, assets: &[Asset]) -> std::io::Result<HashMap<u64, Rgb>> 
             }
         }
         Backend::Command { template } => {
-            let cache = args.work.join("cache").join(args.backend.id());
+            let cache = args.work.join("cache").join(format!("{}-p{}", args.backend.id(), args.prescale.max(1)));
             std::fs::create_dir_all(&cache)?;
             let mut todo = Vec::new();
             for a in assets {
@@ -192,8 +214,10 @@ fn upscale(args: &Args, assets: &[Asset]) -> std::io::Result<HashMap<u64, Rgb>> 
             }
             eprintln!("upscaling {} sprites ({} cached)", todo.len(), out.len());
             if !todo.is_empty() {
+                let n = args.prescale.max(1);
+                eprintln!("prescale {n}, guard {}", args.guard.filter(|g| *g > 0.0).map(|g| g.to_string()).unwrap_or("off".into()));
                 let prepared: Vec<(u64, (Rgb, usize, usize))> = todo.iter().map(|a| (a.hash, art::model_input(a))).collect();
-                let inputs: Vec<(u64, Rgb)> = prepared.iter().map(|(h, (img, _, _))| (*h, Rgb { w: img.w, h: img.h, px: img.px.clone() })).collect();
+                let inputs: Vec<(u64, Rgb)> = prepared.iter().map(|(h, (img, _, _))| (*h, art::nearest(img, n))).collect();
                 let results = art::run_command(template, &inputs, 4, &args.work.join("upscale"))?;
                 let mut missing = 0;
                 for (a, (_, (img, px, py))) in todo.iter().zip(&prepared) {
@@ -201,13 +225,14 @@ fn upscale(args: &Args, assets: &[Asset]) -> std::io::Result<HashMap<u64, Rgb>> 
                         missing += 1;
                         continue;
                     };
-                    if up.w != img.w * 4 || up.h != img.h * 4 {
+                    if up.w != img.w * 4 * n || up.h != img.h * 4 * n {
                         return Err(std::io::Error::other(format!(
                             "the upscaler returned {}×{} for a {}×{} input: dune-hd needs exactly 4×",
                             up.w, up.h, img.w, img.h
                         )));
                     }
-                    let Some(cropped) = art::crop(up, *px, *py, 4, a.stride, a.height) else { continue };
+                    let up = if n > 1 { art::shrink(up, n) } else { Rgb { w: up.w, h: up.h, px: up.px.clone() } };
+                    let Some(cropped) = art::crop(&up, *px, *py, 4, a.stride, a.height) else { continue };
                     let data: Vec<u8> = cropped.px.iter().flatten().copied().collect();
                     art::write_png(&cache.join(format!("{:016x}.png", a.hash)), cropped.w, cropped.h, false, &data)?;
                     out.insert(a.hash, cropped);
@@ -243,7 +268,14 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
         .map(|(i, a)| {
             let pair = match args.backend {
                 Backend::Mmpx => Some((art::mmpx_texels(a, 4), art::mmpx_texels(a, 2))),
-                _ => ups.get(&a.hash).map(|up| (art::project(a, up, 4), art::project(a, &art::halve(up), 2))),
+                _ => ups.get(&a.hash).map(|up| {
+                    let (mut t4, mut t2) = (art::project(a, up, 4), art::project(a, &art::halve(up), 2));
+                    if let Some(limit) = args.guard.filter(|g| *g > 0.0) {
+                        art::guard(a, 4, &mut t4, limit);
+                        art::guard(a, 2, &mut t2, limit);
+                    }
+                    (t4, t2)
+                }),
             };
             (i, pair)
         })

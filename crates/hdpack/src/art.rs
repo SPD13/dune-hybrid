@@ -130,16 +130,23 @@ pub fn nearest(src: &Rgb, k: usize) -> Rgb {
 
 /// 2×2 box filter (4× level to 2× level).
 pub fn halve(src: &Rgb) -> Rgb {
-    let (w, h) = (src.w / 2, src.h / 2);
+    shrink(src, 2)
+}
+
+/// n×n box filter.
+pub fn shrink(src: &Rgb, n: usize) -> Rgb {
+    let (w, h) = (src.w / n, src.h / n);
     let px = (0..h)
         .flat_map(|y| (0..w).map(move |x| (x, y)))
         .map(|(x, y)| {
             let mut s = [0u32; 3];
-            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                let c = src.px[(y * 2 + dy) * src.w + x * 2 + dx];
-                (0..3).for_each(|i| s[i] += c[i] as u32);
+            for dy in 0..n {
+                for dx in 0..n {
+                    let c = src.px[(y * n + dy) * src.w + x * n + dx];
+                    (0..3).for_each(|i| s[i] += c[i] as u32);
+                }
             }
-            s.map(|v| ((v + 2) / 4) as u8)
+            s.map(|v| ((v + (n * n / 2) as u32) / (n * n) as u32) as u8)
         })
         .collect();
     Rgb { w, h, px }
@@ -257,6 +264,14 @@ pub fn project(a: &Asset, up: &Rgb, k: usize) -> Texels {
 
 /// See [`Texels::drift`].
 fn drift(a: &Asset, k: usize, px: &[[u8; 4]]) -> f32 {
+    let map = drift_map(a, k, px);
+    let (total, n) = map.iter().flatten().fold((0f32, 0usize), |(t, n), d| (t + d, n + 1));
+    if n == 0 { 0.0 } else { total / n as f32 }
+}
+
+/// Per source pixel: how far the HD art's local colour is from the
+/// original's there (OKLab distance after a 3×3 average of both).
+fn drift_map(a: &Asset, k: usize, px: &[[u8; 4]]) -> Vec<Option<f32>> {
     let (sw, sh) = (a.stride, a.height);
     let w = sw * k;
     // Per source pixel: its colour, and the mean colour of its HD block.
@@ -302,7 +317,7 @@ fn drift(a: &Asset, k: usize, px: &[[u8; 4]]) -> f32 {
         }
         (n > 0).then(|| sum.map(|c| (c / n as f32).round() as u8))
     };
-    let (mut total, mut n) = (0f32, 0usize);
+    let mut out = vec![None; sw * sh];
     for y in 0..sh {
         for x in 0..sw {
             if src[y * sw + x].is_none() {
@@ -310,12 +325,97 @@ fn drift(a: &Asset, k: usize, px: &[[u8; 4]]) -> f32 {
             }
             if let (Some(p), Some(q)) = (blur(&src, x, y), blur(&hd, x, y)) {
                 let (p, q) = (oklab(p), oklab(q));
-                total += (0..3).map(|i| (p[i] - q[i]) * (p[i] - q[i])).sum::<f32>().sqrt();
-                n += 1;
+                out[y * sw + x] = Some((0..3).map(|i| (p[i] - q[i]) * (p[i] - q[i])).sum::<f32>().sqrt());
             }
         }
     }
-    if n == 0 { 0.0 } else { total / n as f32 }
+    out
+}
+
+/// Detail guard: where the art drifts locally from the original by more
+/// than `limit` (a mangled eye or mouth), use the faithful MMPX
+/// magnification for that pixel and its neighbours instead.
+///
+/// Also where the original has real local contrast (stronger than the
+/// small steps of dithering: more than `2.5 × limit`) and the art keeps
+/// less than half of it: small features such as eyes, smoothed away.
+pub fn guard(a: &Asset, k: usize, t: &mut Texels, limit: f32) {
+    let map = drift_map(a, k, &t.px);
+    let lost = contrast_loss(a, k, &t.px, 2.5 * limit);
+    let (sw, sh) = (a.stride, a.height);
+    let mut bad = vec![false; sw * sh];
+    for y in 0..sh {
+        for x in 0..sw {
+            if map[y * sw + x].is_some_and(|d| d > limit) || lost[y * sw + x] {
+                for dy in -1i32..=1 {
+                    for dx in -1i32..=1 {
+                        let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                        if nx >= 0 && ny >= 0 && (nx as usize) < sw && (ny as usize) < sh {
+                            bad[ny as usize * sw + nx as usize] = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if !bad.contains(&true) {
+        return;
+    }
+    let safe = mmpx_texels(a, k);
+    let w = sw * k;
+    for (i, _) in bad.iter().enumerate().filter(|(_, b)| **b) {
+        let (sx, sy) = (i % sw, i / sw);
+        for j in 0..k * k {
+            let o = (sy * k + j / k) * w + sx * k + j % k;
+            t.px[o] = safe.px[o];
+        }
+    }
+    t.quality = quality(a, k, &t.px);
+    t.drift = drift(a, k, &t.px);
+}
+
+/// Per source pixel: does the art flatten a real feature there? The
+/// original's contrast is the largest OKLab distance to its 4 neighbours;
+/// the art's is the same between HD block means.
+fn contrast_loss(a: &Asset, k: usize, px: &[[u8; 4]], min_contrast: f32) -> Vec<bool> {
+    let (sw, sh) = (a.stride, a.height);
+    let w = sw * k;
+    let block_mean = |sx: usize, sy: usize| -> Option<[f32; 3]> {
+        let mut sum = [0f32; 3];
+        let mut n = 0;
+        for i in 0..k * k {
+            let t = px[(sy * k + i / k) * w + sx * k + i % k];
+            if t[3] != 0 {
+                let (p, q, f) = (a.rgb(t[0]), a.rgb(t[1]), t[2] as f32 / 255.0);
+                (0..3).for_each(|c| sum[c] += p[c] as f32 * (1.0 - f) + q[c] as f32 * f);
+                n += 1;
+            }
+        }
+        (n * 2 >= k * k).then(|| oklab(sum.map(|c| (c / n as f32).round() as u8)))
+    };
+    let src: Vec<Option<[f32; 3]>> = a.local.iter().map(|&v| a.opaque(v).then(|| oklab(a.rgb(v)))).collect();
+    let hd: Vec<Option<[f32; 3]>> = (0..sw * sh).map(|i| block_mean(i % sw, i / sw)).collect();
+    let dist = |p: [f32; 3], q: [f32; 3]| (0..3).map(|i| (p[i] - q[i]) * (p[i] - q[i])).sum::<f32>().sqrt();
+    let contrast = |img: &[Option<[f32; 3]>], x: usize, y: usize| -> Option<f32> {
+        let c = img[y * sw + x]?;
+        let mut best = 0f32;
+        for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)] {
+            let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+            if nx >= 0 && ny >= 0 && (nx as usize) < sw && (ny as usize) < sh && let Some(n) = img[ny as usize * sw + nx as usize] {
+                best = best.max(dist(c, n));
+            }
+        }
+        Some(best)
+    };
+    (0..sw * sh)
+        .map(|i| {
+            let (x, y) = (i % sw, i / sw);
+            match (contrast(&src, x, y), contrast(&hd, x, y)) {
+                (Some(cs), Some(ch)) => cs > min_contrast && ch < 0.5 * cs,
+                _ => false,
+            }
+        })
+        .collect()
 }
 
 /// Share of opaque source pixels whose k×k block mostly shows their value.

@@ -6,7 +6,7 @@ import { EXE_SHA256, importGameFiles, sha256 } from "./import";
 import { mountOptions } from "./options";
 import { startSession } from "./session";
 import { SONGS, forgetSoundtrack, importSoundtrack, loadManifest, segments } from "./soundtrack";
-import { type GameFileName, REQUIRED, clearScratch, forgetGameFiles, getSnapshot, store, stored } from "./storage";
+import { type GameFileName, REQUIRED, clearScratch, forgetGameFiles, getSnapshot, scratchFile, store, stored } from "./storage";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const files: Partial<Record<GameFileName, Blob>> = {};
@@ -189,14 +189,26 @@ $("music-forget").addEventListener("click", async () => {
 refreshMusic();
 
 if (import.meta.env.DEV && new URLSearchParams(location.search).has("devmusic") && !loadManifest()) {
-  const blob = await (await fetch("dev-soundtrack.zip")).blob();
-  await importSoundtrack(new File([blob], "soundtrack.zip"), () => {});
+  try {
+    const blob = await (await fetch("dev-soundtrack.zip")).blob();
+    await importSoundtrack(new File([blob], "soundtrack.zip"), () => {});
+  } catch (err) {
+    console.warn("devmusic", err);
+  }
   refreshMusic();
 }
 
 if (import.meta.env.DEV && new URLSearchParams(location.search).has("devpack") && !packInfo()) {
-  const blob = await (await fetch("dev-hdpack.zip")).blob();
-  await importPack(new File([blob], "dune-hd-pack.zip"), () => {});
+  try {
+    // The pack file changes between runs of dune-hd: never use a cached
+    // copy. Streamed to storage (packs are too big to hold as a Blob).
+    const res = await fetch(`dev-hdpack.zip?t=${Date.now()}`);
+    const file = await scratchFile("dev-hdpack.zip", res.body!, Number(res.headers.get("content-length")), () => {});
+    await importPack(file, () => {});
+    await clearScratch();
+  } catch (err) {
+    console.warn("devpack", err);
+  }
   refreshPack();
 }
 
