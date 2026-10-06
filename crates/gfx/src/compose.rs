@@ -773,8 +773,12 @@ impl Sink for HdSink<'_> {
                 }
                 let block = self.block(at);
                 for (b, t) in block.iter_mut().zip(texels) {
-                    if let Some(t) = t {
-                        *b = t;
+                    match t {
+                        Some(t) => *b = t,
+                        // What shows through the art's rounded edges is
+                        // what was beneath: no longer exempt from the
+                        // stale-colour rule (the pixel is the sprite's now).
+                        None => b.free = false,
                     }
                 }
             }
