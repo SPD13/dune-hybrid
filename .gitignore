@@ -9,3 +9,21 @@ node_modules/
 dist/
 /tests-data
 __pycache__/
+# Game data, players' purchases and everything generated from them:
+# never in the repository.
+*.ISO
+*.iso
+*.zip
+*.ZIP
+*.HSQ
+*.hsq
+*.HNM
+*.hnm
+*.VOC
+*.voc
+*.mp3
+*.MP3
+*.flac
+*.wav
+/work
+/web/work

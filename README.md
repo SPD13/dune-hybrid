@@ -75,7 +75,7 @@ Options:
 
 ### 2. Open the app
 
-Either open a hosted copy of this project, or run it yourself (see [Building and running it yourself](#building-and-running-it-yourself)).
+Open **<https://spd13.github.io/dune-hybrid/>** (the app is static: it runs entirely in your browser), or run it yourself (see [Building and running it yourself](#building-and-running-it-yourself)).
 
 ### 3. Import the files (once)
 
@@ -449,6 +449,10 @@ npm run preview     # serve dist at http://localhost:4174
 
 - **Hosting:** copy `web/dist` to any static host (GitHub Pages, Netlify, Cloudflare Pages, nginx…).
 - **HTTPS required:** browsers only allow storage and service workers on HTTPS (or `localhost`).
+
+### Publishing on GitHub Pages
+
+`.github/workflows/pages.yml` builds the app on every push to `main` and publishes it with GitHub Pages: in the repository's **Settings → Pages**, set **Source** to **GitHub Actions**. The site holds only the app; no game files, soundtrack or HD art are ever part of it, since players import their own. The same build works on any static web host: `npm run build` in `web/` and serve `web/dist`.
 
 ## Development
 

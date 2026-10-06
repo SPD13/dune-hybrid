@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "wasm": "cargo build --release --target wasm32-unknown-unknown -p web && wasm-bindgen --target web --out-dir src/pkg ../target/wasm32-unknown-unknown/release/web.wasm",
+    "wasm": "RUSTFLAGS=\"--remap-path-prefix=$HOME=~\" cargo build --release --target wasm32-unknown-unknown -p web && wasm-bindgen --target web --out-dir src/pkg ../target/wasm32-unknown-unknown/release/web.wasm",
     "dev": "vite",
     "build": "npm run wasm && tsc --noEmit && vite build"
   },
