@@ -94,6 +94,9 @@ struct HdSprite {
 /// typically an HD art pack.
 pub type ArtSource = Box<dyn FnMut(u64, usize) -> Option<crate::pack::PackSprite>>;
 
+/// Supplies room plates (by [`crate::room::RoomKey`]) at scale `k`.
+pub type PlateSource = Box<dyn FnMut(u64, usize) -> Option<crate::pack::Plate>>;
+
 /// A glyph's smoothed mask: coverage 0-255 per texel.
 struct HdGlyph {
     w: usize,
@@ -131,6 +134,13 @@ pub struct Compositor {
     /// Sprites drawn from `art` / magnified with MMPX (cache misses).
     pub art_hits: u64,
     pub art_misses: u64,
+    /// Room plates, and the room being drawn.
+    plates: Option<PlateSource>,
+    room: Option<crate::room::RoomTrack>,
+    /// Rooms shown from a plate / drawn without one (no plate, or none of
+    /// its pixels matched).
+    pub plate_hits: u64,
+    pub plate_misses: u64,
 }
 
 const SCREEN: u16 = 0xa000;
@@ -153,6 +163,62 @@ impl Compositor {
             art: None,
             art_hits: 0,
             art_misses: 0,
+            plates: None,
+            room: None,
+            plate_hits: 0,
+            plate_misses: 0,
+        }
+    }
+
+    /// Use room plates from `plates` (an HD art pack, version 3).
+    pub fn set_plates(&mut self, plates: Option<PlateSource>) {
+        self.plates = plates;
+    }
+
+    /// The game starts drawing a room (`draw_SAL`).
+    pub fn room_begin(&mut self) {
+        self.room = Some(Default::default());
+    }
+
+    /// A character standing in the room starts (`true`) or ends being drawn.
+    pub fn room_character(&mut self, begin: bool) {
+        if let Some(t) = self.room.as_mut() {
+            t.character(begin);
+        }
+    }
+
+    /// The room is drawn: where the pack has its plate, the room's pixels
+    /// take the plate's texels, wherever they still show what the plate
+    /// depicts (not under a character, same palette index).
+    pub fn room_end(&mut self) {
+        let Some(t) = self.room.take() else { return };
+        let (Some(target), Some(plates)) = (t.target, self.plates.as_mut()) else { return };
+        let k = self.k;
+        let Some(plate) = plates(t.key.value(), k) else {
+            self.plate_misses += 1;
+            return;
+        };
+        let Some(dst) = self.buffers.get_mut(&target) else { return };
+        let (kk, w) = (k * k, 320 * k);
+        let mut used = 0;
+        for i in 0..crate::room::AREA {
+            let l = plate.low.px[i];
+            if l[3] < 128 || !t.drawn[i] || t.overdrawn[i] || dst.low[i] != l[0] {
+                continue;
+            }
+            let (x, y) = (i % 320, i / 320);
+            for j in 0..kk {
+                let p = plate.texels.px[(y * k + j / k) * w + x * k + j % k];
+                dst.hd[i * kk + j] = Texel { a: p[0], b: p[1], t: p[2], free: false, under: false };
+            }
+            dst.lowres[i] = false;
+            dst.dirty[i / 320] = true;
+            used += 1;
+        }
+        if used > 0 {
+            self.plate_hits += 1;
+        } else {
+            self.plate_misses += 1;
         }
     }
 
@@ -168,6 +234,7 @@ impl Compositor {
     /// from memory, as low-resolution.
     pub fn reset(&mut self) {
         self.buffers.clear();
+        self.room = None;
     }
 
     pub fn shadow(&self, seg: u16) -> Option<&Shadow> {
@@ -221,6 +288,9 @@ impl Compositor {
 
     /// Follow a driver call, at its entry (`mem` before the call).
     pub fn apply(&mut self, op: &DrawOp, r: &Regs, mem: Mem, dac: &Dac) {
+        if let Some(t) = self.room.as_mut() {
+            t.follow(op, r, mem);
+        }
         let Some(target) = op.target(r) else { return };
         if matches!(op, DrawOp::Other { .. }) {
             self.unfollowed += 1;
@@ -1006,6 +1076,39 @@ mod tests {
         let block = &s.hd[at * 16..at * 16 + 16];
         let own = block.iter().filter(|t| t.dominant() == 0x15).count();
         assert!(own >= 8 && own < 16, "diagonal block not rounded: {block:?}");
+    }
+
+    #[test]
+    fn room_plates_replace_the_pixels_the_room_drew_where_they_still_match() {
+        use crate::{ops::Rect, pack::{PackSprite, Plate}, room::{AREA, ROWS}};
+        let m = mem();
+        let k = 2;
+        let mut c = Compositor::new(k);
+        // The plate: every texel colour 9 (a recognisable mark), depicting
+        // colour 7 in a 4×2 rectangle at (10, 10).
+        let mut low = vec![[0u8; 4]; AREA];
+        for y in 10..12 {
+            for x in 10..14 {
+                low[y * 320 + x] = [7, 0, 0, 255];
+            }
+        }
+        // One pixel the plate depicts differently: it keeps the drawn HD.
+        low[11 * 320 + 13] = [8, 0, 0, 255];
+        let texels = PackSprite { w: 320 * k, h: ROWS * k, px: vec![[9, 9, 0, 255]; AREA * k * k] };
+        let plate = Plate { texels, low: PackSprite { w: 320, h: ROWS, px: low } };
+        let mut plate = Some(plate);
+        c.set_plates(Some(Box::new(move |_, _| plate.take())));
+        let r = Regs { es: 0x2000, ..Default::default() };
+        c.room_begin();
+        c.apply(&DrawOp::Fill { rect: Rect { x0: 10, y0: 10, x1: 14, y1: 12 }, colour: 7 }, &r, Mem(&m), &dac());
+        c.room_end();
+        assert_eq!((c.plate_hits, c.plate_misses), (1, 0));
+        let s = c.shadow(0x2000).unwrap();
+        let block = |x: usize, y: usize| s.hd[(y * 320 + x) * k * k].a;
+        assert_eq!(block(10, 10), 9);
+        assert_eq!(block(12, 11), 9);
+        assert_eq!(block(13, 11), 7, "the plate depicts another colour there");
+        assert_eq!(block(20, 20), 0, "outside the room's own drawing");
     }
 
     #[test]

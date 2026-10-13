@@ -233,7 +233,9 @@ impl Emu {
             None => None,
         };
         if let Some(hd) = &self.hd {
-            hd.borrow_mut().follower.comp.set_art(self.art_source());
+            let mut hd = hd.borrow_mut();
+            hd.follower.comp.set_art(self.art_source());
+            hd.follower.comp.set_plates(self.plate_source());
         }
         Ok(())
     }
@@ -244,6 +246,15 @@ impl Emu {
             let mut p = pack.borrow_mut();
             let Pack { file, index } = &mut *p;
             index.sprite(file, hash, k)
+        }))
+    }
+
+    fn plate_source(&self) -> Option<gfx::compose::PlateSource> {
+        let pack = self.pack.clone()?;
+        Some(Box::new(move |key, k| {
+            let mut p = pack.borrow_mut();
+            let Pack { file, index } = &mut *p;
+            index.plate(file, key, k)
         }))
     }
 
@@ -275,6 +286,7 @@ impl Emu {
         // About 4 bytes per cached sprite texel: 64 MB at 4×, 24 MB at 2×.
         follower.comp.sprite_budget = if k == 4 { 16 << 20 } else { 6 << 20 };
         follower.comp.set_art(self.art_source());
+        follower.comp.set_plates(self.plate_source());
         let size = 320 * k * 200 * k * 4;
         let hd = Rc::new(RefCell::new(Hd { follower, cur: vec![0; size], screen: vec![0; 64000], fallback: vec![0; 200], full: true, visible: true }));
         let h = hd.clone();
@@ -286,6 +298,10 @@ impl Emu {
                     h.follower.enter(c.slot, &c.regs(), gfx::Mem(&hw.mem), &hw.vga.dac);
                 }
                 pc::gfx::GfxEvent::Return { .. } => h.follower.leave(gfx::Mem(&hw.mem)),
+                pc::gfx::GfxEvent::Begin(pc::gfx::Mark::Room { .. }) => h.follower.comp.room_begin(),
+                pc::gfx::GfxEvent::End(pc::gfx::Mark::Room { .. }) => h.follower.comp.room_end(),
+                pc::gfx::GfxEvent::Begin(pc::gfx::Mark::Character) => h.follower.comp.room_character(true),
+                pc::gfx::GfxEvent::End(pc::gfx::Mark::Character) => h.follower.comp.room_character(false),
             }
         }));
         self.hd = Some(hd);

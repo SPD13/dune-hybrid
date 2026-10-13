@@ -45,6 +45,10 @@ fn hd_golden() {
             f.borrow_mut().enter(c.slot, &regs(c), Mem(&hw.mem), &hw.vga.dac);
         }
         GfxEvent::Return { .. } => f.borrow_mut().leave(Mem(&hw.mem)),
+        GfxEvent::Begin(pc::gfx::Mark::Room { .. }) => f.borrow_mut().comp.room_begin(),
+        GfxEvent::End(pc::gfx::Mark::Room { .. }) => f.borrow_mut().comp.room_end(),
+        GfxEvent::Begin(pc::gfx::Mark::Character) => f.borrow_mut().comp.room_character(true),
+        GfxEvent::End(pc::gfx::Mark::Character) => f.borrow_mut().comp.room_character(false),
     }));
 
     // Skip the intro (Esc), then talk to Leto.

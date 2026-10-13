@@ -23,6 +23,11 @@ pub struct Asset {
     pub local: Vec<u8>,
     /// Colours of the 256 palette indices while this sprite is shown.
     pub palette: Palette,
+    /// Which pixels are drawn, when that is not a matter of the value
+    /// (a room: the pixels its drawing calls wrote).
+    pub cover: Option<Vec<bool>>,
+    /// A room: upscaled with all its surroundings, stored as a room plate.
+    pub room: bool,
 }
 
 impl Asset {
@@ -30,6 +35,14 @@ impl Asset {
         match self.format {
             Format::Byte => true,
             _ => v != 0,
+        }
+    }
+
+    /// Is pixel `i` (of `local`) drawn?
+    pub fn solid(&self, i: usize) -> bool {
+        match &self.cover {
+            Some(c) => c[i],
+            None => self.opaque(self.local[i]),
         }
     }
 
@@ -119,10 +132,43 @@ pub fn extract(dat_path: &Path, observed: &Observed) -> std::io::Result<Vec<Asse
                 height: img.height,
                 local: img.px,
                 palette: palette::apply_chunks(&res, &base),
+                cover: None,
+                room: false,
             });
         }
     }
     Ok(out)
+}
+
+/// Every sprite of one sheet by index (None for empty slots), not
+/// deduplicated: for tools that need a sheet's own numbering.
+pub fn sheet_assets(name: &str, res: &[u8], observed: &Observed) -> Option<Vec<Option<Asset>>> {
+    let list = sheet::parse(res)?;
+    Some(
+        list.into_iter()
+            .map(|s| {
+                if s.data_len == 0 {
+                    return None;
+                }
+                let img = s.image(res)?;
+                let base = observed.by_sprite.get(&s.content).or(observed.common.as_ref()).copied().unwrap_or_else(palette::grey);
+                Some(Asset {
+                    hash: s.hash,
+                    content: s.content,
+                    res: name.to_string(),
+                    part: s.index,
+                    format: s.format(),
+                    width: img.width,
+                    stride: img.stride,
+                    height: img.height,
+                    local: img.px,
+                    palette: palette::apply_chunks(res, &base),
+                    cover: None,
+                room: false,
+                })
+            })
+            .collect(),
+    )
 }
 
 /// A hash of DUNE.DAT's table of contents, to recognise the game version.

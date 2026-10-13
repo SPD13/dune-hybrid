@@ -118,6 +118,11 @@ pub enum DrawOp {
     /// plus -1..2 from a noise generator (`noise` shifted right, XORed with
     /// `pattern` when a 1 falls out). Leftwards when `backwards`.
     Gradient { x: u16, y: u16, len: u16, ramp: u16, step: u16, noise: u16, pattern: u16, backwards: bool },
+    /// Slot 19: a line from (x0, y0) to (x1, y1) in `colour`, dashed by
+    /// `pattern` (rotated left once per pixel, drawn where bit 15 falls
+    /// out) and clipped to `clip` (end exclusive). Room outlines (SAL `C0`
+    /// records) and the map.
+    Line { x0: u16, y0: u16, x1: u16, y1: u16, colour: u8, pattern: u16, clip: Rect },
     /// Slot 25: save the rectangle `rect` of the buffer `src` into a packed
     /// buffer at `dst:at` (row after row, no padding).
     SaveRect { rect: Rect, src: u16, dst: u16, at: u16 },
@@ -200,6 +205,7 @@ impl DrawOp {
             12 | 16 => CopyRect { src: r.ds, x: r.dx, y: r.bx, w: r.bp, h: r.ax },
             14 => CopyRect { src: r.si, x: r.dx, y: r.bx, w: r.bp, h: r.ax },
             18 => CopyTop { src: r.si },
+            19 => Line { x0: r.dx, y0: r.bx, x1: r.di, y1: r.cx, colour: r.ax as u8, pattern: r.bp, clip: rect_at(r.ds, r.si) },
             33 => SetYOffset { lines: r.ax },
             3 => Cursor { x: r.dx, y: r.bx, seg: r.ds, off: r.si },
             4 => CursorRestore { at: mem.u16(r.drv, 0x18a), w: mem.u16(r.drv, 0x18c), h: mem.u16(r.drv, 0x18e) },

@@ -20,6 +20,7 @@ pub mod mmpx;
 pub mod model;
 pub mod ops;
 pub mod pack;
+pub mod room;
 pub mod sheet;
 pub mod sprite;
 

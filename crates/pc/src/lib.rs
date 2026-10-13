@@ -416,19 +416,36 @@ impl Machine {
     /// the CPU (no interrupts or devices) until it returns, at most
     /// `max_insns` instructions. For tests and tools.
     pub fn call_far(&mut self, seg: u16, off: u16, max_insns: u64) -> Result<(), String> {
+        self.call(seg, off, true, max_insns)
+    }
+
+    /// Call `seg:off` as a near procedure (CS = `seg`), like [`Self::call_far`].
+    /// The graphics recorder follows the call when it is enabled.
+    pub fn call_near(&mut self, seg: u16, off: u16, max_insns: u64) -> Result<(), String> {
+        self.call(seg, off, false, max_insns)
+    }
+
+    fn call(&mut self, seg: u16, off: u16, far: bool, max_insns: u64) -> Result<(), String> {
         const RET_CS: u16 = 0xffff;
-        const RET_IP: u16 = 0x0000;
-        let sp = self.cpu.regs[SP].wrapping_sub(4);
+        const RET_IP: u16 = 0xffff;
+        let ret_cs = if far { RET_CS } else { seg };
         let ss = self.cpu.sregs[SS];
+        let sp = self.cpu.regs[SP].wrapping_sub(if far { 4 } else { 2 });
         self.cpu.regs[SP] = sp;
         self.mem_write16(ss, sp, RET_IP);
-        self.mem_write16(ss, sp.wrapping_add(2), RET_CS);
+        if far {
+            self.mem_write16(ss, sp.wrapping_add(2), RET_CS);
+        }
+        let done_sp = self.cpu.regs[SP].wrapping_add(if far { 4 } else { 2 });
         self.cpu.sregs[CS] = seg;
         self.cpu.ip = off;
-        let done_sp = sp.wrapping_add(4);
         for _ in 0..max_insns {
-            if self.cpu.sregs[CS] == RET_CS && self.cpu.ip == RET_IP && self.cpu.regs[SP] == done_sp {
+            if self.cpu.sregs[CS] == ret_cs && self.cpu.ip == RET_IP && self.cpu.regs[SP] == done_sp {
                 return Ok(());
+            }
+            if self.gfx.active() {
+                let pc = self.cpu.phys(self.cpu.sregs[CS], self.cpu.ip);
+                self.watch_gfx(pc);
             }
             match self.cpu.step(&mut self.hw) {
                 Step::Ok => {}
@@ -631,6 +648,21 @@ impl Machine {
         if let Some(slot) = self.gfx.slot_at(pc) {
             self.on_gfx_call(slot);
         }
+        if self.gfx.mark_returns_at(pc, sp) {
+            self.gfx.end(&self.hw);
+        }
+        if pc == gfx::MARK_ROOM || pc == gfx::MARK_CHARACTER {
+            self.on_mark(pc);
+        }
+    }
+
+    /// The game enters a marked routine (a near call: return IP on the stack).
+    #[cold]
+    fn on_mark(&mut self, pc: u32) {
+        let (ss, sp, cs) = (self.cpu.sregs[SS], self.cpu.regs[SP], self.cpu.sregs[CS]);
+        let ret = self.cpu.phys(cs, self.mem_read16(ss, sp));
+        let mark = if pc == gfx::MARK_ROOM { gfx::Mark::Room { room: self.cpu.regs[AX] as u8 } } else { gfx::Mark::Character };
+        self.gfx.begin(mark, ret, sp.wrapping_add(2), &self.hw);
     }
 
     #[cold]

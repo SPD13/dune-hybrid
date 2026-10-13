@@ -10,6 +10,15 @@
 //!                          {in}/{out} are folders, {scale} is 4
 //!   --model-name / --model-license / --model-source   recorded in the pack
 //!   --trace FILE           palettes observed with `dune-run --gfx-trace`
+//!   --rooms DIR            rooms captured by `dune-run --rooms DIR`: each is
+//!                          upscaled in one piece and stored as a room plate
+//!                          (seamless joins between its sprites); with
+//!                          --only, name ROOMS to keep them
+//!   --no-face-context      upscale talking-head parts (eyes, mouths) on
+//!                          their own, not over the face they belong to
+//!   --room-prescale N      --prescale for rooms (default 1: at 2 the models
+//!                          keep the pixel steps of a room's outlines, which
+//!                          sprites smooth with their own silhouette)
 //!   --only RES[,RES]       only these resources (e.g. LETO.HSQ)
 //!   --limit N              only the first N sprites
 //!   --max-drift D          drop art whose local colours drift further than D
@@ -36,7 +45,9 @@
 
 mod art;
 mod catalog;
+mod heads;
 mod palette;
+mod rooms;
 mod zip;
 
 use std::{
@@ -61,11 +72,14 @@ struct Args {
     backend: Backend,
     model: (String, String, String),
     trace: Option<PathBuf>,
+    rooms: Option<PathBuf>,
     only: Vec<String>,
     limit: Option<usize>,
     max_drift: f32,
     min_size: usize,
     prescale: usize,
+    room_prescale: usize,
+    face_context: bool,
     guard: Option<f32>,
     /// Write side-by-side previews (original, upscaled, projected) per sprite.
     previews: bool,
@@ -82,11 +96,14 @@ fn parse() -> Result<Args, String> {
         backend: Backend::Mmpx,
         model: ("mmpx".into(), "MIT".into(), "https://casual-effects.com/research/McGuire2021PixelArt/".into()),
         trace: None,
+        rooms: None,
         only: Vec::new(),
         limit: None,
         max_drift: 0.05,
         min_size: 6,
         prescale: 0,
+        room_prescale: 1,
+        face_context: true,
         guard: None,
         previews: false,
     };
@@ -104,12 +121,15 @@ fn parse() -> Result<Args, String> {
             "--model-license" => a.model.1 = v()?,
             "--model-source" => a.model.2 = v()?,
             "--trace" => a.trace = Some(v()?.into()),
+            "--rooms" => a.rooms = Some(v()?.into()),
             "--only" => a.only = v()?.split(',').map(|s| s.trim().to_uppercase()).collect(),
             "--limit" => a.limit = Some(v()?.parse().map_err(|e| format!("{e}"))?),
             "--max-drift" => a.max_drift = v()?.parse().map_err(|e| format!("{e}"))?,
             "--min-size" => a.min_size = v()?.parse().map_err(|e| format!("{e}"))?,
             "--previews" => a.previews = true,
             "--prescale" => a.prescale = v()?.parse().map_err(|e| format!("{e}"))?,
+            "--no-face-context" => a.face_context = false,
+            "--room-prescale" => a.room_prescale = v()?.parse().map_err(|e| format!("{e}"))?,
             "--guard" => a.guard = Some(v()?.parse::<f32>().map_err(|e| format!("{e}"))?).filter(|g| *g > 0.0).or(Some(0.0)),
             _ => return Err(format!("unknown option {k}")),
         }
@@ -156,8 +176,13 @@ fn run(args: &Args) -> std::io::Result<()> {
         None => Default::default(),
     };
     let mut assets = catalog::extract(&args.dat, &observed)?;
+    if let Some(dir) = &args.rooms {
+        let rooms = rooms::load(dir)?;
+        eprintln!("{} rooms from {}", rooms.len(), dir.display());
+        assets.extend(rooms);
+    }
     if !args.only.is_empty() {
-        assets.retain(|a| args.only.contains(&a.res));
+        assets.retain(|a| args.only.contains(&a.res) || (a.room && args.only.iter().any(|o| o == "ROOMS")));
     }
     if let Some(n) = args.limit {
         assets.truncate(n);
@@ -166,12 +191,45 @@ fn run(args: &Args) -> std::io::Result<()> {
     match args.cmd.as_str() {
         "extract" => extract(args, &assets),
         "build" => build(args, &assets),
+        "heads" => dump_heads(args, &observed),
         other => Err(std::io::Error::other(format!("unknown command {other}"))),
     }
 }
 
+/// Debug: every talking head's groups and frames as pictures (WORK/heads).
+fn dump_heads(args: &Args, observed: &catalog::Observed) -> std::io::Result<()> {
+    let dir = args.work.join("heads");
+    std::fs::create_dir_all(&dir)?;
+    let mut f = std::fs::File::open(&args.dat)?;
+    for e in gfx::dat::toc(&mut f)? {
+        let Ok(res) = gfx::dat::load(&mut f, &e) else { continue };
+        let Some(head) = heads::parse(&res) else { continue };
+        let Some(sheet) = catalog::sheet_assets(&e.name, &res, observed) else { continue };
+        let refs: Vec<Option<&Asset>> = sheet.iter().map(|a| a.as_ref()).collect();
+        let name = e.name.trim_end_matches(".HSQ");
+        eprintln!("{name}: origin {:?}, {} groups, {} frames: {:?}", head.origin, head.groups.len(), head.frames.len(), head.frames.iter().take(12).collect::<Vec<_>>());
+        let pal = sheet.iter().flatten().next().map(|a| a.palette).unwrap_or_else(palette::grey);
+        let save = |label: String, parts: &[heads::Part]| -> std::io::Result<()> {
+            if let Some((_, _, w, h, px)) = heads::compose(parts, &refs) {
+                let rgba: Vec<u8> = px.iter().flat_map(|p| p.map(|v| { let c = pal[v as usize]; [c[0], c[1], c[2], 255] }).unwrap_or([0; 4])).collect();
+                art::write_png(&dir.join(format!("{name}-{label}.png")), w, h, true, &rgba)?;
+            }
+            Ok(())
+        };
+        for (i, g) in head.groups.iter().enumerate() {
+            save(format!("g{i:02}"), g)?;
+        }
+        for (i, fr) in head.frames.iter().enumerate() {
+            let parts: Vec<heads::Part> = fr.iter().flat_map(|&g| head.groups[g].iter().cloned()).collect();
+            save(format!("f{i:02}"), &parts)?;
+        }
+    }
+    eprintln!("heads in {}", dir.display());
+    Ok(())
+}
+
 fn colour_image(a: &Asset) -> Vec<u8> {
-    a.local.iter().flat_map(|&v| if a.opaque(v) { let c = a.rgb(v); [c[0], c[1], c[2], 255] } else { [0; 4] }).collect()
+    a.local.iter().enumerate().flat_map(|(i, &v)| if a.solid(i) { let c = a.rgb(v); [c[0], c[1], c[2], 255] } else { [0; 4] }).collect()
 }
 
 fn extract(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
@@ -200,10 +258,52 @@ fn upscale(args: &Args, assets: &[Asset]) -> std::io::Result<HashMap<u64, Rgb>> 
             }
         }
         Backend::Command { template } => {
-            let cache = args.work.join("cache").join(format!("{}-p{}", args.backend.id(), args.prescale.max(1)));
+            let (rooms, sprites): (Vec<&Asset>, Vec<&Asset>) = assets.iter().partition(|a| a.room);
+            for (group, n) in [(sprites, args.prescale), (rooms, args.room_prescale)] {
+                if !group.is_empty() {
+                    upscale_command(args, template, &group, n.max(1), &mut out)?;
+                }
+            }
+            if args.face_context {
+                // Talking-head parts: cut out of their face, upscaled whole.
+                let wanted: std::collections::HashSet<u64> = assets.iter().map(|a| a.hash).collect();
+                let observed = match &args.trace {
+                    Some(p) => catalog::Observed::load(p)?,
+                    None => Default::default(),
+                };
+                let contexts: Vec<heads::Context> =
+                    heads::contexts(&args.dat, &observed)?.into_iter().filter(|c| c.parts.iter().any(|(h, ..)| wanted.contains(h))).collect();
+                let pictures: Vec<&Asset> = contexts.iter().map(|c| &c.picture).collect();
+                eprintln!("{} faces to upscale whole", pictures.len());
+                let mut faces = HashMap::new();
+                upscale_command(args, template, &pictures, args.prescale.max(1), &mut faces)?;
+                let mut cut = 0;
+                for c in &contexts {
+                    let Some(up) = faces.get(&c.picture.hash) else { continue };
+                    for &(hash, x, y) in &c.parts {
+                        let Some(a) = assets.iter().find(|a| a.hash == hash) else { continue };
+                        let (w, h) = (a.stride * 4, a.height * 4);
+                        let px = (0..h).flat_map(|ty| (0..w).map(move |tx| (tx, ty))).map(|(tx, ty)| up.px[(y * 4 + ty) * up.w + x * 4 + tx]).collect();
+                        out.insert(hash, Rgb { w, h, px });
+                        cut += 1;
+                    }
+                }
+                eprintln!("{cut} talking-head parts taken from their face");
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Upscale `assets` with the external upscaler, enlarged `n`× first;
+/// results are cached per command and `n`.
+fn upscale_command(args: &Args, template: &str, assets: &[&Asset], n: usize, out: &mut HashMap<u64, Rgb>) -> std::io::Result<()> {
+    {
+        {
+            let cache = args.work.join("cache").join(format!("{}-p{n}", args.backend.id()));
             std::fs::create_dir_all(&cache)?;
             let mut todo = Vec::new();
-            for a in assets {
+            for &a in assets {
                 let p = cache.join(format!("{:016x}.png", a.hash));
                 match art::read_rgb(&p) {
                     Ok(img) if img.w == a.stride * 4 && img.h == a.height * 4 => {
@@ -212,9 +312,8 @@ fn upscale(args: &Args, assets: &[Asset]) -> std::io::Result<HashMap<u64, Rgb>> 
                     _ => todo.push(a),
                 }
             }
-            eprintln!("upscaling {} sprites ({} cached)", todo.len(), out.len());
+            eprintln!("upscaling {} pictures ({} cached)", todo.len(), assets.len() - todo.len());
             if !todo.is_empty() {
-                let n = args.prescale.max(1);
                 eprintln!("prescale {n}, guard {}", args.guard.filter(|g| *g > 0.0).map(|g| g.to_string()).unwrap_or("off".into()));
                 let prepared: Vec<(u64, (Rgb, usize, usize))> = todo.iter().map(|a| (a.hash, art::model_input(a))).collect();
                 let inputs: Vec<(u64, Rgb)> = prepared.iter().map(|(h, (img, _, _))| (*h, art::nearest(img, n))).collect();
@@ -243,7 +342,7 @@ fn upscale(args: &Args, assets: &[Asset]) -> std::io::Result<HashMap<u64, Rgb>> 
             }
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 fn encode_png(t: &Texels) -> Vec<u8> {
@@ -295,7 +394,7 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
             for y in 0..h {
                 for x in 0..w {
                     let v = a.local[(y / 4) * a.stride + x / 4];
-                    if a.opaque(v) {
+                    if a.solid((y / 4) * a.stride + x / 4) {
                         put(0, x, y, a.rgb(v));
                     }
                     if let Some(up) = ups.get(&a.hash) {
@@ -316,13 +415,16 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
     let file = std::fs::File::create(&args.out)?;
     let mut zip = zip::ZipWriter::new(std::io::BufWriter::new(file));
     let mut manifest_assets = Vec::new();
+    let mut manifest_rooms = Vec::new();
+    let mut rooms_kept = 0;
     let mut rows = String::new();
     let (mut kept, mut dropped, mut bytes) = (0, 0, 0usize);
     for (i, pair) in &results {
         let a = &assets[*i];
         let id = format!("{:016x}", a.content);
+        let room = a.room;
         let big_enough = a.width >= args.min_size && a.height >= args.min_size;
-        let text_art = gfx::pack::text_art(&a.local, |v| a.opaque(v));
+        let text_art = !room && gfx::pack::text_art(&a.local, |v| a.opaque(v));
         let (q4, q2, ok) = match pair {
             Some((t4, t2)) => (t4.quality, t4.drift, big_enough && !text_art &&t4.drift <= args.max_drift && t2.drift <= args.max_drift),
             None => (0.0, 0.0, false),
@@ -343,17 +445,34 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
             continue;
         }
         let (t4, t2) = pair.as_ref().unwrap();
-        for (dir, t) in [("a4", t4), ("a2", t2)] {
+        let dirs = if room { ["r4", "r2"] } else { ["a4", "a2"] };
+        for (dir, t) in dirs.into_iter().zip([t4, t2]) {
             let png = encode_png(t);
             bytes += png.len();
             zip.add(&format!("{dir}/{id}.png"), &png)?;
         }
-        kept += 1;
-        manifest_assets.push(json!({"id": id, "res": a.res, "part": a.part, "w": a.stride, "h": a.height, "width": a.width, "format": a.format_name(), "block_match": q4, "drift": q2}));
+        if room {
+            // What the plate depicts: R = palette index, A = drawn by the room.
+            let low = Texels {
+                w: a.stride,
+                h: a.height,
+                px: a.local.iter().enumerate().map(|(i, &v)| [v, 0, 0, if a.solid(i) { 255 } else { 0 }]).collect(),
+                quality: 0.0,
+                drift: 0.0,
+            };
+            let png = encode_png(&low);
+            bytes += png.len();
+            zip.add(&format!("rl/{id}.png"), &png)?;
+            rooms_kept += 1;
+            manifest_rooms.push(json!({"id": id, "room": a.part, "file": a.res.trim_start_matches("ROOM-"), "block_match": q4, "drift": q2}));
+        } else {
+            kept += 1;
+            manifest_assets.push(json!({"id": id, "res": a.res, "part": a.part, "w": a.stride, "h": a.height, "width": a.width, "format": a.format_name(), "block_match": q4, "drift": q2}));
+        }
     }
     let manifest = json!({
         "format": "dune-hybrid-hd-pack",
-        "version": 2,
+        "version": 3,
         "generator": format!("dune-hd {}", env!("CARGO_PKG_VERSION")),
         "game": {"toc": format!("{:016x}", catalog::toc_hash(&args.dat)?)},
         "scales": [4, 2],
@@ -361,6 +480,8 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
         "hash": "gfx::hash::image_hash of the sprite's decoded picture (palette-local values) and size",
         "model": {"name": args.model.0, "license": args.model.1, "source": args.model.2},
         "assets": manifest_assets,
+        "rooms": manifest_rooms,
+        "room_plates": "r4/<key>.png, r2/<key>.png: texels as above with global palette indices, for the 320 × 152 game area; rl/<key>.png: R = the low-resolution palette index the plate depicts, A = 255 where the room drew. Key: gfx::room::RoomKey of the room's drawing calls",
         "notice": NOTICE,
     });
     zip.add("manifest.json", serde_json::to_string_pretty(&manifest)?.as_bytes())?;
@@ -382,7 +503,7 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
     })?;
     zip.finish()?;
     eprintln!(
-        "{}: {kept} sprites ({:.1} MB of art), {dropped} left to the built-in upscaler; report in {}",
+        "{}: {kept} sprites and {rooms_kept} rooms ({:.1} MB of art), {dropped} left to the built-in upscaler; report in {}",
         args.out.display(),
         bytes as f64 / 1e6,
         Path::new(&args.work).join("report.html").display()

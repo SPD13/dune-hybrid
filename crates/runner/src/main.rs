@@ -11,8 +11,9 @@
 //! counts calls per slot. `--snapshot FILE` starts from a saved state.
 
 mod gfxcheck;
+mod rooms;
 
-use std::{fs, path::PathBuf, process::ExitCode};
+use std::{cell::RefCell, fs, path::PathBuf, process::ExitCode, rc::Rc};
 
 use pc::{
     Machine, RunExit,
@@ -39,6 +40,8 @@ struct Args {
     hd_shots: bool,
     /// HD art pack (from `dune-hd`) for the HD compositor.
     hd_pack: Option<PathBuf>,
+    /// After the run: make the game draw every room into this folder.
+    rooms: Option<PathBuf>,
 }
 
 fn parse() -> Result<Args, String> {
@@ -56,6 +59,7 @@ fn parse() -> Result<Args, String> {
         hd: None,
         hd_shots: false,
         hd_pack: None,
+        rooms: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
@@ -73,6 +77,7 @@ fn parse() -> Result<Args, String> {
             "--hd" => a.hd = Some(v()?.parse().map_err(|e| format!("{e}"))?),
             "--hd-shots" => a.hd_shots = true,
             "--hd-pack" => a.hd_pack = Some(v()?.into()),
+            "--rooms" => a.rooms = Some(v()?.into()),
             "--events" => {
                 for ev in v()?.split(',') {
                     let parts: Vec<String> = ev.split(':').map(String::from).collect();
@@ -178,11 +183,25 @@ fn main() -> ExitCode {
         let mut file = fs::File::open(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         let index = gfx::pack::PackIndex::read(&mut file).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         println!("hd pack: {} entries", index.len());
-        hd.comp.set_art(Some(Box::new(move |hash, k| index.sprite(&mut file, hash, k))));
+        let index = Rc::new(index);
+        let file = Rc::new(RefCell::new(file));
+        let (i2, f2) = (index.clone(), file.clone());
+        hd.comp.set_art(Some(Box::new(move |hash, k| index.sprite(&mut *file.borrow_mut(), hash, k))));
+        hd.comp.set_plates(Some(Box::new(move |key, k| i2.plate(&mut *f2.borrow_mut(), key, k))));
     }
-    if let Some(rec) = &recorder {
-        let rec = rec.clone();
-        m.gfx.hook = Some(Box::new(move |e, hw| rec.borrow_mut().on_event(e, hw)));
+    let tracker = args.rooms.as_ref().map(|_| Rc::new(RefCell::new(rooms::Tracker::default())));
+    if recorder.is_some() || tracker.is_some() {
+        m.gfx.enabled = true;
+        let rec = recorder.clone();
+        let tr = tracker.clone();
+        m.gfx.hook = Some(Box::new(move |e, hw| {
+            if let Some(rec) = &rec {
+                rec.borrow_mut().on_event(e, hw);
+            }
+            if let Some(tr) = &tr {
+                tr.borrow_mut().on_event(e, hw);
+            }
+        }));
     }
 
     // Times (--seconds, --events) count from the start, or from the snapshot.
@@ -267,6 +286,15 @@ fn main() -> ExitCode {
                 if args.hd_shots {
                     write_png_sized(&args.out.join(format!("hd-{shot:04}.png")), (320 * k) as u32, (200 * k) as u32, &big);
                 }
+                if std::env::var_os("HD_SEAMS").is_some()
+                    && let Some(tr) = &tracker
+                    && let Some(room) = tr.borrow().seen.last()
+                {
+                    let (join, inside, n) = rooms::seams(room, &m.hw.mem[0xa0000..0xa0000 + 64000], &big, &dac8, k);
+                    if n > 0 {
+                        println!("seams {shot:04}: room {} joins {join:.2} ({n} borders), inside {inside:.2}", room.room);
+                    }
+                }
             }
         }
         shot += 1;
@@ -274,6 +302,9 @@ fn main() -> ExitCode {
             break r;
         }
     };
+    if let (Some(dir), Some(tr)) = (&args.rooms, &tracker) {
+        rooms::capture(&mut m, dir, tr.clone());
+    }
     let elapsed = wall.elapsed().as_secs_f64();
     if let Some(w) = &args.wav {
         write_wav(w, &audio);
@@ -322,6 +353,7 @@ fn main() -> ExitCode {
         && args.hd_pack.is_some()
     {
         println!("hd pack: {} sprites from the pack, {} without art", hd.comp.art_hits, hd.comp.art_misses);
+        println!("hd pack: {} rooms from plates, {} without", hd.comp.plate_hits, hd.comp.plate_misses);
     }
     if hd_totals.hd + hd_totals.fallback > 0 {
         let n = (hd_totals.hd + hd_totals.fallback) as f64 / 100.0;

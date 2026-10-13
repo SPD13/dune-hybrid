@@ -165,6 +165,7 @@ pub fn walk<S: Sink>(op: &DrawOp, r: &Regs, mem: Mem, dst: &mut S) -> bool {
                 ramp = ramp.wrapping_add(step);
             }
         }
+        DrawOp::Line { x0, y0, x1, y1, colour, pattern, clip } => line(x0, y0, x1, y1, colour, pattern, clip, yo, dst),
         DrawOp::SaveRect { rect, src, at, .. } => {
             let (start, w, rows) = rect_span(rect, yo);
             let (mut s, mut d) = (start, at);
@@ -254,6 +255,88 @@ pub fn walk<S: Sink>(op: &DrawOp, r: &Regs, mem: Mem, dst: &mut S) -> bool {
 
 /// A rectangle {x0, y0, x1, y1} as the driver walks it: start offset,
 /// width and row count (`LOOP`-style: 0 rows means 65536).
+/// Slot 19 (driver:1A07). Horizontal and vertical lines include both ends;
+/// other lines step along the major axis (Bresenham, the error starting at
+/// half the major length) and leave out their first point. Clip tests are
+/// signed; a vertical line starting above the screen is cut at row 0 first.
+#[allow(clippy::too_many_arguments)]
+fn line<S: Sink>(x0: u16, y0: u16, x1: u16, y1: u16, colour: u8, pattern: u16, clip: Rect, yo: u16, dst: &mut S) {
+    let mut pat = pattern;
+    // ROL: draw where bit 15 falls out.
+    let mut dash = || {
+        let on = pat & 0x8000 != 0;
+        pat = pat.rotate_left(1);
+        on
+    };
+    let (cx0, cy0, cx1, cy1) = (clip.x0 as i16, clip.y0 as i16, clip.x1 as i16, clip.y1 as i16);
+    let dx = x1.wrapping_sub(x0) as i16;
+    let dy = y1.wrapping_sub(y0) as i16;
+    // LOOP runs CX times, 65536 for CX = 0.
+    let times = |n: u16| if n == 0 { 0x10000u32 } else { n as u32 };
+    if dy == 0 {
+        let (start, len) = if (x0 as i16).wrapping_add(dx) > x0 as i16 { (x0, dx as u16) } else { (x0.wrapping_add(dx as u16), (dx as u16).wrapping_neg()) };
+        let y = y0 as i16;
+        if y < cy0 || y >= cy1 {
+            return;
+        }
+        let mut at = screen_offset(start, y0, yo);
+        let mut x = start as i16;
+        for _ in 0..times(len.wrapping_add(1)) {
+            if dash() && x >= cx0 && x < cx1 {
+                dst.put(at, colour, Px::Fill);
+            }
+            at = at.wrapping_add(1);
+            x = x.wrapping_add(1);
+        }
+        return;
+    }
+    let (sy, ady) = if dy < 0 { (-1i16, (dy as u16).wrapping_neg()) } else { (1, dy as u16) };
+    if dx == 0 {
+        let mut len = ady;
+        let mut y = if sy < 0 { y0.wrapping_sub(len) } else { y0 };
+        if y >= 200 {
+            if (y as i16) >= 200 {
+                return;
+            }
+            len = len.wrapping_add(y);
+            y = 0;
+        }
+        let x = x0 as i16;
+        if x < cx0 || x >= cx1 {
+            return;
+        }
+        let mut at = screen_offset(x0, y, yo);
+        let mut y = y as i16;
+        for _ in 0..times(len.wrapping_add(1)) {
+            if dash() && y >= cy0 && y < cy1 {
+                dst.put(at, colour, Px::Fill);
+            }
+            y = y.wrapping_add(1);
+            at = at.wrapping_add(320);
+        }
+        return;
+    }
+    let (sx, adx) = if dx < 0 { (-1i16, (dx as u16).wrapping_neg()) } else { (1, dx as u16) };
+    // Straight step `b` when the error stays below the major length.
+    let (major, minor, b) = if adx > ady { (adx, ady, (sx, 0)) } else { (ady, adx, (0, sy)) };
+    let mut err = major >> 1;
+    let (mut x, mut y) = (x0 as i16, y0 as i16);
+    for _ in 0..times(major) {
+        err = err.wrapping_add(minor);
+        let (stx, sty) = if err < major {
+            b
+        } else {
+            err = err.wrapping_sub(major);
+            (sx, sy)
+        };
+        x = x.wrapping_add(stx);
+        y = y.wrapping_add(sty);
+        if dash() && x >= cx0 && y >= cy0 && x < cx1 && y < cy1 {
+            dst.put(screen_offset(x as u16, y as u16, yo), colour, Px::Fill);
+        }
+    }
+}
+
 fn rect_span(r: Rect, yo: u16) -> (u16, u16, u32) {
     let start = screen_offset(r.x0, r.y0, yo);
     // The address computation clamps y0 to 199 in its register.

@@ -55,7 +55,12 @@ async function preflight() {
     for (const n of REQUIRED) {
       if (files[n]) continue;
       setProgress(`Importing dev copy of ${n}`);
-      files[n] = await store(n, await (await fetch(`dev/${n}`)).blob(), (f) => setProgress(`Importing dev copy of ${n}`, f));
+      // Streamed through scratch storage: DUNE.DAT (~400 MB) can be too big
+      // to hold as one Blob.
+      const res = await fetch(`dev/${n}`);
+      const copy = await scratchFile(`dev-${n}`, res.body!, Number(res.headers.get("content-length")), () => {});
+      files[n] = await store(n, copy, (f) => setProgress(`Importing dev copy of ${n}`, f));
+      await clearScratch();
     }
     setProgress(null);
   }
@@ -108,7 +113,8 @@ async function refreshPack() {
     return;
   }
   const mb = (info.bytes / 1e6).toFixed(0);
-  status.textContent = `${info.sprites} sprites upscaled with ${info.model?.name ?? "?"} (${info.model?.license ?? "?"}), ${mb} MB. Turn on Options → HD sprites and text to use it.`;
+  const rooms = info.rooms ? ` and ${info.rooms} rooms` : "";
+  status.textContent = `${info.sprites} sprites${rooms} upscaled with ${info.model?.name ?? "?"} (${info.model?.license ?? "?"}), ${mb} MB. Turn on Options → HD sprites and text to use it.`;
   const dat = files["DUNE.DAT"];
   if (dat && info.toc && (await datTocHash(dat)) !== info.toc) {
     status.textContent += " Warning: it was made from a different DUNE.DAT, so most sprites will not match.";

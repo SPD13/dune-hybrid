@@ -11,6 +11,8 @@ const INFO_KEY = "dune-hybrid-hdpack";
 
 export interface PackInfo {
   sprites: number;
+  /** Rooms upscaled whole (room plates, pack version 3); absent before. */
+  rooms?: number;
   model: { name: string; license: string; source: string };
   generator: string;
   /** Hash of the DUNE.DAT table of contents the pack was made from. */
@@ -39,8 +41,9 @@ export async function importPack(zip: File, progress: (f: number) => void): Prom
   if (!data) throw new Error("This ZIP is not an HD art pack made by dune-hd (no manifest.json).");
   const manifest = JSON.parse(await data.text());
   if (manifest.format !== "dune-hybrid-hd-pack") throw new Error("This ZIP is not an HD art pack made by dune-hd.");
-  if (manifest.version !== 2) {
-    throw new Error(`This HD art pack has format version ${manifest.version}; this app reads version 2. Please make it again with the current dune-hd.`);
+  // Version 3 adds room plates; version 2 packs (sprites only) still work.
+  if (manifest.version !== 2 && manifest.version !== 3) {
+    throw new Error(`This HD art pack has format version ${manifest.version}; this app reads versions 2 and 3. Please make it again with the current dune-hd.`);
   }
   if (entries.some((e) => e.name.endsWith(".png") && e.method !== 0)) {
     throw new Error("The pack's images are compressed inside the ZIP; please use the ZIP exactly as dune-hd wrote it.");
@@ -48,6 +51,7 @@ export async function importPack(zip: File, progress: (f: number) => void): Prom
   await storeAs(FILE, zip, progress);
   const info: PackInfo = {
     sprites: manifest.assets?.length ?? 0,
+    rooms: manifest.rooms?.length ?? 0,
     model: manifest.model,
     generator: manifest.generator,
     toc: manifest.game?.toc ?? "",

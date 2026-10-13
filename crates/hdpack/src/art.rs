@@ -61,10 +61,12 @@ const PAD: usize = 4;
 const MIN_SIDE: usize = 16;
 
 /// The sprite in colour, transparent pixels filled from their neighbours
-/// (so models see no hard halo), padded by repeating the edges.
+/// (so models see no hard halo), padded by repeating the edges. A room keeps
+/// every pixel, drawn by it or not: the model sees the real surroundings.
 pub fn model_input(a: &Asset) -> (Rgb, usize, usize) {
     let (w, h) = (a.stride, a.height);
-    let mut px: Vec<Option<[u8; 3]>> = a.local.iter().map(|&v| a.opaque(v).then(|| a.rgb(v))).collect();
+    let room = a.room;
+    let mut px: Vec<Option<[u8; 3]>> = a.local.iter().enumerate().map(|(i, &v)| (room || a.solid(i)).then(|| a.rgb(v))).collect();
     // Grow colours into transparent pixels.
     for _ in 0..w.max(h) {
         let mut changed = false;
@@ -152,9 +154,14 @@ pub fn shrink(src: &Rgb, n: usize) -> Rgb {
     Rgb { w, h, px }
 }
 
-/// The sprite's silhouette at `k`× (MMPX on the opaque mask).
+/// The sprite's silhouette at `k`× (MMPX on the opaque mask). A room's is
+/// whole blocks: it replaces the pixels it drew, each in full.
 pub fn mask(a: &Asset, k: usize) -> Vec<bool> {
-    let mut m: Vec<u16> = a.local.iter().map(|&v| a.opaque(v) as u16).collect();
+    if a.room {
+        let w = a.stride * k;
+        return (0..w * a.height * k).map(|i| a.solid((i / w / k) * a.stride + (i % w) / k)).collect();
+    }
+    let mut m: Vec<u16> = (0..a.local.len()).map(|i| a.solid(i) as u16).collect();
     let (mut w, mut h) = (a.stride, a.height);
     let luma = |v: u16| v as f32;
     let mut s = 1;
@@ -169,7 +176,7 @@ pub fn mask(a: &Asset, k: usize) -> Vec<bool> {
 
 /// MMPX on the palette values themselves (no colours needed).
 pub fn mmpx_texels(a: &Asset, k: usize) -> Texels {
-    let mut px: Vec<u16> = a.local.iter().map(|&v| if a.opaque(v) { v as u16 } else { 0x100 }).collect();
+    let mut px: Vec<u16> = a.local.iter().enumerate().map(|(i, &v)| if a.solid(i) { v as u16 } else { 0x100 }).collect();
     let (mut w, mut h) = (a.stride, a.height);
     let luma = |v: u16| if v > 255 { -1.0 } else { let c = a.rgb(v as u8); 0.2126 * c[0] as f32 + 0.7152 * c[1] as f32 + 0.0722 * c[2] as f32 };
     let mut s = 1;
@@ -190,7 +197,7 @@ pub fn project(a: &Asset, up: &Rgb, k: usize) -> Texels {
     let (w, h) = (a.stride * k, a.height * k);
     assert_eq!((up.w, up.h), (w, h));
     let silhouette = mask(a, k);
-    let lab: HashMap<u8, [f32; 3]> = a.local.iter().filter(|&&v| a.opaque(v)).map(|&v| (v, oklab(a.rgb(v)))).collect();
+    let lab: HashMap<u8, [f32; 3]> = a.local.iter().enumerate().filter(|&(i, _)| a.solid(i)).map(|(_, &v)| (v, oklab(a.rgb(v)))).collect();
     let mix_lab = |p: u8, q: u8, t: f32| -> [f32; 3] {
         let (cp, cq) = (a.rgb(p), a.rgb(q));
         oklab([0, 1, 2].map(|i| (cp[i] as f32 * (1.0 - t) + cq[i] as f32 * t).round() as u8))
@@ -207,8 +214,9 @@ pub fn project(a: &Asset, up: &Rgb, k: usize) -> Texels {
                     if nx < 0 || ny < 0 || nx as usize >= a.stride || ny as usize >= a.height {
                         continue;
                     }
-                    let v = a.local[ny as usize * a.stride + nx as usize];
-                    if a.opaque(v) && !cand.contains(&v) {
+                    let ni = ny as usize * a.stride + nx as usize;
+                    let v = a.local[ni];
+                    if a.solid(ni) && !cand.contains(&v) {
                         cand.push(v);
                     }
                 }
@@ -236,7 +244,7 @@ pub fn project(a: &Asset, up: &Rgb, k: usize) -> Texels {
                     // The source pixel's own value wins ties (palettes
                     // repeat colours under different indices).
                     let own = a.local[sy * a.stride + sx];
-                    let (mut best, mut best_d) = if a.opaque(own) { ([own, own, 0], dist(lab[&own], target)) } else { ([cand[0], cand[0], 0], f32::MAX) };
+                    let (mut best, mut best_d) = if a.solid(sy * a.stride + sx) { ([own, own, 0], dist(lab[&own], target)) } else { ([cand[0], cand[0], 0], f32::MAX) };
                     for &v in &cand {
                         let d = dist(lab[&v], target);
                         if d < best_d - 1e-7 {
@@ -280,7 +288,7 @@ fn drift_map(a: &Asset, k: usize, px: &[[u8; 4]]) -> Vec<Option<f32>> {
     for sy in 0..sh {
         for sx in 0..sw {
             let v = a.local[sy * sw + sx];
-            if a.opaque(v) {
+            if a.solid(sy * sw + sx) {
                 src[sy * sw + sx] = Some(a.rgb(v).map(|c| c as f32));
             }
             let mut sum = [0f32; 3];
@@ -393,7 +401,7 @@ fn contrast_loss(a: &Asset, k: usize, px: &[[u8; 4]], min_contrast: f32) -> Vec<
         }
         (n * 2 >= k * k).then(|| oklab(sum.map(|c| (c / n as f32).round() as u8)))
     };
-    let src: Vec<Option<[f32; 3]>> = a.local.iter().map(|&v| a.opaque(v).then(|| oklab(a.rgb(v)))).collect();
+    let src: Vec<Option<[f32; 3]>> = a.local.iter().enumerate().map(|(i, &v)| a.solid(i).then(|| oklab(a.rgb(v)))).collect();
     let hd: Vec<Option<[f32; 3]>> = (0..sw * sh).map(|i| block_mean(i % sw, i / sw)).collect();
     let dist = |p: [f32; 3], q: [f32; 3]| (0..3).map(|i| (p[i] - q[i]) * (p[i] - q[i])).sum::<f32>().sqrt();
     let contrast = |img: &[Option<[f32; 3]>], x: usize, y: usize| -> Option<f32> {
@@ -425,7 +433,7 @@ fn quality(a: &Asset, k: usize, px: &[[u8; 4]]) -> f32 {
     for sy in 0..a.height {
         for sx in 0..a.stride {
             let v = a.local[sy * a.stride + sx];
-            if !a.opaque(v) {
+            if !a.solid(sy * a.stride + sx) {
                 continue;
             }
             n += 1;

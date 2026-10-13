@@ -66,11 +66,30 @@ impl DriverCall {
     }
 }
 
+/// Game routines the recorder also reports, so a host knows what a run of
+/// driver calls draws (addresses in the game's code segment, DNCDPRG.lst).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mark {
+    /// `draw_SAL` (1000:3B59) draws room `room` (AL, the SAL room byte) of
+    /// the loaded room file into the active buffer (fb1).
+    Room { room: u8 },
+    /// 1000:3D2F, inside `draw_SAL`: a character standing in the room.
+    Character,
+}
+
+/// Linear addresses of the marked routines.
+pub(crate) const MARK_ROOM: u32 = (crate::LOAD_SEG as u32) * 16 + 0x3b59;
+pub(crate) const MARK_CHARACTER: u32 = (crate::LOAD_SEG as u32) * 16 + 0x3d2f;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GfxEvent {
     Enter(DriverCall),
     /// The call `slot` at nesting `depth` returned.
     Return { slot: u8, depth: u8, at_ns: u64 },
+    /// A marked routine starts (before any of its driver calls).
+    Begin(Mark),
+    /// A marked routine returns.
+    End(Mark),
 }
 
 pub type GfxHook = Box<dyn FnMut(&GfxEvent, &Hardware)>;
@@ -92,11 +111,13 @@ pub struct GfxRecorder {
     /// Called on every entry and return, with the machine's memory.
     pub hook: Option<GfxHook>,
     stack: Vec<Pending>,
+    /// Marked routines in progress: (mark, return address, SP after return).
+    marks: Vec<(Mark, u32, u16)>,
 }
 
 impl Default for GfxRecorder {
     fn default() -> Self {
-        GfxRecorder { enabled: false, base: 0, drv: 0, counts: [0; SLOTS], hook: None, stack: Vec::new() }
+        GfxRecorder { enabled: false, base: 0, drv: 0, counts: [0; SLOTS], hook: None, stack: Vec::new(), marks: Vec::new() }
     }
 }
 
@@ -117,6 +138,7 @@ impl GfxRecorder {
     /// Forget calls in progress (after a snapshot restore).
     pub(crate) fn reset(&mut self) {
         self.stack.clear();
+        self.marks.clear();
     }
 
     /// Which slot starts at `pc`, if any.
@@ -138,6 +160,26 @@ impl GfxRecorder {
         self.stack.push(Pending { slot: call.slot, ret, sp: sp_after });
         if let Some(h) = self.hook.as_mut() {
             h(&GfxEvent::Enter(call), hw);
+        }
+    }
+
+    /// Does `pc`/`sp` complete the innermost marked routine?
+    #[inline]
+    pub(crate) fn mark_returns_at(&self, pc: u32, sp: u16) -> bool {
+        self.marks.last().is_some_and(|&(_, ret, s)| ret == pc && s == sp)
+    }
+
+    pub(crate) fn begin(&mut self, mark: Mark, ret: u32, sp_after: u16, hw: &Hardware) {
+        self.marks.push((mark, ret, sp_after));
+        if let Some(h) = self.hook.as_mut() {
+            h(&GfxEvent::Begin(mark), hw);
+        }
+    }
+
+    pub(crate) fn end(&mut self, hw: &Hardware) {
+        let Some((mark, ..)) = self.marks.pop() else { return };
+        if let Some(h) = self.hook.as_mut() {
+            h(&GfxEvent::End(mark), hw);
         }
     }
 

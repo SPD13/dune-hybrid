@@ -102,10 +102,26 @@ impl PackIndex {
         self.entries.is_empty()
     }
 
+    /// Room plate `key` at scale `k`, if the pack has it (see [`Plate`]).
+    pub fn plate<R: Read + Seek>(&self, r: &mut R, key: u64, k: usize) -> Option<Plate> {
+        let texels = decode(&self.read_entry(r, &format!("r{k}/{key:016x}.png"))?)?;
+        let low = decode(&self.read_entry(r, &format!("rl/{key:016x}.png"))?)?;
+        (low.w == 320 && low.h == crate::room::ROWS && texels.w == 320 * k && texels.h == crate::room::ROWS * k).then_some(Plate { texels, low })
+    }
+
     /// The art for sprite `hash` at scale `k`, if the pack has it.
     pub fn sprite<R: Read + Seek>(&self, r: &mut R, hash: u64, k: usize) -> Option<PackSprite> {
         decode(&self.read_entry(r, &format!("a{k}/{hash:016x}.png"))?)
     }
+}
+
+/// A room plate (pack version 3): the HD game area of one room, keyed by
+/// [`crate::room::RoomKey`]. `texels` as for sprites, with global palette
+/// indices (A = 0 where the room did not draw); `low`: R = the palette index
+/// the plate depicts, A = 255 where the room drew.
+pub struct Plate {
+    pub texels: PackSprite,
+    pub low: PackSprite,
 }
 
 /// Decode a pack PNG (8-bit RGBA).

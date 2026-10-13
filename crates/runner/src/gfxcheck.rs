@@ -146,6 +146,23 @@ impl Recorder {
                     self.stats[c.slot as usize].unmodelled += 1;
                 }
             }
+            GfxEvent::Begin(mark) | GfxEvent::End(mark) => {
+                let begin = matches!(e, GfxEvent::Begin(_));
+                if let Some(hd) = self.hd.as_mut() {
+                    match (mark, begin) {
+                        (pc::gfx::Mark::Room { .. }, true) => hd.comp.room_begin(),
+                        (pc::gfx::Mark::Room { .. }, false) => hd.comp.room_end(),
+                        (pc::gfx::Mark::Character, b) => hd.comp.room_character(b),
+                    }
+                }
+                if let Some(t) = self.trace.as_mut() {
+                    let edge = if matches!(e, GfxEvent::Begin(_)) { "begin" } else { "end" };
+                    let _ = match mark {
+                        pc::gfx::Mark::Room { room } => writeln!(t, r#"{{"mark":"room","{edge}":true,"room":{room}}}"#),
+                        pc::gfx::Mark::Character => writeln!(t, r#"{{"mark":"character","{edge}":true}}"#),
+                    };
+                }
+            }
             GfxEvent::Return { depth, .. } => {
                 if let Some(hd) = self.hd.as_mut() {
                     hd.leave(Mem(mem));

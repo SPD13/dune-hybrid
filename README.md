@@ -143,6 +143,8 @@ The album has 22 tracks. The app uses only the **eight game tracks (13–20)**. 
 
 An **HD art pack** holds high-resolution versions of the game's sprites (characters, rooms, objects, the interface), redrawn by an upscaler of your choice, typically an AI model. Imported on the setup page, it replaces the built-in upscaling of **HD sprites and text** wherever it has a sprite. The art stays exactly where the game draws it and keeps the game's palette, so fades and day/night still work.
 
+Rooms and faces are assembled by the game from many pieces. Upscaled piece by piece, the joins between them would show, so a pack can also hold **whole rooms**: each palace, sietch and Harkonnen room is drawn by the game itself, upscaled in one piece and shown whole when the game draws it (a *room plate*). The parts of talking heads (eyes, mouths) are upscaled over the face they belong to.
+
 > **⚠️ HD art packs are not provided.**
 > A pack is derived from the game's artwork, which is copyrighted (Dune © Cryo Interactive Entertainment / Virgin Games). This project does not include or distribute packs, and never will.
 > **You need your own copy of the game to make one:** the generator reads the art from your `DUNE.DAT`, on your own computer, and the pack it writes is for your personal use with your copy of the game. **Do not share packs or upload them anywhere.** Every pack carries a notice saying so.
@@ -177,7 +179,9 @@ The setup page warns if a pack was made from a different `DUNE.DAT`. Remove a pa
 2. Each sprite is upscaled 4× by the chosen upscaler. Transparent areas are filled from the edges first, so the model sees no halos.
 3. The result is projected back onto the game's palette. Each HD pixel becomes one of the colours around its original pixel, or a mix of two, with the original's exact silhouette. Palette fades, day/night and recolouring still work, and the art stays where the game draws it.
 4. Art whose local colours drift too far from the original (`--max-drift`, default 0.05 in OKLab), and very small sprites (`--min-size`, default 6 px), are left to the built-in upscaler. So is text art: opaque sprites of two colours or fewer, such as the intro's subtitle lines (text pre-rendered on its background). With no transparent pixels there is no silhouette to keep, so an upscaler blurs the letters and fills their holes. The app applies this rule to packs made before it too.
-5. The pack is a ZIP holding 4× and 2× art per sprite, a manifest (which records the upscaler and its licence), a notice and an HTML report.
+5. **Talking heads** are faces with interchangeable patches: eyes, brows and mouths drawn over the face. Each patch is upscaled on top of the face it is drawn over (the head's first frame, as the game shows it, with a margin of 16 pixels around the patch), then cut back out, so its edges continue the face. `--no-face-context` upscales the patches on their own instead.
+6. **Rooms** (with `--rooms`): the game itself draws every room into a folder (`dune-run --rooms`, see below), and each room is upscaled in one piece, so walls, floors, columns and lines continue across the joins between their sprites. A room is projected onto the palette like a sprite, using only the colours it drew. In the app, when the game draws a room the pack has, the room's pixels take the plate's art wherever they still show what the plate depicts; characters and objects drawn over the room keep their own art.
+7. The pack is a ZIP holding 4× and 2× art per sprite and per room, a manifest (which records the upscaler and its licence), a notice and an HTML report.
 
 ### Command reference
 
@@ -193,12 +197,18 @@ cargo build --release
     --command "/path/to/realesrgan-ncnn-vulkan -m /path/to/models -i {in} -o {out} -n realesr-animevideov3-x4 -s {scale} -f png" \
     --model-name realesr-animevideov3-x4 --model-license BSD-3-Clause --model-source https://github.com/xinntao/Real-ESRGAN \
     --previews --trace out/gfx.jsonl
+
+# Whole rooms: let the game draw every room (after skipping the intro), then add them to the pack.
+./target/release/dune-run --dir path/to/game --seconds 75 --events "61.5:key:1:1,61.6:key:1:0" --out out --rooms work/rooms
+./target/release/dune-hd build ... --rooms work/rooms
 ```
 
 **Other options:**
 - `--previews` writes, for each sprite, the original, the upscaler's output and the final result side by side to `work/preview/`.
 - `work/report.html` lists every sprite with its drift and whether it went into the pack.
 - Upscaled images are cached in `work/cache/`, so trying different settings does not re-run the model.
+- `--room-prescale N` is `--prescale` for rooms (default 1). At 2, models keep the pixel steps of the outlines inside a room, which sprites smooth with their own silhouette.
+- `--no-face-context` upscales talking-head parts on their own.
 
 ### Small details such as faces
 
@@ -518,10 +528,11 @@ GFX_STATS=1 ./target/release/dune-run --dir path/to/game --seconds 60           
 | 11–16, 18 | buffer and rectangle copies | yes |
 | 25, 26 | save a rectangle to memory, and put it back | yes |
 | 36 | dithered colour ramps (floors, walls) | yes |
+| 19 | lines, solid or dashed, clipped to a rectangle (room outlines, the map) | yes |
 | 37 | room zoom behind dialogue portraits (7 factors) | yes |
 | 0–2, 20, 28, 32–34, 41 | mode, palette, retrace, Y offset | (no drawing) |
 | 3, 4 | mouse cursor (draw with save-under at A000:FA00, restore) | yes |
-| 19, 23, 24, 27, 29, 30 | lines, globe, map, transitions | not yet (followed by resynchronisation) |
+| 23, 24, 27, 29, 30 | globe, map, transitions | not yet (followed by resynchronisation) |
 
 ### Reference HD compositor
 
@@ -531,6 +542,10 @@ GFX_STATS=1 ./target/release/dune-run --dir path/to/game --seconds 60           
 - **Fills and ramps** become solid blocks.
 - **Copies, saved rectangles and zooms** carry the source's HD blocks along; a zoom shows the matching part of each source block.
 - **Unmodelled calls** (transitions, the globe…): when the call returns, the target is compared with memory. Changed bytes take the HD block of another buffer that depicts the same value at the same offset; anything else becomes low-resolution.
+
+**Rooms.** The recorder also reports when the game's `draw_SAL` routine (1000:3B59), which draws a room from its room file, starts and returns, and when it draws a character standing in the room (1000:3D2F). The compositor hashes the room's drawing calls by content into a room key (`gfx::room`). If the HD art pack has a plate for that key, the room's pixels take the plate's texels when the room is finished, wherever they still show what the plate depicts and no character covers them. The plate then travels with the room through copies and zooms like any HD block.
+
+`dune-run --rooms DIR`, at the end of a run, makes the game draw every room of every location the way the intro draws a palace room: it calls `loc_008f0` (1000:08F0) and `loc_037B2` (1000:37B2) for each room in the location's room graph, without characters. It writes each distinct room (palette indices, the pixels the room drew, its palette and a preview) for `dune-hd --rooms`. Rooms the game drew during the run are checked against the harness's: same key, same pixels. `HD_SEAMS=1` with `--hd` and `--rooms` prints, per HD shot, the mean colour step across block borders beyond the original's, at joins between a room's pieces and inside them.
 
 When a frame is shown, a pixel uses its HD block only if the real screen holds what the shadow depicts, there and at its eight neighbours. Its texels may only show colours of the pixels around it; where a sprite's rounded corner shows what was beneath it, only colours on that side, since what was beneath may belong to an older picture (the credits redraw their scrolling lines over the previous frame's). Everything else (pictures the game draws with its own code, the cursor) falls back to the low-resolution pixel. The HD picture can therefore never show something the game did not draw.
 
@@ -560,6 +575,12 @@ cargo test -p pc --release -- --ignored snapshot
 
 ```sh
 cargo test -p runner --release -- --ignored hd_golden
+```
+
+**Room harness.** After skipping the intro and walking to the balcony, every location's rooms are drawn: at least 27 distinct rooms, none failing, every room seen in play found with the same key and pixels, and every driver call (lines included) matching the model:
+
+```sh
+cargo test -p runner --release -- --ignored rooms
 ```
 
 **Graphics driver conformance.** Every sprite of every sheet in DUNE.DAT (2330 of them) is drawn by the game's own driver, then compared with `gfx::model`:
@@ -624,6 +645,7 @@ Do **not** consult the game-logic code of other unlicensed reimplementations whi
 - [x] **Reference HD compositor:** HD shadows of the game's buffers with exact provenance; MMPX sprites and smoothed text; golden-image tests. See [Reference HD compositor](#reference-hd-compositor).
 - [x] **HD sprites and text in the browser** (experimental): the compositor runs in the worker; the GPU resolves its texels with the live palette. Selectable in Options.
 - [x] **HD art packs:** `dune-hd` generates HD art from your own DUNE.DAT with the upscaler of your choice; the pack is imported like the soundtrack. See [HD art packs](#hd-art-packs). First with algorithmic upscaling, then with an optional **HD asset pack** that each player generates on their own computer from their `DUNE.DAT` with an offline tool, and imports like the soundtrack.
+- [x] **Seamless rooms and faces:** the game draws all 27 distinct rooms in a harness, each is upscaled whole and shown as a room plate; talking-head parts are upscaled over their face. Lines (driver slot 19) are modelled.
 - [ ] **Input recorder:** deterministic replays, for bug reports and as a test corpus.
 - [x] **Remastered soundtrack** support (the composer's 2024 remaster, purchased by the player), in sync with the game.
 - [ ] **MT-32 / General MIDI music** via an emulated MPU-401 and a host synthesizer.
