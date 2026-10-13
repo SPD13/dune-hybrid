@@ -156,8 +156,27 @@ async function file(name: string): Promise<File | null> {
 
 /** Ticks of the game's 200 Hz music timer. */
 const TICK_S = 0x1745 / 1193182;
-/** The game's normal music level (its fades move between 0, ~140 and 230). */
-const FULL_VOLUME = 230;
+/**
+ * The FM level the game's music driver puts on the Sound Blaster Pro mixer
+ * (register 26h) for a fade to `volume` (BL: 230 normally, ~140 under
+ * voices) with `balance` (BH), computed as the driver does: left level in
+ * the high nibble, right in the low one.
+ */
+export function mixerValue(volume: number, balance: number): number {
+  const steps = volume >> 3;
+  const side = (b: number) => ((((Math.min(b, 0x78) << 8) / 0xf0) | 0) * steps) >> 8;
+  return ((side((0xf0 - balance) & 0xff) & 0x0f) << 4) | (side(balance) & 0x0f);
+}
+
+/** A mixer level (4 bits, the card uses the top 3) as a gain: 8 levels
+ * about 4 dB apart, the lowest off (as the emulator's mixer, pc::sound). */
+function levelGain(level: number): number {
+  const l = (level & 0x0f) >> 1;
+  return l === 0 ? 0 : 10 ** (-((7 - l) * 4) / 20);
+}
+
+/** The gain of a mixer value, both sides averaged. */
+const mixerGain = (v: number) => (levelGain(v >> 4) + levelGain(v)) / 2;
 /** FM silent this long while a song "plays" means it ended on its own. */
 const ENDED_QUIET_MS = 4000;
 
@@ -171,7 +190,7 @@ export class SoundtrackPlayer {
   private urls = new Map<string, string>();
   private song = 0;
   private seg: Segment | null = null;
-  private level = 1; // game-side volume (fades), 0..~1.2
+  private level = 1; // game-side volume (its mixer level), 0..1
   private userVolume = 1;
   private suspended = false;
 
@@ -231,7 +250,8 @@ export class SoundtrackPlayer {
     }
   }
 
-  private start(song: number) {
+  /** `level`: the game's music level when the song starts (its mixer value). */
+  private start(song: number, level = 1) {
     const seg = this.segs.get(song);
     const url = seg && this.urls.get(seg.file);
     this.song = song;
@@ -242,7 +262,7 @@ export class SoundtrackPlayer {
     this.seg = seg;
     if (this.el.src !== url) this.el.src = url;
     this.el.currentTime = seg.start;
-    this.level = 1;
+    this.level = level;
     this.applyGain(0.02);
     if (!this.suspended) this.el.play().catch(() => {});
   }
@@ -259,20 +279,29 @@ export class SoundtrackPlayer {
 
   /** Events from Emu.takeMusicEvents and the state from Emu.musicState. */
   update(events: Uint32Array, state: Uint32Array) {
+    const [song, status, , quietMs, fm] = state;
+    // The level the game set on the mixer (older builds did not report it).
+    const current = fm === undefined ? 1 : mixerGain(fm);
     for (let i = 0; i + 3 < events.length; i += 4) {
       const kind = events[i + 1];
-      if (kind === 1) this.start(events[i + 2]);
+      if (kind === 1) this.start(events[i + 2], current);
       else if (kind === 2) {
         this.song = 0;
         if (this.seg) this.stop();
       } else if (kind === 4 && this.seg) {
-        this.level = Math.min(1.2, events[i + 3] / FULL_VOLUME);
+        // Ducking under voices and fades: the same level the FM music gets.
+        const b = events[i + 3];
+        this.level = mixerGain(mixerValue(b & 0xff, b >> 8));
         this.applyGain(events[i + 2] * TICK_S);
+      } else if (kind === 5) {
+        // The Mixer Panel's music slider: the new level at once.
+        const b = events[i + 3];
+        this.level = mixerGain(mixerValue(b & 0xff, b >> 8));
+        if (this.seg) this.applyGain(0.1);
       }
     }
-    const [song, status, , quietMs] = state;
     // Resync after a snapshot restore: the game is playing a song we are not.
-    if (song !== this.song && song !== 0 && status & 0x80) this.start(song);
+    if (song !== this.song && song !== 0 && status & 0x80) this.start(song, current);
     // The game's rendition ended by itself (silent for a while): follow it.
     if (this.seg && quietMs > ENDED_QUIET_MS) this.stop(1.0);
   }

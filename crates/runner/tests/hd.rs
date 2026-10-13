@@ -35,7 +35,7 @@ fn hd_golden() {
     let exe = std::fs::read(dir.join("DNCDPRG.EXE")).expect("DNCDPRG.EXE");
     let mut fs = MemFs::default();
     fs.files.insert("DUNE.DAT".into(), std::fs::read(dir.join("DUNE.DAT")).expect("DUNE.DAT"));
-    let mut m = Machine::new(&exe, "ADP330 SBP2227", Box::new(fs)).unwrap();
+    let mut m = Machine::new(&exe, "ADP220 SBP2227", Box::new(fs)).unwrap();
     m.hw.audio.enabled = false;
     let follower = Rc::new(RefCell::new(Follower::new(4)));
     let f = follower.clone();
@@ -56,7 +56,7 @@ fn hd_golden() {
     for (t, b) in [(18.0, 0), (18.2, 1), (18.4, 0)] {
         script.push((t, Input::Mouse(130, 179, b)));
     }
-    let scenes = [(12.0, "palace", 0x226b_28d0_2658_bdb5_u64), (22.0, "dialogue", 0x0f1d_4cef_7f0d_a46d_u64)];
+    let scenes = [(12.0, "palace", 0x8903_e5aa_cd1d_9aa0_u64), (22.0, "dialogue", 0xc25d_8e24_7bef_39eb_u64)];
 
     let mut events = script.into_iter().peekable();
     let k = 4;

@@ -39,7 +39,7 @@ impl Rig {
         let exe = std::fs::read(dir.join("DNCDPRG.EXE")).expect("DNCDPRG.EXE");
         let mut fs = MemFs::default();
         fs.files.insert("DUNE.DAT".into(), std::fs::read(dir.join("DUNE.DAT")).expect("DUNE.DAT"));
-        let mut m = Machine::new(&exe, "ADP330 SBP2227", Box::new(fs)).unwrap();
+        let mut m = Machine::new(&exe, "ADP220 SBP2227", Box::new(fs)).unwrap();
         m.hw.audio.enabled = false;
         m.run_until(3_000_000_000);
         let rd = |m: &Machine, off: usize| u16::from_le_bytes([m.hw.mem[GAME_DS as usize * 16 + off], m.hw.mem[GAME_DS as usize * 16 + off + 1]]);

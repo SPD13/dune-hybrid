@@ -97,7 +97,7 @@ export function saveSettings(s: Settings) {
 
 /** The DOS command line: sound cards as in Cryogenic, plus the language. */
 export function commandLine(s: Settings): string {
-  return `ADP330 SBP2227 ${s.language}`;
+  return `ADP220 SBP2227 ${s.language}`;
 }
 
 /** The HD scale to follow the drawing at (also while HD is off, so

@@ -10,8 +10,9 @@
 //! | 3975h | +0106h | stop (midi_func_2_0, seg000:aebd) |
 //! | 3979h | +0109h | (resume/continue, seg000:ad84) |
 //! | 397Dh | +010Ch | dynamics: fade to volume BL/BH over AX ticks (seg000:add7, adff) |
+//! | 3985h | +0112h | set volume AL/AH at once: the Mixer Panel's music slider (seg000:a66d) |
 //!
-//! The machine watches those four entry addresses. Songs are identified by
+//! The machine watches those five entry addresses. Songs are identified by
 //! comparing the data at ES:SI with the songs in DUNE.DAT.
 
 use std::collections::VecDeque;
@@ -20,7 +21,7 @@ use gfx::dat;
 
 use crate::{GAME_DS, SONG_NAMES, fs::FileSystem};
 
-const VTABLE: [u16; 4] = [0x3971, 0x3975, 0x3979, 0x397d];
+const VTABLE: [u16; 5] = [0x3971, 0x3975, 0x3979, 0x397d, 0x3985];
 const FINGERPRINT: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,14 +31,24 @@ pub enum MusicEvent {
     Stop,
     /// Driver entry +0109h.
     Resume,
-    /// Fade toward `volume` (BL, 0..~F) over `ticks` 200 Hz ticks.
-    Fade { ticks: u16, volume: u8 },
+    /// Fade toward `volume` (BL, 230 normally, ~140 under voices) with the
+    /// stereo `balance` (BH) over `ticks` 200 Hz ticks.
+    Fade {
+        ticks: u16,
+        volume: u8,
+        balance: u8,
+    },
+    /// Set the music level to `volume` (AL) with `balance` (AH) at once.
+    Volume {
+        volume: u8,
+        balance: u8,
+    },
 }
 
 #[derive(Default)]
 pub struct MusicTracker {
-    /// Linear addresses of the four driver entries (0 until the driver is loaded).
-    pub(crate) watch: [u32; 4],
+    /// Linear addresses of the driver entries (0 until the driver is loaded).
+    pub(crate) watch: [u32; 5],
     /// First bytes of each song's data, for identification.
     fingerprints: Option<Vec<(u8, Vec<u8>)>>,
     /// Events with the virtual time (ns) they happened at.

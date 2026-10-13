@@ -470,7 +470,7 @@ export async function recordTrailer() {
     exe,
     dat,
     hdPack: pack,
-    cmdline: "ADP330 SBP2227 ENG",
+    cmdline: "ADP220 SBP2227 ENG",
     saves: [],
     music: DEFAULTS.music,
     voices: DEFAULTS.voices,

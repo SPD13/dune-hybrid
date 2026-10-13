@@ -176,7 +176,7 @@ The setup page warns if a pack was made from a different `DUNE.DAT`. Remove a pa
 1. Every distinct sprite (about 1,950) is taken out of DUNE.DAT and shown in its colours: the sheet's own palette over the palette the game used when drawing it, if you provide a trace from `dune-run --gfx-trace`.
 2. Each sprite is upscaled 4× by the chosen upscaler. Transparent areas are filled from the edges first, so the model sees no halos.
 3. The result is projected back onto the game's palette. Each HD pixel becomes one of the colours around its original pixel, or a mix of two, with the original's exact silhouette. Palette fades, day/night and recolouring still work, and the art stays where the game draws it.
-4. Art whose local colours drift too far from the original (`--max-drift`, default 0.05 in OKLab), and very small sprites (`--min-size`, default 6 px), are left to the built-in upscaler.
+4. Art whose local colours drift too far from the original (`--max-drift`, default 0.05 in OKLab), and very small sprites (`--min-size`, default 6 px), are left to the built-in upscaler. So is text art: opaque sprites of two colours or fewer, such as the intro's subtitle lines (text pre-rendered on its background). With no transparent pixels there is no silhouette to keep, so an upscaler blurs the letters and fills their holes. The app applies this rule to packs made before it too.
 5. The pack is a ZIP holding 4× and 2× art per sprite, a manifest (which records the upscaler and its licence), a notice and an HTML report.
 
 ### Command reference
@@ -373,10 +373,10 @@ In Chrome/Edge use **Install app**; on iOS Safari use **Share → Add to Home Sc
 - **Hardware** (`crates/pc/src/hw.rs`): interrupt controllers, the programmable timer (the game reprograms it to 200 Hz), the keyboard controller, and VGA mode 13h with its palette and retrace status.
 - **Sound** (`crates/pc/src/sound.rs`):
   - an **OPL3** FM chip at port 388h: ports, timers and status are emulated here, the synthesis comes from the MIT-licensed [`oplon`](https://codeberg.org/sbechet/oplon);
-  - a **Sound Blaster Pro** at 220h, IRQ 7, DMA 1;
+  - a **Sound Blaster Pro** at 220h, IRQ 7, DMA 1, with its mixer's master, FM and voice levels;
   - the **8237 DMA controller** that feeds it.
 
-  The game's own AdLib and Sound Blaster drivers, loaded from `DUNE.DAT`, run unmodified on top. The game is started with `ADP330 SBP2227 <LANG>`, the same sound settings as the Cryogenic reference.
+  The game's own AdLib and Sound Blaster drivers, loaded from `DUNE.DAT`, run unmodified on top. The game is started with `ADP220 SBP2227 <LANG>`: FM music on the Sound Blaster Pro (its music driver lowers the music under voices through the card's mixer, as set in the game's Mixer Panel), voices on the same card.
 - **BIOS and DOS** (`bios.rs`, `dos.rs`): written in Rust and reached through small stubs in the emulated ROM. The program can still hook and chain interrupt vectors exactly as on real hardware. The services implemented are the ones the game uses:
   - the MZ loader, PSP and environment;
   - file access (read-only to DUNE.DAT, read-write to save files);
@@ -478,7 +478,7 @@ npm run preview     # serve dist at http://localhost:4174
 ```sh
 cargo build --release
 ./target/release/dune-run --dir path/to/game --seconds 60 --shot-every 4 --out out \
-    --cmd "ADP330 SBP2227 ENG" --wav out/audio.wav \
+    --cmd "ADP220 SBP2227 ENG" --wav out/audio.wav \
     --events "20:key:01:1,20.2:key:01:0,24:mouse:160:182:0,28:mouse:165:182:1,28.1:mouse:165:182:0"
 ```
 
@@ -532,7 +532,7 @@ GFX_STATS=1 ./target/release/dune-run --dir path/to/game --seconds 60           
 - **Copies, saved rectangles and zooms** carry the source's HD blocks along; a zoom shows the matching part of each source block.
 - **Unmodelled calls** (transitions, the globe…): when the call returns, the target is compared with memory. Changed bytes take the HD block of another buffer that depicts the same value at the same offset; anything else becomes low-resolution.
 
-When a frame is shown, a pixel uses its HD block only if the real screen holds what the shadow depicts, there and at its eight neighbours. Everything else (pictures the game draws with its own code, the cursor) falls back to the low-resolution pixel. The HD picture can therefore never show something the game did not draw.
+When a frame is shown, a pixel uses its HD block only if the real screen holds what the shadow depicts, there and at its eight neighbours. Its texels may only show colours of the pixels around it; where a sprite's rounded corner shows what was beneath it, only colours on that side, since what was beneath may belong to an older picture (the credits redraw their scrolling lines over the previous frame's). Everything else (pictures the game draws with its own code, the cursor) falls back to the low-resolution pixel. The HD picture can therefore never show something the game did not draw.
 
 ```sh
 ./target/release/dune-run --dir path/to/game --seconds 30 --hd 4 --hd-shots --out out   # out/hd-NNNN.png at 1280×800

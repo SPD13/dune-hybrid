@@ -199,11 +199,21 @@ pub struct SoundBlaster {
     mixer: [u8; 256],
 }
 
+/// A Sound Blaster Pro mixer level (one 4-bit half of a volume register,
+/// of which the card uses the top 3 bits) as a gain: 8 levels about 4 dB
+/// apart, the lowest one off. The game's music driver ducks the FM music
+/// under voices through this mixer (register 26h).
+pub fn mixer_gain(level: u8) -> f32 {
+    let l = (level & 0x0f) >> 1;
+    if l == 0 { 0.0 } else { 10f32.powf(-((7 - l) as f32) * 4.0 / 20.0) }
+}
+
 impl SoundBlaster {
     fn new() -> Self {
         let mut mixer = [0u8; 256];
         mixer[0x22] = 0xff;
         mixer[0x04] = 0xff;
+        mixer[0x26] = 0xff;
         SoundBlaster {
             reset_latch: false,
             out: VecDeque::new(),
@@ -226,6 +236,12 @@ impl SoundBlaster {
 
     fn stereo(&self) -> bool {
         self.mixer[0x0e] & 0x02 != 0
+    }
+
+    /// Left and right gains of a mixer volume register, master included.
+    fn volume(&self, reg: usize) -> [f32; 2] {
+        let (v, m) = (self.mixer[reg], self.mixer[0x22]);
+        [mixer_gain(v >> 4) * mixer_gain(m >> 4), mixer_gain(v) * mixer_gain(m)]
     }
 
     /// Source byte rate (both channels together in stereo).
@@ -336,13 +352,16 @@ impl Audio {
         self.frames_rendered = target;
         let mut irq = false;
         let sb_step = self.sb.byte_rate() / OUTPUT_RATE as f64 / if self.sb.stereo() { 2.0 } else { 1.0 };
+        // Mixer levels (written between catch-ups, so constant here).
+        let fm = self.sb.volume(0x26);
+        let voice = self.sb.volume(0x04);
         for i in 0..n {
             let (l, r) = self.opl.chip.render_frame();
             if l.abs() + r.abs() > 96 {
                 self.last_opl_sound_ns = ((first_frame + i) as f64 * NS_PER_FRAME) as u64;
             }
             let g = if self.opl_muted { 0.0 } else { self.music_gain / 32768.0 };
-            let (mut fl, mut fr) = (l as f32 * g, r as f32 * g);
+            let (mut fl, mut fr) = (l as f32 * g * fm[0], r as f32 * g * fm[1]);
             // Sound Blaster: step through DMA bytes at the DSP rate.
             if self.sb.active && !self.sb.paused {
                 self.sb.phase += sb_step;
@@ -378,8 +397,8 @@ impl Audio {
             }
             if self.sb.speaker {
                 let g = 0.5 * self.voice_gain;
-                fl += self.sb.last[0] * g;
-                fr += self.sb.last[1] * g;
+                fl += self.sb.last[0] * g * voice[0];
+                fr += self.sb.last[1] * g * voice[1];
             }
             if self.enabled {
                 self.out.push(fl);
@@ -391,6 +410,11 @@ impl Audio {
             irq = true;
         }
         irq
+    }
+
+    /// The FM music level the game last set on the mixer (register 26h).
+    pub fn fm_volume(&self) -> u8 {
+        self.sb.mixer[0x26]
     }
 
     /// Restart the silence clock (a new song starts now).
@@ -587,6 +611,11 @@ impl Audio {
         sb.mixer_index = r.u8()?;
         for v in sb.mixer.iter_mut() {
             *v = r.u8()?;
+        }
+        // Snapshots from before the mixer was applied, made with the music
+        // driver on a port without a mixer: nothing ever set the FM level.
+        if sb.mixer[0x26] == 0 {
+            sb.mixer[0x26] = 0xff;
         }
         sb.last = [0.0; 2];
         self.frames_rendered = r.u64()?;

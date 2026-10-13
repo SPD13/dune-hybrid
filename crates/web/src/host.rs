@@ -357,7 +357,8 @@ impl Emu {
 
     /// Music events since the last call, flattened as
     /// [time_ms, kind, a, b] per event: kind 1 play(a = song), 2 stop,
-    /// 3 resume, 4 fade(a = ticks, b = volume).
+    /// 3 resume, 4 fade(a = ticks, b = volume | balance << 8), 5 set volume
+    /// (b = volume | balance << 8).
     #[wasm_bindgen(js_name = takeMusicEvents)]
     pub fn take_music_events(&mut self) -> Vec<u32> {
         use pc::music::MusicEvent::*;
@@ -367,18 +368,20 @@ impl Emu {
                 Play { song } => (1, song as u32, 0),
                 Stop => (2, 0, 0),
                 Resume => (3, 0, 0),
-                Fade { ticks, volume } => (4, ticks as u32, volume as u32),
+                Fade { ticks, volume, balance } => (4, ticks as u32, volume as u32 | (balance as u32) << 8),
+                Volume { volume, balance } => (5, 0, volume as u32 | (balance as u32) << 8),
             };
             out.extend_from_slice(&[(at / 1_000_000) as u32, kind, a, b]);
         }
         out
     }
 
-    /// [song, driver status, voice playing (0/1), ms since FM music was audible].
+    /// [song, driver status, voice playing (0/1), ms since FM music was audible,
+    /// FM level on the Sound Blaster Pro mixer].
     #[wasm_bindgen(js_name = musicState)]
     pub fn music_state(&self) -> Vec<u32> {
         let s = self.m.music_state();
-        vec![s.song as u32, s.status as u32, s.voice as u32, s.quiet_ms]
+        vec![s.song as u32, s.status as u32, s.voice as u32, s.quiet_ms, s.fm_volume as u32]
     }
 
     pub fn key(&mut self, scancode: u8, pressed: bool) {

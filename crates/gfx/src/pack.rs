@@ -7,6 +7,29 @@ use std::{
     io::{self, Read, Seek, SeekFrom},
 };
 
+/// Text art: a sprite of two colours or fewer with no transparent pixel
+/// (`opaque` says which palette-local values are drawn). The intro's
+/// subtitle lines are such sprites, text pre-rendered on its background. A
+/// pack keeps the exact silhouette of sprites with transparency, but here
+/// the letters' shapes are only the border between the two colours: an
+/// upscaler blurs it and the projection fills the holes of letters. Text
+/// art keeps the built-in MMPX, which follows the strokes exactly.
+pub fn text_art(px: &[u8], opaque: impl Fn(u8) -> bool) -> bool {
+    let mut seen: [Option<u8>; 2] = [None; 2];
+    for &v in px {
+        if !opaque(v) {
+            return false;
+        }
+        match seen {
+            [None, _] => seen[0] = Some(v),
+            [Some(a), None] if a != v => seen[1] = Some(v),
+            [Some(a), Some(b)] if a != v && b != v => return false,
+            _ => {}
+        }
+    }
+    true
+}
+
 /// A sprite's HD art at one scale, in palette-local values.
 pub struct PackSprite {
     pub w: usize,
@@ -95,4 +118,19 @@ pub fn decode(png_data: &[u8]) -> Option<PackSprite> {
     }
     let (w, h) = (info.width as usize, info.height as usize);
     Some(PackSprite { w, h, px: buf[..w * h * 4].as_chunks::<4>().0.to_vec() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::text_art;
+
+    #[test]
+    fn text_art_is_opaque_with_at_most_two_colours() {
+        let all = |_| true;
+        assert!(text_art(&[7, 7, 7], all));
+        assert!(text_art(&[0, 0x2c, 0, 0x2c, 0x2c], all));
+        assert!(!text_art(&[0, 0x2c, 0, 3], all));
+        // Transparent pixels: the pack keeps the silhouette, not text art.
+        assert!(!text_art(&[0, 0x2c, 0x2c], |v| v != 0));
+    }
 }

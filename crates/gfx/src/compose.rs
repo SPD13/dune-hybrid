@@ -39,12 +39,17 @@ pub struct Texel {
     /// pictures): exempt from the rules that keep a block close to its own
     /// pixel and its immediate neighbours' colours.
     pub free: bool,
+    /// What was beneath a sprite, showing through a corner its art rounds
+    /// off: it may belong to another picture since (the credits redraw
+    /// their scrolling lines over the previous frame's), so it is held to
+    /// the colours on its side of the pixel (see `fresh`).
+    pub under: bool,
 }
 
 impl Texel {
     #[inline]
     pub const fn solid(v: u8) -> Texel {
-        Texel { a: v, b: v, t: 0, free: false }
+        Texel { a: v, b: v, t: 0, free: false, under: false }
     }
     /// The palette index this texel mostly shows.
     #[inline]
@@ -338,17 +343,22 @@ impl Compositor {
         Source::Sprite(key)
     }
 
-    /// The sprite's texels from the art source, if it has them at this scale.
+    /// The sprite's texels from the art source, if it has them at this scale
+    /// (never for text art, see [`crate::pack::text_art`]: packs made before
+    /// that rule still hold the intro's subtitle lines).
     fn art_texels(&mut self, s: &SpriteRef, img: &sprite::Image) -> Option<Vec<Option<Texel>>> {
         let k = self.k;
         let (stride, height) = (img.stride, img.height);
         let art = self.art.as_mut()?;
+        if crate::pack::text_art(&img.px, |v| v != 0 || s.format == Format::Byte) {
+            return None;
+        }
         let p = art(crate::hash::image_hash(&img.px, stride, height), k).filter(|p| p.w == stride * k && p.h == height * k)?;
         let global = |v: u8| match s.format {
             Format::Nibble { pal } => v.wrapping_add(pal),
             _ => v,
         };
-        Some(p.px.iter().map(|t| (t[3] >= 128).then(|| Texel { a: global(t[0]), b: global(t[1]), t: t[2], free: false })).collect())
+        Some(p.px.iter().map(|t| (t[3] >= 128).then(|| Texel { a: global(t[0]), b: global(t[1]), t: t[2], free: false, under: false })).collect())
     }
 
     /// The sprite magnified by MMPX (palette values kept).
@@ -410,7 +420,7 @@ impl Compositor {
                 Some(s) => {
                     stats.hd += 1;
                     let near = neighbourhood(screen, p);
-                    let block: Vec<Texel> = s.hd[p * k * k..(p + 1) * k * k].iter().map(|&t| fresh(t, v, &near)).collect();
+                    let block: Vec<Texel> = s.hd[p * k * k..(p + 1) * k * k].iter().enumerate().map(|(i, &t)| fresh(t, v, &near, i, k)).collect();
                     let block = &block[..];
                     let agree = block.iter().filter(|t| t.free || t.dominant() == v).count();
                     let wrong = agree * 2 < k * k;
@@ -488,7 +498,7 @@ impl Compositor {
                     stats.hd += 1;
                     let near = neighbourhood(screen, p);
                     for (i, &t) in s.hd[p * k * k..(p + 1) * k * k].iter().enumerate() {
-                        let t = fresh(t, screen[p], &near);
+                        let t = fresh(t, screen[p], &near, i, k);
                         let o = ((y * k + i / k) * ow + x * k + i % k) * 4;
                         out[o..o + 4].copy_from_slice(&[t.a, t.b, t.t, 255]);
                     }
@@ -529,14 +539,28 @@ fn neighbourhood(screen: &[u8], p: usize) -> [u8; 9] {
 /// a sprite's rounded corners take their neighbours' colours, but those
 /// neighbours may since have been covered by another sprite (a portrait's
 /// hair drawn next to its face). Such stale colours become the pixel's own.
+/// What shows through a rounded corner (`under`) may only show the colours
+/// on its side, where the art rounds towards: those of the neighbour beside
+/// or above or below texel `i` of the `k`×`k` block, whichever it is nearer
+/// to (both on the diagonal).
 #[inline]
-fn fresh(t: Texel, own: u8, near: &[u8; 9]) -> Texel {
+fn fresh(t: Texel, own: u8, near: &[u8; 9], i: usize, k: usize) -> Texel {
     if t.free {
         return t;
     }
-    let a = if near.contains(&t.a) { t.a } else { own };
-    let b = if near.contains(&t.b) { t.b } else { own };
-    Texel { a, b, t: t.t, free: false }
+    let (cx, cy) = (2 * (i % k) as i32 + 1 - k as i32, 2 * (i / k) as i32 + 1 - k as i32);
+    let (sx, sy) = ((1 + cx.signum()) as usize, (1 + cy.signum()) as usize);
+    let mut side = [near[4]; 3];
+    if cx.abs() >= cy.abs() {
+        side[1] = near[3 + sx];
+    }
+    if cy.abs() >= cx.abs() {
+        side[2] = near[sy * 3 + 1];
+    }
+    let ok = |c: u8| if t.under { side.contains(&c) } else { near.contains(&c) };
+    let a = if ok(t.a) { t.a } else { own };
+    let b = if ok(t.b) { t.b } else { own };
+    Texel { a, b, t: t.t, free: false, under: t.under }
 }
 
 /// HD only where the shadow depicts this pixel and its eight neighbours
@@ -699,8 +723,8 @@ impl HdSink<'_> {
                         }
                         weights.sort_by(|p, q| q.1.total_cmp(&p.1));
                         match weights.as_slice() {
-                            [(a, wa), (b, wb), ..] => Texel { a: *a, b: *b, t: (wb / (wa + wb) * 255.0).round() as u8, free: true },
-                            [(a, _)] => Texel { a: *a, b: *a, t: 0, free: true },
+                            [(a, wa), (b, wb), ..] => Texel { a: *a, b: *b, t: (wb / (wa + wb) * 255.0).round() as u8, free: true, under: false },
+                            [(a, _)] => Texel { a: *a, b: *a, t: 0, free: true, under: false },
                             [] => Texel::solid(value),
                         }
                     })
@@ -777,8 +801,12 @@ impl Sink for HdSink<'_> {
                         Some(t) => *b = t,
                         // What shows through the art's rounded edges is
                         // what was beneath: no longer exempt from the
-                        // stale-colour rule (the pixel is the sprite's now).
-                        None => b.free = false,
+                        // stale-colour rule (the pixel is the sprite's now),
+                        // and held to the colours on its side (`fresh`).
+                        None => {
+                            b.free = false;
+                            b.under = true;
+                        }
                     }
                 }
             }
@@ -792,7 +820,7 @@ impl Sink for HdSink<'_> {
                 let block = self.block(at);
                 for (b, c) in block.iter_mut().zip(cover) {
                     let under = bg.unwrap_or(b.dominant());
-                    *b = Texel { a: fg, b: under, t: 255 - c, free: false };
+                    *b = Texel { a: fg, b: under, t: 255 - c, free: false, under: false };
                 }
             }
             (Px::Cursor { col, row }, Source::Cursor(key)) => {
@@ -802,9 +830,9 @@ impl Sink for HdSink<'_> {
                 for ((b, v), w) in block.iter_mut().zip(visible).zip(white) {
                     *b = if v >= 128 {
                         // Inside: black outline to white fill.
-                        Texel { a: 0, b: 15, t: w, free: false }
+                        Texel { a: 0, b: 15, t: w, free: false, under: false }
                     } else {
-                        Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v, free: false }
+                        Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v, free: false, under: false }
                     };
                 }
             }
@@ -820,7 +848,7 @@ impl Sink for HdSink<'_> {
             let block = self.block(at);
             for ((b, v), w) in block.iter_mut().zip(visible).zip(white) {
                 if v > 0 {
-                    *b = Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v, free: false };
+                    *b = Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v, free: false, under: false };
                 }
             }
             return;
@@ -850,7 +878,7 @@ impl Sink for HdSink<'_> {
                 let block = self.block(at);
                 for (b, c) in block.iter_mut().zip(cover) {
                     if c > 0 {
-                        *b = Texel { a: fg, b: b.dominant(), t: 255 - c, free: false };
+                        *b = Texel { a: fg, b: b.dominant(), t: 255 - c, free: false, under: false };
                     }
                 }
             }
@@ -978,6 +1006,21 @@ mod tests {
         let block = &s.hd[at * 16..at * 16 + 16];
         let own = block.iter().filter(|t| t.dominant() == 0x15).count();
         assert!(own >= 8 && own < 16, "diagonal block not rounded: {block:?}");
+    }
+
+    #[test]
+    fn rounded_corners_show_only_their_side() {
+        // A pixel of colour 1 above colour 2, colour 3 to its right; texel 3
+        // is its top-right corner, texel 12 its bottom-left one.
+        let near = [0, 0, 0, 0, 1, 3, 0, 2, 0];
+        let under = |c| Texel { a: c, b: c, t: 0, free: false, under: true };
+        // What was beneath shows where it continues the picture past the edge…
+        assert_eq!(fresh(under(3), 1, &near, 3, 4).a, 3);
+        // …but not a colour from the other side (a stale picture's).
+        assert_eq!(fresh(under(2), 1, &near, 3, 4).a, 1);
+        assert_eq!(fresh(under(2), 1, &near, 12, 4).a, 2);
+        // Other texels may still show any colour around.
+        assert_eq!(fresh(Texel::solid(2), 1, &near, 3, 4).a, 2);
     }
 
     #[test]

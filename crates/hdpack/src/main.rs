@@ -322,8 +322,9 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
         let a = &assets[*i];
         let id = format!("{:016x}", a.content);
         let big_enough = a.width >= args.min_size && a.height >= args.min_size;
+        let text_art = gfx::pack::text_art(&a.local, |v| a.opaque(v));
         let (q4, q2, ok) = match pair {
-            Some((t4, t2)) => (t4.quality, t4.drift, big_enough && t4.drift <= args.max_drift && t2.drift <= args.max_drift),
+            Some((t4, t2)) => (t4.quality, t4.drift, big_enough && !text_art &&t4.drift <= args.max_drift && t2.drift <= args.max_drift),
             None => (0.0, 0.0, false),
         };
         rows += &format!(
@@ -368,7 +369,8 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
         "<!doctype html><meta charset=utf-8><title>dune-hd report</title>\
          <style>body{{font:14px system-ui;margin:2em}}td,th{{padding:2px 8px;text-align:left}}tr.drop{{color:#a33}}</style>\
          <h1>dune-hd report</h1><p>Upscaler: {} ({}). {kept} sprites in the pack, {dropped} left to the built-in upscaler \
-         (smaller than {} pixels, or drift above {}: the mean OKLab distance between the art's local colours and the original's).</p>\
+         (smaller than {} pixels, text art such as the intro's subtitle lines (opaque, two colours), \
+         or drift above {}: the mean OKLab distance between the art's local colours and the original's).</p>\
          <p>Block match: the share of the original pixels whose 4×4 HD block mostly shows their own colour (low where the art smooths dithering).</p>\
          <p>{NOTICE}</p><table><tr><th>Resource</th><th>Part</th><th>Size</th><th>Block match 4×</th><th>Drift 4×</th><th></th></tr>{rows}</table>",
         args.model.0, args.model.1, args.min_size, args.max_drift

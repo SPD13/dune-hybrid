@@ -141,7 +141,7 @@ const IDLE_STREAK: u32 = 32;
 
 impl Machine {
     /// Build a machine with `exe` loaded and ready to run. `cmdline` is the
-    /// command tail (e.g. "ADP330 SBP2227").
+    /// command tail (e.g. "ADP220 SBP2227").
     pub fn new(exe: &[u8], cmdline: &str, fs: Box<dyn FileSystem>) -> Result<Machine, String> {
         let mut m = Machine {
             cpu: Cpu::new(),
@@ -677,7 +677,8 @@ impl Machine {
             }
             1 => Stop,
             2 => Resume,
-            _ => Fade { ticks: c.regs[AX], volume: c.reg8(3) },
+            3 => Fade { ticks: c.regs[AX], volume: c.reg8(3), balance: c.reg8(7) },
+            _ => Volume { volume: c.reg8(0), balance: c.reg8(4) },
         };
         let now = self.now_ns();
         if let Play { song } = e {
@@ -702,6 +703,9 @@ pub struct MusicState {
     /// Milliseconds since the FM music last produced sound (muted or not):
     /// a long quiet while a song is "playing" means it ended on its own.
     pub quiet_ms: u32,
+    /// FM music level on the Sound Blaster Pro mixer (left high nibble):
+    /// how loud the game currently wants its music.
+    pub fm_volume: u8,
 }
 
 /// Song numbers used by the game, in its resource order.
@@ -714,6 +718,7 @@ impl Machine {
             status: self.mem_read(GAME_DS, GAME_MUSIC_STATUS),
             voice: self.hw.audio.sb_playing(),
             quiet_ms: (self.hw.audio.opl_quiet_ns(self.now_ns()) / 1_000_000).min(u32::MAX as u64) as u32,
+            fm_volume: self.hw.audio.fm_volume(),
         }
     }
 }
