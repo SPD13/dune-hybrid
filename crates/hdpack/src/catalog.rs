@@ -6,6 +6,7 @@ use gfx::{dat, ops::Format, sheet};
 
 use crate::palette::{self, Palette};
 
+#[derive(Clone)]
 pub struct Asset {
     /// `gfx::hash::sprite_hash` of the stored data (names the upscaler cache).
     pub hash: u64,

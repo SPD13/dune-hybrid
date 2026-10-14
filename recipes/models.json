@@ -1,0 +1,66 @@
+{
+  "_doc": "Models the studio downloads (only the files listed), and which class uses which. Pin each repository's revision and check its licence before a public release.",
+  "downloads": [
+    {
+      "id": "realvisxl5",
+      "repo": "SG161222/RealVisXL_V5.0",
+      "files": [
+        "*.json",
+        "*.txt",
+        "*fp16.safetensors"
+      ],
+      "size_gb": 6.31,
+      "licence": "to check (SDXL derivative)",
+      "role": "base model (fp16 weights)"
+    },
+    {
+      "id": "tile-cn",
+      "repo": "xinsir/controlnet-tile-sdxl-1.0",
+      "files": [
+        "config.json",
+        "diffusion_pytorch_model.safetensors"
+      ],
+      "size_gb": 2.33,
+      "licence": "to check",
+      "role": "tile ControlNet: keeps the pixel art's layout"
+    },
+    {
+      "id": "vae-fp16",
+      "repo": "madebyollin/sdxl-vae-fp16-fix",
+      "files": [
+        "config.json",
+        "diffusion_pytorch_model.safetensors"
+      ],
+      "size_gb": 0.31,
+      "licence": "to check",
+      "role": "VAE that works in fp16"
+    }
+  ],
+  "classes": {
+    "portrait": [
+      "realvisxl5",
+      "tile-cn",
+      "vae-fp16"
+    ],
+    "scene": [
+      "realvisxl5",
+      "tile-cn",
+      "vae-fp16"
+    ],
+    "room": [
+      "realvisxl5",
+      "tile-cn",
+      "vae-fp16"
+    ],
+    "sprite": [
+      "realvisxl5",
+      "tile-cn",
+      "vae-fp16"
+    ],
+    "interface": [
+      "realvisxl5",
+      "tile-cn",
+      "vae-fp16"
+    ]
+  }
+}

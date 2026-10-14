@@ -1,0 +1,29 @@
+{
+  "_doc": "Interface recipes, by RES-PPP. Functional pieces (arrows, buttons, masks, digits) stay classic and need no recipe.",
+  "defaults": {
+    "scale": 4,
+    "zoom": 12,
+    "strength": 0.75,
+    "cond": 0.7,
+    "soften": 2.0,
+    "anchor": 6,
+    "store": "palette",
+    "negative": "text, letters, watermark, blurry, out of focus, cartoon, anime, pixel art, deformed, noise"
+  },
+  "items": {
+    "ICONES-000": {
+      "status": "approved 2026-10-14",
+      "prompt": "photograph of an ornate carved sandstone and bronze wall panel, a closed leather book resting on a ledge, a small arched alcove, two recessed rectangular screens, relief carving, warm light, highly detailed, sharp focus"
+    },
+    "ICONES-009": {
+      "status": "approved 2026-10-14",
+      "prompt": "photograph of an ancient leather-bound book lying open on a carved wooden lectern, printed pages with ornate columns of text, carved sandstone wall behind, warm lamplight, highly detailed, sharp focus"
+    },
+    "BOOK-000": {
+      "status": "draft",
+      "treat_as": "scene",
+      "keep_classic": "text",
+      "note": "title picture with the word DUNE: generate like a scene (0.85), keep the classic art where the letters are"
+    }
+  }
+}

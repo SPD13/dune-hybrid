@@ -1,0 +1,18 @@
+{
+  "_doc": "Recipe bundle for Dune HD Studio: our text and numbers only, never game data. See docs/hd-studio-plan.md.",
+  "version": "0.1.0",
+  "game": {
+    "toc": [
+      "e4a61f1760ba3625"
+    ]
+  },
+  "files": [
+    "assets.json",
+    "models.json",
+    "defaults.json",
+    "heads.json",
+    "scenes.json",
+    "rooms.json",
+    "interface.json"
+  ]
+}

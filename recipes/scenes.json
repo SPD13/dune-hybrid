@@ -1,0 +1,20 @@
+{
+  "_doc": "Scene recipes (full-screen pictures). Pilot-approved settings; see docs/hd-studio-plan.md, phase 0 pilot results.",
+  "defaults": {
+    "scale": 4,
+    "strength": 0.85,
+    "cond": 0.6,
+    "soften": 4.0,
+    "anchor": 8,
+    "store": "palette"
+  },
+  "scenes": {
+    "DN20": {
+      "status": "approved 2026-10-14",
+      "palette": "SKYDN:0",
+      "prompt": "landscape photograph, vast rolling sand dunes of a desert planet stretching to the horizon, fine wind ripples on the sand, sharp dune crests, soft shadows, hazy sky, high detail, 8k",
+      "negative": "people, buildings, vehicles, plants, text, watermark, cartoon, anime, painting, illustration, pixel art, blurry, noise",
+      "todo": "sharper foreground (photo depth of field)"
+    }
+  }
+}

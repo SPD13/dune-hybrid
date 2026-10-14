@@ -1,0 +1,233 @@
+{
+  "_doc": "Default recipes per class, used by `hdgen.py batch` for items without their own recipe (heads.json, scenes.json, rooms.json, interface.json). {hint} is replaced by the first matching entry of hints (by the item's group: sheet name or room file). batch: which items a batch takes by default.",
+  "classes": {
+    "rooms": {
+      "method": "picture",
+      "prompt": "cinematic photograph of {hint}, deep focus, everything in sharp focus, warm light, highly detailed",
+      "negative": "cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, blurry, out of focus, depth of field, bokeh, deformed, text, watermark, frame, noise",
+      "strength": 0.85,
+      "cond": 0.6,
+      "soften": 3.0,
+      "anchor": 8
+    },
+    "scenes": {
+      "method": "picture",
+      "prompt": "cinematic landscape photograph of {hint}, deep focus, sharp foreground, high detail, 8k",
+      "negative": "people, cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, blurry, out of focus, depth of field, bokeh, deformed, text, watermark, frame, noise",
+      "strength": 0.85,
+      "cond": 0.6,
+      "soften": 4.0,
+      "anchor": 8
+    },
+    "heads": {
+      "method": "portrait",
+      "prompt": "photograph, head and shoulders portrait of {hint}, warm dramatic side light, dark background, 85mm lens, realistic skin texture, sharp focus",
+      "negative": "cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, blurry, deformed, disfigured, extra limbs, text, watermark, frame",
+      "strength": 0.85,
+      "cond": 0.6,
+      "soften": 4.0
+    },
+    "characters": {
+      "method": "sprite",
+      "prompt": "cinematic photograph, full body of {hint}, sharp focus, highly detailed",
+      "negative": "cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, blurry, out of focus, depth of field, bokeh, deformed, text, watermark, frame, noise",
+      "strength": 0.85,
+      "cond": 0.5,
+      "soften": 1.5,
+      "anchor": 6
+    },
+    "interface": {
+      "method": "sprite",
+      "prompt": "photograph of {hint}, relief carving, warm light, highly detailed, sharp focus",
+      "negative": "letters, cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, blurry, out of focus, depth of field, bokeh, deformed, text, watermark, frame, noise",
+      "strength": 0.75,
+      "cond": 0.7,
+      "soften": 2.0,
+      "anchor": 6
+    },
+    "other": {
+      "method": "sprite",
+      "prompt": "photograph of {hint}, highly detailed, sharp focus",
+      "negative": "cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, blurry, out of focus, depth of field, bokeh, deformed, text, watermark, frame, noise",
+      "strength": 0.75,
+      "cond": 0.7,
+      "soften": 2.0,
+      "anchor": 6
+    },
+    "room-pieces": {
+      "method": "sprite",
+      "prompt": "photograph of {hint}, highly detailed, sharp focus",
+      "negative": "cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, blurry, out of focus, depth of field, bokeh, deformed, text, watermark, frame, noise",
+      "strength": 0.75,
+      "cond": 0.7,
+      "soften": 2.0,
+      "anchor": 6
+    }
+  },
+  "hints": [
+    {
+      "groups": [
+        "PALACE"
+      ],
+      "hint": "the interior of a grand palace room of a noble house on a desert planet, carved bronze, stone and rich fabrics"
+    },
+    {
+      "groups": [
+        "SIET"
+      ],
+      "hint": "the interior of a sietch, a cave dwelling carved into golden sandstone, organic rock arches"
+    },
+    {
+      "groups": [
+        "HARK"
+      ],
+      "hint": "the interior of a harsh dark fortress, black metal and red light"
+    },
+    {
+      "groups": [
+        "DH*"
+      ],
+      "hint": "a stone palace fortress rising from desert sand dunes"
+    },
+    {
+      "groups": [
+        "DN*",
+        "DS*",
+        "DV*",
+        "DF*",
+        "DP*"
+      ],
+      "hint": "a desert planet: rolling sand dunes, rocky outcrops and distant stone buildings, wind ripples on the sand"
+    },
+    {
+      "groups": [
+        "VIL*"
+      ],
+      "hint": "a desert village of domed sandstone towers and walls"
+    },
+    {
+      "groups": [
+        "VG*"
+      ],
+      "hint": "a lush greenhouse garden with large green leaves and twisted trunks"
+    },
+    {
+      "groups": [
+        "SUN",
+        "SUNRS"
+      ],
+      "hint": "a sunrise over a desert planet"
+    },
+    {
+      "groups": [
+        "ORNY*"
+      ],
+      "hint": "a dragonfly-winged aircraft and its cockpit"
+    },
+    {
+      "groups": [
+        "VER"
+      ],
+      "hint": "a giant sandworm rising from the sand"
+    },
+    {
+      "groups": [
+        "PERS",
+        "CHANKISS"
+      ],
+      "hint": "a person in desert robes or a military uniform, standing"
+    },
+    {
+      "groups": [
+        "FRM*"
+      ],
+      "hint": "a weathered desert warrior of a nomad people, deep blue eyes, as drawn"
+    },
+    {
+      "groups": [
+        "ICONES",
+        "GENERIC",
+        "ONMAP",
+        "ATTACK",
+        "MIXR",
+        "PALPLAN",
+        "BOOK"
+      ],
+      "hint": "an ornate carved bronze and sandstone interface ornament"
+    },
+    {
+      "groups": [
+        "STARS",
+        "SKY"
+      ],
+      "hint": "a starry night sky over a desert planet"
+    },
+    {
+      "groups": [
+        "INT*",
+        "INTDS",
+        "XPLAIN9",
+        "VIS",
+        "FINAL",
+        "MIRROR",
+        "BALCON",
+        "BACK",
+        "PALAIS"
+      ],
+      "hint": "a scene on a desert planet, as drawn"
+    },
+    {
+      "groups": [
+        "*"
+      ],
+      "hint": "the subject as drawn"
+    }
+  ],
+  "batch": {
+    "heads": {
+      "enabled": true,
+      "frames": "multi-group",
+      "note": "every complete face; mouth patches need a recipe"
+    },
+    "rooms": {
+      "enabled": true
+    },
+    "scenes": {
+      "enabled": true
+    },
+    "characters": {
+      "enabled": true,
+      "min_size": [
+        12,
+        24
+      ]
+    },
+    "interface": {
+      "enabled": true,
+      "min_size": [
+        32,
+        24
+      ]
+    },
+    "other": {
+      "enabled": false,
+      "min_size": [
+        32,
+        32
+      ]
+    },
+    "room-pieces": {
+      "enabled": false,
+      "note": "covered by the room plates"
+    },
+    "text": {
+      "enabled": false,
+      "note": "text art keeps the built-in upscaler"
+    }
+  },
+  "seconds_per_generation": {
+    "nvidia": 30,
+    "mps": 420,
+    "cpu": 4000
+  }
+}

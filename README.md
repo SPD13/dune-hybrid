@@ -209,6 +209,7 @@ cargo build --release
 - Upscaled images are cached in `work/cache/`, so trying different settings does not re-run the model.
 - `--room-prescale N` is `--prescale` for rooms (default 1). At 2, models keep the pixel steps of the outlines inside a room, which sprites smooth with their own silhouette.
 - `--no-face-context` upscales talking-head parts on their own.
+- `--art DIR` takes finished HD art made elsewhere, such as generated pictures, instead of the upscaler's output. Each file is `DIR/<id>.png` at 4× the sprite or room, where `<id>` is a content id from `extract`'s catalog, a room key, or `RES-PPP` such as `ICONES-009`. It is projected onto the palette like an upscaler's output, without the guard or the drift limit. A sidecar `DIR/<id>.json` with `{"dac": "…"}` (768 hex bytes, 6-bit VGA) gives the palette the art was made in, for sprites the game colours itself (icons, desert views). See [docs/hd-studio-plan.md](docs/hd-studio-plan.md).
 
 ### Small details such as faces
 
@@ -221,6 +222,8 @@ Tried on Leto standing in the throne room and on the animated statue below the s
 ### Choosing a model
 
 Generic photo or anime models smooth away the game's dithering and give a painted look. Whether that suits Dune is a matter of taste, so look at the previews. Check each model's licence: many published upscaling models are licensed for non-commercial use only.
+
+Upscalers sharpen the art but add no detail. A prototype that paints detailed portraits of the talking heads with a generative model, keeping every talking frame consistent, is described in [docs/generative-portraits.md](docs/generative-portraits.md); packs don't use it yet.
 
 ## Playing
 
@@ -481,7 +484,8 @@ npm run preview     # serve dist at http://localhost:4174
 | `crates/runner` | `dune-run`: headless native runner for development and regression checks |
 | `crates/web` | WebAssembly bindings (`Emu`) used by the worker |
 | `web/` | The web app (Vite + TypeScript) |
-| `tools/` | Helpers: CPU test-data conversion (`sst-compact.py`), song lengths from the game's music data (`song-length.py`) |
+| `tools/` | Helpers: CPU test-data conversion (`sst-compact.py`), song lengths from the game's music data (`song-length.py`), generative HD art (`portraits/`: generation CLI, see [docs/generative-portraits.md](docs/generative-portraits.md)), and the Dune HD Studio prototype (`studio/`: review, setup, generation jobs; see [docs/hd-studio-plan.md](docs/hd-studio-plan.md)) |
+| `recipes/` | The recipe bundle for generated HD art (no game data) |
 
 ### Headless runner
 

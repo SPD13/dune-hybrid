@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dune HD Studio</title>
+<style>
+:root {
+  --bg: #16171b; --panel: #1f2026; --panel2: #26272e; --line: #34353d; --text: #e8e8ec; --dim: #9a9ba6;
+  --accent: #e0a040; --accent-text: #1a1408; --ok: #4caf7a; --warn: #e0a040; --bad: #d65a5a; --new: #6b6d78;
+  --box-part: #4fb3ff; --box-problem: #ff5a5a; --box-keep: #6ee07a; --box-note: #e0d050;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #ececef; --panel: #f7f7f9; --panel2: #ffffff; --line: #d6d6dc; --text: #1c1c22; --dim: #666873;
+  }
+}
+:root[data-theme="light"] { --bg: #ececef; --panel: #f7f7f9; --panel2: #ffffff; --line: #d6d6dc; --text: #1c1c22; --dim: #666873; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+#app { display: grid; grid-template-columns: 230px 1fr 320px; grid-template-rows: 44px 1fr; height: 100vh; }
+header { grid-column: 1 / 4; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 14px; margin: 0; font-weight: 600; }
+header .save { margin-left: auto; color: var(--dim); font-size: 12px; }
+header .hint { color: var(--dim); font-size: 12px; }
+nav { background: var(--panel); border-right: 1px solid var(--line); overflow: auto; padding: 8px 0; }
+nav h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 12px 14px 4px; font-weight: 600; }
+nav button { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; color: var(--text); padding: 6px 14px; text-align: left; cursor: pointer; font: inherit; }
+nav button:hover { background: var(--panel2); }
+nav button.sel { background: var(--panel2); box-shadow: inset 3px 0 var(--accent); }
+nav .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--new); }
+nav .count { margin-left: auto; color: var(--dim); font-size: 11px; }
+main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.toolbar label { color: var(--dim); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: var(--panel2); color: var(--text); padding: 4px 9px; cursor: pointer; font: inherit; font-size: 12px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--accent); color: var(--accent-text); }
+select, input[type=text], textarea { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 5px; font: inherit; padding: 4px 6px; }
+select { max-width: 260px; }
+#viewer { flex: 1; position: relative; overflow: hidden; background: repeating-conic-gradient(#0000 0 25%, #8881 0 50%) 0 0 / 24px 24px, var(--bg); cursor: grab; }
+#viewer.box { cursor: crosshair; }
+#viewer canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.caption { position: absolute; top: 8px; padding: 2px 8px; border-radius: 4px; background: #000a; color: #fff; font-size: 12px; pointer-events: none; }
+.empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); }
+aside { background: var(--panel); border-left: 1px solid var(--line); overflow: auto; padding: 12px 14px; }
+aside h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 16px 0 6px; font-weight: 600; }
+aside h3:first-child { margin-top: 0; }
+aside .title { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+aside .meta { color: var(--dim); font-size: 12px; white-space: pre-wrap; }
+.status { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.status button { border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 6px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px; }
+.status button.on { border-color: currentColor; font-weight: 600; }
+textarea { width: 100%; min-height: 70px; resize: vertical; }
+.boxes { display: flex; flex-direction: column; gap: 8px; }
+.boxrow { border: 1px solid var(--line); border-radius: 6px; padding: 6px; background: var(--panel2); }
+.boxrow.sel { border-color: var(--accent); }
+.boxrow .head { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+.boxrow .n { font-weight: 700; width: 18px; }
+.boxrow .del { margin-left: auto; border: 0; background: none; color: var(--dim); cursor: pointer; font-size: 15px; }
+.boxrow textarea { min-height: 44px; }
+.small { color: var(--dim); font-size: 11px; }
+nav .tools { padding: 0 10px 6px; display: flex; flex-direction: column; gap: 6px; position: sticky; top: -8px; background: var(--panel); padding-top: 8px; z-index: 1; }
+nav .tools input, nav .tools select { width: 100%; }
+nav .tools a { color: var(--accent); }
+nav h2 { cursor: pointer; display: flex; gap: 6px; align-items: baseline; user-select: none; }
+nav h2 .prog { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; }
+nav h4 { margin: 4px 14px 2px 22px; font-size: 11px; color: var(--dim); font-weight: 600; cursor: pointer; display: flex; user-select: none; }
+nav h4 .prog { margin-left: auto; font-weight: 400; }
+nav .sub button { padding-left: 30px; }
+#grid { position: absolute; inset: 0; overflow: auto; padding: 12px; background: var(--bg); display: none; }
+#grid.on { display: block; }
+#grid h3 { font-size: 12px; color: var(--dim); margin: 14px 0 6px; font-weight: 600; }
+#grid .cells { display: flex; flex-wrap: wrap; gap: 8px; }
+#grid .cell { width: 150px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px; cursor: pointer; }
+#grid .cell:hover { border-color: var(--accent); }
+#grid .thumb { height: 100px; display: grid; place-items: center; background: repeating-conic-gradient(#0000 0 25%, #8881 0 50%) 0 0 / 12px 12px; border-radius: 4px; overflow: hidden; }
+#grid .thumb img { max-width: 100%; max-height: 100px; image-rendering: pixelated; }
+#grid .lab { display: flex; align-items: center; gap: 5px; font-size: 11px; margin-top: 4px; white-space: nowrap; overflow: hidden; }
+#grid .lab .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.warn { color: var(--warn); }
+.pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--line); color: var(--dim); }
+.pill.gpu { color: var(--ok); border-color: var(--ok); }
+.btn { border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 4px 10px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px; }
+.btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn .badge { display: inline-block; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--accent-text); font-size: 10px; margin-left: 4px; }
+.modal { position: fixed; inset: 0; background: #0008; display: none; place-items: center; z-index: 10; }
+.modal.on { display: grid; }
+.modal .card { width: min(720px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+.modal h2 { margin: 0 0 4px; font-size: 16px; }
+.row { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; padding: 10px 0; border-top: 1px solid var(--line); }
+.row .ic { font-size: 15px; }
+.row .t { font-weight: 600; }
+.row .d { color: var(--dim); font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+#jobs { position: fixed; right: 336px; bottom: 12px; width: 380px; max-height: 60vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 30px #0006; display: none; z-index: 5; padding: 10px; }
+#jobs.on { display: block; }
+.job { border-top: 1px solid var(--line); padding: 8px 0; }
+.job:first-child { border-top: 0; }
+.job .top { display: flex; gap: 8px; align-items: center; }
+.job .top b { flex: 1; font-size: 12px; }
+.bar { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; margin: 6px 0 4px; }
+.bar > div { height: 100%; background: var(--accent); transition: width .4s; }
+.job.done .bar > div { background: var(--ok); } .job.failed .bar > div { background: var(--bad); }
+.job pre { max-height: 140px; overflow: auto; font-size: 10px; background: var(--bg); padding: 6px; border-radius: 4px; margin: 4px 0 0; white-space: pre-wrap; display: none; }
+.job.open pre { display: block; }
+.gen { display: flex; flex-direction: column; gap: 6px; }
+kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Dune HD Studio</h1><span class="pill" id="hw">…</span><button class="btn" id="setupBtn">Setup</button><button class="btn" id="batchBtn">Batch</button><button class="btn" id="jobsBtn">Jobs</button>
+    <span class="hint"><kbd>G</kbd> grid · <kbd>B</kbd> draw box · <kbd>Space</kbd> flip · <kbd>F</kbd> fit · <kbd>1</kbd> 1:1 · <kbd>D</kbd> detail map · <kbd>Del</kbd> delete box · <kbd>↑</kbd><kbd>↓</kbd> assets</span>
+    <span class="save" id="save">loading…</span>
+  </header>
+  <nav id="list"><div class="tools"><input type="text" id="q" placeholder="Search (name, sheet, note)…"><select id="flt">
+    <option value="all">All</option><option value="new">Not reviewed</option><option value="needs-work">Needs work</option>
+    <option value="approved">Approved</option><option value="rejected">Rejected</option><option value="versions">With generated versions</option>
+    <option value="boxes">With boxes</option><option value="colours">Colours not certain</option></select><div class="small" id="shown"></div></div><div id="tree"></div></nav>
+  <main>
+    <div class="toolbar">
+      <label>Left <select id="selA"></select></label>
+      <label>Right <select id="selB"></select></label>
+      <span class="seg" id="view"><button data-v="viewer">Viewer</button><button data-v="grid">Grid</button></span>
+      <span class="seg" id="mode">
+        <button data-m="side">Side by side</button><button data-m="slider">Slider</button><button data-m="flip">Flip</button><button data-m="detail">Detail map</button>
+      </span>
+      <span class="seg" id="tool"><button data-t="pan">Pan</button><button data-t="box">Box</button></span>
+      <span class="seg"><button id="fit">Fit</button><button id="one">1:1</button><button id="two">2:1</button></span>
+      <label>Box kind <select id="kind">
+        <option value="part">part to describe</option><option value="problem">problem</option>
+        <option value="keep">keep original</option><option value="note">note</option>
+      </select></label>
+    </div>
+    <div id="viewer"><canvas id="cv"></canvas><div id="grid"></div><div class="empty" id="empty">No items: run dune-hd inventory (see tools/studio/README.md)</div></div>
+  </main>
+  <aside id="side"></aside>
+</div>
+<div class="modal" id="setup"><div class="card" id="setupCard"></div></div>
+<div class="modal" id="batch"><div class="card" id="batchCard"></div></div>
+<div id="jobs"></div>
+<script>
+"use strict";
+const KIND_COLOUR = { part: "--box-part", problem: "--box-problem", keep: "--box-keep", note: "--box-note" };
+const STATUS = [["new", "New", "--new"], ["needs-work", "Needs work", "--warn"], ["approved", "Approved", "--ok"], ["rejected", "Rejected", "--bad"]];
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("hdreview." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("hdreview." + k, JSON.stringify(v)); } catch {} },
+};
+
+let items = [], review = { version: 1, assets: {} }, cur = null;
+let mode = store.get("mode", "side"), tool = "pan", flip = false, split = 0.5;
+let view = { scale: 1, x: 0, y: 0 };          // screen px per image px (of B), and the image's top-left in a pane
+const images = new Map();                      // path → HTMLImageElement
+let filter = { q: "", status: store.get("status", "all") }, open = new Set(store.get("open", [])), gridOn = false;
+let selBox = null, drag = null, saveTimer = null, detailCache = new Map(), needFit = false;
+
+function img(path) {
+  if (!images.has(path)) {
+    const im = new Image();
+    im.onload = () => { if (needFit) fit(); else draw(); };
+    im.src = "/files/" + path.split("/").map(encodeURIComponent).join("/");
+    images.set(path, im);
+  }
+  return images.get(path);
+}
+const sources = (it) => [{ id: "original", label: it.original.label || "original", path: it.original.path }, ...it.versions];
+const asset = (it) => (review.assets[it.id] ||= { status: "new", preferred: it.default || null, notes: "", boxes: [] });
+
+async function load() {
+  const r = await fetch("/api/items").then((r) => r.json());
+  items = r.items.items || [];
+  review = r.review && r.review.assets ? r.review : { version: 1, assets: {} };
+  $("empty").style.display = items.length ? "none" : "grid";
+  $("save").textContent = "saved";
+  renderList();
+  const last = store.get("item", null);
+  select(items.find((i) => i.id === last) || items[0]);
+}
+
+const statusOf = (it) => (review.assets[it.id] ? review.assets[it.id].status : "new");
+function visible(it) {
+  const q = filter.q.trim().toLowerCase();
+  if (q && !(it.title + " " + it.id + " " + (it.group || "") + " " + (it.note || "")).toLowerCase().includes(q)) return false;
+  switch (filter.status) {
+    case "new": return statusOf(it) === "new";
+    case "needs-work": case "approved": case "rejected": return statusOf(it) === filter.status;
+    case "versions": return it.versions.length > 0;
+    case "boxes": return !!(review.assets[it.id] && review.assets[it.id].boxes.length);
+    case "colours": return it.palette && !it.palette.ok;
+  }
+  return true;
+}
+function grouped() {
+  const out = new Map();
+  for (const it of items) {
+    if (!visible(it)) continue;
+    if (!out.has(it.class)) out.set(it.class, new Map());
+    const g = out.get(it.class), k = it.group || "";
+    if (!g.has(k)) g.set(k, []);
+    g.get(k).push(it);
+  }
+  return out;
+}
+function progress(list) { const ok = list.filter((i) => statusOf(i) === "approved").length; return `${ok}/${list.length}`; }
+function toggleOpen(key) { open.has(key) ? open.delete(key) : open.add(key); store.set("open", [...open]); renderList(); }
+function renderList() {
+  const nav = $("tree"), keepScroll = $("list").scrollTop;
+  nav.innerHTML = "";
+  const n = items.filter(visible).length, shown = $("shown");
+  shown.innerHTML = n === items.length ? `${n} items` : `Showing ${n} of ${items.length} · <a href="#" id="clearF">clear filters</a>`;
+  if ($("clearF")) $("clearF").onclick = (e) => { e.preventDefault(); filter = { q: "", status: "all" }; $("q").value = ""; $("flt").value = "all"; store.set("status", "all"); renderList(); };
+  for (const [cls, groups] of grouped()) {
+    const all = [...groups.values()].flat();
+    const h = document.createElement("h2");
+    const openCls = open.has(cls) || filter.q || (cur && cur.class === cls);
+    h.innerHTML = `<span>${openCls ? "▾" : "▸"}</span><span></span><span class="prog"></span>`;
+    h.children[1].textContent = cls; h.children[2].textContent = progress(all);
+    h.onclick = () => toggleOpen(cls);
+    nav.append(h);
+    if (!openCls) continue;
+    const many = groups.size > 1 && all.length > 12;
+    for (const [g, list] of groups) {
+      let box = nav;
+      if (many) {
+        const key = cls + "/" + g, openG = open.has(key) || filter.q || (cur && cur.class === cls && cur.group === g);
+        const h4 = document.createElement("h4");
+        h4.innerHTML = `<span></span><span class="prog"></span>`;
+        h4.children[0].textContent = (openG ? "▾ " : "▸ ") + (g || "—"); h4.children[1].textContent = progress(list);
+        h4.onclick = () => toggleOpen(key);
+        nav.append(h4);
+        if (!openG) continue;
+        box = document.createElement("div"); box.className = "sub"; nav.append(box);
+      }
+      for (const it of list) {
+        const a = review.assets[it.id];
+        const b = document.createElement("button");
+        b.className = cur && cur.id === it.id ? "sel" : "";
+        const stt = STATUS.find((x) => x[0] === statusOf(it));
+        b.innerHTML = `<span class="dot" style="background:var(${stt[2]})"></span><span></span><span class="count"></span>`;
+        b.children[1].textContent = it.title + (it.palette && !it.palette.ok ? " ⚠" : "");
+        b.children[2].textContent = [it.versions.length ? it.versions.length + "v" : "", a && a.boxes.length ? a.boxes.length + "□" : ""].filter(Boolean).join(" ");
+        b.onclick = () => { setGrid(false); select(it); };
+        box.append(b);
+      }
+    }
+  }
+  $("list").scrollTop = keepScroll;
+  if (gridOn) renderGrid();
+}
+function thumbOf(it) {
+  const a = review.assets[it.id], pref = a && a.preferred && it.versions.find((v) => v.id === a.preferred);
+  return (pref || it.versions.find((v) => v.id === it.default) || it.original).path;
+}
+function renderGrid() {
+  const g = $("grid"); g.innerHTML = "";
+  const url = (p) => "/files/" + p.split("/").map(encodeURIComponent).join("/");
+  for (const [cls, groups] of grouped()) {
+    for (const [grp, list] of groups) {
+      const h = document.createElement("h3"); h.textContent = `${cls} · ${grp || "—"} (${progress(list)} approved)`; g.append(h);
+      const cells = document.createElement("div"); cells.className = "cells";
+      for (const it of list) {
+        const c = document.createElement("div"); c.className = "cell";
+        const stt = STATUS.find((x) => x[0] === statusOf(it));
+        c.innerHTML = `<div class="thumb"><img loading="lazy"></div><div class="lab"><span class="dot" style="background:var(${stt[2]})"></span><span></span></div>`;
+        c.querySelector("img").src = url(thumbOf(it));
+        c.querySelector(".lab span:last-child").textContent = it.title + (it.versions.length ? ` · ${it.versions.length}v` : "") + (it.palette && !it.palette.ok ? " ⚠" : "");
+        c.onclick = () => { setGrid(false); select(it); };
+        cells.append(c);
+      }
+      g.append(cells);
+    }
+  }
+}
+function setGrid(on) {
+  gridOn = on; $("grid").classList.toggle("on", on);
+  for (const b of $("view").children) b.classList.toggle("on", (b.dataset.v === "grid") === on);
+  if (on) renderGrid(); else draw();
+}
+
+function select(it) {
+  if (!it) return;
+  cur = it; selBox = null; store.set("item", it.id);
+  const src = sources(it);
+  for (const [sel, which] of [[$("selA"), "A"], [$("selB"), "B"]]) {
+    sel.innerHTML = "";
+    for (const s of src) { const o = document.createElement("option"); o.value = s.id; o.textContent = s.label; sel.append(o); }
+  }
+  const a = asset(it);
+  $("selA").value = "original";
+  $("selB").value = a.preferred || it.default || (it.versions[0] && it.versions[0].id) || "original";
+  renderList(); renderSide(); fit();
+}
+
+function srcOf(sel) { return sources(cur).find((s) => s.id === sel.value); }
+
+// ---------- right panel ----------
+function renderSide() {
+  const side = $("side"); side.innerHTML = "";
+  if (!cur) return;
+  const a = asset(cur);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+  side.append(el("div", "title", cur.title));
+  const facts = [cur.class, cur.group, cur.size ? cur.size.join(" × ") + " px" : "", cur.art_name ? "art name " + cur.art_name : ""].filter(Boolean).join(" · ");
+  side.append(el("div", "meta", facts));
+  if (cur.palette) {
+    const pm = el("div", "meta" + (cur.palette.ok ? "" : " warn"), (cur.palette.ok ? "Colours: " : "⚠ Colours not certain: ") + cur.palette.source);
+    side.append(pm);
+  }
+  if (cur.note) side.append(el("div", "meta", cur.note));
+  const b = srcOf($("selB"));
+  if (b && b.settings) side.append(el("div", "meta", Object.entries(b.settings).map(([k, v]) => `${k}: ${v}`).join("\n")));
+
+  side.append(el("h3", null, "Status"));
+  const st = el("div", "status");
+  for (const [k, label, colour] of STATUS) {
+    const btn = el("button", a.status === k ? "on" : "", label);
+    btn.style.color = a.status === k ? `var(${colour})` : "";
+    btn.onclick = () => { a.status = k; changed(); renderSide(); renderList(); };
+    st.append(btn);
+  }
+  side.append(st);
+
+  side.append(el("h3", null, "Generate"));
+  const gen = el("div", "gen");
+  const gb = el("button", "btn primary", "Generate a new version");
+  const gm = el("div", "small"); gm.id = "genMsg";
+  const blocked = !sys ? "checking the setup…" : !sys.env.ok ? "Install the generation environment first (Setup)." : !sys.models.every((m) => m.cached) ? "Download the models first (Setup)." : "";
+  gm.textContent = blocked || (sys ? `Runs on ${sys.hardware.label}, with the item's recipe or its class's defaults; the result appears as a new version (nothing new if the recipe has not changed).` : "");
+  gb.disabled = !!blocked; gb.onclick = () => generate(cur);
+  gen.append(gb, gm); side.append(gen);
+
+  side.append(el("h3", null, "Preferred version"));
+  const pref = el("select");
+  for (const s of cur.versions) { const o = el("option", null, s.label); o.value = s.id; pref.append(o); }
+  pref.value = a.preferred || ""; pref.onchange = () => { a.preferred = pref.value; changed(); };
+  side.append(pref);
+
+  side.append(el("h3", null, "Notes"));
+  const notes = el("textarea"); notes.value = a.notes || ""; notes.placeholder = "What to change, what works, what to keep…";
+  notes.oninput = () => { a.notes = notes.value; changed(); };
+  side.append(notes);
+
+  side.append(el("h3", null, `Boxes (${a.boxes.length})`));
+  if (!a.boxes.length) side.append(el("div", "small", "Press B (or the Box tool) and drag on the picture to mark a part to describe, a problem, or an area to keep as the original."));
+  const list = el("div", "boxes");
+  a.boxes.forEach((bx, i) => {
+    const row = el("div", "boxrow" + (selBox === bx ? " sel" : ""));
+    const head = el("div", "head");
+    const n = el("span", "n", String(i + 1)); n.style.color = css(KIND_COLOUR[bx.kind]);
+    const kind = el("select");
+    for (const o of $("kind").options) { const c = el("option", null, o.textContent); c.value = o.value; kind.append(c); }
+    kind.value = bx.kind; kind.onchange = () => { bx.kind = kind.value; changed(); draw(); renderSide(); };
+    const del = el("button", "del", "×"); del.title = "Delete box";
+    del.onclick = () => { a.boxes.splice(a.boxes.indexOf(bx), 1); selBox = null; changed(); renderSide(); renderList(); draw(); };
+    head.append(n, kind, del);
+    const txt = el("textarea"); txt.value = bx.text || "";
+    txt.placeholder = { part: "Describe it, e.g. palace guard holding a rifle, butt on the floor", problem: "What is wrong here?", keep: "Why keep the original here?", note: "Note" }[bx.kind];
+    txt.oninput = () => { bx.text = txt.value; changed(); };
+    txt.onfocus = () => { selBox = bx; draw(); for (const r of list.children) r.classList.remove("sel"); row.classList.add("sel"); };
+    const px = bx.px ? `original px ${bx.px.join(", ")}` : "";
+    row.append(head, txt, el("div", "small", px));
+    row.onclick = (e) => { if (e.target === row) { selBox = bx; draw(); renderSide(); } };
+    list.append(row);
+    if (selBox === bx && bx._focus) { delete bx._focus; setTimeout(() => txt.focus(), 0); }
+  });
+  side.append(list);
+}
+
+function changed() {
+  const a = asset(cur); a.updated = new Date().toISOString();
+  $("save").textContent = "unsaved…";
+  clearTimeout(saveTimer); saveTimer = setTimeout(save, 700);
+}
+async function save() {
+  // Each box also in the original's pixels, for the generation tools.
+  for (const it of items) {
+    const a = review.assets[it.id]; if (!a) continue;
+    const o = images.get(it.original.path);
+    for (const bx of a.boxes) if (o && o.naturalWidth) bx.px = [bx.x * o.naturalWidth, bx.y * o.naturalHeight, (bx.x + bx.w) * o.naturalWidth, (bx.y + bx.h) * o.naturalHeight].map(Math.round);
+  }
+  try {
+    const r = await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(review, (k, v) => (k.startsWith("_") ? undefined : v)) });
+    $("save").textContent = r.ok ? "saved " + new Date().toLocaleTimeString() : "save failed";
+  } catch { $("save").textContent = "save failed (is the server running?)"; }
+}
+
+// ---------- viewer ----------
+const cv = $("cv"), ctx = cv.getContext("2d");
+function panes() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  return mode === "side" ? [{ x: 0, w: W / 2 - 1, h: H }, { x: W / 2 + 1, w: W / 2 - 1, h: H }] : [{ x: 0, w: W, h: H }];
+}
+function baseSize() { const b = img(srcOf($("selB")).path); return b.naturalWidth ? [b.naturalWidth, b.naturalHeight] : [1, 1]; }
+function fit() {
+  if (!cur) return;
+  needFit = !img(srcOf($("selB")).path).naturalWidth;
+  if (needFit) return;
+  const [w, h] = baseSize(), p = panes()[0];
+  view.scale = Math.min(p.w / w, p.h / h) * 0.96; view.x = (p.w - w * view.scale) / 2; view.y = (p.h - h * view.scale) / 2; draw();
+}
+function zoomTo(s, cx, cy) {
+  const p = panes()[0]; cx ??= p.w / 2; cy ??= p.h / 2;
+  const ix = (cx - view.x) / view.scale, iy = (cy - view.y) / view.scale;
+  view.scale = s; view.x = cx - ix * s; view.y = cy - iy * s; draw();
+}
+function drawImage(src, pane, clipX) {
+  const [bw, bh] = baseSize(), im = img(src.path);
+  if (!im.naturalWidth) return;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(pane.x, 0, clipX === undefined ? pane.w : clipX, pane.h); ctx.clip();
+  // Small pictures (the pixel art) stay crisp; HD ones are smoothed when shrunk.
+  ctx.imageSmoothingEnabled = (bw * view.scale) / im.naturalWidth < 1.5;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(im, pane.x + view.x, view.y, bw * view.scale, bh * view.scale);
+  ctx.restore();
+}
+function caption(text, x) {
+  ctx.save(); ctx.font = "12px system-ui"; const w = ctx.measureText(text).width + 14;
+  ctx.fillStyle = "#000a"; ctx.fillRect(x + 8, 8, w, 20); ctx.fillStyle = "#fff"; ctx.fillText(text, x + 15, 22); ctx.restore();
+}
+function drawBoxes(pane) {
+  const [bw, bh] = baseSize(), a = asset(cur);
+  ctx.save(); ctx.beginPath(); ctx.rect(pane.x, 0, pane.w, pane.h); ctx.clip();
+  const all = drag && drag.box ? [...a.boxes, drag.box] : a.boxes;
+  all.forEach((bx, i) => {
+    const x = pane.x + view.x + bx.x * bw * view.scale, y = view.y + bx.y * bh * view.scale, w = bx.w * bw * view.scale, h = bx.h * bh * view.scale;
+    ctx.strokeStyle = css(KIND_COLOUR[bx.kind] || "--box-note"); ctx.lineWidth = selBox === bx ? 3 : 1.5;
+    ctx.setLineDash(bx.kind === "keep" ? [6, 4] : []); ctx.strokeRect(x, y, w, h);
+    if (i < a.boxes.length) { ctx.fillStyle = ctx.strokeStyle; ctx.font = "bold 12px system-ui"; ctx.fillText(String(i + 1), x + 3, y + 13); }
+  });
+  ctx.restore();
+}
+function draw() {
+  const dpr = devicePixelRatio || 1;
+  if (cv.width !== cv.clientWidth * dpr || cv.height !== cv.clientHeight * dpr) { cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!cur) return;
+  const A = srcOf($("selA")), B = srcOf($("selB")), ps = panes();
+  if (mode === "side") {
+    drawImage(A, ps[0]); drawImage(B, ps[1]); drawBoxes(ps[0]); drawBoxes(ps[1]);
+    ctx.fillStyle = css("--line"); ctx.fillRect(ps[0].w, 0, 2, ps[0].h);
+    caption(A.label, ps[0].x); caption(B.label, ps[1].x);
+  } else if (mode === "slider") {
+    const p = ps[0], sx = split * p.w;
+    drawImage(B, p); drawImage(A, p, sx); drawBoxes(p);
+    ctx.fillStyle = css("--accent"); ctx.fillRect(sx - 1, 0, 2, p.h);
+    caption(A.label, 0); caption(B.label, Math.max(sx, 0));
+  } else if (mode === "flip") {
+    const S = flip ? A : B; drawImage(S, ps[0]); drawBoxes(ps[0]); caption(S.label + "   (Space to flip)", 0);
+  } else {
+    drawImage(B, ps[0]); drawDetail(A, B, ps[0]); drawBoxes(ps[0]); caption("Detail map: where " + B.label + " adds fine detail", 0);
+  }
+}
+
+// Detail map: fine local contrast of B beyond that of A enlarged to B's size.
+function lumaContrast(im, w, h, smooth) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const x = c.getContext("2d", { willReadFrequently: true }); x.imageSmoothingEnabled = smooth; x.imageSmoothingQuality = "high";
+  x.drawImage(im, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data, L = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) L[i] = 0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2];
+  const blur = (src, r) => {          // separable box blur
+    const t = new Float32Array(w * h), o = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) { let s = 0; for (let x = -r; x <= r; x++) s += src[y * w + Math.min(w - 1, Math.max(0, x))];
+      for (let x = 0; x < w; x++) { t[y * w + x] = s / (2 * r + 1); s += src[y * w + Math.min(w - 1, x + r + 1)] - src[y * w + Math.max(0, x - r)]; } }
+    for (let x = 0; x < w; x++) { let s = 0; for (let y = -r; y <= r; y++) s += t[Math.min(h - 1, Math.max(0, y)) * w + x];
+      for (let y = 0; y < h; y++) { o[y * w + x] = s / (2 * r + 1); s += t[Math.min(h - 1, y + r + 1) * w + x] - t[Math.max(0, y - r) * w + x]; } }
+    return o;
+  };
+  const b = blur(L, 2), out = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) out[i] = Math.abs(L[i] - b[i]);
+  return blur(out, 1);
+}
+function drawDetail(A, B, pane) {
+  const key = A.path + "|" + B.path;
+  if (!detailCache.has(key)) {
+    const a = img(A.path), b = img(B.path);
+    if (!a.naturalWidth || !b.naturalWidth) return;
+    const w = b.naturalWidth, h = b.naturalHeight;
+    const cb = lumaContrast(b, w, h, true), ca = lumaContrast(a, w, h, true);
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const x = c.getContext("2d"), id = x.createImageData(w, h);
+    for (let i = 0; i < w * h; i++) {
+      // Cyan (a little added) to yellow (a lot).
+      const v = Math.max(0, Math.min(1, (cb[i] - ca[i] - 1) / 9));
+      id.data[i * 4] = Math.round(60 + 195 * v); id.data[i * 4 + 1] = Math.round(200 + 40 * v); id.data[i * 4 + 2] = Math.round(255 - 215 * v);
+      id.data[i * 4 + 3] = v > 0 ? Math.round(90 + 165 * v) : 0;
+    }
+    x.putImageData(id, 0, 0); detailCache.set(key, c);
+  }
+  const [bw, bh] = baseSize();
+  ctx.save();
+  // Darken the picture so the map reads on any colour.
+  ctx.fillStyle = "#000b"; ctx.fillRect(pane.x + view.x, view.y, bw * view.scale, bh * view.scale);
+  ctx.drawImage(detailCache.get(key), pane.x + view.x, view.y, bw * view.scale, bh * view.scale); ctx.restore();
+}
+
+// ---------- input ----------
+function toImage(e) {
+  const r = cv.getBoundingClientRect(), [bw, bh] = baseSize();
+  let px = e.clientX - r.left, py = e.clientY - r.top;
+  const ps = panes(), pane = ps.find((p) => px >= p.x && px < p.x + p.w) || ps[0];
+  return { sx: px - pane.x, sy: py, ix: (px - pane.x - view.x) / (bw * view.scale), iy: (py - view.y) / (bh * view.scale) };
+}
+function hitBox(p) {
+  const a = asset(cur);
+  for (let i = a.boxes.length - 1; i >= 0; i--) { const b = a.boxes[i]; if (p.ix >= b.x && p.ix <= b.x + b.w && p.iy >= b.y && p.iy <= b.y + b.h) return b; }
+  return null;
+}
+cv.addEventListener("pointerdown", (e) => {
+  if (!cur) return; cv.setPointerCapture(e.pointerId);
+  const p = toImage(e);
+  if (mode === "slider" && Math.abs(p.sx - split * panes()[0].w) < 8 && tool === "pan") { drag = { split: true }; return; }
+  if (tool === "box") { drag = { box: { x: p.ix, y: p.iy, w: 0, h: 0, kind: $("kind").value, text: "" }, start: p }; return; }
+  const hit = hitBox(p);
+  if (hit) { selBox = hit; renderSide(); draw(); }
+  drag = { pan: true, x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
+});
+cv.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  if (drag.split) { const r = cv.getBoundingClientRect(); split = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); draw(); return; }
+  if (drag.pan) { view.x = drag.vx + e.clientX - drag.x; view.y = drag.vy + e.clientY - drag.y; draw(); return; }
+  const p = toImage(e), s = drag.start;
+  Object.assign(drag.box, { x: Math.min(s.ix, p.ix), y: Math.min(s.iy, p.iy), w: Math.abs(p.ix - s.ix), h: Math.abs(p.iy - s.iy) });
+  draw();
+});
+cv.addEventListener("pointerup", () => {
+  if (drag && drag.box) {
+    const b = drag.box, clamp = (v) => Math.max(0, Math.min(1, v));
+    const x0 = clamp(b.x), y0 = clamp(b.y), x1 = clamp(b.x + b.w), y1 = clamp(b.y + b.h);
+    if ((x1 - x0) > 0.004 && (y1 - y0) > 0.004) {
+      const box = { id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()), x: x0, y: y0, w: x1 - x0, h: y1 - y0, kind: b.kind, text: "", version: $("selB").value, created: new Date().toISOString(), _focus: true };
+      asset(cur).boxes.push(box); selBox = box; changed(); renderSide(); renderList();
+    }
+  }
+  drag = null; draw();
+});
+cv.addEventListener("wheel", (e) => {
+  e.preventDefault(); const p = toImage(e);
+  zoomTo(Math.max(0.05, Math.min(40, view.scale * Math.exp(-e.deltaY * 0.0015))), p.sx, p.sy);
+}, { passive: false });
+for (const b of $("mode").children) b.onclick = () => setMode(b.dataset.m);
+for (const b of $("tool").children) b.onclick = () => setTool(b.dataset.t);
+function setMode(m) { mode = m; store.set("mode", m); for (const b of $("mode").children) b.classList.toggle("on", b.dataset.m === m); fit(); }
+function setTool(t) { tool = t; for (const b of $("tool").children) b.classList.toggle("on", b.dataset.t === t); $("viewer").classList.toggle("box", t === "box"); }
+for (const b of $("view").children) b.onclick = () => setGrid(b.dataset.v === "grid");
+$("fit").onclick = fit;
+$("one").onclick = () => zoomTo(1);
+$("two").onclick = () => zoomTo(2);
+$("selA").onchange = () => draw();
+$("selB").onchange = () => { renderSide(); fit(); };
+addEventListener("resize", () => draw());
+addEventListener("keydown", (e) => {
+  if (e.target.matches("textarea, input, select")) { if (e.key === "Escape") e.target.blur(); return; }
+  const k = e.key.toLowerCase();
+  if (k === " ") { e.preventDefault(); if (mode !== "flip") setMode("flip"); flip = !flip; draw(); }
+  else if (k === "g") setGrid(!gridOn);
+  else if (k === "b") setTool(tool === "box" ? "pan" : "box");
+  else if (k === "f") fit();
+  else if (k === "1") zoomTo(1);
+  else if (k === "2") zoomTo(2);
+  else if (k === "d") setMode(mode === "detail" ? "side" : "detail");
+  else if ((k === "delete" || k === "backspace") && selBox) { const a = asset(cur); a.boxes.splice(a.boxes.indexOf(selBox), 1); selBox = null; changed(); renderSide(); renderList(); draw(); }
+  else if (k === "arrowdown" || k === "arrowup") {
+    e.preventDefault(); const vis = [...grouped().values()].flatMap((g) => [...g.values()].flat()); const i = vis.indexOf(cur) + (k === "arrowdown" ? 1 : -1);
+    if (i >= 0 && i < vis.length) select(vis[i]);
+  } else if ((e.metaKey || e.ctrlKey) && k === "s") { e.preventDefault(); save(); }
+});
+addEventListener("beforeunload", (e) => { if ($("save").textContent.startsWith("unsaved")) { save(); e.preventDefault(); } });
+// ---------- setup, jobs, generation ----------
+let sys = null, jobList = [], jobTimer = null, knownDone = new Set();
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+async function loadSystem() {
+  sys = await api("/api/system");
+  const hw = $("hw"); hw.textContent = sys.hardware.label; hw.className = "pill" + (sys.hardware.kind !== "cpu" ? " gpu" : "");
+  const ready = sys.env.ok && sys.models.every((m) => m.cached);
+  $("setupBtn").innerHTML = "Setup" + (ready ? "" : ' <span class="badge">!</span>');
+  if ($("setup").classList.contains("on")) renderSetup();
+  if (cur) renderSide();
+  if (sys.env.checking) setTimeout(loadSystem, 3000);
+}
+function renderSetup() {
+  const c = $("setupCard"), d = sys.disk;
+  const row = (ok, title, detail, button) => `<div class="row"><span class="ic">${ok === null ? "…" : ok ? "✅" : "⚠️"}</span><div><div class="t">${title}</div><div class="d">${detail}</div></div><div>${button || ""}</div></div>`;
+  const env = sys.env, busy = (t) => jobList.some((j) => j.title === t && (j.status === "queued" || j.status === "running"));
+  const envDetail = env.checking ? "checking…" : env.ok
+    ? `Python ${env.python}, PyTorch ${env.torch}, diffusers ${env.diffusers}\n${env.cuda ? "uses the NVIDIA GPU: " + env.cuda_device : env.mps ? "uses the Apple GPU" : "CPU only"}\n${env.path}`
+    : `${env.error || "not installed"}\nWill install PyTorch for: ${sys.hardware.label} (about ${d.env_gb} GB) in\n${env.path}`;
+  const missing = sys.models.filter((m) => !m.cached);
+  c.innerHTML = `<h2>Setup</h2><div class="d" style="color:var(--dim)">Everything stays on this computer. Free disk space: ${d.free_gb} GB.</div>
+    ${row(sys.dat_ok, "Game files", sys.dat || "start the studio with --dat path/to/DUNE.DAT")}
+    ${row(sys.dune_hd_ok, "dune-hd", sys.dune_hd || "start the studio with --dune-hd path/to/dune-hd (cargo build --release)")}
+    ${row(sys.hardware.kind !== "cpu", "Graphics card", sys.hardware.label + (sys.hardware.kind === "nvidia" ? `\ndriver ${sys.hardware.gpus[0].driver}; only the driver is needed (PyTorch brings CUDA)` : sys.hardware.kind === "cpu" ? "\nGeneration works but takes hours per picture." : ""))}
+    ${row(env.checking ? null : env.ok, "Generation environment", envDetail,
+      `<button class="btn ${env.ok ? "" : "primary"}" id="envBtn" ${busy("Install the generation environment") ? "disabled" : ""}>${env.ok ? "Reinstall" : "Install"}</button>`)}
+    ${row(missing.length === 0, "Models", sys.models.map((m) => `${m.cached ? "✓" : "·"} ${m.repo} (${m.size_gb} GB) — ${m.role}`).join("\n") + `\ncache: ${d.hf_cache}`,
+      missing.length ? `<button class="btn primary" id="modelsBtn" ${!env.ok || busy("Download the models") ? "disabled" : ""}>Download ${d.models_gb} GB</button>` : "")}
+    <div style="text-align:right;margin-top:10px"><button class="btn" id="closeSetup">Close</button></div>`;
+  $("closeSetup").onclick = () => $("setup").classList.remove("on");
+  if ($("envBtn")) $("envBtn").onclick = () => startSetup("env");
+  if ($("modelsBtn")) $("modelsBtn").onclick = () => startSetup("models");
+}
+async function startSetup(what) {
+  try { await api("/api/setup", { what }); showJobs(true); pollJobs(); } catch (e) { alertBox(e.message); }
+  renderSetup();
+}
+function alertBox(msg) {
+  const c = $("setupCard"); const n = document.createElement("div"); n.className = "d warn"; n.style.marginTop = "8px"; n.textContent = "⚠ " + msg; c.append(n);
+}
+function showJobs(on) { $("jobs").classList.toggle("on", on); }
+function renderJobs() {
+  const box = $("jobs"); const open = new Set([...box.querySelectorAll(".job.open")].map((e) => e.dataset.id));
+  box.innerHTML = jobList.length ? "" : '<div class="small">No jobs yet.</div>';
+  for (const j of [...jobList].reverse()) {
+    const e = document.createElement("div"); e.className = `job ${j.status}${open.has(String(j.id)) ? " open" : ""}`; e.dataset.id = j.id;
+    const pct = Math.round(j.progress * 100);
+    e.innerHTML = `<div class="top"><b></b><span class="small"></span>${j.status === "running" || j.status === "queued" ? '<button class="btn">Cancel</button>' : ""}</div>
+      <div class="bar"><div style="width:${pct}%"></div></div><div class="small"></div><pre></pre>`;
+    e.querySelector("b").textContent = j.title;
+    e.querySelector(".top .small").textContent = j.status === "running" ? pct + "%" : j.status;
+    e.querySelector("div.small").textContent = [j.step, j.message].filter(Boolean).join(" — ");
+    e.querySelector("pre").textContent = j.log.join("\n");
+    e.onclick = (ev) => { if (ev.target.tagName !== "BUTTON") e.classList.toggle("open"); };
+    const cancel = e.querySelector(".top .btn"); if (cancel) cancel.onclick = () => api("/api/jobs/cancel", { id: j.id }).then(pollJobs);
+    box.append(e);
+  }
+  const active = jobList.filter((j) => j.status === "running" || j.status === "queued").length;
+  $("jobsBtn").innerHTML = "Jobs" + (active ? ` <span class="badge">${active}</span>` : "");
+}
+async function pollJobs() {
+  clearTimeout(jobTimer);
+  jobList = await api("/api/jobs").catch(() => jobList);
+  renderJobs();
+  let finished = false;
+  for (const j of jobList) if (j.status !== "running" && j.status !== "queued" && !knownDone.has(j.id)) { knownDone.add(j.id); finished = true; }
+  if (finished) { loadSystem(); reloadItems(); }
+  const active = jobList.some((j) => j.status === "running" || j.status === "queued");
+  jobTimer = setTimeout(pollJobs, active ? 1200 : 6000);
+}
+async function reloadItems() {
+  const r = await api("/api/items");
+  const id = cur && cur.id;
+  items = r.items.items || [];
+  cur = items.find((i) => i.id === id) || cur;
+  renderList(); if (cur) { const keepB = $("selB").value; select(cur); if ([...$("selB").options].some((o) => o.value === keepB)) $("selB").value = keepB; }
+}
+async function generate(it) {
+  try { await api("/api/generate", { item: it.id }); showJobs(true); pollJobs(); }
+  catch (e) { const n = $("genMsg"); if (n) { n.textContent = "⚠ " + e.message; n.className = "small warn"; } }
+}
+// ---------- batch ----------
+const BATCH_CLASSES = [["heads", "Talking heads (one per face; recipe heads complete)", true], ["rooms", "Rooms", true], ["scenes", "Scenes and pictures", true],
+  ["characters", "Characters and animated sprites", true], ["interface", "Interface (32 × 24 px and larger)", true], ["other", "Other sprites", false], ["room-pieces", "Room pieces (covered by the rooms)", false]];
+let batchState = { classes: BATCH_CLASSES.filter((c) => c[2]).map((c) => c[0]), filtered: false, redo: false, plan: null };
+const fmtTime = (s) => s < 3600 ? `${Math.round(s / 60)} min` : s < 86400 ? `${(s / 3600).toFixed(1)} h` : `${(s / 86400).toFixed(1)} days`;
+function batchBody() {
+  return batchState.filtered ? { ids: items.filter(visible).map((i) => i.id), redo: batchState.redo } : { classes: batchState.classes, redo: batchState.redo };
+}
+async function planBatch() {
+  batchState.plan = "…"; renderBatch();
+  try { batchState.plan = await api("/api/batch/plan", batchBody()); } catch (e) { batchState.plan = { error: e.message }; }
+  renderBatch();
+}
+function renderBatch() {
+  const c = $("batchCard"), p = batchState.plan, nVis = items.filter(visible).length;
+  const ready = sys && sys.env.ok && sys.models.every((m) => m.cached);
+  let summary = "";
+  if (p === "…") summary = "Counting…";
+  else if (p && p.error) summary = `<span class="warn">⚠ ${p.error}</span>`;
+  else if (p) summary = `<b>${p.total}</b> items to generate` + (p.total ? ` — about <b>${fmtTime(p.total * p.seconds_each)}</b> on ${sys.hardware.label}` : "") +
+    `<br>${Object.entries(p.by_class).map(([k, n]) => `${k}: ${n}`).join(" · ")}` + (p.recipe_heads.length ? `<br>recipe heads (all their frames): ${p.recipe_heads.join(", ")}` : "") +
+    `<br><span class="small">${p.considered - p.total > 0 ? (p.considered - p.total) + " already up to date (skipped). " : ""}Each item uses its own recipe when it has one, else its class's defaults (recipes/defaults.json).</span>`;
+  c.innerHTML = `<h2>Batch generation</h2><div class="d" style="color:var(--dim);margin-bottom:8px">A first version of many items at once, with the default settings. Review them, annotate, and the recipes improve from there. One model load for the whole batch; it can be stopped and resumed (finished items are kept).</div>
+    <div class="row" style="grid-template-columns:1fr"><div>
+      <label><input type="radio" name="bsel" value="classes" ${batchState.filtered ? "" : "checked"}> By class</label>
+      <div style="margin:6px 0 8px 22px;display:grid;gap:3px">${BATCH_CLASSES.map(([k, l]) => `<label><input type="checkbox" data-c="${k}" ${batchState.classes.includes(k) ? "checked" : ""} ${batchState.filtered ? "disabled" : ""}> ${l}</label>`).join("")}</div>
+      <label><input type="radio" name="bsel" value="filtered" ${batchState.filtered ? "checked" : ""}> The ${nVis} items shown by the current filter and search</label>
+    </div></div>
+    <div class="row" style="grid-template-columns:1fr"><label><input type="checkbox" id="bredo" ${batchState.redo ? "checked" : ""}> Also redo items whose batch version is up to date</label></div>
+    <div class="row" style="grid-template-columns:1fr"><div>${summary || "…"}</div></div>
+    <div style="text-align:right;margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" id="bclose">Close</button>
+      <button class="btn primary" id="bstart" ${!ready || !p || p === "…" || p.error || !p.total ? "disabled" : ""}>Start batch</button></div>
+    ${ready ? "" : '<div class="small warn" style="text-align:right">Finish the Setup first.</div>'}`;
+  for (const r of c.querySelectorAll("input[name=bsel]")) r.onchange = () => { batchState.filtered = r.value === "filtered"; planBatch(); };
+  for (const x of c.querySelectorAll("input[data-c]")) x.onchange = () => {
+    batchState.classes = [...c.querySelectorAll("input[data-c]:checked")].map((e) => e.dataset.c); planBatch(); };
+  $("bredo").onchange = () => { batchState.redo = $("bredo").checked; planBatch(); };
+  $("bclose").onclick = () => $("batch").classList.remove("on");
+  $("bstart").onclick = async () => {
+    try { await api("/api/batch", batchBody()); $("batch").classList.remove("on"); showJobs(true); pollJobs(); }
+    catch (e) { batchState.plan = { error: e.message }; renderBatch(); }
+  };
+}
+$("batchBtn").onclick = () => { $("batch").classList.add("on"); planBatch(); };
+$("batch").onclick = (e) => { if (e.target === $("batch")) $("batch").classList.remove("on"); };
+$("setupBtn").onclick = () => { $("setup").classList.add("on"); renderSetup(); loadSystem(); };
+$("setup").onclick = (e) => { if (e.target === $("setup")) $("setup").classList.remove("on"); };
+$("jobsBtn").onclick = () => showJobs(!$("jobs").classList.contains("on"));
+loadSystem().catch(() => { $("hw").textContent = "server offline"; });
+api("/api/jobs").then((l) => { for (const j of l) if (j.status !== "running" && j.status !== "queued") knownDone.add(j.id); jobList = l; renderJobs(); pollJobs(); }).catch(() => {});
+$("q").value = filter.q; $("flt").value = filter.status;
+$("q").oninput = () => { filter.q = $("q").value; renderList(); };
+$("flt").onchange = () => { filter.status = $("flt").value; store.set("status", filter.status); renderList(); };
+setMode(mode); setTool("pan"); setGrid(false);
+load();
+</script>
+</body>
+</html>

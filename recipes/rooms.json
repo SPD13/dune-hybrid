@@ -1,0 +1,48 @@
+{
+  "_doc": "Room recipes, by room key (dune-run --rooms). parts: people and objects painted into the room, redone in close-up (box in low-res pixels).",
+  "defaults": {
+    "scale": 4,
+    "strength": 0.85,
+    "cond": 0.6,
+    "soften": 3.0,
+    "anchor": 8,
+    "store": "palette",
+    "negative": "out of focus, depth of field, bokeh, blurry, soft focus, haze, cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, deformed, text, watermark, frame, noise",
+    "part": {
+      "strength": 0.85,
+      "cond": 0.5,
+      "soften": 1.5,
+      "zoom": 12
+    }
+  },
+  "rooms": {
+    "859cf422c2ae871b": {
+      "title": "Palace throne room",
+      "status": "approved 2026-10-14 (v2)",
+      "prompt": "cinematic photograph of the interior of a grand ducal throne room, deep focus, everything in sharp focus, a massive carved bronze throne on a round dais, tall fluted copper columns, a mounted bull's head trophy above the throne, green heraldic banners, red hawk emblems, two ornate doors, on each side a guard in a grey-blue armoured uniform and helmet standing at attention holding a long rifle, polished marble floor, warm light, highly detailed",
+      "parts": [
+        {
+          "box": [
+            22,
+            64,
+            42,
+            99
+          ],
+          "select": "cool",
+          "prompt": "cinematic photograph, full body of a palace guard standing at attention, grey-blue armoured military uniform with shoulder plates and chest armour, round steel helmet, holding a long rifle diagonally across his body with both hands, armoured greaves, black boots, in a throne room, sharp focus, highly detailed",
+          "negative_extra": "robe, cloak, dress"
+        },
+        {
+          "box": [
+            283,
+            64,
+            303,
+            99
+          ],
+          "select": "cool",
+          "same_as": 0
+        }
+      ]
+    }
+  }
+}

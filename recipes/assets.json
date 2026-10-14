@@ -1,0 +1,109 @@
+{
+  "_doc": "How dune-hd inventory sorts DUNE.DAT's art into review classes, and which palette shows each sheet's sprites when the sheet has none of its own. First matching rule wins (sheet names without .HSQ; a trailing * matches any suffix). Talking heads (sheets with a head layout) and rooms (dune-run --rooms) are found automatically. palette: 'sheet' (its own chunks), 'game' (the palette of the room named by game_palette_room), 'SKYDN:N' / 'SKY:N' (time-of-day palette block N, 0 = day; several are laid in order with +, e.g. 'SKYDN:0+SKY:0').",
+  "game_palette_room": "859cf422c2ae871b",
+  "classes": {
+    "heads": "Talking heads",
+    "scenes": "Scenes and pictures",
+    "rooms": "Rooms",
+    "characters": "Characters and animated sprites",
+    "interface": "Interface",
+    "text": "Text art",
+    "room-pieces": "Room pieces",
+    "other": "Other sprites"
+  },
+  "rules": [
+    {
+      "sheets": [
+        "DN*",
+        "DS*",
+        "DV*",
+        "DH*",
+        "DF*",
+        "DP*"
+      ],
+      "class": "scenes",
+      "palette": "SKYDN:0",
+      "note": "desert views: grey in the DAT, coloured by time of day"
+    },
+    {
+      "sheets": [
+        "VIL*",
+        "VG*",
+        "SUN",
+        "INTDS"
+      ],
+      "class": "scenes",
+      "palette": "SKYDN:0+SKY:0",
+      "note": "village and greenhouse views: coloured by SKY.HSQ time-of-day palettes"
+    },
+    {
+      "sheets": [
+        "IRUL*"
+      ],
+      "class": "text",
+      "note": "intro subtitles: text pre-rendered on its background; built-in upscaler"
+    },
+    {
+      "sheets": [
+        "ICONES",
+        "GENERIC",
+        "ONMAP",
+        "ATTACK",
+        "MIXR",
+        "PALPLAN",
+        "STARS",
+        "SKY"
+      ],
+      "class": "interface",
+      "palette": "game"
+    },
+    {
+      "sheets": [
+        "BOOK"
+      ],
+      "class": "interface",
+      "palette": "sheet"
+    },
+    {
+      "sheets": [
+        "PERS",
+        "CHANKISS",
+        "ORNY",
+        "ORNYTK",
+        "VER",
+        "SUNRS"
+      ],
+      "class": "characters",
+      "palette": "game"
+    },
+    {
+      "sheets": [
+        "PALAIS",
+        "SIET1",
+        "CORR",
+        "BUNK",
+        "SERRE",
+        "EQUI",
+        "COMM",
+        "POR",
+        "PROUGE",
+        "BOTA",
+        "FRESK",
+        "BALCON",
+        "BACK",
+        "MIRROR"
+      ],
+      "class": "room-pieces",
+      "palette": "game",
+      "note": "drawn into rooms; reviewed through the room plates"
+    }
+  ],
+  "size_rules": [
+    {
+      "min_width": 280,
+      "min_height": 140,
+      "class": "scenes",
+      "note": "full-screen pictures"
+    }
+  ]
+}

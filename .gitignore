@@ -30,3 +30,7 @@ __pycache__/
 
 # macOS folder metadata
 .DS_Store
+
+# Generative portraits: renders and caches (derived from the game)
+/tools/portraits/out
+/tools/portraits/heads

@@ -2,6 +2,11 @@
 //!
 //!     dune-hd build --dat path/to/DUNE.DAT --out dune-hd-pack.zip [options]
 //!     dune-hd extract --dat path/to/DUNE.DAT [--work work]     # sprite previews
+//!     dune-hd heads --dat path/to/DUNE.DAT [--work work]       # talking heads: frames,
+//!         parts (vNN = group NN over frame 0) and NAME.json layouts in work/heads
+//!     dune-hd inventory --dat path/to/DUNE.DAT --work WORK [--recipes recipes]
+//!         [--rooms DIR] [--trace FILE]   # every asset as a review unit for the
+//!         studio (tools/studio): WORK/review/items.json, originals in true colours
 //!
 //! Options for `build`:
 //!   --work DIR             cache and intermediate files (default: work)
@@ -35,6 +40,15 @@
 //!                          see each original pixel as a feature instead of
 //!                          noise, which keeps small faces readable
 //!                          (default 2 with --backend command)
+//!   --art DIR              finished HD art made elsewhere (e.g. generative):
+//!                          DIR/<id>.png, 4× the sprite or room (<id> = the
+//!                          content id of `extract`'s catalog, a room key, or
+//!                          RES-PPP such as ICONES-009). Projected onto the
+//!                          palette like an upscaler's output, without the
+//!                          guard or the drift limit. DIR/<id>.json may give
+//!                          {"dac": 768 hex bytes of 6-bit VGA palette}: the
+//!                          palette the art was made in, for sprites the game
+//!                          colours with its own palette
 //!   --guard D              where the art drifts locally from the original by
 //!                          more than D, or flattens a clear feature (an eye),
 //!                          use the built-in upscaling for those pixels
@@ -46,6 +60,7 @@
 mod art;
 mod catalog;
 mod heads;
+mod inventory;
 mod palette;
 mod rooms;
 mod zip;
@@ -73,6 +88,10 @@ struct Args {
     model: (String, String, String),
     trace: Option<PathBuf>,
     rooms: Option<PathBuf>,
+    /// Finished HD art made elsewhere (see the header).
+    art: Option<PathBuf>,
+    /// The recipe bundle (`inventory` reads its assets.json).
+    recipes: Option<PathBuf>,
     only: Vec<String>,
     limit: Option<usize>,
     max_drift: f32,
@@ -97,6 +116,8 @@ fn parse() -> Result<Args, String> {
         model: ("mmpx".into(), "MIT".into(), "https://casual-effects.com/research/McGuire2021PixelArt/".into()),
         trace: None,
         rooms: None,
+        art: None,
+        recipes: None,
         only: Vec::new(),
         limit: None,
         max_drift: 0.05,
@@ -122,6 +143,8 @@ fn parse() -> Result<Args, String> {
             "--model-source" => a.model.2 = v()?,
             "--trace" => a.trace = Some(v()?.into()),
             "--rooms" => a.rooms = Some(v()?.into()),
+            "--art" => a.art = Some(v()?.into()),
+            "--recipes" => a.recipes = Some(v()?.into()),
             "--only" => a.only = v()?.split(',').map(|s| s.trim().to_uppercase()).collect(),
             "--limit" => a.limit = Some(v()?.parse().map_err(|e| format!("{e}"))?),
             "--max-drift" => a.max_drift = v()?.parse().map_err(|e| format!("{e}"))?,
@@ -188,10 +211,15 @@ fn run(args: &Args) -> std::io::Result<()> {
         assets.truncate(n);
     }
     eprintln!("{} sprites ({} with observed palettes)", assets.len(), assets.iter().filter(|a| observed.by_sprite.contains_key(&a.content)).count());
+    let external = match &args.art {
+        Some(dir) => load_art(dir, &mut assets)?,
+        None => HashMap::new(),
+    };
     match args.cmd.as_str() {
         "extract" => extract(args, &assets),
-        "build" => build(args, &assets),
+        "build" => build(args, &assets, external),
         "heads" => dump_heads(args, &observed),
+        "inventory" => inventory::run(&args.dat, &args.work, args.recipes.as_deref(), args.rooms.as_deref(), &observed),
         other => Err(std::io::Error::other(format!("unknown command {other}"))),
     }
 }
@@ -207,7 +235,10 @@ fn dump_heads(args: &Args, observed: &catalog::Observed) -> std::io::Result<()> 
         let Some(sheet) = catalog::sheet_assets(&e.name, &res, observed) else { continue };
         let refs: Vec<Option<&Asset>> = sheet.iter().map(|a| a.as_ref()).collect();
         let name = e.name.trim_end_matches(".HSQ");
-        eprintln!("{name}: origin {:?}, {} groups, {} frames: {:?}", head.origin, head.groups.len(), head.frames.len(), head.frames.iter().take(12).collect::<Vec<_>>());
+        eprintln!("{name}: origin {:?}, {} groups, {} frames: {:?}", head.origin, head.groups.len(), head.frames.len(), head.frames);
+        let groups: Vec<Vec<[i32; 3]>> = head.groups.iter().map(|g| g.iter().map(|p| [p.sprite as i32, p.x, p.y]).collect()).collect();
+        let layout = json!({"origin": head.origin, "groups": groups, "frames": head.frames});
+        std::fs::write(dir.join(format!("{name}.json")), serde_json::to_string(&layout)?)?;
         let pal = sheet.iter().flatten().next().map(|a| a.palette).unwrap_or_else(palette::grey);
         let save = |label: String, parts: &[heads::Part]| -> std::io::Result<()> {
             if let Some((_, _, w, h, px)) = heads::compose(parts, &refs) {
@@ -223,9 +254,51 @@ fn dump_heads(args: &Args, observed: &catalog::Observed) -> std::io::Result<()> 
             let parts: Vec<heads::Part> = fr.iter().flat_map(|&g| head.groups[g].iter().cloned()).collect();
             save(format!("f{i:02}"), &parts)?;
         }
+        // Each group drawn over the default frame, at the frame's size.
+        if let Some(base) = head.frames.first() {
+            let base: Vec<heads::Part> = base.iter().flat_map(|&g| head.groups[g].iter().cloned()).collect();
+            for (i, g) in head.groups.iter().enumerate() {
+                let mut parts = base.clone();
+                parts.extend(g.iter().cloned());
+                save(format!("v{i:02}"), &parts)?;
+            }
+        }
     }
     eprintln!("heads in {}", dir.display());
     Ok(())
+}
+
+/// Finished HD art for some of `assets` (see `--art` in the header), by
+/// asset hash; a sidecar palette replaces the asset's colours.
+fn load_art(dir: &Path, assets: &mut [Asset]) -> std::io::Result<HashMap<u64, Rgb>> {
+    let mut out = HashMap::new();
+    for a in assets.iter_mut() {
+        let names = [format!("{:016x}", a.content), format!("{}-{:03}", a.res.trim_end_matches(".HSQ"), a.part)];
+        let Some(name) = names.iter().find(|n| dir.join(format!("{n}.png")).exists()) else { continue };
+        let mut img = art::read_rgb(&dir.join(format!("{name}.png")))?;
+        let (w, h) = (a.stride * 4, a.height * 4);
+        if img.h != h || (img.w != w && img.w != a.width * 4) {
+            return Err(std::io::Error::other(format!("{name}.png is {}×{}, expected {w}×{h} (4× the sprite)", img.w, img.h)));
+        }
+        if img.w != w {
+            // 4-bit rows are padded: repeat the last column.
+            img.px = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| img.px[y * img.w + x.min(img.w - 1)]).collect();
+            img.w = w;
+        }
+        let side = dir.join(format!("{name}.json"));
+        if side.exists() {
+            let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&side)?)?;
+            let dac = json["dac"].as_str().unwrap_or_default();
+            let bytes: Vec<u8> = (0..dac.len() / 2).filter_map(|i| u8::from_str_radix(&dac[i * 2..i * 2 + 2], 16).ok()).collect();
+            if bytes.len() != 768 {
+                return Err(std::io::Error::other(format!("{name}.json: \"dac\" must be 768 hex bytes")));
+            }
+            a.palette = std::array::from_fn(|i| [0, 1, 2].map(|k| palette::six_to_eight(bytes[i * 3 + k])));
+        }
+        out.insert(a.hash, img);
+    }
+    eprintln!("{} pictures of finished art from {}", out.len(), dir.display());
+    Ok(out)
 }
 
 fn colour_image(a: &Asset) -> Vec<u8> {
@@ -358,14 +431,21 @@ fn encode_png(t: &Texels) -> Vec<u8> {
     buf
 }
 
-fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
-    let ups = upscale(args, assets)?;
+fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>) -> std::io::Result<()> {
+    let todo: Vec<&Asset> = assets.iter().filter(|a| !external.contains_key(&a.hash)).collect();
+    let mut ups = upscale(args, &todo.iter().map(|a| (*a).clone()).collect::<Vec<_>>())?;
+    ups.extend(external.iter().map(|(h, img)| (*h, Rgb { w: img.w, h: img.h, px: img.px.clone() })));
     eprintln!("projecting onto the game's palette…");
     let results: Vec<(usize, Option<(Texels, Texels)>)> = assets
         .par_iter()
         .enumerate()
         .map(|(i, a)| {
             let pair = match args.backend {
+                // Finished art: projected as made, no guard.
+                _ if external.contains_key(&a.hash) => {
+                    let up = &ups[&a.hash];
+                    Some((art::project(a, up, 4), art::project(a, &art::halve(up), 2)))
+                }
                 Backend::Mmpx => Some((art::mmpx_texels(a, 4), art::mmpx_texels(a, 2))),
                 _ => ups.get(&a.hash).map(|up| {
                     let (mut t4, mut t2) = (art::project(a, up, 4), art::project(a, &art::halve(up), 2));
@@ -425,7 +505,9 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
         let room = a.room;
         let big_enough = a.width >= args.min_size && a.height >= args.min_size;
         let text_art = !room && gfx::pack::text_art(&a.local, |v| a.opaque(v));
+        let finished = external.contains_key(&a.hash);
         let (q4, q2, ok) = match pair {
+            Some((t4, _)) if finished => (t4.quality, t4.drift, true),
             Some((t4, t2)) => (t4.quality, t4.drift, big_enough && !text_art &&t4.drift <= args.max_drift && t2.drift <= args.max_drift),
             None => (0.0, 0.0, false),
         };
@@ -438,7 +520,7 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
             a.height,
             q4,
             q2,
-            if ok { "in the pack" } else { "left to the built-in upscaler" }
+            if finished { "in the pack (finished art)" } else if ok { "in the pack" } else { "left to the built-in upscaler" }
         );
         if !ok {
             dropped += 1;
@@ -464,10 +546,10 @@ fn build(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
             bytes += png.len();
             zip.add(&format!("rl/{id}.png"), &png)?;
             rooms_kept += 1;
-            manifest_rooms.push(json!({"id": id, "room": a.part, "file": a.res.trim_start_matches("ROOM-"), "block_match": q4, "drift": q2}));
+            manifest_rooms.push(json!({"id": id, "room": a.part, "file": a.res.trim_start_matches("ROOM-"), "block_match": q4, "drift": q2, "finished_art": finished}));
         } else {
             kept += 1;
-            manifest_assets.push(json!({"id": id, "res": a.res, "part": a.part, "w": a.stride, "h": a.height, "width": a.width, "format": a.format_name(), "block_match": q4, "drift": q2}));
+            manifest_assets.push(json!({"id": id, "res": a.res, "part": a.part, "w": a.stride, "h": a.height, "width": a.width, "format": a.format_name(), "block_match": q4, "drift": q2, "finished_art": finished}));
         }
     }
     let manifest = json!({

@@ -1,0 +1,10 @@
+# Installed by the studio after PyTorch (which it picks for the machine: CUDA,
+# Apple GPU or CPU). Versions the pipeline was tested with.
+diffusers==0.41.0
+transformers==5.19.0
+accelerate==1.15.0
+safetensors==0.8.0
+huggingface_hub==1.33.0
+opencv-python-headless==5.0.0.93
+numpy==2.5.4
+pillow==12.3.0

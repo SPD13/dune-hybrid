@@ -1,0 +1,142 @@
+{
+  "_doc": "Per-character settings for generate.py; see docs/generative-portraits.md. Variant ids are files of the `dune-hd heads` dump: fNN = a frame the game lists, vNN = part group NN drawn over frame 0. method: rerender (default; shapes) or recolour (colours; 'over' = the frame it is drawn over, default the base). kind is a label for people (and for a future openness heuristic).",
+  "defaults": {
+    "model": "SG161222/RealVisXL_V5.0",
+    "controlnet": "xinsir/controlnet-tile-sdxl-1.0",
+    "vae": "madebyollin/sdxl-vae-fp16-fix",
+    "size": 1024,
+    "seed": 1992,
+    "steps": 30,
+    "guidance": 6.0,
+    "strength": 0.85,
+    "cond": 0.6,
+    "soften": 4.0
+  },
+  "characters": {
+    "LETO": {
+      "status": "approved 2026-10-13 (clean-shaven rerender)",
+      "description": "a stern middle-aged clean-shaven nobleman, dark slicked-back hair with a widow's peak, strong jaw, deep-set grey eyes, black military uniform with red piping and a silver clasp",
+      "clean_shaven": true,
+      "variants": {
+        "v03": {
+          "kind": "mouth parted"
+        },
+        "v11": {
+          "kind": "smirk"
+        },
+        "v34": {
+          "kind": "mouth open",
+          "note": "approved without a talking prompt; Stilgar's 'mouth open, speaking, teeth visible' may open it more (untested)"
+        }
+      }
+    },
+    "STIL": {
+      "status": "draft 2026-10-14: v04 good; v02 and v07 underplayed without the talking prompt, overplayed with it",
+      "description": "a stern weathered desert tribal leader with a thick full black beard and black moustache, piercing deep blue eyes, wearing a hooded sand-coloured desert cloak",
+      "variants": {
+        "v02": {
+          "kind": "mouth parted",
+          "note": "needs a milder prompt, e.g. 'lips slightly parted'"
+        },
+        "v04": {
+          "kind": "mouth open",
+          "var_prompt": "mouth open, speaking, teeth visible"
+        },
+        "v07": {
+          "kind": "mouth round",
+          "note": "pixel art shows a dark round opening; the talking prompt gives teeth"
+        }
+      },
+      "todo": "blue-within-blue eyes (Ibad) by recolour"
+    },
+    "PAUL": {
+      "status": "approved 2026-10-14 (older, angular; skin kept as generated)",
+      "description": "a clean-shaven nobleman, early thirties, lean angular weathered face, deep-set eyes under a heavy brow, high prominent cheekbones, deep lines from nose to mouth, strong straight nose, broad firm jaw, thin pale lips, serious steady grey eyes, thick wavy dark hair with a violet sheen, wearing a dark violet high-collared padded desert suit",
+      "clean_shaven": true,
+      "negative": "young, boyish, teenager, baby face, smooth skin, full lips, pink lips, lipstick",
+      "settings": {
+        "soften": 3.0
+      },
+      "variants": {
+        "f01": {
+          "kind": "tired",
+          "var_prompt": "exhausted, gaunt hollow cheeks, dark circles under the eyes, worn by the desert",
+          "note": "the game's overlay (sprite 26) over the whole face"
+        },
+        "f02": {
+          "kind": "eyes 1",
+          "method": "recolour"
+        },
+        "f03": {
+          "kind": "tired, eyes 1",
+          "method": "recolour",
+          "over": "f01"
+        },
+        "f04": {
+          "kind": "eyes 2",
+          "method": "recolour"
+        },
+        "f05": {
+          "kind": "tired, eyes 2",
+          "method": "recolour",
+          "over": "f01"
+        },
+        "f06": {
+          "kind": "eyes 3",
+          "method": "recolour"
+        },
+        "f07": {
+          "kind": "tired, eyes 3",
+          "method": "recolour",
+          "over": "f01"
+        },
+        "f08": {
+          "kind": "eyes 4",
+          "method": "recolour"
+        },
+        "f09": {
+          "kind": "tired, eyes 4",
+          "method": "recolour",
+          "over": "f01"
+        },
+        "f10": {
+          "kind": "eyes 5",
+          "method": "recolour"
+        },
+        "f11": {
+          "kind": "tired, eyes 5",
+          "method": "recolour",
+          "over": "f01"
+        },
+        "f12": {
+          "kind": "eyes 6",
+          "method": "recolour"
+        },
+        "f13": {
+          "kind": "tired, eyes 6",
+          "method": "recolour",
+          "over": "f01"
+        },
+        "f14": {
+          "kind": "eyes 7",
+          "method": "recolour"
+        },
+        "f15": {
+          "kind": "tired, eyes 7",
+          "method": "recolour",
+          "over": "f01"
+        },
+        "f16": {
+          "kind": "eyes 8",
+          "method": "recolour"
+        },
+        "f17": {
+          "kind": "tired, eyes 8",
+          "method": "recolour",
+          "over": "f01"
+        }
+      },
+      "todo": "mouth groups (lip sync) not yet listed"
+    }
+  }
+}
