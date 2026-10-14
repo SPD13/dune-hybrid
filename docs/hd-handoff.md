@@ -22,7 +22,7 @@ Dune Hybrid plays the original 1992 *Dune* (Cryo) in our own 286 emulator, with 
 
 ## 3. Where things are
 
-**In the repository (`dune-hybrid`, pushed to `github.com/SPD13/dune-hybrid` once committed):**
+**In the repository (`dune-hybrid`, branch `hd-studio` on `github.com/SPD13/dune-hybrid`):**
 
 | Path | What |
 |---|---|
@@ -185,7 +185,7 @@ It opens `http://127.0.0.1:8765/` and listens only on 127.0.0.1. Options are rem
 
 ## 9. Windows setup checklist
 
-1. **Clone the repo:** `git clone https://github.com/SPD13/dune-hybrid`. The user must first commit and push the Mac's work; ask them.
+1. **Clone the repo:** `git clone --branch hd-studio https://github.com/SPD13/dune-hybrid`. The work is on the `hd-studio` branch, pushed 2026-10-14; it isn't merged into `main` yet.
 2. **Install:**
    - Rust (`rustup`), then `cargo build --release`, which gives `target\release\dune-hd.exe` and `dune-run.exe`;
    - **Python 3.12** (python.org; wider PyTorch wheel coverage than the 3.14 used on the Mac);
