@@ -133,7 +133,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
       <label>Right <select id="selB"></select></label>
       <span class="seg" id="view"><button data-v="viewer">Viewer</button><button data-v="grid">Grid</button></span>
       <span class="seg" id="mode">
-        <button data-m="side">Side by side</button><button data-m="slider">Slider</button><button data-m="flip">Flip</button><button data-m="detail">Detail map</button>
+        <button data-m="side">Side by side</button><button data-m="slider">Slider</button><button data-m="flip">Flip</button><button data-m="detail">Detail map</button><button data-m="talk" id="talkBtn" title="Talking heads: the pixel art and the generated face, speaking (the head's lip-sync mouths)">Talking</button>
       </span>
       <span class="seg" id="tool"><button data-t="pan">Pan</button><button data-t="box">Box</button></span>
       <span class="seg"><button id="showBoxes" title="Show or hide the boxes (H)">Boxes</button></span>
@@ -164,6 +164,9 @@ const store = {
 let items = [], review = { version: 1, assets: {} }, cur = null;
 let mode = store.get("mode", "side"), tool = "pan", flip = false, split = 0.5;
 if (!["side", "slider", "flip"].includes(mode)) mode = "side";
+// Talking view: the rest face and the lip-sync mouths, pixel art left, generated right, looping.
+let talk = null, talkTimer = null, talkStep = 0;
+const isHead = (it) => it && it.kind === "head-frame";
 let view = { scale: 1, x: 0, y: 0 };          // screen px per image px (of B), and the image's top-left in a pane
 const images = new Map();                      // path → HTMLImageElement
 let filter = { q: "", status: store.get("status", "all") }, open = new Set(store.get("open", [])), gridOn = false;
@@ -317,6 +320,9 @@ function setGrid(on) {
 
 function select(it, show = true) {
   if (!it) return;
+  $("talkBtn").style.display = isHead(it) ? "" : "none";
+  if (mode === "talk" && !isHead(it)) setMode("side");
+  if (mode === "talk" && (!talk || talk.id !== it.id)) { talk = null; talkStep = 0; }
   if (show) reveal(it);
   cur = it; selBox = null; store.set("item", it.id);
   const src = sources(it);
@@ -475,11 +481,17 @@ async function save() {
 const cv = $("cv"), ctx = cv.getContext("2d");
 function panes() {
   const W = cv.clientWidth, H = cv.clientHeight;
-  return mode === "side" ? [{ x: 0, w: W / 2 - 1, h: H }, { x: W / 2 + 1, w: W / 2 - 1, h: H }] : [{ x: 0, w: W, h: H }];
+  return mode === "side" || mode === "talk" ? [{ x: 0, w: W / 2 - 1, h: H }, { x: W / 2 + 1, w: W / 2 - 1, h: H }] : [{ x: 0, w: W, h: H }];
 }
-function baseSize() { const b = img(srcOf($("selB")).path); return b.naturalWidth ? [b.naturalWidth, b.naturalHeight] : [1, 1]; }
+function baseSize() { if (mode === "talk" && talk && talk.size) return talk.size; const b = img(srcOf($("selB")).path); return b.naturalWidth ? [b.naturalWidth, b.naturalHeight] : [1, 1]; }
 function fit() {
   if (!cur) return;
+  if (mode === "talk") {
+    if (!talk || talk.id !== cur.id || !talk.size) return;
+    const [w, h] = talk.size, p = panes()[0];
+    view.scale = Math.min(p.w / w, p.h / h) * 0.96; view.x = (p.w - w * view.scale) / 2; view.y = (p.h - h * view.scale) / 2; draw();
+    return;
+  }
   needFit = !img(srcOf($("selB")).path).naturalWidth;
   if (needFit) return;
   const [w, h] = baseSize(), p = panes()[0];
@@ -506,6 +518,7 @@ function caption(text, x) {
   ctx.fillStyle = "#000a"; ctx.fillRect(x + 8, 8, w, 20); ctx.fillStyle = "#fff"; ctx.fillText(text, x + 15, 22); ctx.restore();
 }
 function drawBoxes(pane, vid) {
+  if (mode === "talk") return;
   if (!showBoxes && !(drag && drag.box)) return;
   const [bw, bh] = baseSize(), a = asset(cur);
   if (!showBoxes) return drawBoxesOf(pane, bw, bh, a, [drag.box]);
@@ -531,6 +544,7 @@ function draw() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
   if (!cur) return;
   const A = srcOf($("selA")), B = srcOf($("selB")), ps = panes();
+  if (mode === "talk") return drawTalk(ps);
   if (mode === "side") {
     drawImage(A, ps[0]); drawImage(B, ps[1]); drawBoxes(ps[0], A.id); drawBoxes(ps[1], B.id);
     ctx.fillStyle = css("--line"); ctx.fillRect(ps[0].w, 0, 2, ps[0].h);
@@ -640,7 +654,60 @@ cv.addEventListener("wheel", (e) => {
 }, { passive: false });
 for (const b of $("mode").children) b.onclick = () => setMode(b.dataset.m);
 for (const b of $("tool").children) b.onclick = () => setTool(b.dataset.t);
-function setMode(m) { mode = m; store.set("mode", m); for (const b of $("mode").children) b.classList.toggle("on", b.dataset.m === m); fit(); }
+// The order mouths are shown in: rest, then up through the mouths and back, like speech.
+function talkSequence(t) {
+  const m = t.mouths.map((_, i) => i), seq = [-1, -1];
+  for (let r = 0; r < 3; r++) { seq.push(...m, ...m.slice(0, -1).reverse()); if (r === 1) seq.push(-1); }
+  return [...seq, -1, -1, -1];
+}
+function talkFrame() {
+  const seq = talkSequence(talk), i = seq[talkStep % seq.length];
+  return i < 0 ? { id: "rest", ...talk.rest } : talk.mouths[i];
+}
+function drawFrame(path, pane, square) {
+  const im = img(path);
+  if (!im.naturalWidth) return false;
+  const [w, h] = talk.size;
+  ctx.save(); ctx.beginPath(); ctx.rect(pane.x, 0, pane.w, pane.h); ctx.clip();
+  ctx.imageSmoothingEnabled = !square ? (w * view.scale) / im.naturalWidth < 1.5 : true; ctx.imageSmoothingQuality = "high";
+  if (square) {  // generate.py's square: the frame padded at the bottom, centred
+    const side = Math.max(w, h), k = im.naturalWidth / side;
+    ctx.drawImage(im, ((side - w) / 2) * k, (side - h) * k, w * k, h * k, pane.x + view.x, view.y, w * view.scale, h * view.scale);
+  } else ctx.drawImage(im, pane.x + view.x, view.y, w * view.scale, h * view.scale);
+  ctx.restore();
+  return true;
+}
+function drawTalk(ps) {
+  if (!talk || talk.id !== cur.id) { loadTalk(cur); return; }
+  if (talk.error) { caption("⚠ " + talk.error, 0); return; }
+  const f = talkFrame();
+  drawFrame(f.pixel, ps[0], false);
+  // Generated: the mouth's render, else the rest face (that mouth is not generated yet).
+  const hd = f.hd || talk.rest.hd;
+  if (hd) drawFrame(hd, ps[1], true);
+  ctx.fillStyle = css("--line"); ctx.fillRect(ps[0].w, 0, 2, ps[0].h);
+  caption(`pixel art · ${f.id === "rest" ? "rest" : "mouth " + f.id}`, ps[0].x);
+  caption(!talk.rest.hd ? "not generated yet (Generate)" : f.hd || f.id === "rest" ? `generated · ${f.id === "rest" ? "rest" : "mouth " + f.id}` : `mouth ${f.id} not generated yet`, ps[1].x);
+}
+async function loadTalk(it) {
+  if (talk && talk.id === it.id && talk.loading) return;
+  talk = { id: it.id, loading: true };
+  try {
+    const t = await api("/api/talking?id=" + encodeURIComponent(it.id));
+    talk = { ...t, id: it.id };
+    for (const f of [t.rest, ...t.mouths]) { img(f.pixel); if (f.hd) img(f.hd); }  // preload
+    if (!t.mouths.length) talk.error = "this head has no lip-sync mouths";
+  } catch (e) { talk = { id: it.id, error: e.message }; }
+  if (cur && cur.id === it.id) fit();
+}
+function startTalk(on) {
+  clearInterval(talkTimer); talkTimer = null;
+  if (on) talkTimer = setInterval(() => { talkStep++; if (mode === "talk") draw(); }, 130);
+}
+function setMode(m) {
+  if (m === "talk" && !isHead(cur)) m = "side";
+  startTalk(m === "talk");
+  mode = m; store.set("mode", m); for (const b of $("mode").children) b.classList.toggle("on", b.dataset.m === m); fit(); }
 function setShowBoxes(on) {
   showBoxes = on; store.set("showBoxes", on); $("showBoxes").classList.toggle("on", on);
   if (!on) selBox = null;

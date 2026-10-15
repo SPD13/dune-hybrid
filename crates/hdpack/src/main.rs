@@ -267,7 +267,7 @@ fn dump_heads(args: &Args, observed: &catalog::Observed) -> std::io::Result<()> 
         let name = e.name.trim_end_matches(".HSQ");
         eprintln!("{name}: origin {:?}, {} groups, {} frames: {:?}", head.origin, head.groups.len(), head.frames.len(), head.frames);
         let groups: Vec<Vec<[i32; 3]>> = head.groups.iter().map(|g| g.iter().map(|p| [p.sprite as i32, p.x, p.y]).collect()).collect();
-        let layout = json!({"origin": head.origin, "groups": groups, "frames": head.frames});
+        let layout = json!({"origin": head.origin, "groups": groups, "frames": head.frames, "lipsync": head.lipsync});
         std::fs::write(dir.join(format!("{name}.json")), serde_json::to_string(&layout)?)?;
         let pal = sheet.iter().flatten().next().map(|a| a.palette).unwrap_or_else(palette::grey);
         let save = |label: String, parts: &[heads::Part]| -> std::io::Result<()> {

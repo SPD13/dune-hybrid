@@ -199,6 +199,41 @@ class Studio:
         return self.queue.add(jobs.Job(title, steps, env={"HF_HUB_OFFLINE": "1"}))
 
 
+def png_size(path):
+    """(width, height) of a PNG, from its header."""
+    with open(path, "rb") as f:
+        head = f.read(24)
+    return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+
+
+def talking(work, item_id):
+    """What the studio's Talking view animates for a head: the rest face and the mouths of
+    the head's lip-sync table (dune-hd heads: WORK/heads/NAME.json), as pixel art and as
+    generated (generate.py's renders, WORK/gen/NAME: squares, the frame padded at the bottom)."""
+    kind, _, rest = item_id.partition("/")
+    name = rest.split("/")[0]
+    if kind != "head" or not name:
+        raise ValueError("not a talking head")
+    layout_path = os.path.join(work, "heads", f"{name}.json")
+    if not os.path.exists(layout_path):
+        raise ValueError(f"no {name}.json in WORK/heads: run dune-hd heads")
+    layout = json.load(open(layout_path))
+    if "lipsync" not in layout:
+        raise ValueError(f"{name}.json has no lip-sync table: run dune-hd heads again (newer dune-hd)")
+    rel = lambda *p: "/".join(p)
+    exists = lambda r: os.path.exists(os.path.join(work, *r.split("/")))
+    mouths = []
+    for frame in layout["lipsync"]:
+        if len(frame) != 1:
+            continue  # a mouth over several groups: not shown yet
+        v = f"v{frame[0]:02d}"
+        hd = rel("gen", name, f"{name}-{v}.png")
+        mouths.append({"id": v, "pixel": rel("heads", f"{name}-{v}.png"), "hd": hd if exists(hd) else None})
+    hd_rest = rel("gen", name, f"{name}-f00.png")
+    return {"id": item_id, "name": name, "size": png_size(os.path.join(work, "heads", f"{name}-f00.png")),
+            "rest": {"pixel": rel("heads", f"{name}-f00.png"), "hd": hd_rest if exists(hd_rest) else None}, "mouths": mouths}
+
+
 def try_label(k, v):
     names = {"strength": "strength", "cond": "control", "soften": "blur", "seed": "seed", "model": "model"}
     if k == "prompt":
@@ -274,6 +309,11 @@ def make_handler(studio):
                 return self.send(200, studio.system())
             if path == "/api/jobs":
                 return self.send(200, [j.view() for j in studio.queue.jobs[-30:]])
+            if path == "/api/talking":
+                try:
+                    return self.send(200, talking(work, parse_qs(urlparse(self.path).query).get("id", [""])[0]))
+                except (ValueError, OSError) as e:
+                    return self.send(400, {"error": str(e)})
             if path == "/api/recipe":
                 try:
                     return self.send(200, studio.recipe(parse_qs(urlparse(self.path).query).get("id", [""])[0]))

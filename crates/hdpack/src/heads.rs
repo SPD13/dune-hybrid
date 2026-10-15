@@ -33,6 +33,8 @@ pub struct Head {
     pub groups: Vec<Vec<Part>>,
     /// Frames of the frame tables, as group indices (0-based), deduplicated.
     pub frames: Vec<Vec<usize>>,
+    /// The lip-sync table: the frames (group lists) drawn while the character talks, in order.
+    pub lipsync: Vec<Vec<usize>>,
 }
 
 pub fn parse(res: &[u8]) -> Option<Head> {
@@ -102,8 +104,14 @@ pub fn parse(res: &[u8]) -> Option<Head> {
     read_table(tables, &mut frames)?;
     let n = u16_at(tables)? / 2;
     let mouth = tables + u16_at(tables + 2 * (n - 1))?;
-    let _ = read_table(mouth, &mut frames);
-    Some(Head { origin, groups, frames })
+    let mut lipsync = Vec::new();
+    let _ = read_table(mouth, &mut lipsync);
+    for f in &lipsync {
+        if !frames.contains(f) {
+            frames.push(f.clone());
+        }
+    }
+    Some(Head { origin, groups, frames, lipsync })
 }
 
 /// The picture of `parts` drawn in order (palette indices, `None` where
