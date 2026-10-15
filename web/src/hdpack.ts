@@ -41,9 +41,10 @@ export async function importPack(zip: File, progress: (f: number) => void): Prom
   if (!data) throw new Error("This ZIP is not an HD art pack made by dune-hd (no manifest.json).");
   const manifest = JSON.parse(await data.text());
   if (manifest.format !== "dune-hybrid-hd-pack") throw new Error("This ZIP is not an HD art pack made by dune-hd.");
-  // Version 3 adds room plates; version 2 packs (sprites only) still work.
-  if (manifest.version !== 2 && manifest.version !== 3) {
-    throw new Error(`This HD art pack has format version ${manifest.version}; this app reads versions 2 and 3. Please make it again with the current dune-hd.`);
+  // Version 3 adds room plates, version 4 true-colour art (shown here in
+  // its palette form for now); version 2 packs (sprites only) still work.
+  if (![2, 3, 4].includes(manifest.version)) {
+    throw new Error(`This HD art pack has format version ${manifest.version}; this app reads versions 2 to 4. Please make it again with the current dune-hd.`);
   }
   if (entries.some((e) => e.name.endsWith(".png") && e.method !== 0)) {
     throw new Error("The pack's images are compressed inside the ZIP; please use the ZIP exactly as dune-hd wrote it.");

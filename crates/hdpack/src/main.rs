@@ -50,7 +50,10 @@
 //!                          guard or the drift limit. DIR/<id>.json may give
 //!                          {"dac": 768 hex bytes of 6-bit VGA palette}: the
 //!                          palette the art was made in, for sprites the game
-//!                          colours with its own palette
+//!                          colours with its own palette, and
+//!                          {"true_colour": true}: also store the art in true
+//!                          colour (pack version 4), shown with its own colours
+//!                          and following the palette's fades (sprites only)
 //!   --guard D              where the art drifts locally from the original by
 //!                          more than D, or flattens a clear feature (an eye),
 //!                          use the built-in upscaling for those pixels
@@ -68,7 +71,7 @@ mod rooms;
 mod zip;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -241,13 +244,13 @@ fn run(args: &Args) -> std::io::Result<()> {
         assets.truncate(n);
     }
     eprintln!("{} sprites ({} with observed palettes)", assets.len(), assets.iter().filter(|a| observed.by_sprite.contains_key(&a.content)).count());
-    let external = match &args.art {
+    let (external, true_colour) = match &args.art {
         Some(dir) => load_art(dir, &mut assets)?,
-        None => HashMap::new(),
+        None => Default::default(),
     };
     match args.cmd.as_str() {
         "extract" => extract(args, &assets),
-        "build" => build(args, &assets, external),
+        "build" => build(args, &assets, external, &true_colour),
         "heads" => dump_heads(args, &observed),
         "inventory" => inventory::run(&args.dat, &args.work, args.recipes.as_deref(), args.rooms.as_deref(), &observed),
         other => Err(std::io::Error::other(format!("unknown command {other}"))),
@@ -299,9 +302,11 @@ fn dump_heads(args: &Args, observed: &catalog::Observed) -> std::io::Result<()> 
 }
 
 /// Finished HD art for some of `assets` (see `--art` in the header), by
-/// asset hash; a sidecar palette replaces the asset's colours.
-fn load_art(dir: &Path, assets: &mut [Asset]) -> std::io::Result<HashMap<u64, Rgb>> {
+/// asset hash; a sidecar palette replaces the asset's colours. Also the
+/// assets whose sidecar asks for true colour.
+fn load_art(dir: &Path, assets: &mut [Asset]) -> std::io::Result<(HashMap<u64, Rgb>, HashSet<u64>)> {
     let mut out = HashMap::new();
+    let mut true_colour = HashSet::new();
     for a in assets.iter_mut() {
         let names = [format!("{:016x}", a.content), format!("{}-{:03}", a.res.trim_end_matches(".HSQ"), a.part)];
         let Some(name) = names.iter().find(|n| dir.join(format!("{n}.png")).exists()) else { continue };
@@ -318,17 +323,25 @@ fn load_art(dir: &Path, assets: &mut [Asset]) -> std::io::Result<HashMap<u64, Rg
         let side = dir.join(format!("{name}.json"));
         if side.exists() {
             let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&side)?)?;
-            let dac = json["dac"].as_str().unwrap_or_default();
-            let bytes: Vec<u8> = (0..dac.len() / 2).filter_map(|i| u8::from_str_radix(&dac[i * 2..i * 2 + 2], 16).ok()).collect();
-            if bytes.len() != 768 {
-                return Err(std::io::Error::other(format!("{name}.json: \"dac\" must be 768 hex bytes")));
+            if let Some(dac) = json["dac"].as_str() {
+                let bytes: Vec<u8> = (0..dac.len() / 2).filter_map(|i| u8::from_str_radix(&dac[i * 2..i * 2 + 2], 16).ok()).collect();
+                if bytes.len() != 768 {
+                    return Err(std::io::Error::other(format!("{name}.json: \"dac\" must be 768 hex bytes")));
+                }
+                a.palette = std::array::from_fn(|i| [0, 1, 2].map(|k| palette::six_to_eight(bytes[i * 3 + k])));
             }
-            a.palette = std::array::from_fn(|i| [0, 1, 2].map(|k| palette::six_to_eight(bytes[i * 3 + k])));
+            if json["true_colour"].as_bool() == Some(true) {
+                if a.room {
+                    eprintln!("{name}: true colour is for sprites only so far; the room plate stays in palette form");
+                } else {
+                    true_colour.insert(a.hash);
+                }
+            }
         }
         out.insert(a.hash, img);
     }
-    eprintln!("{} pictures of finished art from {}", out.len(), dir.display());
-    Ok(out)
+    eprintln!("{} pictures of finished art from {} ({} in true colour)", out.len(), dir.display(), true_colour.len());
+    Ok((out, true_colour))
 }
 
 fn colour_image(a: &Asset) -> Vec<u8> {
@@ -461,7 +474,14 @@ fn encode_png(t: &Texels) -> Vec<u8> {
     buf
 }
 
-fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>) -> std::io::Result<()> {
+/// True-colour art (pack version 4): RGB = the art, A = the palette form's
+/// coverage, so both have the same silhouette.
+fn true_colour_png(up: &Rgb, t: &Texels) -> Vec<u8> {
+    let px = up.px.iter().zip(&t.px).map(|(c, t)| [c[0], c[1], c[2], t[3]]).collect();
+    encode_png(&Texels { w: t.w, h: t.h, px, quality: 0.0, drift: 0.0 })
+}
+
+fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>, true_colour: &HashSet<u64>) -> std::io::Result<()> {
     let todo: Vec<&Asset> = assets.iter().filter(|a| !external.contains_key(&a.hash)).collect();
     let mut ups = upscale(args, &todo.iter().map(|a| (*a).clone()).collect::<Vec<_>>())?;
     ups.extend(external.iter().map(|(h, img)| (*h, Rgb { w: img.w, h: img.h, px: img.px.clone() })));
@@ -578,13 +598,25 @@ fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>) -> std::io:
             rooms_kept += 1;
             manifest_rooms.push(json!({"id": id, "room": a.part, "file": a.res.trim_start_matches("ROOM-"), "block_match": q4, "drift": q2, "finished_art": finished}));
         } else {
+            let colour = true_colour.contains(&a.hash);
+            if colour {
+                let up = &ups[&a.hash];
+                for (dir, (img, t)) in ["c4", "c2"].into_iter().zip([(up, t4), (&art::halve(up), t2)]) {
+                    let png = true_colour_png(img, t);
+                    bytes += png.len();
+                    zip.add(&format!("{dir}/{id}.png"), &png)?;
+                }
+                let refs: Vec<u8> = (0..=255u8).flat_map(|v| a.rgb(v)).collect();
+                bytes += refs.len();
+                zip.add(&format!("cr/{id}.rgb"), &refs)?;
+            }
             kept += 1;
-            manifest_assets.push(json!({"id": id, "res": a.res, "part": a.part, "w": a.stride, "h": a.height, "width": a.width, "format": a.format_name(), "block_match": q4, "drift": q2, "finished_art": finished}));
+            manifest_assets.push(json!({"id": id, "res": a.res, "part": a.part, "w": a.stride, "h": a.height, "width": a.width, "format": a.format_name(), "block_match": q4, "drift": q2, "finished_art": finished, "true_colour": colour}));
         }
     }
     let manifest = json!({
         "format": "dune-hybrid-hd-pack",
-        "version": 3,
+        "version": 4,
         "generator": format!("dune-hd {}", env!("CARGO_PKG_VERSION")),
         "game": {"toc": format!("{:016x}", catalog::toc_hash(&args.dat)?)},
         "scales": [4, 2],
@@ -593,6 +625,7 @@ fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>) -> std::io:
         "model": {"name": args.model.0, "license": args.model.1, "source": args.model.2},
         "assets": manifest_assets,
         "rooms": manifest_rooms,
+        "true_colour": "c4/<hash>.png, c2/<hash>.png: RGB = the art's own colour, A = coverage (as its texels'); cr/<hash>.rgb: 768 bytes, the 8-bit colour of each palette-local value in the palette the art was made in. Shown as colour × the value's current palette colour ÷ that reference colour, so it follows fades",
         "room_plates": "r4/<key>.png, r2/<key>.png: texels as above with global palette indices, for the 320 × 152 game area; rl/<key>.png: R = the low-resolution palette index the plate depicts, A = 255 where the room drew. Key: gfx::room::RoomKey of the room's drawing calls",
         "notice": NOTICE,
     });

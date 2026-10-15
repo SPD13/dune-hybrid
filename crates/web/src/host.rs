@@ -283,8 +283,7 @@ impl Emu {
             return;
         }
         let mut follower = gfx::compose::Follower::new(k);
-        // About 4 bytes per cached sprite texel: 64 MB at 4×, 24 MB at 2×.
-        follower.comp.sprite_budget = if k == 4 { 16 << 20 } else { 6 << 20 };
+        follower.comp.sprite_budget = if k == 4 { 64 << 20 } else { 24 << 20 };
         follower.comp.set_art(self.art_source());
         follower.comp.set_plates(self.plate_source());
         let size = 320 * k * 200 * k * 4;

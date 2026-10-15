@@ -1,6 +1,11 @@
 //! HD art packs (made by `dune-hd`): a stored ZIP with `a4/<hash>.png` and
 //! `a2/<hash>.png` per sprite, RGBA texels R = a, G = b (palette-local
 //! values), B = weight of b, A = coverage.
+//!
+//! Version 4 adds true-colour art for some sprites, beside their palette
+//! form: `c4/<hash>.png` and `c2/<hash>.png` (RGB = the art's colour,
+//! A = coverage) and `cr/<hash>.rgb` (768 bytes: the 8-bit colour each
+//! palette-local value had in the palette the art was made in).
 
 use std::{
     collections::HashMap,
@@ -35,6 +40,20 @@ pub struct PackSprite {
     pub w: usize,
     pub h: usize,
     pub px: Vec<[u8; 4]>,
+}
+
+/// True-colour art (pack version 4): `px` RGB = colour, A = coverage;
+/// `refs[v]`: the colour palette-local value `v` had when the art was made.
+pub struct TrueColour {
+    pub px: PackSprite,
+    pub refs: [[u8; 3]; 256],
+}
+
+/// A sprite's art at one scale: its palette form, and its true colour if
+/// the pack has it.
+pub struct SpriteArt {
+    pub palette: PackSprite,
+    pub colour: Option<TrueColour>,
 }
 
 /// Where each stored entry's data is in the ZIP.
@@ -110,8 +129,15 @@ impl PackIndex {
     }
 
     /// The art for sprite `hash` at scale `k`, if the pack has it.
-    pub fn sprite<R: Read + Seek>(&self, r: &mut R, hash: u64, k: usize) -> Option<PackSprite> {
-        decode(&self.read_entry(r, &format!("a{k}/{hash:016x}.png"))?)
+    pub fn sprite<R: Read + Seek>(&self, r: &mut R, hash: u64, k: usize) -> Option<SpriteArt> {
+        let palette = decode(&self.read_entry(r, &format!("a{k}/{hash:016x}.png"))?)?;
+        let colour = (|| {
+            let px = decode(&self.read_entry(r, &format!("c{k}/{hash:016x}.png"))?)?;
+            let refs = self.read_entry(r, &format!("cr/{hash:016x}.rgb"))?;
+            (px.w == palette.w && px.h == palette.h && refs.len() == 768)
+                .then(|| TrueColour { px, refs: std::array::from_fn(|i| [refs[i * 3], refs[i * 3 + 1], refs[i * 3 + 2]]) })
+        })();
+        Some(SpriteArt { palette, colour })
     }
 }
 

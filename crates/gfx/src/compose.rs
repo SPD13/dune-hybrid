@@ -44,12 +44,52 @@ pub struct Texel {
     /// their scrolling lines over the previous frame's), so it is held to
     /// the colours on its side of the pixel (see `fresh`).
     pub under: bool,
+    /// True-colour art (pack version 4), shown instead of the palette mix
+    /// where the presenter supports it; the mix stays as its fallback.
+    pub tc: Option<TrueTexel>,
+}
+
+/// A true-colour texel: the art's colour `rgb`, made while palette index
+/// `i` was colour `rf`. It is shown as `rgb` scaled by how index `i` has
+/// changed since (see [`shade`]), so it follows fades and tints.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TrueTexel {
+    pub i: u8,
+    pub rgb: [u8; 3],
+    pub rf: [u8; 3],
+}
+
+/// Below this (8-bit) a reference channel is too dark to divide by.
+const DARK: u32 = 24;
+
+/// A true-colour texel's colour under palette `dac` (8-bit): per channel,
+/// `rgb × dac[i] ÷ rf`, exact at the reference palette and through fades.
+/// Where the reference channel is dark the ratio is unstable, and the
+/// channel shifts by the palette's change instead.
+#[inline]
+pub fn shade(tc: TrueTexel, dac: &Dac) -> [u8; 3] {
+    let cur = dac[tc.i as usize];
+    [0, 1, 2].map(|c| {
+        let (art, now, rf) = (tc.rgb[c] as u32, cur[c] as u32, tc.rf[c] as u32);
+        if rf >= DARK { ((art * now + rf / 2) / rf).min(255) as u8 } else { (art + now).saturating_sub(rf).min(255) as u8 }
+    })
 }
 
 impl Texel {
     #[inline]
     pub const fn solid(v: u8) -> Texel {
-        Texel { a: v, b: v, t: 0, free: false, under: false }
+        Texel { a: v, b: v, t: 0, free: false, under: false, tc: None }
+    }
+
+    /// This texel's colour under palette `dac` (8-bit).
+    #[inline]
+    pub fn colour(self, dac: &Dac) -> [u8; 3] {
+        if let Some(tc) = self.tc {
+            return shade(tc, dac);
+        }
+        let (a, b) = (dac[self.a as usize], dac[self.b as usize]);
+        let w = self.t as u32;
+        [0, 1, 2].map(|i| ((a[i] as u32 * (255 - w) + b[i] as u32 * w + 127) / 255) as u8)
     }
     /// The palette index this texel mostly shows.
     #[inline]
@@ -92,7 +132,7 @@ struct HdSprite {
 
 /// Supplies HD art for a sprite (by `hash::image_hash`) at scale `k`:
 /// typically an HD art pack.
-pub type ArtSource = Box<dyn FnMut(u64, usize) -> Option<crate::pack::PackSprite>>;
+pub type ArtSource = Box<dyn FnMut(u64, usize) -> Option<crate::pack::SpriteArt>>;
 
 /// Supplies room plates (by [`crate::room::RoomKey`]) at scale `k`.
 pub type PlateSource = Box<dyn FnMut(u64, usize) -> Option<crate::pack::Plate>>;
@@ -121,7 +161,7 @@ pub struct Compositor {
     /// Insertion order of `sprites`, for evicting the oldest.
     sprite_order: std::collections::VecDeque<u64>,
     sprite_texels: usize,
-    /// Upper bound on cached HD sprite texels (memory is ~1 byte each).
+    /// Upper bound on the memory of cached HD sprites, in bytes.
     pub sprite_budget: usize,
     glyphs: HashMap<u64, HdGlyph>,
     cursors: HashMap<u64, HdCursor>,
@@ -155,7 +195,7 @@ impl Compositor {
             sprites: HashMap::new(),
             sprite_order: Default::default(),
             sprite_texels: 0,
-            sprite_budget: 64 << 20,
+            sprite_budget: 512 << 20,
             glyphs: HashMap::new(),
             cursors: HashMap::new(),
             unfollowed: 0,
@@ -209,7 +249,7 @@ impl Compositor {
             let (x, y) = (i % 320, i / 320);
             for j in 0..kk {
                 let p = plate.texels.px[(y * k + j / k) * w + x * k + j % k];
-                dst.hd[i * kk + j] = Texel { a: p[0], b: p[1], t: p[2], free: false, under: false };
+                dst.hd[i * kk + j] = Texel { a: p[0], b: p[1], t: p[2], free: false, under: false, tc: None };
             }
             dst.lowres[i] = false;
             dst.dirty[i / 320] = true;
@@ -403,7 +443,7 @@ impl Compositor {
             self.sprite_texels += texels.len();
             self.sprites.insert(key, HdSprite { w: img.stride * self.k, texels, from_art });
             self.sprite_order.push_back(key);
-            while self.sprite_texels > self.sprite_budget && self.sprite_order.len() > 1 {
+            while self.sprite_texels * size_of::<Option<Texel>>() > self.sprite_budget && self.sprite_order.len() > 1 {
                 let old = self.sprite_order.pop_front().unwrap();
                 if let Some(s) = self.sprites.remove(&old) {
                     self.sprite_texels -= s.texels.len();
@@ -423,12 +463,30 @@ impl Compositor {
         if crate::pack::text_art(&img.px, |v| v != 0 || s.format == Format::Byte) {
             return None;
         }
-        let p = art(crate::hash::image_hash(&img.px, stride, height), k).filter(|p| p.w == stride * k && p.h == height * k)?;
+        let art = art(crate::hash::image_hash(&img.px, stride, height), k).filter(|p| p.palette.w == stride * k && p.palette.h == height * k)?;
         let global = |v: u8| match s.format {
             Format::Nibble { pal } => v.wrapping_add(pal),
             _ => v,
         };
-        Some(p.px.iter().map(|t| (t[3] >= 128).then(|| Texel { a: global(t[0]), b: global(t[1]), t: t[2], free: false, under: false })).collect())
+        Some(
+            art.palette
+                .px
+                .iter()
+                .enumerate()
+                .map(|(j, t)| {
+                    (t[3] >= 128).then(|| {
+                        // True colour is tied to the palette value its palette
+                        // form mostly shows (the closest of the colours around).
+                        let tc = art.colour.as_ref().map(|c| {
+                            let v = if t[2] < 128 { t[0] } else { t[1] };
+                            let p = c.px.px[j];
+                            TrueTexel { i: global(v), rgb: [p[0], p[1], p[2]], rf: c.refs[v as usize] }
+                        });
+                        Texel { a: global(t[0]), b: global(t[1]), t: t[2], free: false, under: false, tc }
+                    })
+                })
+                .collect(),
+        )
     }
 
     /// The sprite magnified by MMPX (palette values kept).
@@ -477,11 +535,7 @@ impl Compositor {
         assert!(rgb.len() >= ow * oh * 3);
         let mut stats = PresentStats::default();
         let shadow = self.buffers.get(&SCREEN);
-        let colour = |t: Texel| -> [u8; 3] {
-            let (a, b) = (dac[t.a as usize], dac[t.b as usize]);
-            let w = t.t as u32;
-            [0, 1, 2].map(|i| ((a[i] as u32 * (255 - w) + b[i] as u32 * w + 127) / 255) as u8)
-        };
+        let colour = |t: Texel| t.colour(dac);
         for p in 0..64000usize {
             let (x, y) = (p % 320, p / 320);
             let v = screen[p];
@@ -550,6 +604,7 @@ impl Compositor {
     /// The screen at `k`× as HD texels for a GPU to resolve with the live
     /// palette: RGBA8 per texel, R = a, G = b, B = t (weight of b), A = 255
     /// for HD texels and 0 where the pixel falls back to low resolution.
+    /// True-colour texels give their palette form here.
     /// Only the screen rows marked in `rows` are written; `row_fallback`
     /// receives those rows' counts of low-resolution pixels.
     pub fn present_texels(&self, screen: &[u8], out: &mut [u8], rows: &[bool], row_fallback: &mut [u16]) -> PresentStats {
@@ -630,7 +685,10 @@ fn fresh(t: Texel, own: u8, near: &[u8; 9], i: usize, k: usize) -> Texel {
     let ok = |c: u8| if t.under { side.contains(&c) } else { near.contains(&c) };
     let a = if ok(t.a) { t.a } else { own };
     let b = if ok(t.b) { t.b } else { own };
-    Texel { a, b, t: t.t, free: false, under: t.under }
+    // True colour only while its palette index is still around (else the
+    // texel is stale: its palette form, held to the colours around, shows).
+    let tc = t.tc.filter(|tc| ok(tc.i));
+    Texel { a, b, t: t.t, free: false, under: t.under, tc }
 }
 
 /// HD only where the shadow depicts this pixel and its eight neighbours
@@ -793,8 +851,8 @@ impl HdSink<'_> {
                         }
                         weights.sort_by(|p, q| q.1.total_cmp(&p.1));
                         match weights.as_slice() {
-                            [(a, wa), (b, wb), ..] => Texel { a: *a, b: *b, t: (wb / (wa + wb) * 255.0).round() as u8, free: true, under: false },
-                            [(a, _)] => Texel { a: *a, b: *a, t: 0, free: true, under: false },
+                            [(a, wa), (b, wb), ..] => Texel { a: *a, b: *b, t: (wb / (wa + wb) * 255.0).round() as u8, free: true, under: false, tc: None },
+                            [(a, _)] => Texel { a: *a, b: *a, t: 0, free: true, under: false, tc: None },
                             [] => Texel::solid(value),
                         }
                     })
@@ -890,7 +948,7 @@ impl Sink for HdSink<'_> {
                 let block = self.block(at);
                 for (b, c) in block.iter_mut().zip(cover) {
                     let under = bg.unwrap_or(b.dominant());
-                    *b = Texel { a: fg, b: under, t: 255 - c, free: false, under: false };
+                    *b = Texel { a: fg, b: under, t: 255 - c, free: false, under: false, tc: None };
                 }
             }
             (Px::Cursor { col, row }, Source::Cursor(key)) => {
@@ -900,9 +958,9 @@ impl Sink for HdSink<'_> {
                 for ((b, v), w) in block.iter_mut().zip(visible).zip(white) {
                     *b = if v >= 128 {
                         // Inside: black outline to white fill.
-                        Texel { a: 0, b: 15, t: w, free: false, under: false }
+                        Texel { a: 0, b: 15, t: w, free: false, under: false, tc: None }
                     } else {
-                        Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v, free: false, under: false }
+                        Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v, free: false, under: false, tc: None }
                     };
                 }
             }
@@ -918,7 +976,7 @@ impl Sink for HdSink<'_> {
             let block = self.block(at);
             for ((b, v), w) in block.iter_mut().zip(visible).zip(white) {
                 if v > 0 {
-                    *b = Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v, free: false, under: false };
+                    *b = Texel { a: if w >= 128 { 15 } else { 0 }, b: b.dominant(), t: 255 - v, free: false, under: false, tc: None };
                 }
             }
             return;
@@ -948,7 +1006,7 @@ impl Sink for HdSink<'_> {
                 let block = self.block(at);
                 for (b, c) in block.iter_mut().zip(cover) {
                     if c > 0 {
-                        *b = Texel { a: fg, b: b.dominant(), t: 255 - c, free: false, under: false };
+                        *b = Texel { a: fg, b: b.dominant(), t: 255 - c, free: false, under: false, tc: None };
                     }
                 }
             }
@@ -1112,11 +1170,75 @@ mod tests {
     }
 
     #[test]
+    fn texels_stay_small() {
+        // Shadows hold k² texels per byte of every buffer (1 M at 4×).
+        assert!(size_of::<Texel>() <= 13 && size_of::<Option<Texel>>() <= 14, "{} bytes", size_of::<Texel>());
+    }
+
+    #[test]
+    fn true_colour_follows_the_palette() {
+        let tc = TrueTexel { i: 3, rgb: [200, 120, 40], rf: [160, 100, 10] };
+        let mut d = [[0u8; 3]; 256];
+        d[3] = [160, 100, 10];
+        assert_eq!(shade(tc, &d), [200, 120, 40], "exact at the reference palette");
+        d[3] = [80, 50, 5];
+        assert_eq!(shade(tc, &d), [100, 60, 35], "half the light (the dark channel shifts)");
+        d[3] = [0, 0, 0];
+        assert_eq!(shade(tc, &d)[..2], [0, 0], "black when the palette fades out");
+    }
+
+    #[test]
+    fn true_colour_art_shows_its_own_colours_and_fades() {
+        use crate::pack::{PackSprite, SpriteArt, TrueColour};
+        let m = mem();
+        let k = 2;
+        let mut c = Compositor::new(k);
+        // Art for the 8×8 staircase: palette form "value 5" where opaque,
+        // true colour an orange the grey test palette does not have.
+        let sprite = SpriteRef { wflags: 8, height: 8, format: Format::Nibble { pal: 0x10 }, seg: 0x1000, off: 0 };
+        let (w, h) = (8 * k, 8 * k);
+        let opaque = |j: usize| (j % w) / k <= (j / w) / k;
+        let palette = PackSprite { w, h, px: (0..w * h).map(|j| if opaque(j) { [5, 5, 0, 255] } else { [0; 4] }).collect() };
+        // A bright palette (the test one is too dark to divide by).
+        let mut bright = dac();
+        bright[0x15] = [200, 200, 200];
+        let mut refs = [[0u8; 3]; 256];
+        refs[5] = bright[0x15];
+        let px = PackSprite { w, h, px: vec![[220, 130, 40, 255]; w * h] };
+        let mut art = Some(SpriteArt { palette, colour: Some(TrueColour { px, refs }) });
+        c.set_art(Some(Box::new(move |_, _| art.take())));
+        let r = Regs { es: SCREEN, ..Default::default() };
+        c.apply(&DrawOp::Blit { sprite, x: 10, y: 10 }, &r, Mem(&m), &dac());
+        assert_eq!(c.art_hits, 1);
+        // The screen as the game drew it.
+        let mut screen = vec![0u8; 64000];
+        for y in 0..8 {
+            for x in 0..=y {
+                screen[(10 + y) * 320 + 10 + x] = 0x15;
+            }
+        }
+        let at = |x: usize, y: usize| ((y * k) * 320 * k + x * k) * 3;
+        let mut rgb = vec![0u8; 320 * k * 200 * k * 3];
+        c.present(&screen, &bright, &mut rgb, false);
+        // Inside the sprite (all eight neighbours drawn too).
+        assert_eq!(rgb[at(11, 16)..at(11, 16) + 3], [220, 130, 40]);
+        // A fade to half: the art follows.
+        let half: Dac = std::array::from_fn(|i| bright[i].map(|v| v / 2));
+        c.present(&screen, &half, &mut rgb, false);
+        let p = &rgb[at(11, 16)..at(11, 16) + 3];
+        assert!(p[0].abs_diff(110) <= 3 && p[1].abs_diff(65) <= 3, "not faded: {p:?}");
+        // The neighbour is now another colour: the block is not shown in HD.
+        screen[16 * 320 + 12] = 0x20;
+        c.present(&screen, &bright, &mut rgb, false);
+        assert_eq!(rgb[at(11, 16)..at(11, 16) + 3], bright[0x15]);
+    }
+
+    #[test]
     fn rounded_corners_show_only_their_side() {
         // A pixel of colour 1 above colour 2, colour 3 to its right; texel 3
         // is its top-right corner, texel 12 its bottom-left one.
         let near = [0, 0, 0, 0, 1, 3, 0, 2, 0];
-        let under = |c| Texel { a: c, b: c, t: 0, free: false, under: true };
+        let under = |c| Texel { a: c, b: c, t: 0, free: false, under: true, tc: None };
         // What was beneath shows where it continues the picture past the edge…
         assert_eq!(fresh(under(3), 1, &near, 3, 4).a, 3);
         // …but not a colour from the other side (a stale picture's).
