@@ -48,10 +48,20 @@ class Recipes:
         self.rooms = load(os.path.join(d, "rooms.json"), {"rooms": {}, "defaults": {}})
         self.scenes = load(os.path.join(d, "scenes.json"), {"scenes": {}, "defaults": {}})
         self.interface = load(os.path.join(d, "interface.json"), {"items": {}, "defaults": {}})
+        self.cast = load(os.path.join(d, "cast.json"), {"characters": {}})["characters"]
         models = load(os.path.join(d, "models.json"))
         repo = {m["id"]: m["repo"] for m in models["downloads"]}
         ids = models["classes"]["portrait"]
         self.models = {"model": repo[ids[0]], "controlnet": repo[ids[1]], "vae": repo[ids[2]]}
+
+    def part(self, p, parts):
+        """A room part with what it refers to filled in: same_as (another part) and character
+        (recipes/cast.json); the part's own keys win."""
+        if "same_as" in p:
+            p = {**self.part(parts[p["same_as"]], parts), **{k: v for k, v in p.items() if k != "same_as"}}
+        if "character" in p:
+            p = {**self.cast[p["character"]], **p}
+        return p
 
     def hint(self, group):
         for h in self.defaults["hints"]:
@@ -84,7 +94,7 @@ class Recipes:
             if own:
                 st.update({k: v for k, v in self.rooms.get("defaults", {}).items() if k != "part"})
                 st.update({k: v for k, v in own.items() if k in ("prompt", "negative", "strength", "cond", "soften", "anchor")})
-                st["parts"] = [p if "same_as" not in p else {**own["parts"][p["same_as"]], "box": p["box"]} for p in own.get("parts", [])]
+                st["parts"] = [self.part(p, own["parts"]) for p in own.get("parts", [])]
                 st["part"] = self.rooms.get("defaults", {}).get("part", {})
                 st["source"] = "recipes/rooms.json"
         elif it["class_key"] == "scenes":
@@ -156,9 +166,52 @@ def picture(pipe, rgb, alpha, st):
     h, w = alpha.shape
     W, H = w * 4 // 8 * 8, h * 4 // 8 * 8
     out = np.asarray(pipe(guide_of(rgb, W, H, st["soften"]), st).resize((w * 4, h * 4), Image.LANCZOS), dtype=np.float32)
-    for part in st.get("parts", []):
-        out = refine(pipe, out, rgb, part, {**st, **st.get("part", {})})
+    parts = st.get("parts", [])
+    for part in parts:
+        if "copy_of" in part:
+            out = copy_part(out, rgb, parts[part["copy_of"]], part)
+            continue
+        own = {k: part[k] for k in ("strength", "cond", "soften", "zoom") if k in part}
+        out = refine(pipe, out, rgb, part, {**st, **st.get("part", {}), **own})
     return anchor(out, rgb, st["anchor"])
+
+
+def part_mask(rgb, part):
+    """The part's outline in the original's pixels: its box, or the cool-coloured pixels in it
+    (guards against a warm room), with warm gaps closed (faces, hands) and grown by a pixel."""
+    x0b, y0b, x1b, y1b = part["box"]
+    mask = np.zeros(rgb.shape[:2], bool)
+    sub = rgb[y0b:y1b, x0b:x1b]
+    mask[y0b:y1b, x0b:x1b] = (sub[..., 0] - sub[..., 2]) < 30 if part.get("select") == "cool" else True
+    if part.get("close"):
+        k = int(part["close"])
+        mask = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((k, k), np.uint8)) > 0
+    return cv2.dilate(mask.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+
+
+def silhouette(mask):
+    """The outline at 4x, softened, as blend weights."""
+    H0, W0 = mask.shape
+    sil = cv2.resize(mask.astype(np.float32), (W0 * 4, H0 * 4), interpolation=cv2.INTER_CUBIC)
+    return np.clip(cv2.GaussianBlur(sil, (0, 0), 1.5), 0, 1)[..., None]
+
+
+def copy_part(hd, rgb, src, part):
+    """The same sprite drawn again (moved, or mirrored with flip): the HD result of the
+    source part is reused, so both look alike, and pasted within this part's outline."""
+    (sx0, sy0, sx1, sy1), (dx0, dy0, dx1, dy1) = src["box"], part["box"]
+    if (sx1 - sx0, sy1 - sy0) != (dx1 - dx0, dy1 - dy0):
+        raise ValueError(f"copy_of: boxes {src['box']} and {part['box']} differ in size")
+    H0, W0 = rgb.shape[:2]
+    pad = min(2, sx0, sy0, dx0, dy0, W0 - sx1, H0 - sy1, W0 - dx1, H0 - dy1)
+    patch = hd[(sy0 - pad) * 4:(sy1 + pad) * 4, (sx0 - pad) * 4:(sx1 + pad) * 4]
+    if part.get("flip"):
+        patch = patch[:, ::-1]
+    sil = silhouette(part_mask(rgb, part))[(dy0 - pad) * 4:(dy1 + pad) * 4, (dx0 - pad) * 4:(dx1 + pad) * 4]
+    out = hd.copy()
+    dst = out[(dy0 - pad) * 4:(dy1 + pad) * 4, (dx0 - pad) * 4:(dx1 + pad) * 4]
+    dst[:] = patch * sil + dst * (1 - sil)
+    return out
 
 
 def refine(pipe, hd, rgb, part, st):
@@ -166,25 +219,27 @@ def refine(pipe, hd, rgb, part, st):
     within its outline (cool-coloured pixels in the box, for guards against a warm room)."""
     x0b, y0b, x1b, y1b = part["box"]
     H0, W0 = rgb.shape[:2]
-    mask = np.zeros((H0, W0), bool)
-    sub = rgb[y0b:y1b, x0b:x1b]
-    mask[y0b:y1b, x0b:x1b] = (sub[..., 0] - sub[..., 2]) < 30 if part.get("select") == "cool" else True
-    mask = cv2.dilate(mask.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+    mask = part_mask(rgb, part)
     cx, cy = (x0b + x1b) // 2, (y0b + y1b) // 2
-    ch = int((y1b - y0b) * 1.4)
+    ch = int((y1b - y0b) * part.get("margin", 1.4))
     cw = int(ch * 0.8)
     x0, y0 = max(0, cx - cw // 2), max(0, cy - ch // 2)
     x1, y1 = min(W0, x0 + cw), min(H0, y0 + ch)
     z = st.get("zoom", 12)
     gw, gh = (x1 - x0) * z // 8 * 8, (y1 - y0) * z // 8 * 8
-    low = guide_of(rgb[y0:y1, x0:x1], gw, gh, st.get("soften", 1.5) * z / 4)
+    seen = rgb.copy()
+    for dx0, dy0, dx1, dy1 in part.get("darken", []):
+        # Only in the guide: an object drawn in the same grey as what it stands against
+        # (a rifle beside a leg) reads as part of it; darkened, the model sees it apart.
+        sub = seen[dy0:dy1, dx0:dx1]
+        sub[(sub[..., 0] - sub[..., 2]) < 30] *= 0.35
+    low = guide_of(seen[y0:y1, x0:x1], gw, gh, st.get("soften", 1.5) * z / 4)
     ctx = Image.fromarray(np.clip(hd, 0, 255).astype(np.uint8)).crop((x0 * 4, y0 * 4, x1 * 4, y1 * 4)).resize((gw, gh), Image.LANCZOS)
     m = Image.fromarray((mask[y0:y1, x0:x1] * 255).astype(np.uint8)).resize((gw, gh), Image.BILINEAR).filter(ImageFilter.GaussianBlur(z * 0.6))
     pst = {**st, "prompt": part["prompt"], "negative": ", ".join(filter(None, [part.get("negative_extra"), st["negative"]]))}
-    gen = pipe(Image.composite(low, ctx, m), pst)
+    gen = pipe(Image.composite(low, ctx, m), pst, part.get("seed", 1992))
     spr = np.asarray(gen.resize(((x1 - x0) * 4, (y1 - y0) * 4), Image.LANCZOS), dtype=np.float32)
-    sil = cv2.resize(mask.astype(np.float32), (W0 * 4, H0 * 4), interpolation=cv2.INTER_CUBIC)
-    sil = np.clip(cv2.GaussianBlur(sil, (0, 0), 1.5), 0, 1)[y0 * 4:y1 * 4, x0 * 4:x1 * 4, None]
+    sil = silhouette(mask)[y0 * 4:y1 * 4, x0 * 4:x1 * 4]
     out = hd.copy()
     out[y0 * 4:y1 * 4, x0 * 4:x1 * 4] = spr * sil + out[y0 * 4:y1 * 4, x0 * 4:x1 * 4] * (1 - sil)
     return out

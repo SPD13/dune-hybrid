@@ -12,6 +12,7 @@
     "defaults.json",
     "heads.json",
     "scenes.json",
+    "cast.json",
     "rooms.json",
     "interface.json"
   ]

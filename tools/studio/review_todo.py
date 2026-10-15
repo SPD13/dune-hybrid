@@ -10,9 +10,12 @@ approved items. With --json, the same as JSON.
 import argparse
 import json
 import os
+import sys
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")  # Windows consoles default to cp1252
+
     ap = argparse.ArgumentParser()
     ap.add_argument("work")
     ap.add_argument("--all", action="store_true", help="also list items reviewed without notes or boxes")

@@ -28,7 +28,7 @@ Dune Hybrid plays the original 1992 *Dune* (Cryo) in our own 286 emulator, with 
 |---|---|
 | `crates/hdpack` | `dune-hd`: `build` (packs, now with `--art DIR` for finished art), `extract`, `heads` (head frames and layouts), **`inventory`** (every asset as review units for the studio, in true colours) |
 | `crates/gfx`, `crates/runner` | Game data decoding; `dune-run`: headless runner (`--rooms` captures every room, `--gfx-trace` records palettes, `--hd 4 --hd-shots --hd-pack` renders HD screenshots through the real compositor) |
-| `recipes/` | **The recipe bundle** (v0.1): `bundle.json`, `models.json`, `assets.json` (classification and palettes), **`defaults.json`** (class defaults, hints per sheet, batch rules, time estimates), `heads.json`, `scenes.json`, `rooms.json`, `interface.json` |
+| `recipes/` | **The recipe bundle** (v0.1): `bundle.json`, `models.json`, `assets.json` (classification and palettes), **`defaults.json`** (class defaults, hints per sheet, batch rules, time estimates), `heads.json`, **`cast.json`** (recurring characters such as the Atreides guard: one description, one seed), `scenes.json`, `rooms.json`, `interface.json` |
 | `tools/portraits/` | Generation CLI. **`hdgen.py`** (batch generation of studio items, any class); `generate.py` (talking heads by recipe, with eye recolour and `--publish`); `recolour.py` (Paul's eye stages); `device.py` (GPU choice and memory sizing); `fetch_models.py`; `requirements-ml.txt`; `requirements.txt` (exact versions tested on the Mac) |
 | `tools/studio/` | **Dune HD Studio prototype** (Python, standard library only): `server.py`, `jobs.py`, `system.py`, `index.html`, **`review_todo.py`** (summarises the annotations), `README.md` |
 | `docs/` | `hd-studio-plan.md` (plan, phases, pilot results), `generative-portraits.md`, this handoff |
@@ -139,6 +139,10 @@ It opens `http://127.0.0.1:8765/` and listens only on 127.0.0.1. Options are rem
 2. **Look:** open the item's original (`WORK/inventory/src/...`) and its preferred version, and crop around each box.
 3. **Turn annotations into recipes** in `recipes/`, the shipped bundle:
    - **Rooms:** a part box becomes an entry in `rooms.json` `rooms[<key>].parts`: `box` from `px`, `prompt` from the text, `select` (`cool` picks cool-coloured pixels against a warm room), optional `negative_extra`. Problems usually change the room's prompt or settings.
+     - A person who recurs (guards…) names a **`character`** from `cast.json` instead of carrying its own prompt, so every appearance is the same person. The palace guard is `atreides-guard`: Lynch-film look, one face for all guards (user's choice, 2026-10-14).
+     - The same sprite drawn twice (the game mirrors the palace guards) uses **`copy_of`** (+ `flip`): the first part's HD result is reused, boxes of equal size.
+     - Per part: `strength`, `cond`, `soften`, `zoom`, `seed`, `margin` (crop height ÷ box height; 1.1 keeps a person large enough in the close-up), `close` (fills a face or hands inside a `cool` outline), `darken` (guide only: e.g. a grey rifle the model would read as a third leg).
+     - Debug a part on its own before a full run: on this machine a part takes about 10 s, a room about 30–50 s.
    - **Heads:** descriptions, negatives and settings are in `heads.json`. **Parts on heads are not supported yet.** Leto's emblem needs a close-up part redo like rooms have; add it to `generate.py`, reusing `hdgen.refine`.
    - **Scenes:** `scenes.json`, keyed by sheet, e.g. `DN20`. **Interface:** `interface.json`, keyed by `RES-PPP`.
    - **Without a recipe:** an item uses `defaults.json` (class prompt with a `{hint}` per sheet). Add an own entry when it needs specific words.

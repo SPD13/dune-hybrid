@@ -113,7 +113,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
 <div id="app">
   <header>
     <h1>Dune HD Studio</h1><span class="pill" id="hw">…</span><button class="btn" id="setupBtn">Setup</button><button class="btn" id="batchBtn">Batch</button><button class="btn" id="jobsBtn">Jobs</button>
-    <span class="hint"><kbd>G</kbd> grid · <kbd>B</kbd> draw box · <kbd>Space</kbd> flip · <kbd>F</kbd> fit · <kbd>1</kbd> 1:1 · <kbd>D</kbd> detail map · <kbd>Del</kbd> delete box · <kbd>↑</kbd><kbd>↓</kbd> assets</span>
+    <span class="hint"><kbd>G</kbd> grid · <kbd>B</kbd> draw box · <kbd>H</kbd> hide boxes · <kbd>Space</kbd> flip · <kbd>F</kbd> fit · <kbd>1</kbd> 1:1 · <kbd>D</kbd> detail map · <kbd>Del</kbd> delete box · <kbd>↑</kbd><kbd>↓</kbd> assets</span>
     <span class="save" id="save">loading…</span>
   </header>
   <nav id="list"><div class="tools"><input type="text" id="q" placeholder="Search (name, sheet, note)…"><select id="flt">
@@ -129,6 +129,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
         <button data-m="side">Side by side</button><button data-m="slider">Slider</button><button data-m="flip">Flip</button><button data-m="detail">Detail map</button>
       </span>
       <span class="seg" id="tool"><button data-t="pan">Pan</button><button data-t="box">Box</button></span>
+      <span class="seg"><button id="showBoxes" title="Show or hide the boxes (H)">Boxes</button></span>
       <span class="seg"><button id="fit">Fit</button><button id="one">1:1</button><button id="two">2:1</button></span>
       <label>Box kind <select id="kind">
         <option value="part">part to describe</option><option value="problem">problem</option>
@@ -158,6 +159,7 @@ let mode = store.get("mode", "side"), tool = "pan", flip = false, split = 0.5;
 let view = { scale: 1, x: 0, y: 0 };          // screen px per image px (of B), and the image's top-left in a pane
 const images = new Map();                      // path → HTMLImageElement
 let filter = { q: "", status: store.get("status", "all") }, open = new Set(store.get("open", [])), gridOn = false;
+let showBoxes = store.get("showBoxes", true);
 let selBox = null, drag = null, saveTimer = null, detailCache = new Map(), needFit = false;
 
 function img(path) {
@@ -184,11 +186,17 @@ async function load() {
 }
 
 const statusOf = (it) => (review.assets[it.id] ? review.assets[it.id].status : "new");
+// Not reviewed: still "new" and carrying no annotation (notes, boxes, or a preferred version picked by hand).
+function reviewed(it) {
+  const a = review.assets[it.id];
+  if (!a) return false;
+  return a.status !== "new" || !!(a.notes && a.notes.trim()) || (a.boxes || []).length > 0 || (!!a.preferred && a.preferred !== it.default);
+}
 function visible(it) {
   const q = filter.q.trim().toLowerCase();
   if (q && !(it.title + " " + it.id + " " + (it.group || "") + " " + (it.note || "")).toLowerCase().includes(q)) return false;
   switch (filter.status) {
-    case "new": return statusOf(it) === "new";
+    case "new": return !reviewed(it);
     case "needs-work": case "approved": case "rejected": return statusOf(it) === filter.status;
     case "versions": return it.versions.length > 0;
     case "boxes": return !!(review.assets[it.id] && review.assets[it.id].boxes.length);
@@ -425,14 +433,19 @@ function caption(text, x) {
   ctx.fillStyle = "#000a"; ctx.fillRect(x + 8, 8, w, 20); ctx.fillStyle = "#fff"; ctx.fillText(text, x + 15, 22); ctx.restore();
 }
 function drawBoxes(pane) {
+  if (!showBoxes && !(drag && drag.box)) return;
   const [bw, bh] = baseSize(), a = asset(cur);
+  if (!showBoxes) return drawBoxesOf(pane, bw, bh, a, [drag.box]);
+  drawBoxesOf(pane, bw, bh, a, drag && drag.box ? [...a.boxes, drag.box] : a.boxes);
+}
+function drawBoxesOf(pane, bw, bh, a, all) {
   ctx.save(); ctx.beginPath(); ctx.rect(pane.x, 0, pane.w, pane.h); ctx.clip();
-  const all = drag && drag.box ? [...a.boxes, drag.box] : a.boxes;
-  all.forEach((bx, i) => {
+  all.forEach((bx) => {
     const x = pane.x + view.x + bx.x * bw * view.scale, y = view.y + bx.y * bh * view.scale, w = bx.w * bw * view.scale, h = bx.h * bh * view.scale;
     ctx.strokeStyle = css(KIND_COLOUR[bx.kind] || "--box-note"); ctx.lineWidth = selBox === bx ? 3 : 1.5;
     ctx.setLineDash(bx.kind === "keep" ? [6, 4] : []); ctx.strokeRect(x, y, w, h);
-    if (i < a.boxes.length) { ctx.fillStyle = ctx.strokeStyle; ctx.font = "bold 12px system-ui"; ctx.fillText(String(i + 1), x + 3, y + 13); }
+    const n = a.boxes.indexOf(bx);
+    if (n >= 0) { ctx.fillStyle = ctx.strokeStyle; ctx.font = "bold 12px system-ui"; ctx.fillText(String(n + 1), x + 3, y + 13); }
   });
   ctx.restore();
 }
@@ -509,6 +522,7 @@ function toImage(e) {
   return { sx: px - pane.x, sy: py, ix: (px - pane.x - view.x) / (bw * view.scale), iy: (py - view.y) / (bh * view.scale) };
 }
 function hitBox(p) {
+  if (!showBoxes) return null;
   const a = asset(cur);
   for (let i = a.boxes.length - 1; i >= 0; i--) { const b = a.boxes[i]; if (p.ix >= b.x && p.ix <= b.x + b.w && p.iy >= b.y && p.iy <= b.y + b.h) return b; }
   return null;
@@ -537,6 +551,7 @@ cv.addEventListener("pointerup", () => {
     if ((x1 - x0) > 0.004 && (y1 - y0) > 0.004) {
       const box = { id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()), x: x0, y: y0, w: x1 - x0, h: y1 - y0, kind: b.kind, text: "", version: $("selB").value, created: new Date().toISOString(), _focus: true };
       asset(cur).boxes.push(box); selBox = box; changed(); renderSide(); renderList();
+      if (!showBoxes) setShowBoxes(true);
     }
   }
   drag = null; draw();
@@ -548,9 +563,16 @@ cv.addEventListener("wheel", (e) => {
 for (const b of $("mode").children) b.onclick = () => setMode(b.dataset.m);
 for (const b of $("tool").children) b.onclick = () => setTool(b.dataset.t);
 function setMode(m) { mode = m; store.set("mode", m); for (const b of $("mode").children) b.classList.toggle("on", b.dataset.m === m); fit(); }
+function setShowBoxes(on) {
+  showBoxes = on; store.set("showBoxes", on); $("showBoxes").classList.toggle("on", on);
+  if (!on) selBox = null;
+  draw();
+}
 function setTool(t) { tool = t; for (const b of $("tool").children) b.classList.toggle("on", b.dataset.t === t); $("viewer").classList.toggle("box", t === "box"); }
 for (const b of $("view").children) b.onclick = () => setGrid(b.dataset.v === "grid");
 $("fit").onclick = fit;
+$("showBoxes").onclick = () => setShowBoxes(!showBoxes);
+$("showBoxes").classList.toggle("on", showBoxes);
 $("one").onclick = () => zoomTo(1);
 $("two").onclick = () => zoomTo(2);
 $("selA").onchange = () => draw();
@@ -562,6 +584,7 @@ addEventListener("keydown", (e) => {
   if (k === " ") { e.preventDefault(); if (mode !== "flip") setMode("flip"); flip = !flip; draw(); }
   else if (k === "g") setGrid(!gridOn);
   else if (k === "b") setTool(tool === "box" ? "pan" : "box");
+  else if (k === "h") setShowBoxes(!showBoxes);
   else if (k === "f") fit();
   else if (k === "1") zoomTo(1);
   else if (k === "2") zoomTo(2);
