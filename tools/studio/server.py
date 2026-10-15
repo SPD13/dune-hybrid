@@ -25,7 +25,7 @@ import tempfile
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import jobs
 import system
@@ -50,9 +50,9 @@ def attach_versions(work, items):
         if not os.path.isdir(d):
             continue
         known = {v["path"] for v in it.get("versions", [])}
-        for name in sorted(os.listdir(d)):
-            if not name.endswith(".png"):
-                continue
+        pngs = [n for n in os.listdir(d) if n.endswith(".png")]
+        # Oldest first, so the newest version is last in the pickers (batch names are hashes).
+        for name in sorted(pngs, key=lambda n: (os.path.getmtime(os.path.join(d, n)), n)):
             rel = os.path.relpath(os.path.join(d, name), work).replace(os.sep, "/")
             if rel in known:
                 continue
@@ -88,7 +88,7 @@ class Studio:
 
     def system(self):
         models = system.model_status(os.path.join(self.recipes, "models.json"))
-        need_models = sum(m["size_gb"] for m in models if not m["cached"])
+        need_models = sum(m["size_gb"] for m in models if not m["cached"] and not m.get("optional"))
         return {
             "hardware": self.hw, "env": {"path": self.env, **self.env_info}, "models": models,
             "disk": {"free_gb": system.free_gb(self.env), "env_gb": system.ENV_SIZE_GB[self.hw["kind"]], "models_gb": round(need_models, 1),
@@ -102,7 +102,7 @@ class Studio:
         """Why generation cannot run yet, or None."""
         if not self.env_info.get("ok"):
             return "the generation environment is not installed (Setup)"
-        if not all(m["cached"] for m in system.model_status(os.path.join(self.recipes, "models.json"))):
+        if not all(m["cached"] for m in system.model_status(os.path.join(self.recipes, "models.json")) if not m.get("optional")):
             return "the models are not downloaded (Setup)"
         return None
 
@@ -124,7 +124,7 @@ class Studio:
             return self.queue.add(jobs.Job(title, steps, on_done=self.recheck_env))
         if not self.env_info.get("ok"):
             raise ValueError("install the generation environment first")
-        models = system.model_status(os.path.join(self.recipes, "models.json"))
+        models = [m for m in system.model_status(os.path.join(self.recipes, "models.json")) if not m.get("optional")]
         need, free = sum(m["size_gb"] for m in models if not m["cached"]), system.free_gb(system.hf_hub_dir())
         if free < need + 1:
             raise ValueError(f"not enough disk space: {free} GB free, {need + 1:.0f} GB needed")
@@ -132,7 +132,18 @@ class Studio:
                "--only", ",".join(m["id"] for m in models if not m["cached"])]
         return self.queue.add(jobs.Job(title, [("download the models", cmd)]))
 
-    def generate(self, item_id):
+    def recipe(self, item_id):
+        """The item's current settings (hdgen.py recipe), for Try settings."""
+        import subprocess
+        if not self.env_info.get("ok"):
+            raise ValueError("install the generation environment first (Setup)")
+        out = subprocess.run([system.env_python(self.env), os.path.join(TOOLS, "hdgen.py"), "recipe", self.work, "--id", item_id,
+                              "--recipes", self.recipes], capture_output=True, text=True, timeout=60)
+        if out.returncode:
+            raise ValueError(out.stderr.strip().splitlines()[-1] if out.stderr.strip() else "hdgen.py recipe failed")
+        return json.loads(out.stdout.strip().splitlines()[-1])
+
+    def generate(self, item_id, override=None):
         why = self.ready()
         if why:
             raise ValueError(why)
@@ -140,10 +151,22 @@ class Studio:
         heads = json.load(open(os.path.join(self.recipes, "heads.json")))["characters"]
         name, _, fid = rest.partition("/")
         if kind != "head" or name not in heads:
-            # Every other item: hdgen with its recipe or its class's defaults.
+            # Every other item: hdgen with its recipe or its class's defaults; with Try settings on top.
             py = system.env_python(self.env)
             args = batch_args(self, {"ids": [item_id]})
-            return self.queue.add(jobs.Job(f"Generate {item_id}", [("generate", [py] + args)], env={"HF_HUB_OFFLINE": "1"}))
+            title = f"Generate {item_id}"
+            steps = []
+            if override:
+                label = "try: " + ", ".join(try_label(k, v) for k, v in override.items())
+                args += ["--override", json.dumps(override), "--label", label]
+                title = f"Try {item_id}"
+                # A base model picked for the try and not downloaded yet: fetched first.
+                m = next((m for m in system.model_status(os.path.join(self.recipes, "models.json")) if m["id"] == override.get("model")), None)
+                if m and not m["cached"]:
+                    steps.append((f"download {m['repo']} ({m['size_gb']} GB)", [py, os.path.join(TOOLS, "fetch_models.py"), "--models",
+                                                                               os.path.join(self.recipes, "models.json"), "--only", m["id"]]))
+            steps.append(("generate", [py] + args))
+            return self.queue.add(jobs.Job(title, steps, env={"HF_HUB_OFFLINE": "1"}))
         rec = heads[name]
         if fid != rec.get("base", "f00") and fid not in rec.get("variants", {}):
             raise ValueError(f"{name} {fid} is not in its recipe yet (recipes/heads.json variants): add a note and Claude extends it")
@@ -154,10 +177,37 @@ class Studio:
                 raise ValueError("start the studio with --dat and --dune-hd to extract the heads")
             steps.append(("extract the talking heads", [self.cfg["dune_hd"], "heads", "--dat", self.cfg["dat"], "--work", self.work]))
         py = system.env_python(self.env)
-        steps.append((f"generate {name} {fid}", [py, os.path.join(TOOLS, "generate.py"), name, "--heads", heads_dir,
-                                                  "--characters", os.path.join(self.recipes, "heads.json"),
-                                                  "--out", os.path.join(self.work, "gen", name), "--only", fid, "--publish", self.work]))
-        return self.queue.add(jobs.Job(f"Generate {name} {fid}", steps, env={"HF_HUB_OFFLINE": "1"}))
+        cmd = [py, os.path.join(TOOLS, "generate.py"), name, "--heads", heads_dir, "--characters", os.path.join(self.recipes, "heads.json"),
+               "--out", os.path.join(self.work, "gen", name), "--only", fid, "--publish", self.work]
+        title = f"Generate {name} {fid}"
+        if override:
+            # A try on a recipe head: its own render folder (the recipe's cache stays), a label.
+            flags = {"strength": "--strength", "cond": "--cond", "soften": "--soften", "seed": "--seed", "model": "--model", "prompt": "--prompt"}
+            unknown = set(override) - set(flags)
+            if unknown:
+                raise ValueError(f"{name}: these settings do not apply to talking heads: {', '.join(sorted(unknown))}")
+            cmd[cmd.index("--out") + 1] = os.path.join(self.work, "gen", f"{name}-try")
+            for k, v in override.items():
+                cmd += [flags[k], str(v)]
+            cmd += ["--force", "--label", "try: " + ", ".join(try_label(k, v) for k, v in override.items())]
+            title = f"Try {name} {fid}"
+            m = next((m for m in system.model_status(os.path.join(self.recipes, "models.json")) if m["id"] == override.get("model")), None)
+            if m and not m["cached"]:
+                steps.append((f"download {m['repo']} ({m['size_gb']} GB)", [py, os.path.join(TOOLS, "fetch_models.py"), "--models",
+                                                                           os.path.join(self.recipes, "models.json"), "--only", m["id"]]))
+        steps.append((f"generate {name} {fid}", cmd))
+        return self.queue.add(jobs.Job(title, steps, env={"HF_HUB_OFFLINE": "1"}))
+
+
+def try_label(k, v):
+    names = {"strength": "strength", "cond": "control", "soften": "blur", "seed": "seed", "model": "model"}
+    if k == "prompt":
+        return "own prompt"
+    if k == "negative":
+        return "own negatives"
+    if k == "detail":
+        return "detail off" if v is None else f"detail {v.get('strength')}"
+    return f"{names.get(k, k)} {v}"
 
 
 def batch_args(studio, data):
@@ -165,8 +215,12 @@ def batch_args(studio, data):
     items shown by the studio's filter; redo items whose version is up to date."""
     args = [os.path.join(TOOLS, "hdgen.py"), "batch", studio.work, "--recipes", studio.recipes]
     if data.get("ids"):
-        path = os.path.join(studio.work, "review", "batch-ids.json")
-        json.dump(data["ids"], open(path, "w"))
+        # One file per job: a queued job must not read the next one's list.
+        d = os.path.join(studio.work, "review", "jobs")
+        os.makedirs(d, exist_ok=True)
+        fd, path = tempfile.mkstemp(dir=d, prefix="ids-", suffix=".json")
+        with os.fdopen(fd, "w") as f:
+            json.dump(data["ids"], f)
         args += ["--ids", path]
     elif data.get("classes"):
         args += ["--classes", ",".join(data["classes"])]
@@ -184,6 +238,7 @@ def make_handler(studio):
     review_dir = os.path.join(work, "review")
     items_path = os.path.join(review_dir, "items.json")
     review_path = os.path.join(review_dir, "review.json")
+    resolutions_path = os.path.join(review_dir, "resolutions.json")  # boxes acted on (resolutions.py)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
@@ -213,11 +268,17 @@ def make_handler(studio):
                 items = json.load(open(items_path)) if os.path.exists(items_path) else {"items": []}
                 attach_versions(work, items)
                 review = json.load(open(review_path)) if os.path.exists(review_path) else {"assets": {}}
-                return self.send(200, {"items": items, "review": review})
+                resolutions = json.load(open(resolutions_path, encoding="utf-8")) if os.path.exists(resolutions_path) else {"assets": {}}
+                return self.send(200, {"items": items, "review": review, "resolutions": resolutions})
             if path == "/api/system":
                 return self.send(200, studio.system())
             if path == "/api/jobs":
                 return self.send(200, [j.view() for j in studio.queue.jobs[-30:]])
+            if path == "/api/recipe":
+                try:
+                    return self.send(200, studio.recipe(parse_qs(urlparse(self.path).query).get("id", [""])[0]))
+                except (ValueError, OSError, StopIteration) as e:
+                    return self.send(400, {"error": str(e)})
             if path.startswith("/files/"):
                 # Only files inside WORK_DIR.
                 full = os.path.realpath(os.path.join(work, path[len("/files/"):]))
@@ -263,7 +324,7 @@ def make_handler(studio):
                     job = jobs.Job(f"Batch: {what}", [("generate", [py] + batch_args(studio, data))], env={"HF_HUB_OFFLINE": "1"})
                     return self.send(200, studio.queue.add(job).view())
                 if path == "/api/generate":
-                    return self.send(200, studio.generate(data.get("item", "")).view())
+                    return self.send(200, studio.generate(data.get("item", ""), data.get("override")).view())
                 if path == "/api/jobs/cancel":
                     job = studio.queue.get(int(data.get("id", 0)))
                     if job:

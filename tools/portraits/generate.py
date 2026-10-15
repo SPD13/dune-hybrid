@@ -12,6 +12,10 @@ for the character is then made from it:
 - "rerender" (shapes: mouths, brows, a tired face): the same generation, same
   seed, on the variant's frame, kept only where that frame differs;
 - "recolour" (colours: Paul's eye stages): no generation, see recolour.py.
+Emblems (the character's "emblems": box in the frame's pixels, emblem name) are
+taken out of every frame before generation and drawn back from their vector
+master (NAME.svg, as in hdgen.py) on every final frame, so they are exact and
+the same on all of them.
 Renders are cached in OUT/render with the exact settings beside them, so a
 rerun only renders what changed. The options override the character's
 settings, for experiments (use another --out). See docs/generative-portraits.md.
@@ -72,6 +76,44 @@ def shrink_error(out, low, mask):
     return float(np.sqrt(((small - ref) ** 2).sum(-1))[m].mean())
 
 
+def without_emblems(low, emblems):
+    """The frame (square, RGB) with each emblem's red pixels filled from the cloth around."""
+    import cv2
+    a = np.asarray(low).astype(np.int16)
+    mask = np.zeros(a.shape[:2], np.uint8)
+    for e in emblems:
+        x0, y0, x1, y1 = e["box"]
+        sub = a[y0:y1, x0:x1]
+        mask[y0:y1, x0:x1] = (sub[..., 0] - np.maximum(sub[..., 1], sub[..., 2])) > 40
+    mask = cv2.dilate(mask, np.ones((3, 3), np.uint8))
+    return Image.fromarray(cv2.inpaint(np.asarray(low), mask, 3, cv2.INPAINT_TELEA))
+
+
+def with_emblems(im, original, emblems):
+    """Each emblem drawn from its vector master on the HD frame, in the original's red,
+    shaded by the cloth under it (its folds and light) so it reads as printed on it."""
+    import cv2
+    import hdgen
+    out = np.asarray(im, dtype=np.float32).copy()
+    s = im.width / original.width
+    orig = np.asarray(original).astype(np.float32)
+    for e in emblems:
+        x0, y0, x1, y1 = e["box"]
+        X0, Y0, X1, Y1 = (round(v * s) for v in (x0, y0, x1, y1))
+        em = hdgen.render_emblem(e["emblem"], X1 - X0, Y1 - Y0)
+        if e.get("flip"):
+            em = em[:, ::-1]
+        a = em[..., 3:] / 255
+        sub = orig[y0:y1, x0:x1]
+        red = (sub[..., 0] - np.maximum(sub[..., 1], sub[..., 2])) > 40
+        colour = np.array(e["colour"], np.float32) if "colour" in e else np.percentile(sub[red], 75, axis=0)
+        region = out[Y0:Y1, X0:X1]
+        lum = cv2.GaussianBlur(region @ np.array([0.2126, 0.7152, 0.0722], np.float32), (0, 0), max(1.0, s / 2))
+        shade = np.clip(lum / max(1.0, float(np.median(lum))), 0.6, 1.4)[..., None]
+        out[Y0:Y1, X0:X1] = region * (1 - a) + colour * shade * a
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+
+
 def prompts(ch, var_prompt=None):
     """(prompt, negative prompt) for a character's frame."""
     prompt = TEMPLATE.format(ch["description"])
@@ -129,6 +171,9 @@ def main():
     ap.add_argument("--prompt", help="replace the character's description")
     ap.add_argument("--negative", help="replace the character's extra negative prompt")
     ap.add_argument("--var-prompt", help="replace the prompt prefix of the selected rerender variants")
+    ap.add_argument("--emblems", action="append", help="folder of emblem masters (NAME.svg); default: the --publish work folder's emblems, then recipes/emblems")
+    ap.add_argument("--dune-hd", help="dune-hd, to render the emblems (default: target/release)")
+    ap.add_argument("--model", help="another base model: a repository, or an id from recipes/models.json")
     for k, t in (("strength", float), ("cond", float), ("soften", float), ("seed", int)):
         ap.add_argument(f"--{k}", type=t)
     args = ap.parse_args()
@@ -142,9 +187,21 @@ def main():
         ch["negative"] = args.negative
     st = {**chars["defaults"], **ch.get("settings", {})}
     st.update({k: getattr(args, k) for k in ("strength", "cond", "soften", "seed") if getattr(args, k) is not None})
+    if args.model:
+        models = json.load(open(os.path.join(os.path.dirname(os.path.abspath(args.characters)), "models.json")))["downloads"]
+        st["model"] = next((m["repo"] for m in models if m["id"] == args.model), args.model)
     out = args.out or os.path.join("out", name)
     os.makedirs(os.path.join(out, "render"), exist_ok=True)
-    frame = lambda fid: load_face(os.path.join(args.heads, f"{name}-{fid}.png"))
+    emblems = ch.get("emblems", [])
+    if emblems:
+        import hdgen
+        hdgen.EMBLEM_DIRS[:] = args.emblems or [d for d in (args.publish and os.path.join(args.publish, "emblems"),
+                                                             os.path.join(os.path.dirname(os.path.abspath(args.characters)), "emblems")) if d]
+        hdgen.DUNE_HD = args.dune_hd
+
+    def frame(fid, keep_emblems=False):
+        low, mask = load_face(os.path.join(args.heads, f"{name}-{fid}.png"))
+        return (low if keep_emblems or not emblems else without_emblems(low, emblems)), mask
     variants = ch.get("variants", {})
     only = set(args.only.split(",")) if args.only else set(variants)
     base_id = ch.get("base", "f00")
@@ -158,7 +215,7 @@ def main():
     def cached(fid, low, var_prompt, vst):
         """The full generation for frame `fid`, from the cache when its settings match."""
         prompt, negative = prompts(ch, var_prompt)
-        params = {"frame": fid, "prompt": prompt, "negative": negative, **vst}
+        params = {"frame": fid, "prompt": prompt, "negative": negative, **vst, **({"emblems": emblems} if emblems else {})}
         path = os.path.join(out, "render", f"{name}-{fid}.png")
         side = path[:-4] + ".json"
         if not args.force and os.path.exists(path) and os.path.exists(side) and json.load(open(side)) == params:
@@ -208,11 +265,13 @@ def main():
             if fid in only:
                 finals[fid] = Image.fromarray(rc.recolour(eye, olow, stage, region))
 
+    if emblems:
+        finals = {fid: with_emblems(im, frame(fid, keep_emblems=True)[0], emblems) for fid, im in finals.items()}
     for fid, im in finals.items():
         if fid != base_id and fid not in needed:
             continue
         im.save(os.path.join(out, f"{name}-{fid}.png"))
-        flow, fmask = frame(fid)
+        flow, fmask = frame(fid, keep_emblems=True)
         report["frames"][fid] = {"kind": variants.get(fid, {}).get("kind", "default"), "shrink_error": round(shrink_error(im, flow, fmask), 1)}
     json.dump(report, open(os.path.join(out, "report.json"), "w"), indent=2)
     print(f"{len(report['frames'])} frames in {out}")
@@ -233,7 +292,8 @@ def publish(work, name, frames, heads, label, st, report):
         d = os.path.join(work, "versions", f"head__{name}__{fid}")
         os.makedirs(d, exist_ok=True)
         crop.save(os.path.join(d, f"{stamp}.png"))
-        meta = {"label": label or f"{stamp} (recipes/heads.json)", "settings": {**{k: st[k] for k in ("strength", "cond", "soften", "seed")}, **report["frames"][fid]}, "default": True}
+        meta = {"label": label or f"{stamp} (recipes/heads.json)", "settings": {**{k: st[k] for k in ("strength", "cond", "soften", "seed", "model")}, **report["frames"][fid]},
+                "default": not label or not label.startswith("try")}
         json.dump(meta, open(os.path.join(d, f"{stamp}.json"), "w"), indent=2)
     print(f"published {len(frames)} versions to {work}/versions", flush=True)
 

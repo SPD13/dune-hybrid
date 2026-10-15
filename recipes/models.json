@@ -1,5 +1,5 @@
 {
-  "_doc": "Models the studio downloads (only the files listed), and which class uses which. Pin each repository's revision and check its licence before a public release.",
+  "_doc": "Models the studio downloads (only the files listed), and which class uses which. Pin each repository's revision and check its licence before a public release. optional: not part of the default download nor needed to generate; base models (base: true) can be picked in the studio's Try settings, which downloads an optional one when a try first uses it. Tried and set aside: Lykon/dreamshaper-xl-1-0 (A/B 2026-10-14: does not fit the Lynch look).",
   "downloads": [
     {
       "id": "realvisxl5",
@@ -11,7 +11,24 @@
       ],
       "size_gb": 6.31,
       "licence": "to check (SDXL derivative)",
-      "role": "base model (fp16 weights)"
+      "role": "base model (fp16 weights)",
+      "base": true,
+      "label": "RealVisXL 5 (photoreal; default)"
+    },
+    {
+      "id": "juggernautxl9",
+      "repo": "RunDiffusion/Juggernaut-XL-v9",
+      "files": [
+        "*.json",
+        "*.txt",
+        "*fp16.safetensors"
+      ],
+      "size_gb": 6.9,
+      "licence": "CreativeML OpenRAIL-M (check before a public release)",
+      "role": "alternative base model: photoreal, cinematic (A/B 2026-10-14: good fit)",
+      "base": true,
+      "optional": true,
+      "label": "Juggernaut XL v9 (cinematic)"
     },
     {
       "id": "tile-cn",

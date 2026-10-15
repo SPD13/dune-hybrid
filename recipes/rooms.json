@@ -1,26 +1,58 @@
 {
-  "_doc": "Room recipes, by room key (dune-run --rooms). parts: people and objects painted into the room, redone in close-up (box in low-res pixels). A part may name a character (recipes/cast.json), set its own strength, cond, soften, zoom, seed, margin (crop height / box height, default 1.4) darken (areas darkened in the close-up's guide only, e.g. a grey rifle beside a grey leg) and close (fills warm gaps such as faces and hands inside the selected outline, in pixels). same_as copies another part's recipe; copy_of reuses another part's HD result for the same sprite drawn again (same box size; flip for a mirrored copy).",
+  "_doc": "Room recipes, by room key (dune-run --rooms). defaults apply to every room, with or without its own recipe (the look comes from style.json: game, then location). parts: people and objects painted into the room, redone in close-up (box in low-res pixels). A part may name a character (recipes/cast.json), set its own strength, cond, soften, zoom, seed, margin (crop height / box height, default 1.4) darken (areas [x0, y0, x1, y1, factor] darkened in the close-up's guide only, e.g. a grey rifle beside a grey leg) and feather (soft edge of the paste-back, HD pixels; wide for a patch of floor) and close (fills warm gaps such as faces and hands inside the selected outline, in pixels). context (false: the part is drawn from the pixel art alone, not over the room's rendering); same_as copies another part's recipe; copy_of reuses another part's HD result for the same sprite drawn again (same box size; flip for a mirrored copy). An emblem part (emblem: NAME, a vector master NAME.svg in WORK/emblems or recipes/emblems) paints out the room's own version (red pixels in the box) and draws the master in the box in the original's colour (flip for a mirrored one); material adds an optional light pass describing the surface. detail: a pass over the whole room after the close-up parts (enlarged by scale, repainted in tiles at low strength), so the room is as crisp as the parts and they do not pop out; emblems come after it.",
   "defaults": {
     "scale": 4,
-    "strength": 0.85,
-    "cond": 0.6,
-    "soften": 3.0,
+    "strength": 0.95,
+    "cond": 0.4,
+    "soften": 5.0,
     "anchor": 8,
     "store": "palette",
-    "negative": "out of focus, depth of field, bokeh, blurry, soft focus, haze, cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, deformed, text, watermark, frame, noise",
+    "negative": "person, people, human figure, statue, out of focus, depth of field, bokeh, blurry, soft focus, haze, cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, deformed, text, watermark, frame, noise",
     "part": {
       "strength": 0.85,
       "cond": 0.5,
       "soften": 1.5,
       "zoom": 12
+    },
+    "detail": {
+      "scale": 3,
+      "strength": 0.35,
+      "cond": 0.6,
+      "tile": 1024,
+      "overlap": 256
     }
   },
   "rooms": {
     "859cf422c2ae871b": {
       "title": "Palace throne room",
-      "status": "approved 2026-10-14 (v4: one Atreides guard, mirrored)",
-      "prompt": "cinematic photograph of the interior of a grand ducal throne room, deep focus, everything in sharp focus, a massive carved bronze throne on a round dais, tall fluted copper columns, a mounted bull's head trophy above the throne, green heraldic banners, red hawk emblems, two ornate doors, on each side a guard in a grey-blue armoured uniform and helmet standing at attention holding a long rifle, polished marble floor, warm light, highly detailed",
+      "status": "in review 2026-10-14 (v10: emblems taken out before generation, drawn back at the end)",
+      "prompt": "the throne room: a massive carved bronze throne on a round dais, tall fluted copper columns, a mounted bull's head trophy above the throne, green heraldic banners, two heavy doors, a guard on each side, polished floor, highly detailed",
       "parts": [
+        {
+          "box": [
+            20,
+            99,
+            49,
+            123
+          ],
+          "prompt": "matte warm sandstone floor of a palace throne room, smooth even stone slabs, soft diffuse light, sharp focus, highly detailed",
+          "negative_extra": "reflection, lights, lamp, legs, feet, person, pedestal, plinth, vase, box, carving, ornament, statue, object, lines, streaks",
+          "strength": 0.95,
+          "cond": 0.2,
+          "soften": 6,
+          "feather": 8,
+          "margin": 1.6,
+          "style": false
+        },
+        {
+          "box": [
+            276,
+            99,
+            305,
+            123
+          ],
+          "same_as": 0
+        },
         {
           "box": [
             22,
@@ -47,8 +79,54 @@
           ],
           "select": "cool",
           "close": 7,
-          "copy_of": 0,
+          "copy_of": 2,
           "flip": true
+        },
+        {
+          "box": [
+            47,
+            17,
+            71,
+            31
+          ],
+          "emblem": "atreides-hawk"
+        },
+        {
+          "box": [
+            255,
+            17,
+            279,
+            31
+          ],
+          "emblem": "atreides-hawk",
+          "flip": true
+        }
+      ],
+      "strength": 0.95,
+      "cond": 0.4,
+      "soften": 5
+    },
+    "0764b06e480e7c25": {
+      "title": "Sietch cave (room 122)",
+      "status": "kept by the user 2026-10-14: gentler settings + the stalagmite redone as a rock column (RealVisXL; Juggernaut does not fit the sietch)",
+      "strength": 0.85,
+      "cond": 0.6,
+      "soften": 3.0,
+      "parts": [
+        {
+          "box": [
+            126,
+            92,
+            143,
+            131
+          ],
+          "prompt": "a thick pale sandstone rock column rising from the cave floor, part of the rock arch, lit by desert sunlight, rough weathered rock texture, sharp focus",
+          "negative_extra": "person, people, human figure, statue, robot, android, golden figure, body, head, arms, legs",
+          "strength": 0.85,
+          "cond": 0.7,
+          "soften": 2.0,
+          "feather": 6,
+          "margin": 1.3
         }
       ]
     }

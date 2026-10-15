@@ -10,6 +10,10 @@ import json
 import os
 import sys
 
+# This tool's job is to download: a studio job may run it with HF_HUB_OFFLINE=1 set for
+# the generation step that follows (huggingface_hub reads the variable on import).
+os.environ.pop("HF_HUB_OFFLINE", None)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 

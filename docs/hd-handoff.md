@@ -128,6 +128,7 @@ It opens `http://127.0.0.1:8765/` and listens only on 127.0.0.1. Options are rem
 - **`WORK/review/items.json`** (from `dune-hd inventory`). Ids are `head/NAME/fNN`, `room/<key>` and `sprite/RES-PPP`. Each item has `class_key`, `group` (sheet or room file), `kind`, `size`, `palette {source, ok}`, `art_name` (the name `dune-hd build --art` expects), `groups` (head frames), `original`.
 - **Versions** live in `WORK/versions/<id with / as __>/NAME.png`, with an optional `NAME.json` (`label`, `settings`, `default`). The server attaches them; the page reloads when a job finishes.
 - **Generate a new version runs the item's current recipe.** It does **not** read the annotations; with an unchanged recipe it produces nothing new. Annotations are acted on through the loop below.
+- **Try settings** (under Generate; not for recipe heads): the user changes strength, control, guide blur, detail-pass strength, seed or prompt and generates a *try*, a new version labelled with what changed (`hdgen.py batch --override JSON --label …`); the recipe is untouched. When the user approves a try (preferred + approved), fold the settings from its `versions/…/NAME.json` into `recipes/`. Room parts and emblems still apply on top of a try. Rough guide on the palace: 0.95 / control 0.4 / blur 5 invents more (ornate throne, drapes) and keeps the layout; 1.0 / 0.3 / 6 starts to move things (doors became cabinets).
 
 ## 7. The loop: acting on the user's annotations
 
@@ -139,6 +140,7 @@ It opens `http://127.0.0.1:8765/` and listens only on 127.0.0.1. Options are rem
 2. **Look:** open the item's original (`WORK/inventory/src/...`) and its preferred version, and crop around each box.
 3. **Turn annotations into recipes** in `recipes/`, the shipped bundle:
    - **Rooms:** a part box becomes an entry in `rooms.json` `rooms[<key>].parts`: `box` from `px`, `prompt` from the text, `select` (`cool` picks cool-coloured pixels against a warm room), optional `negative_extra`. Problems usually change the room's prompt or settings.
+     - **The look is layered** (`recipes/style.json`, the user's hierarchy, 2026-10-14): **game** (David Lynch's Dune, 1984: retro-futuristic, baroque industrial, not oriental) → **location** (matched on the item's group: `PALACE` is a fortress, `SIET` the Fremen sietch, `HARK` the Harkonnen stronghold) → the **item's own prompt**, which only describes what is there. Each layer is encoded as its own 77-token block (`Pipe.embed`), so long prompts are no longer cut. Change the look at the highest layer that applies, not per room. Parts that should stay plain (a patch of floor) or carry their own look (the guard) set `"style": false`.
      - A person who recurs (guards…) names a **`character`** from `cast.json` instead of carrying its own prompt, so every appearance is the same person. The palace guard is `atreides-guard`: Lynch-film look, one face for all guards (user's choice, 2026-10-14).
      - The same sprite drawn twice (the game mirrors the palace guards) uses **`copy_of`** (+ `flip`): the first part's HD result is reused, boxes of equal size.
      - Per part: `strength`, `cond`, `soften`, `zoom`, `seed`, `margin` (crop height ÷ box height; 1.1 keeps a person large enough in the close-up), `close` (fills a face or hands inside a `cool` outline), `darken` (guide only: e.g. a grey rifle the model would read as a third leg).
@@ -156,7 +158,11 @@ It opens `http://127.0.0.1:8765/` and listens only on 127.0.0.1. Options are rem
    python tools/portraits/generate.py NAME --heads WORK/heads --out WORK/gen/NAME --only fNN --publish WORK
    ```
    Or tell the user to press Generate or Batch in the studio. Run generation with the environment's Python (`%LOCALAPPDATA%\DuneHD\env\Scripts\python.exe`) and `HF_HUB_OFFLINE=1` once the models are downloaded.
-5. **Report back:** which items changed, what was changed in the recipes, and where to look in the studio (the new versions appear there).
+5. **Report back:** which items changed, what was changed in the recipes, and where to look in the studio (the new versions appear there). **Record each box acted on:**
+   ```
+   python tools/studio/resolutions.py WORK ITEM_ID --boxes 1,2|all --version VERSION_ID --note "what was done"
+   ```
+   It writes `review/resolutions.json`, never `review.json` (the open page would overwrite it). The box then shows as *to check* (dashed, "?") until the user confirms or reopens it in the studio; resolved boxes show only on the version they were drawn on, and `review_todo.py` leaves confirmed ones out.
 6. **Packs:** export the approved versions as finished art for `dune-hd build --art DIR`. It needs 4× pictures named by `art_name`, plus a `.json` sidecar `{"dac": …}` when the sprite's colours came from a rule palette (see `--art` in `crates/hdpack/src/main.rs`). Heads and characters wait for the true-colour format.
 
 ## 8. State and open items (2026-10-14)

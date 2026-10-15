@@ -106,6 +106,12 @@ nav .sub button { padding-left: 30px; }
 .job pre { max-height: 140px; overflow: auto; font-size: 10px; background: var(--bg); padding: 6px; border-radius: 4px; margin: 4px 0 0; white-space: pre-wrap; display: none; }
 .job.open pre { display: block; }
 .gen { display: flex; flex-direction: column; gap: 6px; }
+.try summary { cursor: pointer; font-size: 12px; color: var(--dim); margin: 8px 0 4px; }
+.try label { display: grid; grid-template-columns: 74px 1fr 40px; align-items: center; gap: 6px; font-size: 12px; margin: 3px 0; }
+.try label.wide { grid-template-columns: 1fr; }
+.try input[type=range] { width: 100%; }
+.try textarea { min-height: 90px; font-size: 12px; }
+.try .val { text-align: right; font-variant-numeric: tabular-nums; }
 kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; font-size: 11px; }
 </style>
 </head>
@@ -119,7 +125,8 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
   <nav id="list"><div class="tools"><input type="text" id="q" placeholder="Search (name, sheet, note)…"><select id="flt">
     <option value="all">All</option><option value="new">Not reviewed</option><option value="needs-work">Needs work</option>
     <option value="approved">Approved</option><option value="rejected">Rejected</option><option value="versions">With generated versions</option>
-    <option value="boxes">With boxes</option><option value="colours">Colours not certain</option></select><div class="small" id="shown"></div></div><div id="tree"></div></nav>
+    <option value="boxes">With boxes</option><option value="colours">Colours not certain</option></select><div class="small" id="shown"></div>
+    <button class="btn" id="collapseAll" title="Close every node of the list">Collapse all</button></div><div id="tree"></div></nav>
   <main>
     <div class="toolbar">
       <label>Left <select id="selA"></select></label>
@@ -156,10 +163,11 @@ const store = {
 
 let items = [], review = { version: 1, assets: {} }, cur = null;
 let mode = store.get("mode", "side"), tool = "pan", flip = false, split = 0.5;
+if (!["side", "slider", "flip"].includes(mode)) mode = "side";
 let view = { scale: 1, x: 0, y: 0 };          // screen px per image px (of B), and the image's top-left in a pane
 const images = new Map();                      // path → HTMLImageElement
 let filter = { q: "", status: store.get("status", "all") }, open = new Set(store.get("open", [])), gridOn = false;
-let showBoxes = store.get("showBoxes", true);
+let showBoxes = store.get("showBoxes", true), resolutions = { assets: {} };
 let selBox = null, drag = null, saveTimer = null, detailCache = new Map(), needFit = false;
 
 function img(path) {
@@ -172,12 +180,24 @@ function img(path) {
   return images.get(path);
 }
 const sources = (it) => [{ id: "original", label: it.original.label || "original", path: it.original.path }, ...it.versions];
+// A box's state (same rule as tools/studio/resolutions.py): the user's own action wins when
+// newer than the resolution recorded by the tools; a recorded one waits for the user's check.
+function boxState(it, bx) {
+  const c = ((resolutions.assets[it.id] || {}).boxes || {})[bx.id];
+  if (bx.state && (!c || (bx.state_at || "") >= (c.at || ""))) return { state: bx.state, version: bx.resolved_in || (c && c.version), note: bx.resolved_note || (c && c.note) || "" };
+  if (c) return { state: "check", version: c.version, note: c.note || "" };
+  return { state: "open", version: null, note: "" };
+}
+// Resolved boxes show only on the version they were drawn on (dimmed), so later versions look clean.
+const boxShown = (it, bx, vid) => boxState(it, bx).state !== "resolved" || bx.version === vid;
+const versionLabel = (id) => ((cur && sources(cur).find((s) => s.id === id)) || { label: id || "?" }).label;
 const asset = (it) => (review.assets[it.id] ||= { status: "new", preferred: it.default || null, notes: "", boxes: [] });
 
 async function load() {
   const r = await fetch("/api/items").then((r) => r.json());
   items = r.items.items || [];
   review = r.review && r.review.assets ? r.review : { version: 1, assets: {} };
+  resolutions = r.resolutions && r.resolutions.assets ? r.resolutions : { assets: {} };
   $("empty").style.display = items.length ? "none" : "grid";
   $("save").textContent = "saved";
   renderList();
@@ -215,7 +235,11 @@ function grouped() {
   }
   return out;
 }
+function openCount(it, a) { const n = a.boxes.filter((bx) => boxState(it, bx).state !== "resolved").length; return n ? n + "□" : ""; }
 function progress(list) { const ok = list.filter((i) => statusOf(i) === "approved").length; return `${ok}/${list.length}`; }
+function collapseAll() { open.clear(); store.set("open", []); renderList(); }
+// Opens the nodes down to an item (when the user selects it), once: they can be closed again.
+function reveal(it) { open.add(it.class); open.add(it.class + "/" + (it.group || "")); store.set("open", [...open]); }
 function toggleOpen(key) { open.has(key) ? open.delete(key) : open.add(key); store.set("open", [...open]); renderList(); }
 function renderList() {
   const nav = $("tree"), keepScroll = $("list").scrollTop;
@@ -226,7 +250,7 @@ function renderList() {
   for (const [cls, groups] of grouped()) {
     const all = [...groups.values()].flat();
     const h = document.createElement("h2");
-    const openCls = open.has(cls) || filter.q || (cur && cur.class === cls);
+    const openCls = open.has(cls) || filter.q;
     h.innerHTML = `<span>${openCls ? "▾" : "▸"}</span><span></span><span class="prog"></span>`;
     h.children[1].textContent = cls; h.children[2].textContent = progress(all);
     h.onclick = () => toggleOpen(cls);
@@ -236,7 +260,7 @@ function renderList() {
     for (const [g, list] of groups) {
       let box = nav;
       if (many) {
-        const key = cls + "/" + g, openG = open.has(key) || filter.q || (cur && cur.class === cls && cur.group === g);
+        const key = cls + "/" + g, openG = open.has(key) || filter.q;
         const h4 = document.createElement("h4");
         h4.innerHTML = `<span></span><span class="prog"></span>`;
         h4.children[0].textContent = (openG ? "▾ " : "▸ ") + (g || "—"); h4.children[1].textContent = progress(list);
@@ -252,7 +276,7 @@ function renderList() {
         const stt = STATUS.find((x) => x[0] === statusOf(it));
         b.innerHTML = `<span class="dot" style="background:var(${stt[2]})"></span><span></span><span class="count"></span>`;
         b.children[1].textContent = it.title + (it.palette && !it.palette.ok ? " ⚠" : "");
-        b.children[2].textContent = [it.versions.length ? it.versions.length + "v" : "", a && a.boxes.length ? a.boxes.length + "□" : ""].filter(Boolean).join(" ");
+        b.children[2].textContent = [it.versions.length ? it.versions.length + "v" : "", a ? openCount(it, a) : ""].filter(Boolean).join(" ");
         b.onclick = () => { setGrid(false); select(it); };
         box.append(b);
       }
@@ -291,8 +315,9 @@ function setGrid(on) {
   if (on) renderGrid(); else draw();
 }
 
-function select(it) {
+function select(it, show = true) {
   if (!it) return;
+  if (show) reveal(it);
   cur = it; selBox = null; store.set("item", it.id);
   const src = sources(it);
   for (const [sel, which] of [[$("selA"), "A"], [$("selB"), "B"]]) {
@@ -301,7 +326,9 @@ function select(it) {
   }
   const a = asset(it);
   $("selA").value = "original";
-  $("selB").value = a.preferred || it.default || (it.versions[0] && it.versions[0].id) || "original";
+  // Right: the approved version for an approved item, else the newest (versions are oldest first).
+  const latest = it.versions.length ? it.versions[it.versions.length - 1].id : "original";
+  $("selB").value = (a.status === "approved" || a.status === "needs-work") && a.preferred && src.some((s) => s.id === a.preferred) ? a.preferred : latest;
   renderList(); renderSide(); fit();
 }
 
@@ -326,38 +353,63 @@ function renderSide() {
 
   side.append(el("h3", null, "Status"));
   const st = el("div", "status");
+  const shown = $("selB").value, perVersion = (k) => k === "approved" || k === "needs-work";
   for (const [k, label, colour] of STATUS) {
-    const btn = el("button", a.status === k ? "on" : "", label);
-    btn.style.color = a.status === k ? `var(${colour})` : "";
-    btn.onclick = () => { a.status = k; changed(); renderSide(); renderList(); };
+    // A per-version flag lights up only on its version: on another one, the button moves it there.
+    const on = a.status === k && (!perVersion(k) || a.preferred === shown);
+    const btn = el("button", on ? "on" : "", label);
+    btn.style.color = on ? `var(${colour})` : "";
+    btn.title = perVersion(k) ? `Mark the version on the right (${versionLabel(shown)}) as ${label.toLowerCase()}: the only one of this item` : "";
+    btn.onclick = () => {
+      a.status = k;
+      a.preferred = perVersion(k) ? shown : null;
+      changed(); renderSide(); renderList();
+    };
     st.append(btn);
   }
   side.append(st);
+  if (perVersion(a.status)) {
+    const which = el("div", "small");
+    const what = a.status === "approved" ? "Approved (ships in the pack)" : "Needs work (the base to iterate from)";
+    if (!a.preferred) which.textContent = `${what}: no version chosen yet. Show one on the right and click the status again.`;
+    else {
+      which.textContent = `${what}: ${versionLabel(a.preferred)}`;
+      if (a.preferred !== shown) {
+        const go = el("button", "btn", "Show it"); go.style.marginLeft = "6px";
+        go.onclick = () => { $("selB").value = a.preferred; renderSide(); fit(); };
+        which.append(go);
+      }
+    }
+    side.append(which);
+  }
 
   side.append(el("h3", null, "Generate"));
   const gen = el("div", "gen");
   const gb = el("button", "btn primary", "Generate a new version");
   const gm = el("div", "small"); gm.id = "genMsg";
-  const blocked = !sys ? "checking the setup…" : !sys.env.ok ? "Install the generation environment first (Setup)." : !sys.models.every((m) => m.cached) ? "Download the models first (Setup)." : "";
+  const blocked = !sys ? "checking the setup…" : !sys.env.ok ? "Install the generation environment first (Setup)." : !sys.models.every((m) => m.cached || m.optional) ? "Download the models first (Setup)." : "";
   gm.textContent = blocked || (sys ? `Runs on ${sys.hardware.label}, with the item's recipe or its class's defaults; the result appears as a new version (nothing new if the recipe has not changed).` : "");
   gb.disabled = !!blocked; gb.onclick = () => generate(cur);
   gen.append(gb, gm); side.append(gen);
+  side.append(tryPanel(cur, blocked));
 
-  side.append(el("h3", null, "Preferred version"));
-  const pref = el("select");
-  for (const s of cur.versions) { const o = el("option", null, s.label); o.value = s.id; pref.append(o); }
-  pref.value = a.preferred || ""; pref.onchange = () => { a.preferred = pref.value; changed(); };
-  side.append(pref);
 
   side.append(el("h3", null, "Notes"));
   const notes = el("textarea"); notes.value = a.notes || ""; notes.placeholder = "What to change, what works, what to keep…";
   notes.oninput = () => { a.notes = notes.value; changed(); };
   side.append(notes);
 
-  side.append(el("h3", null, `Boxes (${a.boxes.length})`));
+  const states = new Map(a.boxes.map((bx) => [bx, boxState(cur, bx)]));
+  const openBoxes = a.boxes.filter((bx) => states.get(bx).state !== "resolved"), doneBoxes = a.boxes.filter((bx) => states.get(bx).state === "resolved");
+  side.append(el("h3", null, `Boxes (${openBoxes.length} open${doneBoxes.length ? `, ${doneBoxes.length} resolved` : ""})`));
   if (!a.boxes.length) side.append(el("div", "small", "Press B (or the Box tool) and drag on the picture to mark a part to describe, a problem, or an area to keep as the original."));
-  const list = el("div", "boxes");
-  a.boxes.forEach((bx, i) => {
+  const setState = (bx, state) => {
+    bx.state = state; bx.state_at = new Date().toISOString();
+    if (state === "resolved") { const r = states.get(bx); bx.resolved_in = r.version || $("selB").value; if (r.note) bx.resolved_note = r.note; }
+    changed(); renderSide(); renderList(); draw();
+  };
+  const boxRow = (bx, list) => {
+    const i = a.boxes.indexOf(bx), rs = states.get(bx);
     const row = el("div", "boxrow" + (selBox === bx ? " sel" : ""));
     const head = el("div", "head");
     const n = el("span", "n", String(i + 1)); n.style.color = css(KIND_COLOUR[bx.kind]);
@@ -372,12 +424,33 @@ function renderSide() {
     txt.oninput = () => { bx.text = txt.value; changed(); };
     txt.onfocus = () => { selBox = bx; draw(); for (const r of list.children) r.classList.remove("sel"); row.classList.add("sel"); };
     const px = bx.px ? `original px ${bx.px.join(", ")}` : "";
-    row.append(head, txt, el("div", "small", px));
+    row.append(head, txt, el("div", "small", [px, bx.version ? "drawn on " + versionLabel(bx.version) : ""].filter(Boolean).join(" · ")));
+    const act = el("div", "head");
+    const btn = (label, title, fn) => { const b = el("button", null, label); b.title = title; b.onclick = fn; act.append(b); };
+    if (rs.state === "check") {
+      row.append(el("div", "small", `Resolved in ${versionLabel(rs.version)}${rs.note ? ": " + rs.note : ""}. Check it there.`));
+      btn("Confirm", "The fix works: mark resolved", () => setState(bx, "resolved"));
+      btn("Reopen", "Not fixed yet", () => setState(bx, "open"));
+    } else if (rs.state === "resolved") {
+      row.append(el("div", "small", `✓ Resolved in ${versionLabel(rs.version)}${rs.note ? ": " + rs.note : ""}`));
+      btn("Reopen", "The problem is back", () => setState(bx, "open"));
+    } else {
+      btn("Resolve", "Fixed in the version shown on the right", () => setState(bx, "resolved"));
+    }
+    row.append(act);
     row.onclick = (e) => { if (e.target === row) { selBox = bx; draw(); renderSide(); } };
     list.append(row);
     if (selBox === bx && bx._focus) { delete bx._focus; setTimeout(() => txt.focus(), 0); }
-  });
+  };
+  const list = el("div", "boxes");
+  openBoxes.forEach((bx) => boxRow(bx, list));
   side.append(list);
+  if (doneBoxes.length) {
+    const det = el("details"), done = el("div", "boxes");
+    det.append(el("summary", "small", `Resolved (${doneBoxes.length})`), done);
+    doneBoxes.forEach((bx) => boxRow(bx, done));
+    side.append(det);
+  }
 }
 
 function changed() {
@@ -432,20 +505,23 @@ function caption(text, x) {
   ctx.save(); ctx.font = "12px system-ui"; const w = ctx.measureText(text).width + 14;
   ctx.fillStyle = "#000a"; ctx.fillRect(x + 8, 8, w, 20); ctx.fillStyle = "#fff"; ctx.fillText(text, x + 15, 22); ctx.restore();
 }
-function drawBoxes(pane) {
+function drawBoxes(pane, vid) {
   if (!showBoxes && !(drag && drag.box)) return;
   const [bw, bh] = baseSize(), a = asset(cur);
   if (!showBoxes) return drawBoxesOf(pane, bw, bh, a, [drag.box]);
-  drawBoxesOf(pane, bw, bh, a, drag && drag.box ? [...a.boxes, drag.box] : a.boxes);
+  const shown = a.boxes.filter((bx) => boxShown(cur, bx, vid));
+  drawBoxesOf(pane, bw, bh, a, drag && drag.box ? [...shown, drag.box] : shown);
 }
 function drawBoxesOf(pane, bw, bh, a, all) {
   ctx.save(); ctx.beginPath(); ctx.rect(pane.x, 0, pane.w, pane.h); ctx.clip();
   all.forEach((bx) => {
     const x = pane.x + view.x + bx.x * bw * view.scale, y = view.y + bx.y * bh * view.scale, w = bx.w * bw * view.scale, h = bx.h * bh * view.scale;
+    const n = a.boxes.indexOf(bx), st = n >= 0 ? boxState(cur, bx).state : "open";
+    ctx.globalAlpha = st === "resolved" ? 0.45 : 1;
     ctx.strokeStyle = css(KIND_COLOUR[bx.kind] || "--box-note"); ctx.lineWidth = selBox === bx ? 3 : 1.5;
-    ctx.setLineDash(bx.kind === "keep" ? [6, 4] : []); ctx.strokeRect(x, y, w, h);
-    const n = a.boxes.indexOf(bx);
-    if (n >= 0) { ctx.fillStyle = ctx.strokeStyle; ctx.font = "bold 12px system-ui"; ctx.fillText(String(n + 1), x + 3, y + 13); }
+    ctx.setLineDash(st === "check" ? [3, 3] : bx.kind === "keep" ? [6, 4] : []); ctx.strokeRect(x, y, w, h);
+    if (n >= 0) { ctx.fillStyle = ctx.strokeStyle; ctx.font = "bold 12px system-ui"; ctx.fillText(String(n + 1) + ({ check: " ?", resolved: " ✓" }[st] || ""), x + 3, y + 13); }
+    ctx.globalAlpha = 1;
   });
   ctx.restore();
 }
@@ -456,18 +532,18 @@ function draw() {
   if (!cur) return;
   const A = srcOf($("selA")), B = srcOf($("selB")), ps = panes();
   if (mode === "side") {
-    drawImage(A, ps[0]); drawImage(B, ps[1]); drawBoxes(ps[0]); drawBoxes(ps[1]);
+    drawImage(A, ps[0]); drawImage(B, ps[1]); drawBoxes(ps[0], A.id); drawBoxes(ps[1], B.id);
     ctx.fillStyle = css("--line"); ctx.fillRect(ps[0].w, 0, 2, ps[0].h);
     caption(A.label, ps[0].x); caption(B.label, ps[1].x);
   } else if (mode === "slider") {
     const p = ps[0], sx = split * p.w;
-    drawImage(B, p); drawImage(A, p, sx); drawBoxes(p);
+    drawImage(B, p); drawImage(A, p, sx); drawBoxes(p, B.id);
     ctx.fillStyle = css("--accent"); ctx.fillRect(sx - 1, 0, 2, p.h);
     caption(A.label, 0); caption(B.label, Math.max(sx, 0));
   } else if (mode === "flip") {
-    const S = flip ? A : B; drawImage(S, ps[0]); drawBoxes(ps[0]); caption(S.label + "   (Space to flip)", 0);
+    const S = flip ? A : B; drawImage(S, ps[0]); drawBoxes(ps[0], S.id); caption(S.label + "   (Space to flip)", 0);
   } else {
-    drawImage(B, ps[0]); drawDetail(A, B, ps[0]); drawBoxes(ps[0]); caption("Detail map: where " + B.label + " adds fine detail", 0);
+    drawImage(B, ps[0]); drawDetail(A, B, ps[0]); drawBoxes(ps[0], B.id); caption("Detail map: where " + B.label + " adds fine detail", 0);
   }
 }
 
@@ -519,12 +595,14 @@ function toImage(e) {
   const r = cv.getBoundingClientRect(), [bw, bh] = baseSize();
   let px = e.clientX - r.left, py = e.clientY - r.top;
   const ps = panes(), pane = ps.find((p) => px >= p.x && px < p.x + p.w) || ps[0];
-  return { sx: px - pane.x, sy: py, ix: (px - pane.x - view.x) / (bw * view.scale), iy: (py - view.y) / (bh * view.scale) };
+  const A = srcOf($("selA")), B = srcOf($("selB"));
+  const vid = mode === "side" ? (ps.indexOf(pane) === 0 ? A : B).id : mode === "flip" ? (flip ? A : B).id : B.id;
+  return { vid, sx: px - pane.x, sy: py, ix: (px - pane.x - view.x) / (bw * view.scale), iy: (py - view.y) / (bh * view.scale) };
 }
 function hitBox(p) {
   if (!showBoxes) return null;
   const a = asset(cur);
-  for (let i = a.boxes.length - 1; i >= 0; i--) { const b = a.boxes[i]; if (p.ix >= b.x && p.ix <= b.x + b.w && p.iy >= b.y && p.iy <= b.y + b.h) return b; }
+  for (let i = a.boxes.length - 1; i >= 0; i--) { const b = a.boxes[i]; if (boxShown(cur, b, p.vid) && p.ix >= b.x && p.ix <= b.x + b.w && p.iy >= b.y && p.iy <= b.y + b.h) return b; }
   return null;
 }
 cv.addEventListener("pointerdown", (e) => {
@@ -607,7 +685,7 @@ async function api(path, body) {
 async function loadSystem() {
   sys = await api("/api/system");
   const hw = $("hw"); hw.textContent = sys.hardware.label; hw.className = "pill" + (sys.hardware.kind !== "cpu" ? " gpu" : "");
-  const ready = sys.env.ok && sys.models.every((m) => m.cached);
+  const ready = sys.env.ok && sys.models.every((m) => m.cached || m.optional);
   $("setupBtn").innerHTML = "Setup" + (ready ? "" : ' <span class="badge">!</span>');
   if ($("setup").classList.contains("on")) renderSetup();
   if (cur) renderSide();
@@ -620,14 +698,14 @@ function renderSetup() {
   const envDetail = env.checking ? "checking…" : env.ok
     ? `Python ${env.python}, PyTorch ${env.torch}, diffusers ${env.diffusers}\n${env.cuda ? "uses the NVIDIA GPU: " + env.cuda_device : env.mps ? "uses the Apple GPU" : "CPU only"}\n${env.path}`
     : `${env.error || "not installed"}\nWill install PyTorch for: ${sys.hardware.label} (about ${d.env_gb} GB) in\n${env.path}`;
-  const missing = sys.models.filter((m) => !m.cached);
+  const missing = sys.models.filter((m) => !m.cached && !m.optional);
   c.innerHTML = `<h2>Setup</h2><div class="d" style="color:var(--dim)">Everything stays on this computer. Free disk space: ${d.free_gb} GB.</div>
     ${row(sys.dat_ok, "Game files", sys.dat || "start the studio with --dat path/to/DUNE.DAT")}
     ${row(sys.dune_hd_ok, "dune-hd", sys.dune_hd || "start the studio with --dune-hd path/to/dune-hd (cargo build --release)")}
     ${row(sys.hardware.kind !== "cpu", "Graphics card", sys.hardware.label + (sys.hardware.kind === "nvidia" ? `\ndriver ${sys.hardware.gpus[0].driver}; only the driver is needed (PyTorch brings CUDA)` : sys.hardware.kind === "cpu" ? "\nGeneration works but takes hours per picture." : ""))}
     ${row(env.checking ? null : env.ok, "Generation environment", envDetail,
       `<button class="btn ${env.ok ? "" : "primary"}" id="envBtn" ${busy("Install the generation environment") ? "disabled" : ""}>${env.ok ? "Reinstall" : "Install"}</button>`)}
-    ${row(missing.length === 0, "Models", sys.models.map((m) => `${m.cached ? "✓" : "·"} ${m.repo} (${m.size_gb} GB) — ${m.role}`).join("\n") + `\ncache: ${d.hf_cache}`,
+    ${row(missing.length === 0, "Models", sys.models.map((m) => `${m.cached ? "✓" : "·"} ${m.repo} (${m.size_gb} GB) — ${m.role}${m.optional ? " (optional: downloaded by a try that uses it)" : ""}`).join("\n") + `\ncache: ${d.hf_cache}`,
       missing.length ? `<button class="btn primary" id="modelsBtn" ${!env.ok || busy("Download the models") ? "disabled" : ""}>Download ${d.models_gb} GB</button>` : "")}
     <div style="text-align:right;margin-top:10px"><button class="btn" id="closeSetup">Close</button></div>`;
   $("closeSetup").onclick = () => $("setup").classList.remove("on");
@@ -674,9 +752,91 @@ async function pollJobs() {
 async function reloadItems() {
   const r = await api("/api/items");
   const id = cur && cur.id;
+  const before = cur ? cur.versions.length : 0;
   items = r.items.items || [];
+  resolutions = r.resolutions && r.resolutions.assets ? r.resolutions : resolutions;
   cur = items.find((i) => i.id === id) || cur;
-  renderList(); if (cur) { const keepB = $("selB").value; select(cur); if ([...$("selB").options].some((o) => o.value === keepB)) $("selB").value = keepB; }
+  // A new version of the item on screen (a finished try or generation) is shown on the right.
+  renderList(); if (cur) { const keepB = $("selB").value; select(cur, false); if (cur.versions.length === before && [...$("selB").options].some((o) => o.value === keepB)) $("selB").value = keepB; }
+}
+// ---------- try settings ----------
+// Generate a version with other settings than the recipe's, without changing the recipe.
+// A try the user approves (preferred + approved) is folded into recipes/ by Claude: each
+// version's .json keeps its settings.
+const TRY_FIELDS = [
+  ["strength", "Strength", 0.3, 1, 0.01, "How much the model may repaint: higher invents more"],
+  ["cond", "Control", 0, 1, 0.05, "How tightly it follows the pixel art's layout: lower is freer"],
+  ["soften", "Guide blur", 0, 10, 0.5, "Blur of the pixel art it starts from: more blur leaves more to invent"],
+  ["detail", "Detail pass", 0, 0.7, 0.05, "Strength of the final detail pass over the whole picture (0: off)"],
+];
+const tryState = new Map();  // item id -> {base, values, open}
+function tryPanel(it, blocked) {
+  const det = document.createElement("details"); det.className = "try";
+  const sum = document.createElement("summary"); sum.textContent = "Try settings…"; det.append(sum);
+  const body = document.createElement("div"); det.append(body);
+  const t = tryState.get(it.id) || {}; tryState.set(it.id, t);
+  det.open = !!t.open;
+  det.ontoggle = () => { t.open = det.open; if (det.open) fill(); };
+  async function fill() {
+    if (!t.base) {
+      body.innerHTML = '<div class="small">Reading the recipe…</div>';
+      try { t.base = await api("/api/recipe?id=" + encodeURIComponent(it.id)); }
+      catch (e) { body.innerHTML = ""; body.append(Object.assign(document.createElement("div"), { className: "small warn", textContent: "⚠ " + e.message })); return; }
+      const b = t.base.settings;
+      t.values = { prompt: b.prompt || "", strength: b.strength, cond: b.cond, soften: b.soften, seed: b.seed, detail: b.detail ? b.detail.strength : 0, model: b.model };
+    }
+    body.innerHTML = "";
+    const v = t.values, b = t.base.settings;
+    body.append(Object.assign(document.createElement("div"), { className: "small", textContent: `Starts from ${t.base.source}${t.base.parts ? ` (${t.base.parts} parts are kept)` : ""}. The recipe is not changed: a try is a new version.` }));
+    for (const [k, label, lo, hi, step, help] of TRY_FIELDS) {
+      if (k !== "detail" && b[k] === undefined) continue;
+      if (k === "detail" && t.base.method === "recipe-head") continue;  // heads have no detail pass
+      const row = document.createElement("label"); row.title = help;
+      const r = Object.assign(document.createElement("input"), { type: "range", min: lo, max: hi, step, value: v[k] ?? 0 });
+      const out = Object.assign(document.createElement("span"), { className: "val", textContent: Number(v[k] ?? 0).toFixed(2) });
+      r.oninput = () => { v[k] = Number(r.value); out.textContent = Number(r.value).toFixed(2); out.style.fontWeight = v[k] !== (k === "detail" ? (b.detail ? b.detail.strength : 0) : b[k]) ? "700" : ""; };
+      row.append(Object.assign(document.createElement("span"), { textContent: label }), r, out); body.append(row);
+    }
+    if ((t.base.models || []).length > 1) {
+      const mr = document.createElement("label"); mr.title = "The base model: everything else stays the same, so tries compare models";
+      const sel = document.createElement("select"); sel.style.gridColumn = "2 / span 2";
+      for (const m of t.base.models) {
+        const cached = sys && (sys.models.find((x) => x.id === m.id) || {}).cached;
+        const o = Object.assign(document.createElement("option"), { value: m.id, textContent: m.label + (cached === false ? " — downloads first (~7 GB)" : "") });
+        sel.append(o);
+      }
+      sel.value = v.model || ""; sel.onchange = () => { v.model = sel.value; };
+      mr.append(Object.assign(document.createElement("span"), { textContent: "Model" }), sel); body.append(mr);
+    }
+    const seedRow = document.createElement("label"); seedRow.title = "Another seed gives another picture with the same settings";
+    const seed = Object.assign(document.createElement("input"), { type: "number", value: v.seed, style: "width:100%" });
+    seed.oninput = () => { v.seed = Number(seed.value); };
+    const dice = Object.assign(document.createElement("button"), { textContent: "🎲", title: "Random seed" });
+    dice.onclick = () => { v.seed = Math.floor(Math.random() * 100000); seed.value = v.seed; };
+    seedRow.append(Object.assign(document.createElement("span"), { textContent: "Seed" }), seed, dice); body.append(seedRow);
+    const pr = document.createElement("label"); pr.className = "wide";
+    const ta = Object.assign(document.createElement("textarea"), { value: v.prompt });
+    ta.oninput = () => { v.prompt = ta.value; };
+    pr.append(Object.assign(document.createElement("span"), { textContent: t.base.method === "recipe-head" ? "Description of the character" : "Prompt (this item's own words; the game and location style are added)" }), ta); body.append(pr);
+    const go = Object.assign(document.createElement("button"), { className: "btn primary", textContent: "Generate a try", disabled: !!blocked });
+    const reset = Object.assign(document.createElement("button"), { className: "btn", textContent: "Back to the recipe" });
+    reset.onclick = () => { t.base = null; fill(); };
+    const msg = Object.assign(document.createElement("div"), { className: "small" });
+    go.onclick = async () => {
+      const o = {};
+      for (const k of ["strength", "cond", "soften", "seed", "model"]) if (v[k] !== b[k] && v[k] !== undefined) o[k] = v[k];
+      if (v.prompt.trim() !== (b.prompt || "").trim()) o.prompt = v.prompt.trim();
+      const d0 = b.detail ? b.detail.strength : 0;
+      if (v.detail !== d0) o.detail = v.detail > 0 ? { ...(b.detail || { scale: 3, cond: 0.6, tile: 1024, overlap: 256 }), strength: v.detail } : null;
+      if (!Object.keys(o).length) { msg.textContent = "Change a setting first: with the recipe's settings, use Generate a new version."; return; }
+      try { await api("/api/generate", { item: it.id, override: o }); msg.textContent = "Queued: the try appears as a new version (latest, on the right)."; showJobs(true); pollJobs(); }
+      catch (e) { msg.textContent = "⚠ " + e.message; }
+    };
+    const btns = Object.assign(document.createElement("div"), { style: "display:flex;gap:6px;margin-top:6px" });
+    btns.append(go, reset); body.append(btns, msg);
+  }
+  if (det.open) fill();
+  return det;
 }
 async function generate(it) {
   try { await api("/api/generate", { item: it.id }); showJobs(true); pollJobs(); }
@@ -697,7 +857,7 @@ async function planBatch() {
 }
 function renderBatch() {
   const c = $("batchCard"), p = batchState.plan, nVis = items.filter(visible).length;
-  const ready = sys && sys.env.ok && sys.models.every((m) => m.cached);
+  const ready = sys && sys.env.ok && sys.models.every((m) => m.cached || m.optional);
   let summary = "";
   if (p === "…") summary = "Counting…";
   else if (p && p.error) summary = `<span class="warn">⚠ ${p.error}</span>`;
@@ -734,6 +894,7 @@ $("jobsBtn").onclick = () => showJobs(!$("jobs").classList.contains("on"));
 loadSystem().catch(() => { $("hw").textContent = "server offline"; });
 api("/api/jobs").then((l) => { for (const j of l) if (j.status !== "running" && j.status !== "queued") knownDone.add(j.id); jobList = l; renderJobs(); pollJobs(); }).catch(() => {});
 $("q").value = filter.q; $("flt").value = filter.status;
+$("collapseAll").onclick = collapseAll;
 $("q").oninput = () => { filter.q = $("q").value; renderList(); };
 $("flt").onchange = () => { filter.status = $("flt").value; store.set("status", filter.status); renderList(); };
 setMode(mode); setTool("pan"); setGrid(false);

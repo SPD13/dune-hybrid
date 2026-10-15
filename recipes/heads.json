@@ -14,7 +14,7 @@
   },
   "characters": {
     "LETO": {
-      "status": "approved 2026-10-13 (clean-shaven rerender)",
+      "status": "approved 2026-10-13 (clean-shaven rerender); emblem from the vector master 2026-10-14 (in review)",
       "description": "a stern middle-aged clean-shaven nobleman, dark slicked-back hair with a widow's peak, strong jaw, deep-set grey eyes, black military uniform with red piping and a silver clasp",
       "clean_shaven": true,
       "variants": {
@@ -28,7 +28,18 @@
           "kind": "mouth open",
           "note": "approved without a talking prompt; Stilgar's 'mouth open, speaking, teeth visible' may open it more (untested)"
         }
-      }
+      },
+      "emblems": [
+        {
+          "box": [
+            29,
+            106,
+            51,
+            117
+          ],
+          "emblem": "atreides-hawk"
+        }
+      ]
     },
     "STIL": {
       "status": "draft 2026-10-14: v04 good; v02 and v07 underplayed without the talking prompt, overplayed with it",

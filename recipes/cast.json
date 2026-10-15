@@ -1,17 +1,19 @@
 {
-  "_doc": "Recurring characters drawn in rooms and scenes (not the talking heads: heads.json). A room or scene part names one with \"character\" and takes its prompt, negatives, seed and settings; the part's own keys win. One description and one seed per character keep it the same person everywhere.",
+  "_doc": "Recurring characters drawn in rooms and scenes (not the talking heads: heads.json). A room or scene part names one with \"character\" and takes its prompt, negatives, seed and settings; the part's own keys win. One description and one seed per character keep it the same person everywhere. context: false draws the character from the pixel art alone, not over the room's rendering, so the room's settings do not change him.",
   "characters": {
     "atreides-guard": {
       "title": "Atreides palace guard",
-      "status": "approved 2026-10-14",
-      "prompt": "1980s science fiction film still, full body of a male Atreides house guard at attention, rugged clean-shaven man, square jaw, smooth steel dome helmet, retro-futuristic grey-blue padded uniform, black leather harness, one hand on his belt, other hand holding a long black lasgun standing on the floor beside his leg, sharp focus",
+      "status": "approved 2026-10-14; pose as in the original 2026-10-14: hand on the muzzle, stock on the floor (in review)",
+      "prompt": "1980s science fiction film still, full body of a male Atreides house guard standing at attention, rugged clean-shaven man, steel dome helmet, grey-blue padded uniform, black leather harness, one hand on his belt, his other hand resting on the muzzle of a long steel rifle standing upright beside his leg, rifle stock on the floor",
       "negative_extra": "three legs, three boots, extra leg, pistol, gun in both hands, woman, moustache, beard, epaulettes, medals, peaked cap, victorian, world war, historical uniform, vintage photograph, sword, cane, robe, cloak, blurry face",
       "select": "cool",
       "close": 7,
       "strength": 0.9,
       "cond": 0.45,
       "margin": 1.1,
-      "seed": 1999
+      "seed": 2004,
+      "context": false,
+      "style": false
     }
   }
 }

@@ -1,0 +1,34 @@
+{
+  "_doc": "The look, in layers, from general to specific: game (every generation), then the location an item belongs to (matched on its group: the room file or sheet), then the item's own recipe prompt. Each layer is read as its own block of up to 77 CLIP tokens, so none pushes another out. Negatives add up the same way. A recipe or part opts out with \"style\": false (characters whose own description carries the look). Aligned with David Lynch's Dune (1984): retro-futuristic, baroque industrial, not oriental. Emblems are not described here: they come from vector masters (emblem parts), drawn after generation.",
+  "status": "in review 2026-10-14",
+  "game": {
+    "prompt": "film still from David Lynch's Dune (1984), retro-futuristic science fiction production design, baroque industrial forms, dark bronze, brass and riveted metal, heavy machinery details, dim amber light, smoky atmosphere",
+    "negative": "oriental, arabesque, moorish, islamic, mosque, medieval, fantasy, ancient temple, modern, minimalist"
+  },
+  "locations": {
+    "palace": {
+      "title": "Arrakeen palace, House Atreides",
+      "groups": [
+        "PALACE"
+      ],
+      "prompt": "the Arrakeen palace, a desert fortress of House Atreides: massive thick walls of stone and dark metal, monumental austere military halls, heavy riveted bronze doors, green and black Atreides colours",
+      "negative": "luxury palace, gilded rococo, lace"
+    },
+    "sietch": {
+      "title": "Fremen sietch",
+      "groups": [
+        "SIET"
+      ],
+      "prompt": "a Fremen sietch hidden deep in the desert rock: raw sandstone caves and tunnels, rough hewn walls, water-discipline machinery, stillsuit gear, dim lamps",
+      "negative": "metal walls, polished floor, palace, luxury"
+    },
+    "harkonnen": {
+      "title": "Harkonnen stronghold",
+      "groups": [
+        "HARK"
+      ],
+      "prompt": "a Harkonnen stronghold: black oily steel, brutal industrial machinery, pipes and pressure valves, harsh sickly light, grim and oppressive",
+      "negative": "warm, cosy, wood, plants, green banners"
+    }
+  }
+}

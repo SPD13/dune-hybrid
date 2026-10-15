@@ -7,6 +7,8 @@
 //!     dune-hd inventory --dat path/to/DUNE.DAT --work WORK [--recipes recipes]
 //!         [--rooms DIR] [--trace FILE]   # every asset as a review unit for the
 //!         studio (tools/studio): WORK/review/items.json, originals in true colours
+//!     dune-hd svg IN.svg OUT.png --width N   # renders a vector emblem (recipes) to
+//!         a transparent PNG N pixels wide, for the generation tools
 //!
 //! Options for `build`:
 //!   --work DIR             cache and intermediate files (default: work)
@@ -180,6 +182,13 @@ fn parse() -> Result<Args, String> {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("svg") {
+        if let Err(e) = svg_command() {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let args = match parse() {
         Ok(a) => a,
         Err(e) => {
@@ -191,6 +200,27 @@ fn main() {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
+}
+
+/// `dune-hd svg IN.svg OUT.png --width N`: a vector emblem as a transparent PNG.
+fn svg_command() -> std::io::Result<()> {
+    let a: Vec<String> = std::env::args().skip(2).collect();
+    let usage = || std::io::Error::other("usage: dune-hd svg IN.svg OUT.png --width N");
+    let (src, out) = (a.first().ok_or_else(usage)?, a.get(1).ok_or_else(usage)?);
+    let width: u32 = match a.iter().position(|x| x == "--width") {
+        Some(i) => a.get(i + 1).and_then(|w| w.parse().ok()).ok_or_else(usage)?,
+        None => return Err(usage()),
+    };
+    let tree = resvg::usvg::Tree::from_data(&std::fs::read(src)?, &resvg::usvg::Options::default())
+        .map_err(|e| std::io::Error::other(format!("{src}: {e}")))?;
+    let size = tree.size();
+    let height = (size.height() * width as f32 / size.width()).round().max(1.0) as u32;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height).ok_or_else(usage)?;
+    let scale = width as f32 / size.width();
+    resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    // tiny-skia keeps premultiplied alpha; PNG wants straight alpha.
+    let px: Vec<[u8; 4]> = pixmap.pixels().iter().map(|p| { let c = p.demultiply(); [c.red(), c.green(), c.blue(), c.alpha()] }).collect();
+    std::fs::write(out, encode_png(&Texels { w: width as usize, h: height as usize, px, quality: 1.0, drift: 0.0 }))
 }
 
 fn run(args: &Args) -> std::io::Result<()> {
