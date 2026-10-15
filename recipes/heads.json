@@ -14,19 +14,22 @@
   },
   "characters": {
     "LETO": {
-      "status": "approved 2026-10-13 (clean-shaven rerender); emblem from the vector master 2026-10-14 (in review)",
+      "status": "approved 2026-10-13 (clean-shaven, Mac); Juggernaut XL + vector emblem chosen 2026-10-14 (finer detail)",
       "description": "a stern middle-aged clean-shaven nobleman, dark slicked-back hair with a widow's peak, strong jaw, deep-set grey eyes, black military uniform with red piping and a silver clasp",
       "clean_shaven": true,
       "variants": {
-        "v03": {
-          "kind": "mouth parted"
-        },
-        "v11": {
-          "kind": "smirk"
+        "v22": {
+          "kind": "mouth, lip-sync 1"
         },
         "v34": {
-          "kind": "mouth open",
-          "note": "approved without a talking prompt; Stilgar's 'mouth open, speaking, teeth visible' may open it more (untested)"
+          "kind": "mouth, lip-sync 2",
+          "var_prompt": "mouth open, natural skin-toned lips, small white teeth",
+          "negative": "lipstick, red lips, glossy lips, large teeth, yellow teeth"
+        },
+        "v35": {
+          "kind": "mouth, lip-sync 3",
+          "var_prompt": "mouth open, natural skin-toned lips, small white teeth",
+          "negative": "lipstick, red lips, glossy lips, large teeth, yellow teeth"
         }
       },
       "emblems": [
@@ -39,7 +42,11 @@
           ],
           "emblem": "atreides-hawk"
         }
-      ]
+      ],
+      "settings": {
+        "model": "RunDiffusion/Juggernaut-XL-v9"
+      },
+      "_variants_doc": "The game's lip-sync table for LETO is groups 22, 34, 35 (v22 is the rest face). Both open mouths share one prompt and negative so the teeth match (2026-10-14)."
     },
     "STIL": {
       "status": "draft 2026-10-14: v04 good; v02 and v07 underplayed without the talking prompt, overplayed with it",

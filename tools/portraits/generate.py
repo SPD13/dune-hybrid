@@ -68,6 +68,20 @@ def diff_mask(low, vlow, size):
     return Image.fromarray(np.minimum(np.asarray(m, dtype=np.float32) * 2.5, 255).astype(np.uint8))
 
 
+def match_colours(full, base, mask):
+    """The variant's render with the base's colour statistics where it will be blended in:
+    another prompt (a mouth's) can shift the skin tone, which would flicker when talking."""
+    m = np.asarray(mask, dtype=np.float32)[..., None] / 255
+    a, b = np.asarray(full, dtype=np.float32), np.asarray(base, dtype=np.float32)
+    w = m.sum()
+    if w < 1:
+        return full
+    ma, mb = (a * m).sum((0, 1)) / w, (b * m).sum((0, 1)) / w
+    sa = np.sqrt((((a - ma) ** 2) * m).sum((0, 1)) / w) + 1e-3
+    sb = np.sqrt((((b - mb) ** 2) * m).sum((0, 1)) / w)
+    return Image.fromarray(np.clip((a - ma) / sa * sb + mb, 0, 255).astype(np.uint8))
+
+
 def shrink_error(out, low, mask):
     """Mean RGB distance between the result shrunk back and the original (face pixels)."""
     small = np.asarray(out.resize(low.size, Image.BOX), dtype=np.float32)
@@ -114,14 +128,19 @@ def with_emblems(im, original, emblems):
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
 
 
-def prompts(ch, var_prompt=None):
-    """(prompt, negative prompt) for a character's frame."""
+def prompts(ch, var_prompt=None, variant=False, var_negative=None):
+    """(prompt, negative prompt) for a character's frame; variant_negative only for the
+    variants (mouths...), so it never changes the approved default frame."""
     prompt = TEMPLATE.format(ch["description"])
     negative = NEGATIVE
     if ch.get("clean_shaven"):
         negative = f"{FACIAL_HAIR}, {negative}"  # shadow above an open mouth reads as a moustache
     if ch.get("negative"):
         negative = f"{ch['negative']}, {negative}"
+    if variant and ch.get("variant_negative"):
+        negative = f"{ch['variant_negative']}, {negative}"
+    if var_negative:  # the variant's own (e.g. no bared teeth on an open mouth)
+        negative = f"{var_negative}, {negative}"
     if var_prompt:
         prompt = f"{var_prompt}, {prompt}"  # first: CLIP keeps 77 tokens
     return prompt, negative
@@ -145,7 +164,7 @@ class Renderer:
         pipe = StableDiffusionXLControlNetImg2ImgPipeline.from_pretrained(st["model"], controlnet=control, vae=vae,
                                                                           torch_dtype=dt, variant="fp16")
         device.configure(pipe, dev)
-        self.pipe, self.torch = pipe, torch
+        self.pipe, self.torch, self.dtype, self.inpaint = pipe, torch, dt, None
         print(f"model loaded in {time.time() - t0:.0f}s", flush=True)
 
     def __call__(self, low, prompt, negative, st):
@@ -156,6 +175,104 @@ class Renderer:
         return self.pipe(prompt, negative_prompt=negative, image=guide, control_image=guide, strength=st["strength"],
                          num_inference_steps=st["steps"], controlnet_conditioning_scale=st["cond"],
                          guidance_scale=st["guidance"], generator=g).images[0]
+
+
+def mouth_pass(render, im, low, vfull, mp, st, ch):
+    """Redo the inside of an open mouth: the dark interior the pixel art draws (no teeth,
+    no gums) painted in, then only the mouth repainted by the model in a close-up, guided
+    by it (SDXL ControlNet inpainting, sharing the loaded model), pasted back softly."""
+    import cv2
+    from diffusers import StableDiffusionXLControlNetInpaintPipeline
+    if render.pipe is None:
+        render.load(st)
+    if render.inpaint is None:
+        render.inpaint = StableDiffusionXLControlNetInpaintPipeline.from_pipe(render.pipe, torch_dtype=render.dtype)
+    a, b = np.asarray(low).astype(np.int16), np.asarray(vfull).astype(np.int16)
+    lum = b @ np.array([0.3, 0.59, 0.11])
+    inside = ((np.abs(b - a).sum(-1) > 0) & (lum < mp.get("dark", 45))).astype(np.uint8)
+    # The mouth is the largest dark patch; the others are the jaw's and chin's shadows
+    # (picked before closing the patch's holes: closing would join them).
+    # The mouth is the largest dark patch; the others are the jaw's and chin's shadows
+    # (picked before closing the patch's holes: closing would join them).
+    # whole: every patch on the mouth's rows (the opening can be split by lighter pixels):
+    # it sizes the close-up and bounds the fill.
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(inside, connectivity=4)
+    whole = inside.copy()
+    if n > 1:
+        b = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        top, h = stats[b, cv2.CC_STAT_TOP], stats[b, cv2.CC_STAT_HEIGHT]
+        keep = [i for i in range(1, n) if i == b or min(top + h, stats[i, 1] + stats[i, 3]) - max(top, stats[i, 1]) >= 0.5 * stats[i, 3]]
+        whole = np.isin(lab, keep).astype(np.uint8)
+        inside = (lab == b).astype(np.uint8)
+    inside = cv2.morphologyEx(inside, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    ys, xs = np.nonzero(whole)
+    if not len(ys):
+        return im
+    s = im.width / low.width
+    pad = mp.get("pad", 6)  # low-res pixels around the interior: the lips
+    x0, y0 = max(0, xs.min() - pad), max(0, ys.min() - pad)
+    x1, y1 = min(low.width, xs.max() + 1 + pad), min(low.height, ys.max() + 1 + pad)
+    X0, Y0, X1, Y1 = (round(v * s) for v in (x0, y0, x1, y1))
+    zoom = 1024 / max(X1 - X0, Y1 - Y0)
+    gw, gh = int((X1 - X0) * zoom) // 8 * 8, int((Y1 - Y0) * zoom) // 8 * 8
+    big = lambda m, blur: cv2.GaussianBlur(cv2.resize(m.astype(np.float32), (im.width, im.height), interpolation=cv2.INTER_LINEAR), (0, 0), blur)
+    dark = np.clip(big(inside, s * 0.5), 0, 1)[Y0:Y1, X0:X1, None]
+    grow = cv2.dilate(inside, np.ones((3, 3), np.uint8), iterations=mp.get("grow", 1))
+    redo = np.clip(big(grow, s * 0.8) * 1.5, 0, 1)[Y0:Y1, X0:X1]
+    crop = np.asarray(im, dtype=np.float32)[Y0:Y1, X0:X1]
+    colour = np.array(mp.get("colour", [34, 12, 8]), np.float32)
+    painted = crop * (1 - dark) + colour * dark
+    guide = Image.fromarray(np.clip(painted, 0, 255).astype(np.uint8)).resize((gw, gh), Image.LANCZOS)
+    mask = Image.fromarray((redo * 255).astype(np.uint8)).resize((gw, gh), Image.BILINEAR)
+    prompt, negative = prompts(ch, mp.get("prompt", "close-up of a man's lips parted while speaking, dark shadow inside the mouth"))
+    negative = f"{mp.get('negative', 'teeth, gums, tongue, dentures, lipstick')}, {negative}"
+    g = render.torch.Generator("cpu").manual_seed(st["seed"])
+    out = render.inpaint(prompt, negative_prompt=negative, image=guide, mask_image=mask, control_image=guide, width=gw, height=gh,
+                         strength=mp.get("strength", 0.6), num_inference_steps=st["steps"], guidance_scale=st["guidance"],
+                         controlnet_conditioning_scale=mp.get("cond", 0.6), generator=g).images[0]
+    rep_ = np.asarray(out.resize((X1 - X0, Y1 - Y0), Image.LANCZOS), dtype=np.float32)
+    res = np.asarray(im, dtype=np.float32).copy()
+    res[Y0:Y1, X0:X1] = rep_ * redo[..., None] + crop * (1 - redo[..., None])
+    if mp.get("fill"):
+        # The inside of the mouth as one quiet dark tone (no teeth, no gums to catch the eye),
+        # a little of its shading kept. The opening is found in the HD picture itself (the
+        # model may open it wider than the pixel art): its dark pixels, closed over the teeth
+        # they surround, the largest such patch; inset so the lips stay as drawn.
+        region = res[Y0:Y1, X0:X1]
+        lum = region @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+        mx, mn = region.max(-1), region.min(-1)
+        sat = (mx - mn) / np.maximum(mx, 1)
+        teeth = (lum > mp.get("teeth_lum", 90)) & (sat < 0.35)  # light and greyish: teeth, not lips or skin
+        # Anywhere in the close-up: the model may draw the opening beyond the pixel art's.
+        near = cv2.dilate(whole, np.ones((3, 3), np.uint8), iterations=2)
+        my = np.nonzero(inside)[0]  # the mouth's rows: not the jaw's shadow below its corner
+        near[: max(0, my.min() - 2)] = 0
+        near[my.max() + 3:] = 0
+        near = cv2.resize(near, (im.width, im.height), interpolation=cv2.INTER_NEAREST)[Y0:Y1, X0:X1]
+        hole = (((lum < mp.get("fill_dark", 70)) | teeth) & (near > 0)).astype(np.uint8)
+        k = max(3, int(s * mp.get("fill_close", 3.0)) | 1)
+        hole = cv2.morphologyEx(hole, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+        # Cut thin links to neighbouring shadows (the jaw's), then keep the mouth.
+        ko = max(3, int(s * mp.get("fill_open", 2.0)) | 1)
+        hole = cv2.morphologyEx(hole, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ko, ko)))
+        n, lab, stats, _ = cv2.connectedComponentsWithStats(hole, connectivity=8)
+        if n > 1:
+            hole = (lab == 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))).astype(np.uint8)
+            filled = hole.copy()
+            ff = np.zeros((hole.shape[0] + 2, hole.shape[1] + 2), np.uint8)
+            cv2.floodFill(filled, ff, (0, 0), 1)
+            hole = hole | (1 - filled)  # the holes inside it (teeth) too
+            hole = cv2.erode(hole, np.ones((3, 3), np.uint8), iterations=max(1, int(s / 3)))
+            a = np.clip(cv2.GaussianBlur(hole.astype(np.float32), (0, 0), s * 0.4), 0, 1)[..., None] * mp.get("fill_opacity", 0.92)
+            sel = hole > 0
+            dark_px = region[sel & (lum <= np.percentile(lum[sel], 40))] if sel.any() else region.reshape(-1, 3)
+            tone = dark_px.mean(0) * mp.get("fill_shade", 0.8)
+            res[Y0:Y1, X0:X1] = region * (1 - a) + (tone * 0.85 + region * 0.15) * a
+            if os.environ.get("MOUTH_DEBUG"):
+                dbg = region.copy(); dbg[hole > 0] = dbg[hole > 0] * 0.4 + np.array([0, 255, 0]) * 0.6
+                dbg[(redo > 0.1) & (hole == 0)] = dbg[(redo > 0.1) & (hole == 0)] * 0.7 + np.array([0, 0, 255]) * 0.3
+                Image.fromarray(np.clip(dbg, 0, 255).astype(np.uint8)).save(os.environ["MOUTH_DEBUG"])
+    return Image.fromarray(np.clip(res, 0, 255).astype(np.uint8))
 
 
 def main():
@@ -171,9 +288,10 @@ def main():
     ap.add_argument("--prompt", help="replace the character's description")
     ap.add_argument("--negative", help="replace the character's extra negative prompt")
     ap.add_argument("--var-prompt", help="replace the prompt prefix of the selected rerender variants")
-    ap.add_argument("--emblems", action="append", help="folder of emblem masters (NAME.svg); default: the --publish work folder's emblems, then recipes/emblems")
+    ap.add_argument("--emblems", action="append", help="folder of emblem masters (NAME.svg); default: the work folder's emblems (--publish, or the one holding --heads), then recipes/emblems")
     ap.add_argument("--dune-hd", help="dune-hd, to render the emblems (default: target/release)")
     ap.add_argument("--model", help="another base model: a repository, or an id from recipes/models.json")
+    ap.add_argument("--no-emblems", action="store_true", help="ignore the character's emblems (the frame as the game draws it)")
     for k, t in (("strength", float), ("cond", float), ("soften", float), ("seed", int)):
         ap.add_argument(f"--{k}", type=t)
     args = ap.parse_args()
@@ -192,11 +310,13 @@ def main():
         st["model"] = next((m["repo"] for m in models if m["id"] == args.model), args.model)
     out = args.out or os.path.join("out", name)
     os.makedirs(os.path.join(out, "render"), exist_ok=True)
-    emblems = ch.get("emblems", [])
+    emblems = [] if args.no_emblems else ch.get("emblems", [])
     if emblems:
         import hdgen
-        hdgen.EMBLEM_DIRS[:] = args.emblems or [d for d in (args.publish and os.path.join(args.publish, "emblems"),
-                                                             os.path.join(os.path.dirname(os.path.abspath(args.characters)), "emblems")) if d]
+        # The work folder's emblems (--publish, else the folder holding --heads), then the recipes'.
+        work = args.publish or os.path.dirname(os.path.abspath(args.heads))
+        hdgen.EMBLEM_DIRS[:] = args.emblems or [os.path.join(work, "emblems"),
+                                                os.path.join(os.path.dirname(os.path.abspath(args.characters)), "emblems")]
         hdgen.DUNE_HD = args.dune_hd
 
     def frame(fid, keep_emblems=False):
@@ -214,7 +334,7 @@ def main():
 
     def cached(fid, low, var_prompt, vst):
         """The full generation for frame `fid`, from the cache when its settings match."""
-        prompt, negative = prompts(ch, var_prompt)
+        prompt, negative = prompts(ch, var_prompt, variant=fid != base_id, var_negative=variants.get(fid, {}).get("negative"))
         params = {"frame": fid, "prompt": prompt, "negative": negative, **vst, **({"emblems": emblems} if emblems else {})}
         path = os.path.join(out, "render", f"{name}-{fid}.png")
         side = path[:-4] + ".json"
@@ -238,13 +358,19 @@ def main():
         if v.get("method", "rerender") != "rerender" or fid not in needed:
             continue
         vlow, _ = frame(fid)
+        vst = {**st, **v.get("settings", {})}
+        if vst.get("open") is not None:
+            # A mouth less open than drawn: its guide between the default frame and its own.
+            vlow = Image.blend(low, vlow, vst["open"])
         m = diff_mask(low, vlow, st["size"])
         if m is None:
             print(f"{fid}: same as {base_id}, skipped")
             continue
         var_prompt = args.var_prompt if args.var_prompt is not None and fid in only else v.get("var_prompt")
-        full = cached(fid, vlow, var_prompt, {**st, **v.get("settings", {})})
-        finals[fid] = Image.composite(full, base, m)
+        full = cached(fid, vlow, var_prompt, vst)
+        finals[fid] = Image.composite(match_colours(full, base, m), base, m)
+        if v.get("mouth_pass"):
+            finals[fid] = mouth_pass(render, finals[fid], low, frame(fid)[0], v["mouth_pass"], st, ch)
 
     # Colours (eye stages): recoloured from the frame they're drawn over.
     groups = {}
