@@ -201,6 +201,8 @@ pub struct PresentStats {
     pub fallback: u32,
     /// HD pixels whose block mostly shows another colour than the screen's.
     pub dominance_errors: u32,
+    /// Texels given in true colour ([`Compositor::present_texels`]).
+    pub true_colour: u32,
 }
 
 pub struct Compositor {
@@ -701,13 +703,16 @@ impl Compositor {
     /// The screen at `k`× as HD texels for a GPU to resolve with the live
     /// palette: RGBA8 per texel, R = a, G = b, B = t (weight of b), A = 255
     /// for HD texels and 0 where the pixel falls back to low resolution.
-    /// True-colour texels give their palette form here.
+    /// True-colour texels ([`TrueTexel`]) are split over two planes: in
+    /// `out` R = i, G, B = the reference's red and green, A = 128; in
+    /// `colour` (the same size) RGB = the art's colour, A = the reference's
+    /// blue (see [`shade`]). `colour` is only written for those texels.
     /// Only the screen rows marked in `rows` are written; `row_fallback`
     /// receives those rows' counts of low-resolution pixels.
-    pub fn present_texels(&self, screen: &[u8], out: &mut [u8], rows: &[bool], row_fallback: &mut [u16]) -> PresentStats {
+    pub fn present_texels(&self, screen: &[u8], out: &mut [u8], colour: &mut [u8], rows: &[bool], row_fallback: &mut [u16]) -> PresentStats {
         let k = self.k;
         let ow = 320 * k;
-        assert!(out.len() >= ow * 200 * k * 4);
+        assert!(out.len() >= ow * 200 * k * 4 && colour.len() >= out.len());
         let mut stats = PresentStats::default();
         let shadow = self.buffers.get(&SCREEN);
         for (y, _) in rows.iter().enumerate().filter(|(_, r)| **r) {
@@ -722,7 +727,14 @@ impl Compositor {
                     for (i, &t) in s.hd[p * k * k..(p + 1) * k * k].iter().enumerate() {
                         let t = fresh(t, screen[p], &near, i, k);
                         let o = ((y * k + i / k) * ow + x * k + i % k) * 4;
-                        out[o..o + 4].copy_from_slice(&[t.a, t.b, t.t, 255]);
+                        match t.tc {
+                            Some(tc) => {
+                                stats.true_colour += 1;
+                                out[o..o + 4].copy_from_slice(&[tc.i, tc.rf[0], tc.rf[1], 128]);
+                                colour[o..o + 4].copy_from_slice(&[tc.rgb[0], tc.rgb[1], tc.rgb[2], tc.rf[2]]);
+                            }
+                            None => out[o..o + 4].copy_from_slice(&[t.a, t.b, t.t, 255]),
+                        }
                     }
                 }
                 None => {
@@ -1324,6 +1336,30 @@ mod tests {
         c.present(&screen, &half, &mut rgb, false);
         let p = &rgb[at(11, 16)..at(11, 16) + 3];
         assert!(p[0].abs_diff(110) <= 3 && p[1].abs_diff(65) <= 3, "not faded: {p:?}");
+        // The GPU path: the two planes, resolved as `hd.frag` does (floats),
+        // give the CPU's colours, at full light and faded.
+        let (ow, n) = (320 * k, 320 * k * 200 * k * 4);
+        let (mut out, mut colour, mut fallback) = (vec![0u8; n], vec![0u8; n], vec![0u16; 200]);
+        let st = c.present_texels(&screen, &mut out, &mut colour, &[true; 200], &mut fallback);
+        assert!(st.true_colour > 0);
+        let o = (16 * k * ow + 11 * k) * 4;
+        assert_eq!(out[o + 3], 128, "a true-colour texel");
+        let gpu = |dac: &Dac| -> [u8; 3] {
+            let f = |v: u8| v as f32 / 255.0;
+            let now = dac[out[o] as usize];
+            let rf = [out[o + 1], out[o + 2], colour[o + 3]];
+            [0, 1, 2].map(|c| {
+                let (art, now, rf) = (f(colour[o + c]), f(now[c]), f(rf[c]));
+                let v = if rf >= 24.0 / 255.0 { (art * now / rf).min(1.0) } else { (art + now - rf).clamp(0.0, 1.0) };
+                (v * 255.0).round() as u8
+            })
+        };
+        for d in [&bright, &half] {
+            c.present(&screen, d, &mut rgb, false);
+            let cpu = &rgb[at(11, 16)..at(11, 16) + 3];
+            let g = gpu(d);
+            assert!((0..3).all(|i| cpu[i].abs_diff(g[i]) <= 1), "cpu {cpu:?} gpu {g:?}");
+        }
         // The neighbour is now another colour: the block is not shown in HD.
         screen[16 * 320 + 12] = 0x20;
         c.present(&screen, &bright, &mut rgb, false);
@@ -1344,7 +1380,10 @@ mod tests {
         let sprite = SpriteRef { wflags: 8, height: 8, format: Format::Nibble { pal: 0x10 }, seg: 0x1000, off: 0 };
         let single = crate::head::key(&[(crate::head::picture_hash(&sprite, Mem(&m)).unwrap(), 0, 0)]);
         let plate = move |key, _| {
-            (key == single).then(|| HeadPlate { art: SpriteArt { palette: PackSprite { w: texels.w, h: texels.h, px: texels.px.clone() }, colour: None }, low: PackSprite { w: 8, h: 8, px: low.clone() } })
+            (key == single).then(|| HeadPlate {
+                art: SpriteArt { palette: PackSprite { w: texels.w, h: texels.h, px: texels.px.clone() }, colour: None },
+                low: PackSprite { w: 8, h: 8, px: low.clone() },
+            })
         };
         c.set_heads(Some(Box::new(plate)));
         // Two parts, the staircase twice: each is a run with a plate.

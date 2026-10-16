@@ -191,12 +191,11 @@ It opens `http://127.0.0.1:8765/` and listens only on 127.0.0.1. Options are rem
 2. **The user's annotation:** `head/LETO/f00` part box `[28, 110, 50, 119]`: "The red symbol on his vest should be the falcon head profile, looking left, logo of the atreides". It needs head parts (above).
 3. **Optional (offered, not decided):** let **Generate** apply obvious annotations directly. Part boxes would be redone in close-up with their text; notes would be appended to the prompt.
 4. **Engine, phase 1:**
-   - **Done (2026-10-15, CPU renderer, `dune-run`):**
+   - **Done (2026-10-15, CPU renderer `dune-run` and the web app's GPU path):**
      - true-colour sprite art following the palette;
      - talking-head plates hooked on `draw_talking_head_at_si` (1000:9D2D), keyed by the drawn parts (`gfx::head`). A draw is covered by the longest consecutive runs of parts with plates, so face + mouth + eyes combinations work without a plate per combination.
-     - Verified on Leto's approved portrait in conversation.
+     - Verified on Leto's approved portrait in conversation (`dune-run`). The web shader (`hd.frag`) is checked against the CPU renderer's numbers in headless Chrome, but not yet in the running web app.
    - **Still to do:**
-     - the web GPU path (it shows the palette form);
      - room plates in true colour;
      - checking a real palette fade on true-colour art;
      - the head path at 1000:9E75 (`loc_09d94`, another origin), not hooked.

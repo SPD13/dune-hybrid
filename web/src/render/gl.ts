@@ -41,8 +41,10 @@ export class GlRenderer implements Renderer {
   readonly kind = "webgl2";
   private gl: WebGL2RenderingContext;
   private programs!: Record<"palette" | "scale2x" | "mmpx" | "xbr" | "output" | "lottes" | "hd", Program>;
-  /** The HD screen texels (k×), when the worker sends them. */
+  /** The HD screen texels (k×), when the worker sends them, and the
+   * second plane of their true-colour texels. */
   private hdTex: WebGLTexture | null = null;
+  private tcTex: WebGLTexture | null = null;
   private hdScale = 0;
   private hdReady = false;
   private compare: number | null = null;
@@ -183,18 +185,21 @@ export class GlRenderer implements Renderer {
     this.draw();
   }
 
-  /** Rows of the HD screen (header: k, 0, first row u16, end row u16,
-   * fallback count u16). Uploaded as they arrive: they are incremental. */
+  /** Rows of the HD screen (header: k, flags, first row u16, end row u16,
+   * fallback count u16; flags bit 0: the rows' true-colour plane follows
+   * them). Uploaded as they arrive: they are incremental. */
   hd(hd: Uint8Array) {
     if (this.lost) return;
     const gl = this.gl;
     const k = hd[0];
     const y0 = hd[2] | (hd[3] << 8);
     const y1 = hd[4] | (hd[5] << 8);
-    if (k !== this.hdScale || !this.hdTex) {
+    if (k !== this.hdScale || !this.hdTex || !this.tcTex) {
       this.hdReady = false;
       if (this.hdTex) gl.deleteTexture(this.hdTex);
+      if (this.tcTex) gl.deleteTexture(this.tcTex);
       this.hdTex = this.texture(gl.RGBA8, W * k, H * k, gl.NEAREST);
+      this.tcTex = this.texture(gl.RGBA8, W * k, H * k, gl.NEAREST);
       this.hdScale = k;
     }
     // The first message after (re)enabling covers the whole screen.
@@ -202,6 +207,10 @@ export class GlRenderer implements Renderer {
     if (y1 > y0) {
       gl.bindTexture(gl.TEXTURE_2D, this.hdTex);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W * k, y1 - y0, gl.RGBA, gl.UNSIGNED_BYTE, hd, 8);
+      if (hd[1] & 1) {
+        gl.bindTexture(gl.TEXTURE_2D, this.tcTex);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, W * k, y1 - y0, gl.RGBA, gl.UNSIGNED_BYTE, hd, 8 + W * k * 4 * (y1 - y0));
+      }
     }
   }
 
@@ -275,14 +284,15 @@ export class GlRenderer implements Renderer {
       });
     } else {
       let src = this.upscale(g, base);
-      if (g.hd !== "off" && this.hdTex && this.hdScale && this.hdReady) {
+      if (g.hd !== "off" && this.hdTex && this.tcTex && this.hdScale && this.hdReady) {
         const k = this.hdScale;
         const low = src;
         const out = this.target("hd", W * k, H * k);
-        this.pass(P.hd, out, [this.hdTex, this.palette, low.tex], (u) => {
+        this.pass(P.hd, out, [this.hdTex, this.palette, low.tex, this.tcTex], (u) => {
           gl.uniform1i(u("uHd"), 0);
           gl.uniform1i(u("uPal"), 1);
           gl.uniform1i(u("uLow"), 2);
+          gl.uniform1i(u("uTc"), 3);
           gl.uniform2i(u("uLowSize"), low.w, low.h);
           gl.uniform2f(u("uHdSize"), W * k, H * k);
           gl.uniform1i(u("uOverlay"), this.hdOverlay ? 1 : 0);

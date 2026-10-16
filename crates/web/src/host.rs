@@ -110,8 +110,9 @@ impl WebFs {
 /// drawing, and the last HD screen sent to the page.
 struct Hd {
     follower: gfx::compose::Follower,
-    /// The HD screen texels as last presented.
+    /// The HD screen texels as last presented, and their true-colour plane.
     cur: Vec<u8>,
+    colour: Vec<u8>,
     /// The low-resolution screen they were presented against.
     screen: Vec<u8>,
     /// Pixels falling back to low resolution, per screen row.
@@ -298,7 +299,15 @@ impl Emu {
         follower.comp.set_plates(self.plate_source());
         follower.comp.set_heads(self.head_source());
         let size = 320 * k * 200 * k * 4;
-        let hd = Rc::new(RefCell::new(Hd { follower, cur: vec![0; size], screen: vec![0; 64000], fallback: vec![0; 200], full: true, visible: true }));
+        let hd = Rc::new(RefCell::new(Hd {
+            follower,
+            cur: vec![0; size],
+            colour: vec![0; size],
+            screen: vec![0; 64000],
+            fallback: vec![0; 200],
+            full: true,
+            visible: true,
+        }));
         let h = hd.clone();
         self.m.gfx.enabled = true;
         self.m.gfx.hook = Some(Box::new(move |e, hw| {
@@ -321,9 +330,10 @@ impl Emu {
 
     /// The HD screen rows that changed since the last call, as texels to
     /// resolve with the palette (see `gfx::compose::Compositor::present_texels`).
-    /// Header (8 bytes): k, 0, first row (u16), end row (u16), pixels
-    /// falling back to low resolution (u16); then the rows. Empty when HD is
-    /// off; header only when nothing changed.
+    /// Header (8 bytes): k, flags, first row (u16), end row (u16), pixels
+    /// falling back to low resolution (u16); then the rows. Flags bit 0: the
+    /// rows hold true-colour texels, and their second plane follows (same
+    /// size). Empty when HD is off; header only when nothing changed.
     #[wasm_bindgen(js_name = hdFrame)]
     pub fn hd_frame(&mut self) -> Vec<u8> {
         let Some(hd) = &self.hd else { return Vec::new() };
@@ -331,7 +341,7 @@ impl Emu {
         if !hd.visible {
             return Vec::new();
         }
-        let Hd { follower, cur, screen, fallback, full, .. } = &mut *hd;
+        let Hd { follower, cur, colour, screen, fallback, full, .. } = &mut *hd;
         let k = follower.comp.k;
         let now = &self.m.hw.mem[0xa0000..0xa0000 + 64000];
         // Rows to present: shadow changes, screen changes, and their
@@ -347,16 +357,20 @@ impl Emu {
             out.extend_from_slice(&(fallback.iter().map(|&n| n as u32).sum::<u32>().min(65535) as u16).to_le_bytes());
             return out;
         };
-        follower.comp.present_texels(now, cur, &rows, fallback);
+        follower.comp.present_texels(now, cur, colour, &rows, fallback);
         screen.copy_from_slice(now);
         let row = 320 * k * 4;
         let (y0, y1) = (first * k, (last + 1) * k);
-        let mut out = Vec::with_capacity(8 + (y1 - y0) * row);
-        out.extend_from_slice(&[k as u8, 0]);
+        let true_colour = cur[y0 * row..y1 * row].chunks_exact(4).any(|t| t[3] == 128);
+        let mut out = Vec::with_capacity(8 + (y1 - y0) * row * if true_colour { 2 } else { 1 });
+        out.extend_from_slice(&[k as u8, true_colour as u8]);
         out.extend_from_slice(&(y0 as u16).to_le_bytes());
         out.extend_from_slice(&(y1 as u16).to_le_bytes());
         out.extend_from_slice(&(fallback.iter().map(|&n| n as u32).sum::<u32>().min(65535) as u16).to_le_bytes());
         out.extend_from_slice(&cur[y0 * row..y1 * row]);
+        if true_colour {
+            out.extend_from_slice(&colour[y0 * row..y1 * row]);
+        }
         out
     }
 
