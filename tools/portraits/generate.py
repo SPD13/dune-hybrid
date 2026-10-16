@@ -15,7 +15,15 @@ for the character is then made from it:
 Every talking group of the head (talking_groups: the mouths and eyes the game
 swaps in while the character talks) is a rerender variant too, with the
 character's settings, unless the recipe gives it its own entry; without
---only, all of them are made.
+--only, all of them are made. The character's "mouths" entry (var_prompt,
+negative, settings) applies to every mouth group (mouth_groups) without an
+entry of its own, so all mouths share one look.
+A variant's "drop" lists phrases of the character's description and negative
+it leaves out.
+A character with "style": true is generated with the game's style layers
+(recipes/style.json: the game's, then its location's), encoded as hdgen.py
+does, so it matches a portrait first made by hdgen.py's batch (class
+defaults: description "the subject as drawn").
 Emblems (the character's "emblems": box in the frame's pixels, emblem name) are
 taken out of every frame before generation and drawn back from their vector
 master (NAME.svg, as in hdgen.py) on every final frame, so they are exact and
@@ -141,15 +149,30 @@ def talking_groups(layout):
     return [g for g in range(len(layout["groups"])) if g not in frames[0] and g not in faces]
 
 
-def prompts(ch, var_prompt=None, variant=False, var_negative=None):
+def mouth_groups(layout):
+    """The talking groups drawn only where the head's lip-sync mouths are: its mouths
+    (the others are eyes, brows and gestures)."""
+    groups = layout["groups"]
+    at = {(p[1], p[2]) for frame in layout.get("lipsync", []) for g in frame for p in groups[g]}
+    return {g for g in talking_groups(layout) if at and all((p[1], p[2]) in at for p in groups[g])}
+
+
+def without(text, drop):
+    """`text` (comma-separated phrases) without the phrases in `drop`."""
+    return ", ".join(p for p in (q.strip() for q in text.split(",")) if p and p not in drop)
+
+
+def prompts(ch, var_prompt=None, variant=False, var_negative=None, drop=()):
     """(prompt, negative prompt) for a character's frame; variant_negative only for the
-    variants (mouths...), so it never changes the approved default frame."""
-    prompt = TEMPLATE.format(ch["description"])
+    variants (mouths...), so it never changes the approved default frame. `drop`: phrases
+    of the character's description and negative a variant leaves out (e.g. "thin lips"
+    on a mouth that shows its teeth)."""
+    prompt = TEMPLATE.format(without(ch["description"], drop))
     negative = NEGATIVE
     if ch.get("clean_shaven"):
         negative = f"{FACIAL_HAIR}, {negative}"  # shadow above an open mouth reads as a moustache
-    if ch.get("negative"):
-        negative = f"{ch['negative']}, {negative}"
+    if without(ch.get("negative", ""), drop):
+        negative = f"{without(ch['negative'], drop)}, {negative}"
     if variant and ch.get("variant_negative"):
         negative = f"{ch['variant_negative']}, {negative}"
     if var_negative:  # the variant's own (e.g. no bared teeth on an open mouth)
@@ -180,17 +203,25 @@ class Renderer:
         self.pipe, self.torch, self.dtype, self.inpaint = pipe, torch, dt, None
         print(f"model loaded in {time.time() - t0:.0f}s", flush=True)
 
-    def __call__(self, low, prompt, negative, st):
+    def __call__(self, low, prompt, negative, st, style=None):
         if self.pipe is None:
             self.load(st)
         guide = up(low, st["soften"], st["size"])
         g = self.torch.Generator("cpu").manual_seed(st["seed"])
-        return self.pipe(prompt, negative_prompt=negative, image=guide, control_image=guide, strength=st["strength"],
+        if style:
+            # The style layers before the prompt, each 77-token piece encoded on its own (hdgen.Pipe.embed).
+            import hdgen
+            enc = hdgen.Pipe(None)
+            enc.pipe, enc.torch = self.pipe, self.torch
+            text = enc.embed(style["layers"] + [prompt], ", ".join(filter(None, [negative, style.get("negative")])))
+        else:
+            text = {"prompt": prompt, "negative_prompt": negative}
+        return self.pipe(**text, image=guide, control_image=guide, strength=st["strength"],
                          num_inference_steps=st["steps"], controlnet_conditioning_scale=st["cond"],
                          guidance_scale=st["guidance"], generator=g).images[0]
 
 
-def mouth_pass(render, im, low, vfull, mp, st, ch):
+def mouth_pass(render, im, low, vfull, mp, st, ch, drop=()):
     """Redo the inside of an open mouth: the dark interior the pixel art draws (no teeth,
     no gums) painted in, then only the mouth repainted by the model in a close-up, guided
     by it (SDXL ControlNet inpainting, sharing the loaded model), pasted back softly."""
@@ -203,6 +234,11 @@ def mouth_pass(render, im, low, vfull, mp, st, ch):
     a, b = np.asarray(low).astype(np.int16), np.asarray(vfull).astype(np.int16)
     lum = b @ np.array([0.3, 0.59, 0.11])
     inside = ((np.abs(b - a).sum(-1) > 0) & (lum < mp.get("dark", 45))).astype(np.uint8)
+    if mp.get("box"):  # where the mouth is (the square frame's pixels, as emblem boxes), when a larger shadow changes too
+        x0, y0, x1, y1 = mp["box"]
+        keep = np.zeros_like(inside)
+        keep[y0:y1, x0:x1] = 1
+        inside &= keep
     # The mouth is the largest dark patch; the others are the jaw's and chin's shadows
     # (picked before closing the patch's holes: closing would join them).
     # The mouth is the largest dark patch; the others are the jaw's and chin's shadows
@@ -237,7 +273,7 @@ def mouth_pass(render, im, low, vfull, mp, st, ch):
     painted = crop * (1 - dark) + colour * dark
     guide = Image.fromarray(np.clip(painted, 0, 255).astype(np.uint8)).resize((gw, gh), Image.LANCZOS)
     mask = Image.fromarray((redo * 255).astype(np.uint8)).resize((gw, gh), Image.BILINEAR)
-    prompt, negative = prompts(ch, mp.get("prompt", "close-up of a man's lips parted while speaking, dark shadow inside the mouth"))
+    prompt, negative = prompts(ch, mp.get("prompt", "close-up of a man's lips parted while speaking, dark shadow inside the mouth"), drop=drop)
     negative = f"{mp.get('negative', 'teeth, gums, tongue, dentures, lipstick')}, {negative}"
     g = render.torch.Generator("cpu").manual_seed(st["seed"])
     out = render.inpaint(prompt, negative_prompt=negative, image=guide, mask_image=mask, control_image=guide, width=gw, height=gh,
@@ -332,16 +368,23 @@ def main():
                                                 os.path.join(os.path.dirname(os.path.abspath(args.characters)), "emblems")]
         hdgen.DUNE_HD = args.dune_hd
 
+    style = None
+    if ch.get("style"):
+        import hdgen
+        style = hdgen.Recipes(os.path.dirname(os.path.abspath(args.characters))).style_for({"group": name})
+
     def frame(fid, keep_emblems=False):
         low, mask = load_face(os.path.join(args.heads, f"{name}-{fid}.png"))
         return (low if keep_emblems or not emblems else without_emblems(low, emblems)), mask
     variants = dict(ch.get("variants", {}))
     layout_path = os.path.join(args.heads, f"{name}.json")
     if os.path.exists(layout_path):
-        for g in talking_groups(json.load(open(layout_path))):
+        layout = json.load(open(layout_path))
+        mouths = mouth_groups(layout)
+        for g in talking_groups(layout):
             fid = f"v{g:02d}"
             if fid not in variants and os.path.exists(os.path.join(args.heads, f"{name}-{fid}.png")):
-                variants[fid] = {"kind": f"group {g}"}
+                variants[fid] = {"kind": f"mouth, group {g}", **ch.get("mouths", {})} if g in mouths else {"kind": f"group {g}"}
     only = set(args.only.split(",")) if args.only else set(variants)
     base_id = ch.get("base", "f00")
     needed = only | {variants[v]["over"] for v in only if v in variants and "over" in variants[v]}
@@ -353,15 +396,16 @@ def main():
 
     def cached(fid, low, var_prompt, vst):
         """The full generation for frame `fid`, from the cache when its settings match."""
-        prompt, negative = prompts(ch, var_prompt, variant=fid != base_id, var_negative=variants.get(fid, {}).get("negative"))
-        params = {"frame": fid, "prompt": prompt, "negative": negative, **vst, **({"emblems": emblems} if emblems else {})}
+        v = variants.get(fid, {})
+        prompt, negative = prompts(ch, var_prompt, variant=fid != base_id, var_negative=v.get("negative"), drop=v.get("drop", ()))
+        params = {"frame": fid, "prompt": prompt, "negative": negative, **vst, **({"emblems": emblems} if emblems else {}), **({"style": style} if style else {})}
         path = os.path.join(out, "render", f"{name}-{fid}.png")
         side = path[:-4] + ".json"
         if not args.force and os.path.exists(path) and os.path.exists(side) and json.load(open(side)) == params:
             return Image.open(path).convert("RGB")
         t = time.time()
         print(f"@stage render {name}-{fid} ({todo.index(fid) + 1 if fid in todo else 1}/{len(todo)})", flush=True)
-        im = render(low, prompt, negative, vst)
+        im = render(low, prompt, negative, vst, style)
         im.save(path)
         json.dump(params, open(side, "w"), indent=2)
         print(f"rendered {name}-{fid} in {time.time() - t:.0f}s", flush=True)
@@ -392,7 +436,7 @@ def main():
         full = cached(fid, vlow, var_prompt, vst)
         finals[fid] = Image.composite(match_colours(full, base, m), base, m)
         if v.get("mouth_pass"):
-            finals[fid] = mouth_pass(render, finals[fid], low, frame(fid)[0], v["mouth_pass"], st, ch)
+            finals[fid] = mouth_pass(render, finals[fid], low, frame(fid)[0], v["mouth_pass"], st, ch, drop=v.get("drop", ()))
 
     # Colours (eye stages): recoloured from the frame they're drawn over.
     groups = {}

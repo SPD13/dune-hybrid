@@ -261,9 +261,10 @@ def png_size(path):
 
 
 def talking(work, item_id):
-    """What the studio's Talking view animates for a head: the rest face and the mouths of
-    the head's lip-sync table (dune-hd heads: WORK/heads/NAME.json), as pixel art and as
-    generated (generate.py's renders, WORK/gen/NAME: squares, the frame padded at the bottom)."""
+    """What the studio's Talking view animates for a head: the rest face, the mouths of
+    the head's lip-sync table (dune-hd heads: WORK/heads/NAME.json) and every talking pose
+    (each group the head swaps in: WORK/heads/NAME-vGG.png), as pixel art and as generated
+    (generate.py's renders, WORK/gen/NAME: squares, the frame padded at the bottom)."""
     kind, _, rest = item_id.partition("/")
     name = rest.split("/")[0]
     if kind != "head" or not name:
@@ -283,9 +284,18 @@ def talking(work, item_id):
         v = f"v{frame[0]:02d}"
         hd = rel("gen", name, f"{name}-{v}.png")
         mouths.append({"id": v, "pixel": rel("heads", f"{name}-{v}.png"), "hd": hd if exists(hd) else None})
+    lips = {m["id"] for m in mouths}
+    poses = []
+    # The talking groups, as generate.py's talking_groups: outside frame 0 and the faces listed as frames.
+    faces = set(layout["frames"][0]) | {g for fr in layout["frames"] if len(fr) >= 2 for g in fr}
+    for g in (g for g in range(len(layout["groups"])) if g not in faces):
+        v = f"v{g:02d}"
+        if exists(rel("heads", f"{name}-{v}.png")):
+            hd = rel("gen", name, f"{name}-{v}.png")
+            poses.append({"id": v, "pixel": rel("heads", f"{name}-{v}.png"), "hd": hd if exists(hd) else None, "lipsync": v in lips})
     hd_rest = rel("gen", name, f"{name}-f00.png")
     return {"id": item_id, "name": name, "size": png_size(os.path.join(work, "heads", f"{name}-f00.png")),
-            "rest": {"pixel": rel("heads", f"{name}-f00.png"), "hd": hd_rest if exists(hd_rest) else None}, "mouths": mouths}
+            "rest": {"pixel": rel("heads", f"{name}-f00.png"), "hd": hd_rest if exists(hd_rest) else None}, "mouths": mouths, "poses": poses}
 
 
 def try_label(k, v):

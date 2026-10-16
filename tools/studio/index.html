@@ -133,7 +133,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
       <label>Right <select id="selB"></select></label>
       <span class="seg" id="view"><button data-v="viewer">Viewer</button><button data-v="grid">Grid</button></span>
       <span class="seg" id="mode">
-        <button data-m="side">Side by side</button><button data-m="slider">Slider</button><button data-m="flip">Flip</button><button data-m="detail">Detail map</button><button data-m="talk" id="talkBtn" title="Talking heads: the pixel art and the generated face, speaking (the head's lip-sync mouths)">Talking</button>
+        <button data-m="side">Side by side</button><button data-m="slider">Slider</button><button data-m="flip">Flip</button><button data-m="detail">Detail map</button><button data-m="talk" id="talkBtn" title="Talking heads: the pixel art and the generated face, through every talking pose, then speaking (the head's lip-sync mouths)">Talking</button>
       </span>
       <span class="seg" id="tool"><button data-t="pan">Pan</button><button data-t="box">Box</button></span>
       <span class="seg"><button id="showBoxes" title="Show or hide the boxes (H)">Boxes</button></span>
@@ -165,7 +165,7 @@ const store = {
 let items = [], review = { version: 1, assets: {} }, cur = null;
 let mode = store.get("mode", "side"), tool = "pan", flip = false, split = 0.5;
 if (!["side", "slider", "flip"].includes(mode)) mode = "side";
-// Talking view: the rest face and the lip-sync mouths, pixel art left, generated right, looping.
+// Talking view: the rest face, every talking pose, then the lip-sync mouths speaking; pixel art left, generated right, looping.
 let talk = null, talkTimer = null, talkStep = 0;
 const isHead = (it) => it && (it.kind === "head-frame" || it.kind === "head-group");
 let view = { scale: 1, x: 0, y: 0 };          // screen px per image px (of B), and the image's top-left in a pane
@@ -655,16 +655,21 @@ cv.addEventListener("wheel", (e) => {
 }, { passive: false });
 for (const b of $("mode").children) b.onclick = () => setMode(b.dataset.m);
 for (const b of $("tool").children) b.onclick = () => setTool(b.dataset.t);
-// The order mouths are shown in: rest, then up through the mouths and back, like speech.
+// The order frames are shown in (indices into talkPoses, -1 the rest face): each pose held
+// a moment between rests, then the lip-sync mouths up and back, like speech.
+const talkPoses = (t) => t.poses || t.mouths.map((m) => ({ ...m, lipsync: true }));  // poses: newer server.py
 function talkSequence(t) {
-  const m = t.mouths.map((_, i) => i), seq = [-1, -1];
-  for (let r = 0; r < 3; r++) { seq.push(...m, ...m.slice(0, -1).reverse()); if (r === 1) seq.push(-1); }
+  const ps = talkPoses(t), seq = [-1, -1, -1];
+  ps.forEach((_, i) => seq.push(i, i, i, i, -1));
+  const m = ps.map((p, i) => (p.lipsync ? i : -2)).filter((i) => i >= 0);
+  for (let r = 0; r < 3 && m.length; r++) { seq.push(...m, ...m.slice(0, -1).reverse()); if (r === 1) seq.push(-1); }
   return [...seq, -1, -1, -1];
 }
 function talkFrame() {
   const seq = talkSequence(talk), i = seq[talkStep % seq.length];
-  return i < 0 ? { id: "rest", ...talk.rest } : talk.mouths[i];
+  return i < 0 ? { id: "rest", ...talk.rest } : talkPoses(talk)[i];
 }
+const talkName = (f) => (f.id === "rest" ? "rest" : `${f.lipsync ? "lip-sync mouth" : "pose"} ${f.id}`);
 function drawFrame(path, pane, square) {
   const im = img(path);
   if (!im.naturalWidth) return false;
@@ -687,8 +692,8 @@ function drawTalk(ps) {
   const hd = f.hd || talk.rest.hd;
   if (hd) drawFrame(hd, ps[1], true);
   ctx.fillStyle = css("--line"); ctx.fillRect(ps[0].w, 0, 2, ps[0].h);
-  caption(`pixel art · ${f.id === "rest" ? "rest" : "mouth " + f.id}`, ps[0].x);
-  caption(!talk.rest.hd ? "not generated yet (Generate)" : f.hd || f.id === "rest" ? `generated · ${f.id === "rest" ? "rest" : "mouth " + f.id}` : `mouth ${f.id} not generated yet`, ps[1].x);
+  caption(`pixel art · ${talkName(f)}`, ps[0].x);
+  caption(!talk.rest.hd ? "not generated yet (Generate)" : f.hd || f.id === "rest" ? `generated · ${talkName(f)}` : `${talkName(f)} not generated yet`, ps[1].x);
 }
 async function loadTalk(it) {
   if (talk && talk.id === it.id && talk.loading) return;
@@ -696,8 +701,8 @@ async function loadTalk(it) {
   try {
     const t = await api("/api/talking?id=" + encodeURIComponent(it.id));
     talk = { ...t, id: it.id };
-    for (const f of [t.rest, ...t.mouths]) { img(f.pixel); if (f.hd) img(f.hd); }  // preload
-    if (!t.mouths.length) talk.error = "this head has no lip-sync mouths";
+    for (const f of [t.rest, ...talkPoses(t)]) { img(f.pixel); if (f.hd) img(f.hd); }  // preload
+    if (!talkPoses(t).length) talk.error = "this head has no talking poses";
   } catch (e) { talk = { id: it.id, error: e.message }; }
   if (cur && cur.id === it.id) fit();
 }
@@ -954,20 +959,6 @@ function renderBatch() {
     catch (e) { batchState.plan = { error: e.message }; renderBatch(); }
   };
 }
-$("batchBtn").onclick = () => { $("batch").classList.add("on"); planBatch(); };
-$("batch").onclick = (e) => { if (e.target === $("batch")) $("batch").classList.remove("on"); };
-$("setupBtn").onclick = () => { $("setup").classList.add("on"); renderSetup(); loadSystem(); };
-$("setup").onclick = (e) => { if (e.target === $("setup")) $("setup").classList.remove("on"); };
-$("jobsBtn").onclick = () => showJobs(!$("jobs").classList.contains("on"));
-loadSystem().catch(() => { $("hw").textContent = "server offline"; });
-api("/api/jobs").then((l) => { for (const j of l) if (j.status !== "running" && j.status !== "queued") knownDone.add(j.id); jobList = l; renderJobs(); pollJobs(); }).catch(() => {});
-$("q").value = filter.q; $("flt").value = filter.status;
-$("collapseAll").onclick = collapseAll;
-$("q").oninput = () => { filter.q = $("q").value; renderList(); };
-$("flt").onchange = () => { filter.status = $("flt").value; store.set("status", filter.status); renderList(); };
-setMode(mode); setTool("pan"); setGrid(false);
-load();
-</script>
 // ---------- pack ----------
 let packState = { scope: "approved", list: null, error: null };
 async function loadPacks() {
@@ -999,5 +990,19 @@ function renderPack() {
 }
 $("packBtn").onclick = () => { $("pack").classList.add("on"); renderPack(); loadPacks(); };
 $("pack").onclick = (e) => { if (e.target === $("pack")) $("pack").classList.remove("on"); };
+$("batchBtn").onclick = () => { $("batch").classList.add("on"); planBatch(); };
+$("batch").onclick = (e) => { if (e.target === $("batch")) $("batch").classList.remove("on"); };
+$("setupBtn").onclick = () => { $("setup").classList.add("on"); renderSetup(); loadSystem(); };
+$("setup").onclick = (e) => { if (e.target === $("setup")) $("setup").classList.remove("on"); };
+$("jobsBtn").onclick = () => showJobs(!$("jobs").classList.contains("on"));
+loadSystem().catch(() => { $("hw").textContent = "server offline"; });
+api("/api/jobs").then((l) => { for (const j of l) if (j.status !== "running" && j.status !== "queued") knownDone.add(j.id); jobList = l; renderJobs(); pollJobs(); }).catch(() => {});
+$("q").value = filter.q; $("flt").value = filter.status;
+$("collapseAll").onclick = collapseAll;
+$("q").oninput = () => { filter.q = $("q").value; renderList(); };
+$("flt").onchange = () => { filter.status = $("flt").value; store.set("status", filter.status); renderList(); };
+setMode(mode); setTool("pan"); setGrid(false);
+load();
+</script>
 </body>
 </html>

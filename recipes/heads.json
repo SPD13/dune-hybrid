@@ -1,7 +1,7 @@
 {
-  "_doc": "Per-character settings for generate.py; see docs/generative-portraits.md. Variant ids are files of the `dune-hd heads` dump: fNN = a frame the game lists, vNN = part group NN drawn over frame 0. method: rerender (default; shapes) or recolour (colours; 'over' = the frame it is drawn over, default the base). kind is a label for people (and for a future openness heuristic).",
+  "_doc": "Per-character settings for generate.py; see docs/generative-portraits.md. Variant ids are files of the `dune-hd heads` dump: fNN = a frame the game lists, vNN = part group NN drawn over frame 0. method: rerender (default; shapes) or recolour (colours; 'over' = the frame it is drawn over, default the base). kind is a label for people (and for a future openness heuristic). mouths: settings for every mouth group without its own entry (var_prompt, negative, settings).",
   "defaults": {
-    "model": "SG161222/RealVisXL_V5.0",
+    "model": "RunDiffusion/Juggernaut-XL-v9",
     "controlnet": "xinsir/controlnet-tile-sdxl-1.0",
     "vae": "madebyollin/sdxl-vae-fp16-fix",
     "size": 1024,
@@ -20,16 +20,6 @@
       "variants": {
         "v22": {
           "kind": "mouth, lip-sync 1"
-        },
-        "v34": {
-          "kind": "mouth, lip-sync 2",
-          "var_prompt": "mouth open, natural skin-toned lips, small white teeth",
-          "negative": "lipstick, red lips, glossy lips, large teeth, yellow teeth"
-        },
-        "v35": {
-          "kind": "mouth, lip-sync 3",
-          "var_prompt": "mouth open, natural skin-toned lips, small white teeth",
-          "negative": "lipstick, red lips, glossy lips, large teeth, yellow teeth"
         }
       },
       "emblems": [
@@ -43,10 +33,24 @@
           "emblem": "atreides-hawk"
         }
       ],
-      "settings": {
-        "model": "RunDiffusion/Juggernaut-XL-v9"
+      "settings": {},
+      "_variants_doc": "The game's lip-sync table for LETO is groups 22, 34, 35 (v22 is the rest face). Every mouth group (generate.py mouth_groups: the groups drawn where the lip-sync mouths are) takes \"mouths\": v34 and v35's open-mouth prompt and negative, approved 2026-10-16, so all mouths share one look and the teeth match.",
+      "mouths": {
+        "var_prompt": "mouth open, natural skin-toned lips, small white teeth",
+        "negative": "lipstick, red lips, glossy lips, large teeth, yellow teeth"
+      }
+    },
+    "JESS": {
+      "status": "draft 2026-10-16: f00's look is the class-defaults batch (batch-83bb60cc65: 'the subject as drawn' with the game's style layers); the user's notes added on top",
+      "description": "the subject as drawn, thin lips, hazelnut brown eyes",
+      "negative": "full lips, plump lips, thick lips, green eyes, blue eyes, grey eyes, lipstick",
+      "style": true,
+      "variants": {
+        "v22": {"kind": "mouth, group 22", "mouth_pass": {"prompt": "close-up of a woman's lips parted while speaking, upper teeth visible", "negative": "lipstick, gums, tongue, large teeth, yellow teeth", "dark": 45, "strength": 0.9, "box": [62, 106, 100, 119]}, "var_prompt": "lips parted, upper teeth visible", "drop": ["thin lips", "full lips", "plump lips", "thick lips"]},
+        "v23": {"kind": "mouth, group 23", "mouth_pass": {"prompt": "close-up of a woman's lips parted while speaking, upper teeth visible", "negative": "lipstick, gums, tongue, large teeth, yellow teeth", "dark": 45, "strength": 0.9, "box": [62, 106, 100, 119]}, "var_prompt": "lips parted, upper teeth visible", "drop": ["thin lips", "full lips", "plump lips", "thick lips"]}
       },
-      "_variants_doc": "The game's lip-sync table for LETO is groups 22, 34, 35 (v22 is the rest face). Both open mouths share one prompt and negative so the teeth match (2026-10-14)."
+      "settings": {},
+      "_doc": "Her f00 was approved in look as made by hdgen.py's batch, so she keeps its prompt ('the subject as drawn') and the game's style layers (\"style\": true). Notes from the user on f00 (2026-10-16): 'make her mouth thinner'; hazelnut brown eyes, the same in every frame. They apply to every frame and talking group. Her mouths have no shared prompt (removed 2026-10-16 at the user's request): each follows the game's art. v22 and v23 show her teeth, so they leave out the thin-lips note (\"drop\"), ask for parted lips, and a mouth pass repaints the opening with her upper teeth (its box: her jaw's shadow changes too, and is larger). Softening less (2) left lines on her skin, so they keep her usual softening."
     },
     "STIL": {
       "status": "draft 2026-10-14: v04 good; v02 and v07 underplayed without the talking prompt, overplayed with it",
