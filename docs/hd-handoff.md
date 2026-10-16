@@ -163,7 +163,10 @@ It opens `http://127.0.0.1:8765/` and listens only on 127.0.0.1. Options are rem
    python tools/studio/resolutions.py WORK ITEM_ID --boxes 1,2|all --version VERSION_ID --note "what was done"
    ```
    It writes `review/resolutions.json`, never `review.json` (the open page would overwrite it). The box then shows as *to check* (dashed, "?") until the user confirms or reopens it in the studio; resolved boxes show only on the version they were drawn on, and `review_todo.py` leaves confirmed ones out.
-6. **Packs:** export the approved versions as finished art for `dune-hd build --art DIR`. It needs 4× pictures named by `art_name`, plus a `.json` sidecar `{"dac": …}` when the sprite's colours came from a rule palette (see `--art` in `crates/hdpack/src/main.rs`). Heads and characters wait for the true-colour format.
+6. **Packs:** export the approved versions as finished art for `dune-hd build --art DIR`. It needs 4× pictures named by `art_name`, plus a `.json` sidecar `{"dac": …}` when the sprite's colours came from a rule palette (see `--art` in `crates/hdpack/src/main.rs`).
+   - **Characters and other sprites in true colour:** add `"true_colour": true` to the sidecar (pack version 4).
+   - **Talking heads:** `NAME-fNN.png` for frame NN and `NAME-vGG.png` for group GG drawn over frame 0, at the picture's aspect (the studio's 1024 px portraits are resized to 4×). They become head plates in true colour, per frame and per group.
+   - While a character talks, the game assembles frames from groups (face + mouth + eyes), so **every group used while talking needs a `vGG`**. For Leto that means each mouth and eye group, not only `v34`. A group without art shows the pixel-art upscale over the generated face.
 
 ## 8. State and open items (2026-10-14)
 
@@ -187,7 +190,16 @@ It opens `http://127.0.0.1:8765/` and listens only on 127.0.0.1. Options are rem
 1. **Windows setup** (§9), then the 3-item test, then a default **Batch** for the user to review.
 2. **The user's annotation:** `head/LETO/f00` part box `[28, 110, 50, 119]`: "The red symbol on his vest should be the falcon head profile, looking left, logo of the atreides". It needs head parts (above).
 3. **Optional (offered, not decided):** let **Generate** apply obvious annotations directly. Part boxes would be redone in close-up with their text; notes would be appended to the prompt.
-4. **Engine, phase 1:** pack v4 with true-colour art following fades (plate colour × current palette colour ÷ reference palette colour, by the low-res index under each pixel), head plates and mouth patches, so heads and character sprites reach the game.
+4. **Engine, phase 1:**
+   - **Done (2026-10-15, CPU renderer, `dune-run`):**
+     - true-colour sprite art following the palette;
+     - talking-head plates hooked on `draw_talking_head_at_si` (1000:9D2D), keyed by the drawn parts (`gfx::head`). A draw is covered by the longest consecutive runs of parts with plates, so face + mouth + eyes combinations work without a plate per combination.
+     - Verified on Leto's approved portrait in conversation.
+   - **Still to do:**
+     - the web GPU path (it shows the palette form);
+     - room plates in true colour;
+     - checking a real palette fade on true-colour art;
+     - the head path at 1000:9E75 (`loc_09d94`, another origin), not hooked.
 5. **Measure** Mac (MPS) against CUDA differences on Paul and Leto, and set QA tolerances (phase 6).
 6. **Palette coverage:** a longer scripted play-through with `--gfx-trace`, to settle the ⚠ colours.
 7. **Pinned model revisions and licence checks** before any public release (`recipes/models.json`).

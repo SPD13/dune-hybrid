@@ -128,6 +128,22 @@ impl PackIndex {
         (low.w == 320 && low.h == crate::room::ROWS && texels.w == 320 * k && texels.h == crate::room::ROWS * k).then_some(Plate { texels, low })
     }
 
+    /// Head plate `key` at scale `k`, if the pack has it (see [`HeadPlate`]).
+    pub fn head<R: Read + Seek>(&self, r: &mut R, key: u64, k: usize) -> Option<HeadPlate> {
+        let texels = decode(&self.read_entry(r, &format!("h{k}/{key:016x}.png"))?)?;
+        let low = decode(&self.read_entry(r, &format!("hl/{key:016x}.png"))?)?;
+        if texels.w != low.w * k || texels.h != low.h * k {
+            return None;
+        }
+        let colour = (|| {
+            let px = decode(&self.read_entry(r, &format!("hc{k}/{key:016x}.png"))?)?;
+            let refs = self.read_entry(r, &format!("hr/{key:016x}.rgb"))?;
+            (px.w == texels.w && px.h == texels.h && refs.len() == 768)
+                .then(|| TrueColour { px, refs: std::array::from_fn(|i| [refs[i * 3], refs[i * 3 + 1], refs[i * 3 + 2]]) })
+        })();
+        Some(HeadPlate { art: SpriteArt { palette: texels, colour }, low })
+    }
+
     /// The art for sprite `hash` at scale `k`, if the pack has it.
     pub fn sprite<R: Read + Seek>(&self, r: &mut R, hash: u64, k: usize) -> Option<SpriteArt> {
         let palette = decode(&self.read_entry(r, &format!("a{k}/{hash:016x}.png"))?)?;
@@ -147,6 +163,16 @@ impl PackIndex {
 /// the plate depicts, A = 255 where the room drew.
 pub struct Plate {
     pub texels: PackSprite,
+    pub low: PackSprite,
+}
+
+/// A talking-head plate (pack version 4): one frame of a head, or one
+/// lip-sync mouth, keyed by [`crate::head::key`] of its parts and placed at
+/// their top-left. `art` as for sprites, with global palette indices (true
+/// colour `refs` by global index); `low`: R = the palette index the plate
+/// depicts, A = 255 where the parts draw.
+pub struct HeadPlate {
+    pub art: SpriteArt,
     pub low: PackSprite,
 }
 

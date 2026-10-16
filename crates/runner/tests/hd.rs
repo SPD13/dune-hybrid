@@ -49,6 +49,8 @@ fn hd_golden() {
         GfxEvent::End(pc::gfx::Mark::Room { .. }) => f.borrow_mut().comp.room_end(),
         GfxEvent::Begin(pc::gfx::Mark::Character) => f.borrow_mut().comp.room_character(true),
         GfxEvent::End(pc::gfx::Mark::Character) => f.borrow_mut().comp.room_character(false),
+        GfxEvent::Begin(pc::gfx::Mark::Head) => f.borrow_mut().comp.head_begin(),
+        GfxEvent::End(pc::gfx::Mark::Head) => f.borrow_mut().comp.head_end(),
     }));
 
     // Skip the intro (Esc), then talk to Leto.

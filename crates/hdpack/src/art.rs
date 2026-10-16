@@ -130,6 +130,54 @@ pub fn nearest(src: &Rgb, k: usize) -> Rgb {
     Rgb { w: src.w * k, h: src.h * k, px }
 }
 
+/// Resample to `w` × `h` by area averaging (for shrinking: each output
+/// pixel is the mean of the source area it covers).
+pub fn resize(src: &Rgb, w: usize, h: usize) -> Rgb {
+    // Per output column (row): the source columns it covers, with weights.
+    let spans = |from: usize, to: usize| -> Vec<Vec<(usize, f32)>> {
+        let s = from as f32 / to as f32;
+        (0..to)
+            .map(|o| {
+                let (a, b) = (o as f32 * s, (o + 1) as f32 * s);
+                let mut v = Vec::new();
+                let mut i = a.floor() as usize;
+                while (i as f32) < b && i < from {
+                    let w = (b.min(i as f32 + 1.0) - a.max(i as f32)) / s;
+                    if w > 0.0 {
+                        v.push((i, w));
+                    }
+                    i += 1;
+                }
+                v
+            })
+            .collect()
+    };
+    let (xs, ys) = (spans(src.w, w), spans(src.h, h));
+    let rows: Vec<[f32; 3]> = (0..src.h)
+        .flat_map(|y| {
+            xs.iter().map(move |span| {
+                let mut c = [0f32; 3];
+                for &(x, wt) in span {
+                    let p = src.px[y * src.w + x];
+                    (0..3).for_each(|i| c[i] += p[i] as f32 * wt);
+                }
+                c
+            })
+        })
+        .collect();
+    let px = (0..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let mut c = [0f32; 3];
+            for &(sy, wt) in &ys[y] {
+                (0..3).for_each(|i| c[i] += rows[sy * w + x][i] * wt);
+            }
+            c.map(|v| v.round().clamp(0.0, 255.0) as u8)
+        })
+        .collect();
+    Rgb { w, h, px }
+}
+
 /// 2×2 box filter (4× level to 2× level).
 pub fn halve(src: &Rgb) -> Rgb {
     shrink(src, 2)

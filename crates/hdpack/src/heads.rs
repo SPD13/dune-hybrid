@@ -232,3 +232,116 @@ pub fn contexts(dat: &Path, observed: &Observed) -> std::io::Result<Vec<Context>
     }
     Ok(out)
 }
+
+/// A talking-head plate to build (pack version 4): parts of a head as the
+/// game draws them (`draw_talking_head_at_si`), keyed by
+/// [`gfx::head::key`], with their finished art. While a character talks
+/// the game composes frames from groups (the face, a mouth, the eyes), so
+/// besides whole frames each group gets its own plate, cut from a picture
+/// it was made in; the engine covers a draw with them.
+pub struct HeadPlate {
+    pub key: u64,
+    /// The parts' picture (global palette indices, the sheet's palette;
+    /// `cover`: the parts' pixels), from their top-left, as shown in the
+    /// picture the art was made from.
+    pub picture: Asset,
+    /// Its art at 4×.
+    pub art: crate::art::Rgb,
+    /// Where the art came from: `LETO-f00` (a frame), `LETO-f00/g02` (a
+    /// group cut from a frame), `LETO-v34` (group 34 over frame 0).
+    pub source: String,
+}
+
+/// Finished art for talking heads in `dir`, at the picture's aspect
+/// (resized to 4×): `NAME-fNN.png` for frame NN of head NAME, and
+/// `NAME-vGG.png` for group GG (a mouth, eyes) drawn over frame 0. A group
+/// keeps the first picture it is found in, frames first.
+pub fn plates(dat: &Path, observed: &Observed, dir: &Path) -> std::io::Result<Vec<HeadPlate>> {
+    let mut f = std::fs::File::open(dat)?;
+    let mut out: Vec<HeadPlate> = Vec::new();
+    for e in gfx::dat::toc(&mut f)? {
+        let Ok(res) = gfx::dat::load(&mut f, &e) else { continue };
+        let Some(head) = parse(&res) else { continue };
+        let Some(sheet) = catalog::sheet_assets(&e.name, &res, observed) else { continue };
+        let refs: Vec<Option<&Asset>> = sheet.iter().map(|a| a.as_ref()).collect();
+        let Some(palette) = refs.iter().flatten().next().map(|a| a.palette) else { continue };
+        let name = e.name.trim_end_matches(".HSQ");
+        let parts_of = |groups: &[usize]| -> Vec<Part> { groups.iter().flat_map(|&g| head.groups[g].iter().cloned()).collect() };
+        // `parts` cut out of `art`, the 4× picture of the parts `ctx`.
+        let mut emit = |parts: &[Part], ctx: &[Part], art: &crate::art::Rgb, source: String| {
+            let Some(key_parts) = parts.iter().map(|p| refs.get(p.sprite).copied().flatten().map(|a| (a.content, p.x, p.y))).collect::<Option<Vec<_>>>() else {
+                return;
+            };
+            let key = gfx::head::key(&key_parts);
+            if out.iter().any(|p| p.key == key) {
+                return;
+            }
+            let (Some((x0, y0, w, h, own)), Some((cx0, cy0, cw, _, shown))) = (compose(parts, &refs), compose(ctx, &refs)) else { return };
+            let (ox, oy) = ((x0 - cx0) as usize, (y0 - cy0) as usize);
+            let px: Vec<Option<u8>> =
+                (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| own[y * w + x].and(shown[(oy + y) * cw + ox + x])).collect();
+            let cut = (0..h * 4).flat_map(|y| (0..w * 4).map(move |x| (x, y))).map(|(x, y)| art.px[(oy * 4 + y) * art.w + ox * 4 + x]).collect();
+            out.push(HeadPlate {
+                key,
+                picture: Asset {
+                    hash: key,
+                    content: key,
+                    res: format!("HEAD-{name}"),
+                    part: out.len(),
+                    format: Format::Byte,
+                    width: w,
+                    stride: w,
+                    height: h,
+                    cover: Some(px.iter().map(|p| p.is_some()).collect()),
+                    room: false,
+                    local: px.iter().map(|p| p.unwrap_or(0)).collect(),
+                    palette,
+                },
+                art: crate::art::Rgb { w: w * 4, h: h * 4, px: cut },
+                source,
+            });
+        };
+        let load = |file: &Path, parts: &[Part]| -> std::io::Result<Option<crate::art::Rgb>> {
+            let Some((_, _, w, h, _)) = compose(parts, &refs) else { return Ok(None) };
+            Ok(Some(to_4x(&crate::art::read_rgb(file)?, w, h, file)?))
+        };
+        for (i, frame) in head.frames.iter().enumerate() {
+            let file = dir.join(format!("{name}-f{i:02}.png"));
+            let parts = parts_of(frame);
+            if !file.exists() {
+                continue;
+            }
+            let Some(art) = load(&file, &parts)? else { continue };
+            emit(&parts, &parts, &art, format!("{name}-f{i:02}"));
+            for &g in frame {
+                emit(&head.groups[g], &parts, &art, format!("{name}-f{i:02}/g{g:02}"));
+            }
+        }
+        let Some(base) = head.frames.first() else { continue };
+        for (g, group) in head.groups.iter().enumerate() {
+            let file = dir.join(format!("{name}-v{g:02}.png"));
+            if !file.exists() {
+                continue;
+            }
+            let mut ctx = parts_of(base);
+            ctx.extend(group.iter().cloned());
+            let Some(art) = load(&file, &ctx)? else { continue };
+            emit(group, &ctx, &art, format!("{name}-v{g:02}"));
+        }
+    }
+    Ok(out)
+}
+
+/// A frame's picture at 4× (`w` × `h` the frame): resized if it has the
+/// frame's aspect (the studio's portraits are made larger).
+fn to_4x(img: &crate::art::Rgb, w: usize, h: usize, path: &Path) -> std::io::Result<crate::art::Rgb> {
+    let (tw, th) = (w * 4, h * 4);
+    if (img.w, img.h) == (tw, th) {
+        return Ok(crate::art::Rgb { w: tw, h: th, px: img.px.clone() });
+    }
+    let (a, b) = (img.w as f64 / img.h as f64, w as f64 / h as f64);
+    if (a / b - 1.0).abs() > 0.02 {
+        return Err(std::io::Error::other(format!("{}: {}×{} is not the frame's aspect ({w}×{h})", path.display(), img.w, img.h)));
+    }
+    Ok(crate::art::resize(img, tw, th))
+}

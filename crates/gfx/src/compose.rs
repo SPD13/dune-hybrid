@@ -137,6 +137,55 @@ pub type ArtSource = Box<dyn FnMut(u64, usize) -> Option<crate::pack::SpriteArt>
 /// Supplies room plates (by [`crate::room::RoomKey`]) at scale `k`.
 pub type PlateSource = Box<dyn FnMut(u64, usize) -> Option<crate::pack::Plate>>;
 
+/// Supplies talking-head plates (by [`crate::head::key`]) at scale `k`.
+pub type HeadSource = Box<dyn FnMut(u64, usize) -> Option<crate::pack::HeadPlate>>;
+
+/// Texel `j` of pack art (`None` where it has no coverage); `global` turns
+/// the art's palette values into palette indices.
+fn art_texel(art: &crate::pack::SpriteArt, j: usize, global: impl Fn(u8) -> u8) -> Option<Texel> {
+    let t = art.palette.px[j];
+    (t[3] >= 128).then(|| {
+        // True colour is tied to the palette value its palette form mostly
+        // shows (the closest of the colours around).
+        let tc = art.colour.as_ref().map(|c| {
+            let v = if t[2] < 128 { t[0] } else { t[1] };
+            let p = c.px.px[j];
+            TrueTexel { i: global(v), rgb: [p[0], p[1], p[2]], rf: c.refs[v as usize] }
+        });
+        Texel { a: global(t[0]), b: global(t[1]), t: t[2], free: false, under: false, tc }
+    })
+}
+
+/// Give `plate`'s texels (its top-left at `(x0, y0)`) to the pixels the
+/// head drew that still show what it depicts; returns how many.
+fn place_head(dst: &mut Shadow, t: &crate::head::HeadTrack, plate: &crate::pack::HeadPlate, (x0, y0): (i32, i32), k: usize) -> usize {
+    let (kk, w) = (k * k, plate.low.w * k);
+    let mut used = 0;
+    for py in 0..plate.low.h {
+        for px in 0..plate.low.w {
+            let l = plate.low.px[py * plate.low.w + px];
+            let (x, y) = (x0 + px as i32, y0 + py as i32);
+            if l[3] < 128 || !(0..320).contains(&x) || !(0..200).contains(&y) {
+                continue;
+            }
+            let i = crate::screen_offset(x as u16, y as u16, t.y_offset) as usize;
+            if !t.drawn[i] || dst.low[i] != l[0] {
+                continue;
+            }
+            for j in 0..kk {
+                let at = (py * k + j / k) * w + px * k + j % k;
+                if let Some(texel) = art_texel(&plate.art, at, |v| v) {
+                    dst.hd[i * kk + j] = texel;
+                }
+            }
+            dst.lowres[i] = false;
+            dst.dirty[(i / 320).min(204)] = true;
+            used += 1;
+        }
+    }
+    used
+}
+
 /// A glyph's smoothed mask: coverage 0-255 per texel.
 struct HdGlyph {
     w: usize,
@@ -181,6 +230,12 @@ pub struct Compositor {
     /// its pixels matched).
     pub plate_hits: u64,
     pub plate_misses: u64,
+    /// Talking-head plates, and the head being drawn.
+    heads: Option<HeadSource>,
+    head: Option<crate::head::HeadTrack>,
+    /// Head draws shown from a plate / drawn without one.
+    pub head_hits: u64,
+    pub head_misses: u64,
 }
 
 const SCREEN: u16 = 0xa000;
@@ -207,6 +262,10 @@ impl Compositor {
             room: None,
             plate_hits: 0,
             plate_misses: 0,
+            heads: None,
+            head: None,
+            head_hits: 0,
+            head_misses: 0,
         }
     }
 
@@ -262,6 +321,58 @@ impl Compositor {
         }
     }
 
+    /// Use talking-head plates from `heads` (an HD art pack, version 4).
+    pub fn set_heads(&mut self, heads: Option<HeadSource>) {
+        self.heads = heads;
+    }
+
+    /// The game starts drawing a talking head's parts
+    /// (`draw_talking_head_at_si`).
+    pub fn head_begin(&mut self) {
+        self.head = Some(Default::default());
+    }
+
+    /// The head's parts are drawn: the pack's plates for them (the whole
+    /// draw, or else the longest runs of consecutive parts it has plates
+    /// for: a group's parts are drawn together) give their texels to the
+    /// pixels the parts drew, wherever those still show what the plate
+    /// depicts. Plates apply in drawing order, as the game drew the parts.
+    pub fn head_end(&mut self) {
+        let Some(t) = self.head.take() else { return };
+        let (Some(target), Some(heads)) = (t.target, self.heads.as_mut()) else { return };
+        if t.unknown || t.parts.is_empty() {
+            self.head_misses += 1;
+            return;
+        }
+        let k = self.k;
+        let n = t.parts.len();
+        let mut covered = vec![false; n];
+        let mut picks = Vec::new();
+        for len in (1..=n).rev() {
+            for s in 0..=n - len {
+                if covered[s..s + len].iter().any(|&c| c) {
+                    continue;
+                }
+                let run = &t.parts[s..s + len];
+                if let Some(plate) = heads(crate::head::key(run), k) {
+                    covered[s..s + len].fill(true);
+                    picks.push((s, crate::head::origin(run), plate));
+                }
+            }
+        }
+        picks.sort_by_key(|p| p.0);
+        let Some(dst) = self.buffers.get_mut(&target) else { return };
+        let mut used = 0;
+        for (_, (x0, y0), plate) in &picks {
+            used += place_head(dst, &t, plate, (*x0, *y0), k);
+        }
+        if used > 0 {
+            self.head_hits += 1;
+        } else {
+            self.head_misses += 1;
+        }
+    }
+
     /// Use HD art from `art` (an HD art pack) where it has a sprite.
     pub fn set_art(&mut self, art: Option<ArtSource>) {
         self.art = art;
@@ -275,6 +386,7 @@ impl Compositor {
     pub fn reset(&mut self) {
         self.buffers.clear();
         self.room = None;
+        self.head = None;
     }
 
     pub fn shadow(&self, seg: u16) -> Option<&Shadow> {
@@ -329,6 +441,9 @@ impl Compositor {
     /// Follow a driver call, at its entry (`mem` before the call).
     pub fn apply(&mut self, op: &DrawOp, r: &Regs, mem: Mem, dac: &Dac) {
         if let Some(t) = self.room.as_mut() {
+            t.follow(op, r, mem);
+        }
+        if let Some(t) = self.head.as_mut() {
             t.follow(op, r, mem);
         }
         let Some(target) = op.target(r) else { return };
@@ -468,25 +583,7 @@ impl Compositor {
             Format::Nibble { pal } => v.wrapping_add(pal),
             _ => v,
         };
-        Some(
-            art.palette
-                .px
-                .iter()
-                .enumerate()
-                .map(|(j, t)| {
-                    (t[3] >= 128).then(|| {
-                        // True colour is tied to the palette value its palette
-                        // form mostly shows (the closest of the colours around).
-                        let tc = art.colour.as_ref().map(|c| {
-                            let v = if t[2] < 128 { t[0] } else { t[1] };
-                            let p = c.px.px[j];
-                            TrueTexel { i: global(v), rgb: [p[0], p[1], p[2]], rf: c.refs[v as usize] }
-                        });
-                        Texel { a: global(t[0]), b: global(t[1]), t: t[2], free: false, under: false, tc }
-                    })
-                })
-                .collect(),
-        )
+        Some((0..art.palette.px.len()).map(|j| art_texel(&art, j, global)).collect())
     }
 
     /// The sprite magnified by MMPX (palette values kept).
@@ -1231,6 +1328,38 @@ mod tests {
         screen[16 * 320 + 12] = 0x20;
         c.present(&screen, &bright, &mut rgb, false);
         assert_eq!(rgb[at(11, 16)..at(11, 16) + 3], bright[0x15]);
+    }
+
+    #[test]
+    fn head_plates_cover_runs_of_parts() {
+        use crate::pack::{HeadPlate, PackSprite, SpriteArt};
+        let m = mem();
+        let k = 2;
+        let mut c = Compositor::new(k);
+        // A plate for the staircase drawn alone: texels colour 9; it
+        // depicts 0x15 where the staircase is opaque, except one pixel.
+        let mut low: Vec<[u8; 4]> = (0..64).map(|i| if i % 8 <= i / 8 { [0x15, 0, 0, 255] } else { [0; 4] }).collect();
+        low[7 * 8 + 3] = [0x16, 0, 0, 255];
+        let texels = PackSprite { w: 8 * k, h: 8 * k, px: vec![[9, 9, 0, 255]; 64 * k * k] };
+        let sprite = SpriteRef { wflags: 8, height: 8, format: Format::Nibble { pal: 0x10 }, seg: 0x1000, off: 0 };
+        let single = crate::head::key(&[(crate::head::picture_hash(&sprite, Mem(&m)).unwrap(), 0, 0)]);
+        let plate = move |key, _| {
+            (key == single).then(|| HeadPlate { art: SpriteArt { palette: PackSprite { w: texels.w, h: texels.h, px: texels.px.clone() }, colour: None }, low: PackSprite { w: 8, h: 8, px: low.clone() } })
+        };
+        c.set_heads(Some(Box::new(plate)));
+        // Two parts, the staircase twice: each is a run with a plate.
+        let r = Regs { es: 0x2000, ..Default::default() };
+        c.head_begin();
+        c.apply(&DrawOp::Blit { sprite, x: 10, y: 10 }, &r, Mem(&m), &dac());
+        c.apply(&DrawOp::Blit { sprite, x: 30, y: 10 }, &r, Mem(&m), &dac());
+        c.head_end();
+        assert_eq!((c.head_hits, c.head_misses), (1, 0), "each part is a run with a plate");
+        let s = c.shadow(0x2000).unwrap();
+        let texel = |x: usize, y: usize| s.hd[(y * 320 + x) * k * k].a;
+        assert_eq!(texel(10, 17), 9);
+        assert_eq!(texel(37, 17), 9, "the second part too");
+        assert_eq!(texel(13, 17), 0x15, "the plate depicts another colour there");
+        assert_eq!(texel(17, 10), 0, "not drawn by the head");
     }
 
     #[test]

@@ -153,6 +153,8 @@ impl Recorder {
                         (pc::gfx::Mark::Room { .. }, true) => hd.comp.room_begin(),
                         (pc::gfx::Mark::Room { .. }, false) => hd.comp.room_end(),
                         (pc::gfx::Mark::Character, b) => hd.comp.room_character(b),
+                        (pc::gfx::Mark::Head, true) => hd.comp.head_begin(),
+                        (pc::gfx::Mark::Head, false) => hd.comp.head_end(),
                     }
                 }
                 if let Some(t) = self.trace.as_mut() {
@@ -160,6 +162,7 @@ impl Recorder {
                     let _ = match mark {
                         pc::gfx::Mark::Room { room } => writeln!(t, r#"{{"mark":"room","{edge}":true,"room":{room}}}"#),
                         pc::gfx::Mark::Character => writeln!(t, r#"{{"mark":"character","{edge}":true}}"#),
+                        pc::gfx::Mark::Head => writeln!(t, r#"{{"mark":"head","{edge}":true}}"#),
                     };
                 }
             }

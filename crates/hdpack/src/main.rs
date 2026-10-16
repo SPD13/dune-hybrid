@@ -53,7 +53,12 @@
 //!                          colours with its own palette, and
 //!                          {"true_colour": true}: also store the art in true
 //!                          colour (pack version 4), shown with its own colours
-//!                          and following the palette's fades (sprites only)
+//!                          and following the palette's fades (sprites only).
+//!                          Talking heads: DIR/NAME-fNN.png for frame NN of
+//!                          head NAME (e.g. LETO-f00) and DIR/NAME-vGG.png for
+//!                          group GG (a mouth, eyes) over frame 0, at their
+//!                          picture's aspect: stored as head plates in true
+//!                          colour, per frame and per group
 //!   --guard D              where the art drifts locally from the original by
 //!                          more than D, or flattens a clear feature (an eye),
 //!                          use the built-in upscaling for those pixels
@@ -250,7 +255,13 @@ fn run(args: &Args) -> std::io::Result<()> {
     };
     match args.cmd.as_str() {
         "extract" => extract(args, &assets),
-        "build" => build(args, &assets, external, &true_colour),
+        "build" => {
+            let plates = match &args.art {
+                Some(dir) => heads::plates(&args.dat, &observed, dir)?,
+                None => Vec::new(),
+            };
+            build(args, &assets, external, &true_colour, &plates)
+        }
         "heads" => dump_heads(args, &observed),
         "inventory" => inventory::run(&args.dat, &args.work, args.recipes.as_deref(), args.rooms.as_deref(), &observed),
         other => Err(std::io::Error::other(format!("unknown command {other}"))),
@@ -481,7 +492,7 @@ fn true_colour_png(up: &Rgb, t: &Texels) -> Vec<u8> {
     encode_png(&Texels { w: t.w, h: t.h, px, quality: 0.0, drift: 0.0 })
 }
 
-fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>, true_colour: &HashSet<u64>) -> std::io::Result<()> {
+fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>, true_colour: &HashSet<u64>, plates: &[heads::HeadPlate]) -> std::io::Result<()> {
     let todo: Vec<&Asset> = assets.iter().filter(|a| !external.contains_key(&a.hash)).collect();
     let mut ups = upscale(args, &todo.iter().map(|a| (*a).clone()).collect::<Vec<_>>())?;
     ups.extend(external.iter().map(|(h, img)| (*h, Rgb { w: img.w, h: img.h, px: img.px.clone() })));
@@ -614,6 +625,32 @@ fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>, true_colour
             manifest_assets.push(json!({"id": id, "res": a.res, "part": a.part, "w": a.stride, "h": a.height, "width": a.width, "format": a.format_name(), "block_match": q4, "drift": q2, "finished_art": finished, "true_colour": colour}));
         }
     }
+    // Talking-head plates: palette form, true colour, and what they depict.
+    let mut manifest_heads = Vec::new();
+    for p in plates {
+        let a = &p.picture;
+        let id = format!("{:016x}", p.key);
+        let half = art::halve(&p.art);
+        let (t4, t2) = (art::project(a, &p.art, 4), art::project(a, &half, 2));
+        let low = Texels { w: a.stride, h: a.height, px: a.local.iter().enumerate().map(|(i, &v)| [v, 0, 0, if a.solid(i) { 255 } else { 0 }]).collect(), quality: 0.0, drift: 0.0 };
+        let refs: Vec<u8> = (0..=255u8).flat_map(|v| a.rgb(v)).collect();
+        let entries = [
+            (format!("h4/{id}.png"), encode_png(&t4)),
+            (format!("h2/{id}.png"), encode_png(&t2)),
+            (format!("hc4/{id}.png"), true_colour_png(&p.art, &t4)),
+            (format!("hc2/{id}.png"), true_colour_png(&half, &t2)),
+            (format!("hl/{id}.png"), encode_png(&low)),
+            (format!("hr/{id}.rgb"), refs),
+        ];
+        for (name, data) in entries {
+            bytes += data.len();
+            zip.add(&name, &data)?;
+        }
+        manifest_heads.push(json!({"id": id, "head": a.res.trim_start_matches("HEAD-"), "w": a.stride, "h": a.height, "source": p.source, "drift": t4.drift}));
+    }
+    if !plates.is_empty() {
+        eprintln!("{} talking-head plates", plates.len());
+    }
     let manifest = json!({
         "format": "dune-hybrid-hd-pack",
         "version": 4,
@@ -625,6 +662,8 @@ fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>, true_colour
         "model": {"name": args.model.0, "license": args.model.1, "source": args.model.2},
         "assets": manifest_assets,
         "rooms": manifest_rooms,
+        "heads": manifest_heads,
+        "head_plates": "h4/<key>.png, h2/<key>.png: texels as above with global palette indices; hc4/, hc2/, hr/<key>.rgb: true colour as above, references by global index; hl/<key>.png: R = the palette index the plate depicts, A = 255 where the parts draw. Key: gfx::head::key of the parts of one call of draw_talking_head_at_si (a frame, or a lip-sync mouth); placed at the parts' top-left",
         "true_colour": "c4/<hash>.png, c2/<hash>.png: RGB = the art's own colour, A = coverage (as its texels'); cr/<hash>.rgb: 768 bytes, the 8-bit colour of each palette-local value in the palette the art was made in. Shown as colour × the value's current palette colour ÷ that reference colour, so it follows fades",
         "room_plates": "r4/<key>.png, r2/<key>.png: texels as above with global palette indices, for the 320 × 152 game area; rl/<key>.png: R = the low-resolution palette index the plate depicts, A = 255 where the room drew. Key: gfx::room::RoomKey of the room's drawing calls",
         "notice": NOTICE,

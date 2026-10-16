@@ -651,7 +651,7 @@ impl Machine {
         if self.gfx.mark_returns_at(pc, sp) {
             self.gfx.end(&self.hw);
         }
-        if pc == gfx::MARK_ROOM || pc == gfx::MARK_CHARACTER {
+        if pc == gfx::MARK_ROOM || pc == gfx::MARK_CHARACTER || pc == gfx::MARK_HEAD {
             self.on_mark(pc);
         }
     }
@@ -661,7 +661,11 @@ impl Machine {
     fn on_mark(&mut self, pc: u32) {
         let (ss, sp, cs) = (self.cpu.sregs[SS], self.cpu.regs[SP], self.cpu.sregs[CS]);
         let ret = self.cpu.phys(cs, self.mem_read16(ss, sp));
-        let mark = if pc == gfx::MARK_ROOM { gfx::Mark::Room { room: self.cpu.regs[AX] as u8 } } else { gfx::Mark::Character };
+        let mark = match pc {
+            gfx::MARK_ROOM => gfx::Mark::Room { room: self.cpu.regs[AX] as u8 },
+            gfx::MARK_CHARACTER => gfx::Mark::Character,
+            _ => gfx::Mark::Head,
+        };
         self.gfx.begin(mark, ret, sp.wrapping_add(2), &self.hw);
     }
 

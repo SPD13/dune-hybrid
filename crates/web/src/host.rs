@@ -236,6 +236,7 @@ impl Emu {
             let mut hd = hd.borrow_mut();
             hd.follower.comp.set_art(self.art_source());
             hd.follower.comp.set_plates(self.plate_source());
+            hd.follower.comp.set_heads(self.head_source());
         }
         Ok(())
     }
@@ -255,6 +256,15 @@ impl Emu {
             let mut p = pack.borrow_mut();
             let Pack { file, index } = &mut *p;
             index.plate(file, key, k)
+        }))
+    }
+
+    fn head_source(&self) -> Option<gfx::compose::HeadSource> {
+        let pack = self.pack.clone()?;
+        Some(Box::new(move |key, k| {
+            let mut p = pack.borrow_mut();
+            let Pack { file, index } = &mut *p;
+            index.head(file, key, k)
         }))
     }
 
@@ -286,6 +296,7 @@ impl Emu {
         follower.comp.sprite_budget = if k == 4 { 64 << 20 } else { 24 << 20 };
         follower.comp.set_art(self.art_source());
         follower.comp.set_plates(self.plate_source());
+        follower.comp.set_heads(self.head_source());
         let size = 320 * k * 200 * k * 4;
         let hd = Rc::new(RefCell::new(Hd { follower, cur: vec![0; size], screen: vec![0; 64000], fallback: vec![0; 200], full: true, visible: true }));
         let h = hd.clone();
@@ -301,6 +312,8 @@ impl Emu {
                 pc::gfx::GfxEvent::End(pc::gfx::Mark::Room { .. }) => h.follower.comp.room_end(),
                 pc::gfx::GfxEvent::Begin(pc::gfx::Mark::Character) => h.follower.comp.room_character(true),
                 pc::gfx::GfxEvent::End(pc::gfx::Mark::Character) => h.follower.comp.room_character(false),
+                pc::gfx::GfxEvent::Begin(pc::gfx::Mark::Head) => h.follower.comp.head_begin(),
+                pc::gfx::GfxEvent::End(pc::gfx::Mark::Head) => h.follower.comp.head_end(),
             }
         }));
         self.hd = Some(hd);

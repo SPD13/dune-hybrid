@@ -186,8 +186,10 @@ fn main() -> ExitCode {
         let index = Rc::new(index);
         let file = Rc::new(RefCell::new(file));
         let (i2, f2) = (index.clone(), file.clone());
+        let (i3, f3) = (index.clone(), file.clone());
         hd.comp.set_art(Some(Box::new(move |hash, k| index.sprite(&mut *file.borrow_mut(), hash, k))));
         hd.comp.set_plates(Some(Box::new(move |key, k| i2.plate(&mut *f2.borrow_mut(), key, k))));
+        hd.comp.set_heads(Some(Box::new(move |key, k| i3.head(&mut *f3.borrow_mut(), key, k))));
     }
     let tracker = args.rooms.as_ref().map(|_| Rc::new(RefCell::new(rooms::Tracker::default())));
     if recorder.is_some() || tracker.is_some() {
@@ -354,6 +356,7 @@ fn main() -> ExitCode {
     {
         println!("hd pack: {} sprites from the pack, {} without art", hd.comp.art_hits, hd.comp.art_misses);
         println!("hd pack: {} rooms from plates, {} without", hd.comp.plate_hits, hd.comp.plate_misses);
+        println!("hd pack: {} head draws from plates, {} without", hd.comp.head_hits, hd.comp.head_misses);
     }
     if hd_totals.hd + hd_totals.fallback > 0 {
         let n = (hd_totals.hd + hd_totals.fallback) as f64 / 100.0;

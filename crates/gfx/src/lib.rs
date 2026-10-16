@@ -15,6 +15,7 @@
 pub mod compose;
 pub mod dat;
 pub mod hash;
+pub mod head;
 pub mod hsq;
 pub mod mmpx;
 pub mod model;

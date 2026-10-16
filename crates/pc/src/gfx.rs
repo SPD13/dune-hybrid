@@ -75,11 +75,16 @@ pub enum Mark {
     Room { room: u8 },
     /// 1000:3D2F, inside `draw_SAL`: a character standing in the room.
     Character,
+    /// `draw_talking_head_at_si` (1000:9D2D): the parts of a talking-head
+    /// frame or lip-sync mouth, one driver call each (also entered by
+    /// falling through from 1000:9D16).
+    Head,
 }
 
 /// Linear addresses of the marked routines.
 pub(crate) const MARK_ROOM: u32 = (crate::LOAD_SEG as u32) * 16 + 0x3b59;
 pub(crate) const MARK_CHARACTER: u32 = (crate::LOAD_SEG as u32) * 16 + 0x3d2f;
+pub(crate) const MARK_HEAD: u32 = (crate::LOAD_SEG as u32) * 16 + 0x9d2d;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GfxEvent {
