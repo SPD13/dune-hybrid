@@ -24,6 +24,9 @@ A character with "style": true is generated with the game's style layers
 (recipes/style.json: the game's, then its location's), encoded as hdgen.py
 does, so it matches a portrait first made by hdgen.py's batch (class
 defaults: description "the subject as drawn").
+A character's "touch" entries (box in the square frame's pixels, prompt) repaint
+a detail of every frame in a close-up after generation, when the model misreads it
+in the pixel art (Hawat's bushy eyebrows, drawn as a horn).
 Emblems (the character's "emblems": box in the frame's pixels, emblem name) are
 taken out of every frame before generation and drawn back from their vector
 master (NAME.svg, as in hdgen.py) on every final frame, so they are exact and
@@ -219,6 +222,51 @@ class Renderer:
         return self.pipe(**text, image=guide, control_image=guide, strength=st["strength"],
                          num_inference_steps=st["steps"], controlnet_conditioning_scale=st["cond"],
                          guidance_scale=st["guidance"], generator=g).images[0]
+
+
+def inpainter(render, st):
+    from diffusers import StableDiffusionXLControlNetInpaintPipeline
+    if render.pipe is None:
+        render.load(st)
+    if render.inpaint is None:
+        render.inpaint = StableDiffusionXLControlNetInpaintPipeline.from_pipe(render.pipe, torch_dtype=render.dtype)
+    return render.inpaint
+
+
+def touch_pass(render, im, low, touches, st, ch):
+    """Repaint details of a frame (the character's "touch": box in the square frame's
+    pixels, prompt) in a close-up, guided by the frame itself, pasted back softly. The
+    same seed and close-up give the same result, so a detail no pose changes stays the
+    same in every frame."""
+    import cv2
+    s = im.width / low.width
+    out = np.asarray(im, dtype=np.float32).copy()
+    for t in touches:
+        x0, y0, x1, y1 = t["box"]
+        pad = t.get("pad", 4)
+        X0, Y0 = max(0, round((x0 - pad) * s)), max(0, round((y0 - pad) * s))
+        X1, Y1 = min(im.width, round((x1 + pad) * s)), min(im.height, round((y1 + pad) * s))
+        zoom = 1024 / max(X1 - X0, Y1 - Y0)
+        gw, gh = int((X1 - X0) * zoom) // 8 * 8, int((Y1 - Y0) * zoom) // 8 * 8
+        crop = out[Y0:Y1, X0:X1]
+        # The box as a soft ellipse: the edges blend into the frame.
+        m = np.zeros((Y1 - Y0, X1 - X0), np.float32)
+        cx, cy = ((x0 + x1) / 2) * s - X0, ((y0 + y1) / 2) * s - Y0
+        cv2.ellipse(m, (round(cx), round(cy)), (round((x1 - x0) * s / 2), round((y1 - y0) * s / 2)), 0, 0, 360, 1.0, -1)
+        m = cv2.GaussianBlur(m, (0, 0), s * t.get("feather", 1.0))
+        guide = Image.fromarray(np.clip(crop, 0, 255).astype(np.uint8)).resize((gw, gh), Image.LANCZOS)
+        mask = Image.fromarray((np.clip(m * 1.4, 0, 1) * 255).astype(np.uint8)).resize((gw, gh), Image.BILINEAR)
+        prompt, negative = prompts(ch, t["prompt"])
+        if t.get("negative"):
+            negative = f"{t['negative']}, {negative}"
+        pipe = inpainter(render, st)  # loads the model when every render came from the cache
+        g = render.torch.Generator("cpu").manual_seed(st["seed"])
+        rep_ = pipe(prompt, negative_prompt=negative, image=guide, mask_image=mask, control_image=guide, width=gw, height=gh,
+                                     strength=t.get("strength", 0.75), num_inference_steps=st["steps"], guidance_scale=st["guidance"],
+                                     controlnet_conditioning_scale=t.get("cond", 0.4), generator=g).images[0]
+        rep_ = np.asarray(rep_.resize((X1 - X0, Y1 - Y0), Image.LANCZOS), dtype=np.float32)
+        out[Y0:Y1, X0:X1] = rep_ * m[..., None] + crop * (1 - m[..., None])
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
 
 
 def mouth_pass(render, im, low, vfull, mp, st, ch, drop=()):
@@ -437,6 +485,13 @@ def main():
         finals[fid] = Image.composite(match_colours(full, base, m), base, m)
         if v.get("mouth_pass"):
             finals[fid] = mouth_pass(render, finals[fid], low, frame(fid)[0], v["mouth_pass"], st, ch, drop=v.get("drop", ()))
+
+    if ch.get("touch"):
+        for fid in list(finals):
+            if fid in only or fid == base_id:
+                print(f"@stage touch {name}-{fid}", flush=True)
+                # A pose may give its own (e.g. a frown: the eyebrow lowered).
+                finals[fid] = touch_pass(render, finals[fid], low, variants.get(fid, {}).get("touch", ch["touch"]), st, ch)
 
     # Colours (eye stages): recoloured from the frame they're drawn over.
     groups = {}
