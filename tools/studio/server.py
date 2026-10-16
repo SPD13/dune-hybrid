@@ -150,6 +150,9 @@ class Studio:
         kind, _, rest = item_id.partition("/")
         heads = json.load(open(os.path.join(self.recipes, "heads.json")))["characters"]
         name, _, fid = rest.partition("/")
+        if kind == "head" and fid.startswith("v") and name not in heads:
+            raise ValueError(f"{name} {fid}: a talking group is made from {name}'s frame 0 with its recipe; "
+                             f"{name} has none yet (recipes/heads.json): add a note and Claude writes it")
         if kind != "head" or name not in heads:
             # Every other item: hdgen with its recipe or its class's defaults; with Try settings on top.
             py = system.env_python(self.env)
@@ -168,7 +171,8 @@ class Studio:
             steps.append(("generate", [py] + args))
             return self.queue.add(jobs.Job(title, steps, env={"HF_HUB_OFFLINE": "1"}))
         rec = heads[name]
-        if fid != rec.get("base", "f00") and fid not in rec.get("variants", {}):
+        # Talking groups (vGG) need no entry of their own: generate.py rerenders them.
+        if fid != rec.get("base", "f00") and fid not in rec.get("variants", {}) and not fid.startswith("v"):
             raise ValueError(f"{name} {fid} is not in its recipe yet (recipes/heads.json variants): add a note and Claude extends it")
         steps = []
         heads_dir = os.path.join(self.work, "heads")
@@ -197,6 +201,56 @@ class Studio:
                                                                            os.path.join(self.recipes, "models.json"), "--only", m["id"]]))
         steps.append((f"generate {name} {fid}", cmd))
         return self.queue.add(jobs.Job(title, steps, env={"HF_HUB_OFFLINE": "1"}))
+
+
+def pack(studio, scope):
+    """A job that exports the chosen versions (export_pack.py) and builds an HD pack from
+    them with dune-hd: WORK/packs/dune-hd-pack-<scope>-<time>.zip, the rest of the art
+    upscaled by dune-hd's built-in upscaler."""
+    import time
+    cfg, work = studio.cfg, studio.work
+    if not (cfg.get("dat") and cfg.get("dune_hd")):
+        raise ValueError("start the studio with --dat and --dune-hd to build packs")
+    if scope not in ("approved", "all"):
+        raise ValueError(f"unknown scope {scope}")
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    packs = os.path.join(work, "packs")
+    art = os.path.join(packs, f"art-{stamp}")
+    out = os.path.join(packs, f"dune-hd-pack-{scope}-{stamp}.zip")
+    # The generation environment has Pillow (only needed to resize a picture); else this Python.
+    py = system.env_python(studio.env) if studio.env_info.get("ok") else sys.executable
+    bundle = json.load(open(os.path.join(studio.recipes, "bundle.json"))).get("version", "?")
+    build = [cfg["dune_hd"], "build", "--dat", cfg["dat"], "--work", os.path.join(packs, "build"), "--art", art, "--out", out,
+             "--model-name", f"Dune HD Studio, recipe bundle {bundle} (generative art; the rest MMPX)",
+             "--model-license", "see the models in recipes/models.json", "--model-source", "Dune HD Studio"]
+    if os.path.isdir(os.path.join(work, "rooms")):
+        build += ["--rooms", os.path.join(work, "rooms")]
+    traces = os.path.join(work, "traces")
+    if os.path.isdir(traces):
+        found = sorted((os.path.join(traces, n) for n in os.listdir(traces) if n.endswith(".jsonl")), key=os.path.getmtime)
+        if found:
+            build += ["--trace", found[-1]]
+    os.makedirs(packs, exist_ok=True)
+    steps = [("export the chosen versions", [py, os.path.join(HERE, "export_pack.py"), work, "--out", art, "--scope", scope]),
+             ("build the pack", build)]
+    what = "approved items" if scope == "approved" else "all generated items"
+    return studio.queue.add(jobs.Job(f"Build a pack: {what}", steps))
+
+
+def pack_list(work):
+    """Packs built by the studio, newest first, with what went into them."""
+    d = os.path.join(work, "packs")
+    out = []
+    for n in sorted(os.listdir(d), reverse=True) if os.path.isdir(d) else []:
+        if not n.endswith(".zip"):
+            continue
+        stamp = n[:-4].rsplit("-", 2)
+        export = os.path.join(d, f"art-{stamp[-2]}-{stamp[-1]}", "export.json")
+        info = json.load(open(export)) if os.path.exists(export) else {}
+        out.append({"name": n, "path": f"packs/{n}", "mb": round(os.path.getsize(os.path.join(d, n)) / 1e6, 1),
+                    "time": os.path.getmtime(os.path.join(d, n)), "scope": info.get("scope"),
+                    "exported": len(info.get("exported", [])), "skipped": info.get("skipped", [])})
+    return out
 
 
 def png_size(path):
@@ -309,6 +363,8 @@ def make_handler(studio):
                 return self.send(200, studio.system())
             if path == "/api/jobs":
                 return self.send(200, [j.view() for j in studio.queue.jobs[-30:]])
+            if path == "/api/packs":
+                return self.send(200, pack_list(work))
             if path == "/api/talking":
                 try:
                     return self.send(200, talking(work, parse_qs(urlparse(self.path).query).get("id", [""])[0]))
@@ -363,6 +419,8 @@ def make_handler(studio):
                     what = f"{len(data['ids'])} filtered items" if data.get("ids") else ", ".join(data.get("classes") or ["default classes"])
                     job = jobs.Job(f"Batch: {what}", [("generate", [py] + batch_args(studio, data))], env={"HF_HUB_OFFLINE": "1"})
                     return self.send(200, studio.queue.add(job).view())
+                if path == "/api/pack":
+                    return self.send(200, pack(studio, data.get("scope", "approved")).view())
                 if path == "/api/generate":
                     return self.send(200, studio.generate(data.get("item", ""), data.get("override")).view())
                 if path == "/api/jobs/cancel":

@@ -85,6 +85,8 @@ class Recipes:
             fid = it["id"].rsplit("/", 1)[1]
             if rec:  # a recipe head: its own frames
                 return fid == rec.get("base", "f00") or fid in rec.get("variants", {})
+        if it["kind"] == "head-group":  # a talking group: made from its head's recipe (generate.py)
+            return it["group"] in self.heads["characters"]
             return len(it.get("groups", [])) >= 2
         mw, mh = b.get("min_size", [0, 0])
         return it["size"][0] >= mw and it["size"][1] >= mh
@@ -119,7 +121,7 @@ class Recipes:
                 st["source"] = "recipes/interface.json"
             if own and own.get("treat_as") == "scene":
                 st["method"] = "picture"
-        elif it["kind"] == "head-frame" and it["group"] in self.heads["characters"]:
+        elif it["kind"] in ("head-frame", "head-group") and it["group"] in self.heads["characters"]:
             return "recipe-head", {"source": "recipes/heads.json", "head": it["group"]}
         if st.get("style", True) is not False:
             st["style"] = self.style_for(it)
@@ -655,3 +657,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+        if it["kind"] == "head-group" and it["group"] not in rec.heads["characters"]:
+            print(f"!! {it['id']}: a talking group needs its head's recipe (recipes/heads.json)", flush=True)
+            continue

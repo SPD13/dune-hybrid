@@ -4,7 +4,12 @@
 //! `assets.json`.
 //!
 //! Writes `WORK/review/items.json` (what the studio lists) and the originals
-//! to `WORK/inventory/src/`. A sprite's colours come, in order, from: the
+//! to `WORK/inventory/src/`. Talking heads are listed by the frames the game
+//! lists (`head/NAME/fNN`) and by every group drawn over frame 0
+//! (`head/NAME/vGG`: the mouths and eyes swapped in while talking). Sprites
+//! not coloured by their own sheet keep their palette in
+//! `WORK/inventory/palettes/<art_name>.dac` (768 bytes, 8-bit RGB), for the
+//! pack export. A sprite's colours come, in order, from: the
 //! palette observed while the game drew it (`--trace`); its sheet's own
 //! palette chunks, when they cover every value it uses; the palette its
 //! sheet's rule names (`game`: a captured room's palette; `SKYDN:N` /
@@ -163,6 +168,9 @@ pub fn run(dat: &Path, work: &Path, recipes_dir: Option<&Path>, rooms_dir: Optio
     let src = work.join("inventory").join("src");
     std::fs::create_dir_all(&src)?;
     std::fs::create_dir_all(work.join("review"))?;
+    // The palette of each sprite not coloured by its own sheet (768 bytes, 8-bit RGB).
+    let palettes = work.join("inventory").join("palettes");
+    std::fs::create_dir_all(&palettes)?;
     let rel = |p: &Path| p.strip_prefix(work).unwrap_or(p).to_string_lossy().replace('\\', "/");
     let mut items: Vec<Value> = Vec::new();
 
@@ -220,10 +228,41 @@ pub fn run(dat: &Path, work: &Path, recipes_dir: Option<&Path>, rooms_dir: Optio
                 let single = fr.len() == 1;
                 items.push(json!({
                     "id": format!("head/{name}/f{i:02}"), "title": format!("{name} f{i:02}"), "class": recipes.class_name("heads"), "class_key": "heads", "group": name, "groups": fr,
-                    "kind": "head-frame", "size": [w, h], "palette": {"source": "sheet", "ok": ok},
+                    "kind": "head-frame", "size": [w, h], "palette": {"source": "sheet", "ok": ok}, "art_name": format!("{name}-f{i:02}"),
                     "note": format!("groups {:?}{}", fr, if single { " (a lip-sync or single-group frame)" } else { "" }),
                     "original": {"path": rel(&path), "label": "original (pixel art)"}, "versions": [], "default": null,
                 }));
+            }
+            // While a character talks, the game draws its face with groups
+            // swapped in (mouths, eyes), as each sentence's lip-sync data
+            // says: each group outside frame 0, drawn over it (generated as
+            // a rerender of frame 0, see generate.py). Groups that build the
+            // faces listed as frames (the Fremen sheets' hair, beards) are
+            // reviewed in those frames instead.
+            let faces: HashSet<usize> = head.frames.iter().filter(|fr| fr.len() >= 2).flatten().copied().collect();
+            if let Some(base) = head.frames.first() {
+                let base_parts: Vec<heads::Part> = base.iter().flat_map(|&g| head.groups[g].iter().cloned()).collect();
+                let rest = heads::compose(&base_parts, &refs);
+                for (g, group) in head.groups.iter().enumerate().filter(|(g, _)| !base.contains(g) && !faces.contains(g)) {
+                    let mut parts = base_parts.clone();
+                    parts.extend(group.iter().cloned());
+                    let Some((x0, y0, w, h, px)) = heads::compose(&parts, &refs) else { continue };
+                    if rest.as_ref().is_some_and(|r| (r.0, r.1, r.2, r.3) == (x0, y0, w, h) && r.4 == px) {
+                        continue; // draws nothing new over frame 0
+                    }
+                    let pal = sheet.iter().flatten().next().map(|a| a.palette).unwrap_or_else(palette::grey);
+                    let ok = px.iter().flatten().all(|&v| cover[v as usize]);
+                    let path = src.join(format!("head-{name}-v{g:02}.png"));
+                    art::write_png(&path, w, h, true, &rgba(w, h, |x, y| px[y * w + x].map(|v| pal[v as usize])))?;
+                    let mut groups = base.clone();
+                    groups.push(g);
+                    items.push(json!({
+                        "id": format!("head/{name}/v{g:02}"), "title": format!("{name} v{g:02}"), "class": recipes.class_name("heads"), "class_key": "heads", "group": name, "groups": groups,
+                        "kind": "head-group", "size": [w, h], "palette": {"source": "sheet", "ok": ok}, "art_name": format!("{name}-v{g:02}"),
+                        "note": format!("group {g} over frame 0 (a mouth or eyes the game swaps in while {name} talks)"),
+                        "original": {"path": rel(&path), "label": "original (pixel art)"}, "versions": [], "default": null,
+                    }));
+                }
             }
             for a in sheet.iter().flatten() {
                 seen.insert(a.content);
@@ -250,6 +289,11 @@ pub fn run(dat: &Path, work: &Path, recipes_dir: Option<&Path>, rooms_dir: Optio
                 unknown += 1;
             }
             let art_name = format!("{name}-{:03}", a.part);
+            if source != "sheet" {
+                // Colours `dune-hd build` cannot find in the sheet: kept for
+                // the pack export (the --art palette sidecar).
+                std::fs::write(palettes.join(format!("{art_name}.dac")), pal.iter().flatten().copied().collect::<Vec<u8>>())?;
+            }
             let path = src.join(format!("{art_name}.png"));
             art::write_png(&path, a.width, a.height, true, &rgba(a.width, a.height, |x, y| {
                 let i = y * a.stride + x;

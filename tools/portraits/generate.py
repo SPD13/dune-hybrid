@@ -12,6 +12,10 @@ for the character is then made from it:
 - "rerender" (shapes: mouths, brows, a tired face): the same generation, same
   seed, on the variant's frame, kept only where that frame differs;
 - "recolour" (colours: Paul's eye stages): no generation, see recolour.py.
+Every talking group of the head (talking_groups: the mouths and eyes the game
+swaps in while the character talks) is a rerender variant too, with the
+character's settings, unless the recipe gives it its own entry; without
+--only, all of them are made.
 Emblems (the character's "emblems": box in the frame's pixels, emblem name) are
 taken out of every frame before generation and drawn back from their vector
 master (NAME.svg, as in hdgen.py) on every final frame, so they are exact and
@@ -126,6 +130,15 @@ def with_emblems(im, original, emblems):
         shade = np.clip(lum / max(1.0, float(np.median(lum))), 0.6, 1.4)[..., None]
         out[Y0:Y1, X0:X1] = region * (1 - a) + colour * shade * a
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+
+
+def talking_groups(layout):
+    """The groups a head swaps into frame 0 while talking (as `dune-hd inventory` lists
+    them, head/NAME/vGG): every group outside frame 0, except those building the faces
+    listed as frames (the Fremen sheets' hair and beards)."""
+    frames = layout["frames"]
+    faces = {g for fr in frames if len(fr) >= 2 for g in fr}
+    return [g for g in range(len(layout["groups"])) if g not in frames[0] and g not in faces]
 
 
 def prompts(ch, var_prompt=None, variant=False, var_negative=None):
@@ -322,7 +335,13 @@ def main():
     def frame(fid, keep_emblems=False):
         low, mask = load_face(os.path.join(args.heads, f"{name}-{fid}.png"))
         return (low if keep_emblems or not emblems else without_emblems(low, emblems)), mask
-    variants = ch.get("variants", {})
+    variants = dict(ch.get("variants", {}))
+    layout_path = os.path.join(args.heads, f"{name}.json")
+    if os.path.exists(layout_path):
+        for g in talking_groups(json.load(open(layout_path))):
+            fid = f"v{g:02d}"
+            if fid not in variants and os.path.exists(os.path.join(args.heads, f"{name}-{fid}.png")):
+                variants[fid] = {"kind": f"group {g}"}
     only = set(args.only.split(",")) if args.only else set(variants)
     base_id = ch.get("base", "f00")
     needed = only | {variants[v]["over"] for v in only if v in variants and "over" in variants[v]}
@@ -358,6 +377,9 @@ def main():
         if v.get("method", "rerender") != "rerender" or fid not in needed:
             continue
         vlow, _ = frame(fid)
+        if vlow.size != low.size:
+            print(f"{fid}: drawn beyond {base_id}'s frame ({vlow.size} against {low.size}), skipped", flush=True)
+            continue
         vst = {**st, **v.get("settings", {})}
         if vst.get("open") is not None:
             # A mouth less open than drawn: its guide between the default frame and its own.

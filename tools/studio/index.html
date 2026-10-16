@@ -118,7 +118,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
 <body>
 <div id="app">
   <header>
-    <h1>Dune HD Studio</h1><span class="pill" id="hw">…</span><button class="btn" id="setupBtn">Setup</button><button class="btn" id="batchBtn">Batch</button><button class="btn" id="jobsBtn">Jobs</button>
+    <h1>Dune HD Studio</h1><span class="pill" id="hw">…</span><button class="btn" id="setupBtn">Setup</button><button class="btn" id="batchBtn">Batch</button><button class="btn" id="packBtn" title="Build an HD pack from the chosen versions, to see them in the game">Pack</button><button class="btn" id="jobsBtn">Jobs</button>
     <span class="hint"><kbd>G</kbd> grid · <kbd>B</kbd> draw box · <kbd>H</kbd> hide boxes · <kbd>Space</kbd> flip · <kbd>F</kbd> fit · <kbd>1</kbd> 1:1 · <kbd>D</kbd> detail map · <kbd>Del</kbd> delete box · <kbd>↑</kbd><kbd>↓</kbd> assets</span>
     <span class="save" id="save">loading…</span>
   </header>
@@ -149,6 +149,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
 </div>
 <div class="modal" id="setup"><div class="card" id="setupCard"></div></div>
 <div class="modal" id="batch"><div class="card" id="batchCard"></div></div>
+<div class="modal" id="pack"><div class="card" id="packCard"></div></div>
 <div id="jobs"></div>
 <script>
 "use strict";
@@ -166,7 +167,7 @@ let mode = store.get("mode", "side"), tool = "pan", flip = false, split = 0.5;
 if (!["side", "slider", "flip"].includes(mode)) mode = "side";
 // Talking view: the rest face and the lip-sync mouths, pixel art left, generated right, looping.
 let talk = null, talkTimer = null, talkStep = 0;
-const isHead = (it) => it && it.kind === "head-frame";
+const isHead = (it) => it && (it.kind === "head-frame" || it.kind === "head-group");
 let view = { scale: 1, x: 0, y: 0 };          // screen px per image px (of B), and the image's top-left in a pane
 const images = new Map();                      // path → HTMLImageElement
 let filter = { q: "", status: store.get("status", "all") }, open = new Set(store.get("open", [])), gridOn = false;
@@ -967,5 +968,36 @@ $("flt").onchange = () => { filter.status = $("flt").value; store.set("status", 
 setMode(mode); setTool("pan"); setGrid(false);
 load();
 </script>
+// ---------- pack ----------
+let packState = { scope: "approved", list: null, error: null };
+async function loadPacks() {
+  try { packState.list = await api("/api/packs"); packState.error = null; } catch (e) { packState.error = e.message; }
+  renderPack();
+}
+function renderPack() {
+  const c = $("packCard"), l = packState.list;
+  const approved = items.filter((i) => (review.assets[i.id] || {}).status === "approved").length;
+  const fmtDate = (t) => new Date(t * 1000).toLocaleString();
+  const rows = !l ? "Loading…" : !l.length ? "<span class=small>No pack built yet.</span>" : l.map((p) =>
+    `<div style="margin:4px 0"><a href="/files/${p.path}" download>${p.name}</a> <span class="small">${p.mb} MB · ${fmtDate(p.time)}` +
+    (p.scope ? ` · ${p.exported} generated pictures (${p.scope === "approved" ? "approved only" : "all generated"})` : "") + `</span>` +
+    (p.skipped.length ? `<div class="small warn">⚠ left out: ${p.skipped.map((s) => `${s.id} (${s.why})`).join("; ")}</div>` : "") + `</div>`).join("");
+  c.innerHTML = `<h2>Build an HD pack</h2><div class="d" style="color:var(--dim);margin-bottom:8px">Puts each chosen item's preferred version (else its default) into an HD pack for Dune Hybrid, under the names the game's art is matched by; everything else gets the built-in upscale. Talking heads and characters keep their own colours (true colour) and still follow the game's fades. The pack is made from your copy of the game: keep it for yourself.</div>
+    <div class="row" style="grid-template-columns:1fr">
+      <label><input type="radio" name="pscope" value="approved" ${packState.scope === "approved" ? "checked" : ""}> Approved items only (${approved})</label>
+      <label><input type="radio" name="pscope" value="all" ${packState.scope === "all" ? "checked" : ""}> Every item with a generated version, except rejected ones (work in progress)</label></div>
+    ${packState.error ? `<div class="warn">⚠ ${packState.error}</div>` : ""}
+    <h3 style="margin:12px 0 4px">Built packs</h3><div>${rows}</div>
+    <div class="small" style="margin-top:8px">In Dune Hybrid, on the start page: HD art pack → Import HD art pack…. Or headless: <code>dune-run --hd 4 --hd-shots --hd-pack PACK.zip</code>.</div>
+    <div style="text-align:right;margin-top:10px"><button class="btn" id="pclose">Close</button> <button class="btn primary" id="pstart">Build pack</button></div>`;
+  for (const r of c.querySelectorAll("input[name=pscope]")) r.onchange = () => { packState.scope = r.value; };
+  $("pclose").onclick = () => $("pack").classList.remove("on");
+  $("pstart").onclick = async () => {
+    try { await api("/api/pack", { scope: packState.scope }); $("pack").classList.remove("on"); showJobs(true); pollJobs(); }
+    catch (e) { packState.error = e.message; renderPack(); }
+  };
+}
+$("packBtn").onclick = () => { $("pack").classList.add("on"); renderPack(); loadPacks(); };
+$("pack").onclick = (e) => { if (e.target === $("pack")) $("pack").classList.remove("on"); };
 </body>
 </html>

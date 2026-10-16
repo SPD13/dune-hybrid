@@ -163,10 +163,14 @@ It opens `http://127.0.0.1:8765/` and listens only on 127.0.0.1. Options are rem
    python tools/studio/resolutions.py WORK ITEM_ID --boxes 1,2|all --version VERSION_ID --note "what was done"
    ```
    It writes `review/resolutions.json`, never `review.json` (the open page would overwrite it). The box then shows as *to check* (dashed, "?") until the user confirms or reopens it in the studio; resolved boxes show only on the version they were drawn on, and `review_todo.py` leaves confirmed ones out.
-6. **Packs:** export the approved versions as finished art for `dune-hd build --art DIR`. It needs 4× pictures named by `art_name`, plus a `.json` sidecar `{"dac": …}` when the sprite's colours came from a rule palette (see `--art` in `crates/hdpack/src/main.rs`).
+6. **Packs:** the studio's **Pack** button (or `python tools/studio/export_pack.py WORK --out DIR`, then `dune-hd build --art DIR`) exports the chosen versions as finished art. That's the approved items, or everything generated except rejected ones.
+   - The export writes 4× pictures named by `art_name`, with a `.json` sidecar `{"dac": …}` when the sprite's colours came from another palette than its sheet's (saved by `dune-hd inventory` in `WORK/inventory/palettes`).
+   - See `--art` in `crates/hdpack/src/main.rs`.
    - **Characters and other sprites in true colour:** add `"true_colour": true` to the sidecar (pack version 4).
    - **Talking heads:** `NAME-fNN.png` for frame NN and `NAME-vGG.png` for group GG drawn over frame 0, at the picture's aspect (the studio's 1024 px portraits are resized to 4×). They become head plates in true colour, per frame and per group.
-   - While a character talks, the game assembles frames from groups (face + mouth + eyes), so **every group used while talking needs a `vGG`**. For Leto that means each mouth and eye group, not only `v34`. A group without art shows the pixel-art upscale over the generated face.
+   - While a character talks, the game assembles frames from groups (face + mouth + eyes), so **every group used while talking needs a `vGG`**. A group without art shows the pixel-art upscale over the generated face.
+   - `dune-hd inventory` lists them as `head/NAME/vGG` items (kind `head-group`, 810 in all). `generate.py` makes them as rerenders of frame 0, all of them when run without `--only`; `hdgen.py batch` routes them to it.
+   - **They need the head's recipe in `heads.json`:** only LETO, PAUL and STIL have one. The other heads need a recipe before their groups can be generated.
 
 ## 8. State and open items (2026-10-14)
 

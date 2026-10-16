@@ -46,6 +46,20 @@ Generation picks the device by itself (`tools/portraits/device.py`):
   Everything saves to `WORK/review/review.json`.
 - **Generate a new version** runs the item's recipe as a job. Its progress shows under **Jobs**, and the result appears as a new version. Talking heads can be generated so far; scenes, rooms and the interface come next.
 
+## Talking heads: frames and talking groups
+
+A head is listed by the frames the game lists (`head/NAME/fNN`) and by its **talking groups** (`head/NAME/vGG`): each mouth or eyes group drawn over frame 0. While a character talks, the game assembles its face from frame 0 and such groups, as each sentence's lip-sync data says, so every group needs a version for the face to stay generated in the game. Groups that build the faces listed as frames (the Fremen sheets' hair and beards) are reviewed in those frames instead.
+
+Talking groups are made from the head's frame 0 with its recipe (`generate.py`: the same generation, same seed, kept only where the group differs). A head without a recipe in `recipes/heads.json` cannot have its groups generated yet.
+
+## Building a pack
+
+**Pack** builds an HD pack for Dune Hybrid from the chosen versions:
+1. `export_pack.py` takes each item's preferred version, else its default. That's every approved item, or every item with a version except rejected ones (work in progress). It writes them under the names `dune-hd build --art` expects, with their palette (`WORK/inventory/palettes`, from `dune-hd inventory`) and, for characters, true colour.
+2. `dune-hd build` makes `WORK/packs/dune-hd-pack-<scope>-<time>.zip`. The rest of the art gets the built-in upscale, and talking heads become head plates in true colour.
+
+The dialog lists the built packs, with what was left out and why. Import a pack in Dune Hybrid's start page (HD art pack), or try it headless with `dune-run --hd 4 --hd-shots --hd-pack PACK.zip`. Packs are made from your copy of the game: keep them for yourself.
+
 ## The loop with Claude
 
 1. You review in the studio: boxes, notes, statuses.
@@ -58,4 +72,5 @@ Generation picks the device by itself (`tools/portraits/device.py`):
 - **`WORK/review/items.json`** (from `dune-hd inventory`): one item per review unit. Each has an `id`, `title`, `class`, `group`, `kind`, `size`, `palette {source, ok}` and `art_name` (the name `dune-hd build --art` expects), plus the `original` and any `versions`.
 - **`WORK/versions/<id, / as __>/NAME.png`**: generated versions, each with an optional `NAME.json` (`label`, `settings`, `default`). The studio attaches them to their item.
 - **`WORK/review/review.json`**: the review.
-- **`server.py`** (HTTP and API), **`jobs.py`** (the job queue and progress), **`system.py`** (GPU, environment, models, disk), **`index.html`** (the page).
+- **`WORK/packs/`**: built packs, and the art exported for each (`art-<time>/`, with `export.json`).
+- **`server.py`** (HTTP and API), **`jobs.py`** (the job queue and progress), **`system.py`** (GPU, environment, models, disk), **`export_pack.py`** (the pack export), **`index.html`** (the page).
