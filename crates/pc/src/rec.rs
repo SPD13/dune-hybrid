@@ -13,26 +13,32 @@
 //! - `On`: routines replace the original. Interrupts are not delivered while
 //!   one runs; code that needs devices to progress (an `INT`, a far call into
 //!   a driver) makes the routine bail so the run loop handles it.
+//!   After a bail the interpreter runs until it reaches any block leader of a
+//!   routine, where Rust takes over again.
 //! - `Shadow`: the original runs as usual (interrupts, devices, nested
 //!   routines). For the first [`Rec::samples`] calls of each routine the entry
-//!   state is kept; when the original returns, the Rust version is replayed
-//!   from that state and registers, flags and all memory are compared. Calls
-//!   during which an interrupt, a DOS/BIOS service or port I/O happened are
-//!   not replayed (the replay could not see the same world) and count as
-//!   skipped. The original's result is what the game continues with.
+//!   state is kept, and everything the program receives from outside the CPU
+//!   is recorded ([`crate::hw::IoLog`]: port reads, hardware interrupts with
+//!   the instruction they came before, BIOS/DOS results). When the original
+//!   returns, the Rust version is replayed from the entry state, fed from
+//!   that log, and registers, flags and all memory are compared; a replay
+//!   that does different I/O is a difference too. The original's result is
+//!   what the game continues with.
 
 use std::collections::BTreeMap;
 
 use cpu::{CS, Cpu, SP, SS, Step};
 
-use crate::{LOAD_SEG, Machine};
+use crate::{LOAD_SEG, Machine, hw::IoEvent};
 
 /// The routine stopped early; continue interpreting from the current CS:IP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Bail;
 
-/// A recompiled routine. On entry the return address is on the stack.
-pub type Routine = fn(&mut Machine) -> Result<(), Bail>;
+/// A recompiled routine, started at `pc`: its entry, or (resuming after a
+/// bail) any of its block leaders. Started at the entry, the return address
+/// is on the stack.
+pub type Routine = fn(&mut Machine, u16) -> Result<(), Bail>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecMode {
@@ -47,12 +53,11 @@ pub struct ShadowStats {
     pub ok: u32,
     /// Calls compared and different (first difference in `first_diff`).
     pub diff: u32,
-    /// The Rust version bailed (the rest was interpreted, then compared).
+    /// Equal, but Rust bailed somewhere (e.g. for an interrupt inside a
+    /// block) and the interpreter ran part of the call.
     pub bailed: u32,
-    /// Not compared: the call used DOS/BIOS, or did not return in budget.
+    /// Not compared: the call ran too long.
     pub skipped: u32,
-    /// Same result, but a different instruction count (affects timing).
-    pub count_diff: u32,
     pub first_diff: Option<String>,
 }
 
@@ -60,19 +65,26 @@ pub struct Rec {
     pub mode: RecMode,
     /// Routine by seg000 offset of its entry.
     pub table: Vec<Option<Routine>>,
+    /// Routine to resume in, by seg000 offset of any of its block leaders
+    /// (entries included): after a bail, Rust takes over again at the next
+    /// leader the interpreter reaches.
+    pub resume: Vec<Option<Routine>>,
     /// Shadow mode: calls checked per routine.
     pub samples: u32,
     pub stats: BTreeMap<u16, ShadowStats>,
-    /// `On` mode: calls into Rust, and how many bailed.
+    /// `On` mode: entries into Rust (calls and resumptions), and bails.
     pub calls: u64,
     pub bails: u64,
+    /// Shadow replays: instructions run by Rust and by the interpreter.
+    pub replay_native: u64,
+    pub replay_interp: u64,
     /// While a routine runs from shadow checking: nested code it cannot run
     /// natively is interpreted to completion instead of bailing.
     pub(crate) interp_nested: bool,
     busy: bool,
     /// Shadow mode: calls in progress, innermost last.
     pending: Vec<Pending>,
-    /// After a bail at a routine's entry: interpret that instruction once.
+    /// After a bail: interpret the instruction there once.
     skip: Option<u16>,
 }
 
@@ -82,34 +94,46 @@ struct Pending {
     f: Routine,
     cpu: Cpu,
     mem: Vec<u8>,
-    /// Return address and the stack pointer at entry.
-    ret: (u16, u16),
+    /// The stack pointer at entry (above the return address once left).
     ss: u16,
     sp: u16,
-    /// Interrupt/callback and port I/O counters at entry.
-    ints: u64,
-    io: u64,
+    /// First event of this call in [`crate::hw::IoLog::events`].
+    log_start: usize,
+    /// Instruction count at entry.
+    cpu_instructions: u64,
 }
 
 /// Pending checks kept at most (each holds a copy of memory).
 const MAX_PENDING: usize = 32;
 
-/// Instructions the interpreter may spend finishing one routine.
+/// Instructions the interpreter may spend finishing one routine; also the
+/// longest call that is checked.
 const BUDGET: u64 = 50_000_000;
 
+/// Recorded events kept at most; past this, pending checks are dropped.
+const MAX_EVENTS: usize = 1 << 21;
+
 impl Rec {
-    pub fn new(mode: RecMode, routines: &[(u16, Routine)]) -> Rec {
+    pub fn new(mode: RecMode, routines: &[(u16, Routine)], leaders: &[(u16, Routine)]) -> Rec {
         let mut table = vec![None; 0x10000];
+        let mut resume = vec![None; 0x10000];
+        for &(off, f) in leaders {
+            resume[off as usize] = Some(f);
+        }
         for &(off, f) in routines {
             table[off as usize] = Some(f);
+            resume[off as usize] = Some(f);
         }
         Rec {
             mode,
             table,
+            resume,
             samples: 20,
             stats: BTreeMap::new(),
             calls: 0,
             bails: 0,
+            replay_native: 0,
+            replay_interp: 0,
             interp_nested: false,
             busy: false,
             skip: None,
@@ -130,12 +154,12 @@ impl Machine {
         if rec.busy || rec.skip.take() == Some(ip) {
             return false;
         }
-        let Some(f) = rec.table[ip as usize] else { return false };
         match rec.mode {
             RecMode::On => {
+                let Some(f) = rec.resume[ip as usize] else { return false };
                 rec.calls += 1;
                 rec.busy = true;
-                let r = f(self);
+                let r = f(self, ip);
                 let rec = self.rec.as_mut().unwrap();
                 rec.busy = false;
                 if r.is_err() {
@@ -145,112 +169,258 @@ impl Machine {
                 true
             }
             RecMode::Shadow => {
+                let Some(f) = rec.table[ip as usize] else { return false };
                 let st = rec.stats.entry(ip).or_default();
                 let checked = st.ok + st.diff + st.bailed + st.skipped;
                 let in_flight = rec.pending.iter().filter(|p| p.entry == ip).count() as u32;
-                if checked + in_flight < rec.samples && rec.pending.len() < MAX_PENDING {
-                    let (ss, sp) = (self.cpu.sregs[SS], self.cpu.regs[SP]);
-                    let ret = (cs, self.mem_read16(ss, sp));
+                let room = checked + in_flight < rec.samples && rec.pending.len() < MAX_PENDING;
+                let (ss, sp) = (self.cpu.sregs[SS], self.cpu.regs[SP]);
+                let ret = self.mem_read16(ss, sp);
+                // Only real calls: an entry reached by a jump or by falling
+                // through has no return address on the stack.
+                if room && self.called_from(ret, ip) {
                     let p = Pending {
                         entry: ip,
                         f,
                         cpu: self.cpu.clone(),
                         mem: self.hw.mem.clone(),
-                        ret,
                         ss,
                         sp,
-                        ints: self.int_counts.iter().sum(),
-                        io: self.hw.io_count,
+                        log_start: self.hw.io_log.events.len(),
+                        cpu_instructions: self.cpu.instructions,
                     };
                     self.rec.as_mut().unwrap().pending.push(p);
+                    self.hw.io_log.recording = true;
                 }
                 false
             }
         }
     }
 
+    /// Whether the seg000 code just before `ret` is a near call that can
+    /// have gone to `target` (direct `CALL rel16` to it, or an indirect
+    /// `CALL r/m16` of 2 to 4 bytes).
+    fn called_from(&self, ret: u16, target: u16) -> bool {
+        let at = |off: u16| self.hw.mem[((LOAD_SEG as usize) << 4) + off as usize];
+        if at(ret.wrapping_sub(3)) == 0xe8 {
+            let rel = u16::from_le_bytes([at(ret.wrapping_sub(2)), at(ret.wrapping_sub(1))]);
+            if ret.wrapping_add(rel) == target {
+                return true;
+            }
+        }
+        (2..=4).any(|n| {
+            let modrm = at(ret.wrapping_sub(n - 1));
+            at(ret.wrapping_sub(n)) == 0xff && (modrm >> 3) & 7 == 2 && modrm_len(modrm) == n - 1
+        })
+    }
+
     /// Shadow mode, before each instruction: has the innermost pending call
     /// returned (or been abandoned)?
     pub(crate) fn rec_pending(&mut self) {
         let Some(rec) = &mut self.rec else { return };
-        // The stack above a call's return address: returned, or unwound.
-        let p = loop {
-            let Some(p) = rec.pending.last() else { return };
-            let c = &self.cpu;
-            if c.sregs[SS] != p.ss || c.regs[SP] <= p.sp {
-                return;
-            }
-            let p = rec.pending.pop().unwrap();
-            if (c.sregs[CS], c.ip) == p.ret {
-                break p;
-            }
-            rec.stats.entry(p.entry).or_default().skipped += 1;
-        };
-        let quiet = self.int_counts.iter().sum::<u64>() == p.ints && self.hw.io_count == p.io;
-        if !quiet {
-            rec.stats.entry(p.entry).or_default().skipped += 1;
+        if rec.pending.is_empty() {
             return;
         }
-        self.shadow_replay(p);
+        // Calls too long to check, or too many recorded events: drop the
+        // oldest pending check.
+        let first = &rec.pending[0];
+        if self.cpu.instructions - first.cpu.instructions > BUDGET || self.hw.io_log.events.len() > MAX_EVENTS {
+            let p = rec.pending.remove(0);
+            rec.stats.entry(p.entry).or_default().skipped += 1;
+            let keep = rec.pending.first().map_or(self.hw.io_log.events.len(), |p| p.log_start);
+            self.hw.io_log.events.drain(..keep);
+            for p in &mut rec.pending {
+                p.log_start -= keep;
+            }
+        }
+        // The stack is above a call's entry frame: it returned to its caller,
+        // or left it some other way (a routine that pops its own return
+        // address, or ends in a jump chain dropping the frame). The replay
+        // runs exactly as many instructions and must end in this same state.
+        // Several calls can be left at once: all are checked at this point.
+        loop {
+            let rec = self.rec.as_mut().unwrap();
+            let Some(p) = rec.pending.last() else { break };
+            let c = &self.cpu;
+            if c.sregs[SS] != p.ss || c.regs[SP] <= p.sp {
+                break;
+            }
+            let p = rec.pending.pop().unwrap();
+            self.shadow_replay(p);
+        }
+        let rec = self.rec.as_mut().unwrap();
+        if rec.pending.is_empty() {
+            self.hw.io_log.recording = false;
+            self.hw.io_log.events.clear();
+        }
     }
 
-    /// Replay a routine's Rust version from its entry state and compare it
-    /// with the original's result (the current state), which is then restored.
+    /// Replay a routine's Rust version from its entry state, fed with what
+    /// the original received (port reads, interrupts, BIOS/DOS results), and
+    /// compare it with the original's result (the current state), which is
+    /// then restored.
     fn shadow_replay(&mut self, p: Pending) {
         let cpu1 = std::mem::replace(&mut self.cpu, p.cpu);
         let mem1 = std::mem::replace(&mut self.hw.mem, p.mem);
         let io1 = self.hw.io_count;
+        let ints1 = self.int_counts;
+        let end = self.hw.io_log.events.len();
+        self.hw.io_log.recording = false;
+        self.hw.io_log.replay = Some((p.log_start, end));
+        self.hw.io_log.mismatch = None;
+        self.hw.io_log.stop_at = cpu1.instructions;
         let rec = self.rec.as_mut().unwrap();
         rec.interp_nested = true;
         rec.busy = true;
-        let r = (p.f)(self);
-        // A routine may return somewhere other than its caller (some push a
-        // fake return address, e.g. DBECh, before their final jump); the
-        // interpreter then follows on to the frame the original reached.
-        let finished = self.interp_to_frame(&cpu1, BUDGET).is_ok();
+        let (finished, bails) = self.replay_drive(p.entry, p.f);
+        let unused = self.hw.io_log.peek().map(|e| crate::hw::describe(Some(e)));
+        let mismatch = self.hw.io_log.mismatch.take().or_else(|| unused.map(|e| format!("io: original also had {e}")));
+        self.hw.io_log.replay = None;
+        self.hw.io_log.recording = true;
         let rec = self.rec.as_mut().unwrap();
         rec.interp_nested = false;
         rec.busy = false;
-        let diff = if finished { compare(&cpu1, &mem1, &self.cpu, &self.hw.mem) } else { Some("did not finish".into()) };
-        let count_diff = self.cpu.instructions != cpu1.instructions;
+        let diff = match (mismatch, finished) {
+            (Some(m), _) => Some(m),
+            (None, false) => Some(format!(
+                "did not finish: at {:04x}:{:04x} after {} instructions, original {}",
+                self.cpu.sregs[CS],
+                self.cpu.ip,
+                self.cpu.instructions - p.cpu_instructions,
+                cpu1.instructions - p.cpu_instructions
+            )),
+            (None, true) => compare(&cpu1, &mem1, &self.cpu, &self.hw.mem),
+        };
         let st = rec.stats.entry(p.entry).or_default();
-        match (&diff, r) {
-            (Some(d), _) => {
+        match &diff {
+            Some(d) => {
                 st.diff += 1;
                 if st.first_diff.is_none() {
                     st.first_diff = Some(d.clone());
                 }
             }
-            (None, Err(_)) => st.bailed += 1,
-            (None, Ok(())) => {
-                st.ok += 1;
-                if count_diff {
-                    st.count_diff += 1;
-                }
-            }
+            None if bails > 0 => st.bailed += 1,
+            None => st.ok += 1,
         }
         // Carry on from the original's result.
         self.cpu = cpu1;
         self.hw.mem = mem1;
         self.hw.io_count = io1;
+        self.int_counts = ints1;
     }
 
-    /// For generated code, at each block boundary: true when a routine must
-    /// give the machine back to the run loop because a device event or an
-    /// interrupt is due (a native loop polling a timer variable would
-    /// otherwise wait forever). Never during a shadow replay.
+    /// Shadow replay: run routine `f` from its entry for as many
+    /// instructions as the original's call took (`IoLog::stop_at`), resuming
+    /// in Rust at every block leader and interpreting only where Rust bailed.
+    /// Returns (finished, bails).
+    fn replay_drive(&mut self, entry: u16, f: Routine) -> (bool, u32) {
+        let stop = self.hw.io_log.stop_at;
+        let start = self.cpu.instructions;
+        let interp0 = self.rec.as_ref().unwrap().replay_interp;
+        self.hw.io_log.stopped = false;
+        let mut just_bailed = f(self, entry).is_err();
+        let mut bails = (just_bailed && !self.hw.io_log.stopped) as u32;
+        let finished = loop {
+            if self.cpu.instructions >= stop {
+                break self.cpu.instructions == stop;
+            }
+            if self.replay_irq() {
+                just_bailed = false;
+                continue;
+            }
+            if self.hw.io_log.mismatch.is_some() || self.cpu.instructions - start > BUDGET {
+                break false;
+            }
+            let ip = self.cpu.ip;
+            let resume = if self.cpu.sregs[CS] == LOAD_SEG && !just_bailed {
+                self.rec.as_ref().and_then(|r| r.resume[ip as usize])
+            } else {
+                None
+            };
+            if let Some(g) = resume {
+                self.hw.io_log.stopped = false;
+                just_bailed = g(self, ip).is_err();
+                bails += (just_bailed && !self.hw.io_log.stopped) as u32;
+            } else {
+                just_bailed = false;
+                if self.step_insn().is_err() {
+                    break false;
+                }
+            }
+        };
+        let rec = self.rec.as_mut().unwrap();
+        let interp = rec.replay_interp - interp0;
+        rec.replay_native += (self.cpu.instructions - start).saturating_sub(interp);
+        (finished, bails)
+    }
+
+    /// Replay: deliver the next recorded interrupt if it is due now (or the
+    /// CPU is halted waiting for it). True if one was delivered.
+    fn replay_irq(&mut self) -> bool {
+        match self.hw.io_log.peek() {
+            Some(&IoEvent::Irq { vector, at }) if at == self.cpu.instructions || self.cpu.halted => {
+                self.hw.io_log.advance();
+                self.cpu.interrupt(&mut self.hw, vector);
+                true
+            }
+            Some(&IoEvent::Irq { at, .. }) if at < self.cpu.instructions => {
+                let now = self.cpu.instructions;
+                self.hw.io_log.fail(format!("irq missed: due before instruction {at}, now {now}"));
+                false
+            }
+            _ => false,
+        }
+    }
+
+    /// Replay: a BIOS/DOS service the replay reached; apply the original's.
+    pub(crate) fn replay_service(&mut self, n: u8) {
+        let log = &mut self.hw.io_log;
+        let ev = match log.peek() {
+            Some(e @ IoEvent::Callback { n: k, .. }) if *k == n => {
+                let e = e.clone();
+                log.advance();
+                e
+            }
+            other => {
+                let what = crate::hw::describe(other);
+                log.fail(format!("io: service int {n:02x}, original: {what}"));
+                return;
+            }
+        };
+        let IoEvent::Callback { before, after, writes, .. } = ev else { unreachable!() };
+        if let Some(d) = compare_cpu(&before, &self.cpu) {
+            self.hw.io_log.fail(format!("io: service int {n:02x} asked with different registers: {d}"));
+            return;
+        }
+        let count = self.cpu.instructions;
+        self.cpu = *after;
+        self.cpu.instructions = count;
+        for (a, v) in writes {
+            self.hw.mem[a as usize] = v;
+        }
+    }
+
+    /// For generated code, at the start of a block of `len` instructions:
+    /// true when the routine must stop there (it bails).
+    /// - Running (`--rec on`): a device event or an interrupt is due, so the
+    ///   run loop must get the machine (a native loop polling a timer
+    ///   variable would otherwise wait forever).
+    /// - Shadow replay: a recorded interrupt, or the end of the original's
+    ///   call, falls in this block; the interpreter gets there exactly.
     #[inline]
-    pub fn rec_tick(&mut self) -> bool {
+    pub fn rec_tick(&mut self, len: u32) -> bool {
+        if self.hw.io_log.replay.is_some() {
+            let end = self.cpu.instructions + len as u64;
+            if matches!(self.hw.io_log.peek(), Some(&IoEvent::Irq { at, .. }) if at < end) {
+                return true;
+            }
+            self.hw.io_log.stopped = self.hw.io_log.stop_at < end;
+            return self.hw.io_log.stopped;
+        }
         if self.rec.as_ref().is_some_and(|r| r.interp_nested) {
             return false;
         }
         self.now_ns() >= self.next_event || self.hw.reschedule || (self.cpu.accepts_irq() && self.hw.irq_pending())
-    }
-
-    /// Interpret until CS:IP and SS:SP equal `target`'s.
-    fn interp_to_frame(&mut self, target: &Cpu, budget: u64) -> Result<(), Bail> {
-        let t = (target.sregs[CS], target.ip, target.sregs[SS], target.regs[SP]);
-        self.interp_until(budget, |c| (c.sregs[CS], c.ip, c.sregs[SS], c.regs[SP]) == t)
     }
 
     fn interp_until(&mut self, budget: u64, done: impl Fn(&Cpu) -> bool) -> Result<(), Bail> {
@@ -258,20 +428,41 @@ impl Machine {
             if done(&self.cpu) {
                 return Ok(());
             }
+            if self.hw.io_log.replay.is_some() && self.cpu.instructions >= self.hw.io_log.stop_at {
+                return Err(Bail);
+            }
             self.step_insn()?;
         }
         Err(Bail)
     }
 
     /// Execute the instruction at CS:IP with the interpreter (BIOS/DOS
-    /// callbacks serviced, no interrupts). For generated code.
+    /// services run, no interrupts). For generated code. During a shadow
+    /// replay, a recorded interrupt due now is delivered instead.
     pub fn step_insn(&mut self) -> Result<(), Bail> {
+        let replay = self.hw.io_log.replay.is_some();
+        if replay && self.replay_irq() {
+            return Ok(());
+        }
+        if replay {
+            let n = self.cpu.instructions;
+            let r = self.step_raw();
+            let rec = self.rec.as_mut().unwrap();
+            rec.replay_interp += self.cpu.instructions - n;
+            return r;
+        }
+        self.step_raw()
+    }
+
+    fn step_raw(&mut self) -> Result<(), Bail> {
+        let replay = self.hw.io_log.replay.is_some();
         match self.cpu.step(&mut self.hw) {
             Step::Ok => Ok(()),
             Step::Callback(n) => {
-                self.callback(n);
+                self.service(n);
                 Ok(())
             }
+            Step::Halt if replay && matches!(self.hw.io_log.peek(), Some(IoEvent::Irq { .. })) => Ok(()),
             Step::Halt | Step::Invalid { .. } => Err(Bail),
         }
     }
@@ -298,7 +489,7 @@ impl Machine {
     pub fn rec_call(&mut self, target: u16, ret: u16) -> Result<(), Bail> {
         self.cpu.ip = target;
         if let Some(f) = self.rec.as_ref().and_then(|r| r.table[target as usize]) {
-            f(self)?;
+            f(self, target)?;
         } else if self.rec.as_ref().is_some_and(|r| r.interp_nested) {
             let (ss, sp) = (self.cpu.sregs[SS], self.cpu.regs[SP]);
             let cs = self.cpu.sregs[CS];
@@ -310,8 +501,18 @@ impl Machine {
     }
 }
 
-/// First difference between two machine states, if any.
-fn compare(c1: &Cpu, m1: &[u8], c2: &Cpu, m2: &[u8]) -> Option<String> {
+/// Bytes of a ModRM operand (ModRM, displacement), 16-bit addressing.
+fn modrm_len(modrm: u8) -> u16 {
+    match (modrm >> 6, modrm & 7) {
+        (0, 6) => 3,
+        (0, _) | (3, _) => 1,
+        (1, _) => 2,
+        _ => 3,
+    }
+}
+
+/// First register difference between two CPU states, if any.
+fn compare_cpu(c1: &Cpu, c2: &Cpu) -> Option<String> {
     for (i, (a, b)) in c1.regs.iter().zip(&c2.regs).enumerate() {
         if a != b {
             return Some(format!("reg {} {a:04x} vs {b:04x}", ["AX", "CX", "DX", "BX", "SP", "BP", "SI", "DI"][i]));
@@ -330,9 +531,18 @@ fn compare(c1: &Cpu, m1: &[u8], c2: &Cpu, m2: &[u8]) -> Option<String> {
     if c1.flags() != c2.flags() {
         return Some(format!("flags {:04x} vs {:04x}", c1.flags(), c2.flags()));
     }
+    None
+}
+
+/// First difference between two machine states, if any.
+fn compare(c1: &Cpu, m1: &[u8], c2: &Cpu, m2: &[u8]) -> Option<String> {
+    if let Some(d) = compare_cpu(c1, c2) {
+        return Some(d);
+    }
     if m1 != m2 {
         let i = m1.iter().zip(m2).position(|(a, b)| a != b).unwrap();
         return Some(format!("mem {:05x}: {:02x} vs {:02x}", i, m1[i], m2[i]));
     }
     None
 }
+

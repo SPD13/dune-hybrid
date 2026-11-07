@@ -220,6 +220,17 @@ fn explore(seg: &[u8], entry: u16, ind: &Indirect) -> Routine {
                 }
                 FlowControl::Exception => break,
                 _ if insn.mnemonic() == Mnemonic::Hlt => break,
+                // After a call or INT, execution resumes here: a leader, so
+                // Rust can take over again there (and blocks hold no calls).
+                FlowControl::Call | FlowControl::IndirectCall | FlowControl::Interrupt => {
+                    r.leaders.insert(next);
+                }
+                // A REP string op runs as one interpreter step, however many
+                // iterations: alone in its block, interrupt timing stays exact.
+                _ if insn.has_rep_prefix() || insn.has_repne_prefix() => {
+                    r.leaders.insert(ip);
+                    r.leaders.insert(next);
+                }
                 _ => {}
             }
             ip = next;
@@ -623,21 +634,41 @@ fn lift(insn: &Instruction, st: &mut Stats) -> (String, bool) {
     }
 }
 
+/// Instructions in the block starting at `leader` (up to the next leader or
+/// the end of the block).
+fn block_len(r: &Routine, leader: u16) -> u32 {
+    let mut n = 0;
+    let mut ip = leader;
+    while let Some(insn) = r.insns.get(&ip) {
+        n += 1;
+        let ends = matches!(
+            insn.flow_control(),
+            FlowControl::UnconditionalBranch | FlowControl::IndirectBranch | FlowControl::Return | FlowControl::Exception
+        ) || insn.mnemonic() == Mnemonic::Hlt
+            || insn.is_invalid();
+        ip = insn.next_ip() as u16;
+        if ends || r.leaders.contains(&ip) {
+            break;
+        }
+    }
+    n.max(1)
+}
+
 fn emit_routine(out: &mut String, r: &Routine, name: &str, st: &mut Stats) {
     let mut fmt = IntelFormatter::new();
     fmt.options_mut().set_hex_prefix("0x");
     fmt.options_mut().set_hex_suffix("");
     let _ = writeln!(out, "/// `{name}` (seg000:{:04x})", r.entry);
-    let _ = writeln!(out, "pub fn f_{:04x}(m: &mut Machine) -> Result<(), Bail> {{", r.entry);
-    let _ = writeln!(out, "    let mut pc: u16 = 0x{:04x};", r.entry);
+    let _ = writeln!(out, "pub fn f_{:04x}(m: &mut Machine, start: u16) -> Result<(), Bail> {{", r.entry);
+    let _ = writeln!(out, "    let mut pc: u16 = start;");
     let _ = writeln!(out, "    loop {{");
-    let _ = writeln!(out, "        if m.rec_tick() {{ m.cpu.ip = pc; return Err(Bail); }}");
     let _ = writeln!(out, "        match pc {{");
     for &leader in &r.leaders {
         if !r.insns.contains_key(&leader) {
             continue;
         }
         let _ = writeln!(out, "            0x{leader:04x} => {{");
+        let _ = writeln!(out, "                if m.rec_tick({}) {{ m.cpu.ip = 0x{leader:04x}; return Err(Bail); }}", block_len(r, leader));
         let mut ip = leader;
         loop {
             let Some(insn) = r.insns.get(&ip) else {
@@ -692,14 +723,25 @@ fn main() -> ExitCode {
         out.push_str("use pc::rec::{Bail, Routine};\n\nconst LOAD_SEG: u16 = 0x1000;\n\n");
         let mut st = Stats::default();
         let mut sizes = 0usize;
+        // Block leader -> a routine that has it (the first, by entry).
+        let mut leaders: BTreeMap<u16, u16> = BTreeMap::new();
         for (&e, name) in &entries {
             let r = explore(&seg, e, &ind);
             sizes += r.insns.len();
+            for &l in &r.leaders {
+                if r.insns.contains_key(&l) {
+                    leaders.entry(l).or_insert(e);
+                }
+            }
             emit_routine(&mut out, &r, name, &mut st);
         }
         out.push_str("pub static ROUTINES: &[(u16, Routine)] = &[\n");
         for &e in entries.keys() {
             let _ = writeln!(out, "    (0x{e:04x}, f_{e:04x}),");
+        }
+        out.push_str("];\n\npub static LEADERS: &[(u16, Routine)] = &[\n");
+        for (&l, &e) in &leaders {
+            let _ = writeln!(out, "    (0x{l:04x}, f_{e:04x}),");
         }
         out.push_str("];\n\npub static NAMES: &[(u16, &str)] = &[\n");
         for (&e, name) in &entries {

@@ -39,3 +39,15 @@ pub fn names() -> &'static [(u16, &'static str)] {
         &[]
     }
 }
+
+/// Every block leader, with a routine to resume in there.
+pub fn leaders() -> &'static [(u16, Routine)] {
+    #[cfg(has_generated)]
+    {
+        generated::LEADERS
+    }
+    #[cfg(not(has_generated))]
+    {
+        &[]
+    }
+}

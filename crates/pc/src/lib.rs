@@ -253,6 +253,9 @@ impl Machine {
             if self.cpu.accepts_irq() && self.hw.irq_pending() {
                 if let Some(v) = self.hw.acknowledge_irq() {
                     self.int_counts[v as usize] += 1;
+                    if self.hw.io_log.recording {
+                        self.hw.io_log.events.push(hw::IoEvent::Irq { vector: v, at: self.cpu.instructions });
+                    }
                     self.cpu.interrupt(&mut self.hw, v);
                 }
             }
@@ -297,7 +300,7 @@ impl Machine {
             match step {
                 Step::Ok | Step::Halt => {}
                 Step::Callback(n) => {
-                    self.callback(n);
+                    self.service(n);
                     if self.idle.pending {
                         self.idle.pending = false;
                         // Same as sleeping until the next device event: nothing the
@@ -310,6 +313,49 @@ impl Machine {
                 }
                 Step::Invalid { cs, ip, opcode } => return RunExit::Invalid { cs, ip, opcode },
             }
+        }
+    }
+
+    /// A BIOS/DOS service the CPU reached ([`Step::Callback`]). While shadow
+    /// checking records, its effect is logged; while it replays, the logged
+    /// effect is applied instead of running the service again.
+    pub(crate) fn service(&mut self, n: u8) {
+        if self.hw.io_log.replay.is_some() {
+            self.replay_service(n);
+        } else if self.hw.io_log.recording {
+            // What the service may write: INT 10h/21h anything (file reads,
+            // palette reads, text mode); the others only the BIOS data area
+            // and the interrupt frame on the stack (flag write-back, INT 16h
+            // re-execution). A write outside these would show up as a
+            // difference in the replay, never hide one.
+            let stack = self.cpu.phys(self.cpu.sregs[SS], self.cpu.regs[SP]) as usize;
+            let regions: Vec<(usize, usize)> = if matches!(n, 0x10 | 0x21) {
+                vec![(0, self.hw.mem.len())]
+            } else {
+                vec![(0x400, 0x500), (stack, (stack + 8).min(self.hw.mem.len()))]
+            };
+            let before = Box::new(self.cpu.clone());
+            let saved: Vec<Vec<u8>> = regions.iter().map(|&(a, b)| self.hw.mem[a..b].to_vec()).collect();
+            self.hw.io_log.recording = false;
+            self.callback(n);
+            self.hw.io_log.recording = true;
+            let mut writes = Vec::new();
+            for (&(a, _), old) in regions.iter().zip(&saved) {
+                // Compare in chunks (fast), bytes only where a chunk differs.
+                for (k, (c_old, c_new)) in old.chunks(256).zip(self.hw.mem[a..].chunks(256)).enumerate() {
+                    if c_old != c_new {
+                        for (i, (x, &y)) in c_old.iter().zip(c_new).enumerate() {
+                            if *x != y {
+                                writes.push(((a + k * 256 + i) as u32, y));
+                            }
+                        }
+                    }
+                }
+            }
+            let after = Box::new(self.cpu.clone());
+            self.hw.io_log.events.push(hw::IoEvent::Callback { n, before, after, writes });
+        } else {
+            self.callback(n);
         }
     }
 

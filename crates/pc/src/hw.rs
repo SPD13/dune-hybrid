@@ -276,8 +276,11 @@ pub struct Hardware {
     pub audio: Audio,
     /// Diagnostics: log sound/DMA/PIC port traffic (port, value, write?).
     pub trace_ports: Option<Vec<(u64, u16, u8, bool)>>,
-    /// Port reads and writes so far (shadow checking skips calls that did any).
+    /// Port reads and writes so far.
     pub io_count: u64,
+    /// Shadow checking: port traffic recorded during the original's calls
+    /// and fed back to the Rust replay (see [`IoLog`]).
+    pub io_log: IoLog,
     /// CS:IP of the current instruction (maintained only while tracing).
     pub trace_pc: (u16, u16),
     /// Set when a device changed its schedule; the machine re-polls `update`.
@@ -298,6 +301,7 @@ impl Hardware {
             audio: Audio::new(),
             trace_ports: None,
             io_count: 0,
+            io_log: IoLog::default(),
             reschedule: false,
             trace_pc: (0, 0),
         }
@@ -413,6 +417,31 @@ impl Bus for Hardware {
 
     fn in8(&mut self, port: u16) -> u8 {
         self.io_count += 1;
+        if self.io_log.replay.is_some() {
+            return self.io_log.replay_in(port);
+        }
+        let v = self.device_in8(port);
+        if self.io_log.recording {
+            self.io_log.events.push(IoEvent::In { port, value: v });
+        }
+        v
+    }
+
+    fn out8(&mut self, port: u16, v: u8) {
+        self.io_count += 1;
+        if self.io_log.replay.is_some() {
+            self.io_log.replay_out(port, v);
+            return;
+        }
+        if self.io_log.recording {
+            self.io_log.events.push(IoEvent::Out { port, value: v });
+        }
+        self.device_out8(port, v);
+    }
+}
+
+impl Hardware {
+    fn device_in8(&mut self, port: u16) -> u8 {
         let now = self.now_ns;
         if let Some(v) = self.audio.read(port, now) {
             if let Some(t) = &mut self.trace_ports {
@@ -457,8 +486,7 @@ impl Bus for Hardware {
         }
     }
 
-    fn out8(&mut self, port: u16, v: u8) {
-        self.io_count += 1;
+    fn device_out8(&mut self, port: u16, v: u8) {
         let now = self.now_ns;
         if let Some(t) = &mut self.trace_ports {
             if matches!(port, 0x00..=0x0f | 0x20 | 0x21 | 0x81..=0x87 | 0x220..=0x22f | 0x388..=0x38b) && t.len() < 20000 {
@@ -509,6 +537,97 @@ impl Bus for Hardware {
                 }
             }
         }
+    }
+}
+
+// ---- shadow checking: recorded inputs ----
+
+/// Something the original program received from outside the CPU while a
+/// shadow check was pending, in order.
+#[derive(Clone)]
+pub enum IoEvent {
+    /// A port read and its value.
+    In { port: u16, value: u8 },
+    /// A port write (checked, not applied, on replay).
+    Out { port: u16, value: u8 },
+    /// A hardware interrupt, taken before the instruction numbered `at`.
+    Irq { vector: u8, at: u64 },
+    /// A BIOS/DOS service (`Step::Callback`): the registers before (to check
+    /// the replay asks the same thing) and after, and the memory it wrote.
+    Callback { n: u8, before: Box<cpu::Cpu>, after: Box<cpu::Cpu>, writes: Vec<(u32, u8)> },
+}
+
+/// The record/replay log of [`IoEvent`]s.
+#[derive(Default)]
+pub struct IoLog {
+    /// Append events (while some shadow check is pending).
+    pub recording: bool,
+    pub events: Vec<IoEvent>,
+    /// While replaying: the next event to consume, and the end of the window.
+    pub replay: Option<(usize, usize)>,
+    /// The first way the replay asked for something else than the original.
+    pub mismatch: Option<String>,
+    /// While replaying: the instruction count at which the original's call
+    /// was over; the replay stops exactly there.
+    pub stop_at: u64,
+    /// Set when generated code stopped because `stop_at` fell in its block
+    /// (that is not a bail in the statistics).
+    pub stopped: bool,
+}
+
+impl IoLog {
+    /// The next event of the replay window, if any.
+    pub fn peek(&self) -> Option<&IoEvent> {
+        let (pos, end) = self.replay?;
+        if pos < end { self.events.get(pos) } else { None }
+    }
+
+    /// Consume the event `peek` returned.
+    pub fn advance(&mut self) {
+        if let Some((pos, _)) = &mut self.replay {
+            *pos += 1;
+        }
+    }
+
+    pub fn fail(&mut self, what: String) {
+        if self.mismatch.is_none() {
+            self.mismatch = Some(what);
+        }
+    }
+
+    fn replay_in(&mut self, port: u16) -> u8 {
+        match self.peek() {
+            Some(&IoEvent::In { port: p, value }) if p == port => {
+                self.advance();
+                value
+            }
+            other => {
+                let what = describe(other);
+                self.fail(format!("io: in {port:03x}, original: {what}"));
+                0xff
+            }
+        }
+    }
+
+    fn replay_out(&mut self, port: u16, v: u8) {
+        match self.peek() {
+            Some(&IoEvent::Out { port: p, value }) if p == port && value == v => self.advance(),
+            other => {
+                let what = describe(other);
+                self.fail(format!("io: out {port:03x},{v:02x}, original: {what}"));
+            }
+        }
+    }
+}
+
+/// An event, for mismatch messages.
+pub fn describe(e: Option<&IoEvent>) -> String {
+    match e {
+        None => "nothing".into(),
+        Some(IoEvent::In { port, .. }) => format!("in {port:03x}"),
+        Some(IoEvent::Out { port, value }) => format!("out {port:03x},{value:02x}"),
+        Some(IoEvent::Irq { vector, at }) => format!("irq {vector:02x} at {at}"),
+        Some(IoEvent::Callback { n, .. }) => format!("service int {n:02x}"),
     }
 }
 

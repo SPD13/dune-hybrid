@@ -169,25 +169,30 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>) {
         return;
     }
     let names: std::collections::HashMap<u16, &str> = dune_rec::names().iter().copied().collect();
-    let (mut ok, mut diff, mut bailed, mut skipped, mut counts) = (0, 0, 0, 0, 0);
-    let mut rows = String::from("entry	name	ok	diff	bailed	skipped	count_diff	first_diff
+    let (mut ok, mut diff, mut bailed, mut skipped) = (0, 0, 0, 0);
+    let mut rows = String::from("entry	name	ok	diff	bailed	skipped	first_diff
 ");
     for (e, s) in &rec.stats {
         ok += (s.ok > 0 && s.diff == 0) as u32;
         diff += (s.diff > 0) as u32;
         bailed += (s.bailed > 0 && s.diff == 0 && s.ok == 0) as u32;
         skipped += (s.skipped > 0 && s.ok + s.diff + s.bailed == 0) as u32;
-        counts += (s.count_diff > 0) as u32;
         let name = names.get(e).copied().unwrap_or("?");
         let fd = s.first_diff.clone().unwrap_or_default();
-        let _ = writeln!(rows, "{e:04x}	{name}	{}	{}	{}	{}	{}	{fd}", s.ok, s.diff, s.bailed, s.skipped, s.count_diff);
+        let _ = writeln!(rows, "{e:04x}	{name}	{}	{}	{}	{}	{fd}", s.ok, s.diff, s.bailed, s.skipped);
         if s.diff > 0 {
             println!("rec diff: {e:04x} {name}: {} of {} calls differ; first: {fd}", s.diff, s.ok + s.diff + s.bailed);
         }
     }
     println!(
-        "rec shadow: {} routines called; {ok} verified equal, {diff} with differences, {bailed} only bailed, {skipped} not checkable (DOS/BIOS); {counts} with different instruction counts",
+        "rec shadow: {} routines called; {ok} verified equal, {diff} with differences, {bailed} equal with interpreted parts only, {skipped} not checked (too long)",
         rec.stats.len()
+    );
+    let total = (rec.replay_native + rec.replay_interp).max(1);
+    println!(
+        "rec replay: {} instructions, {:.1}% run by Rust",
+        rec.replay_native + rec.replay_interp,
+        100.0 * rec.replay_native as f64 / total as f64
     );
     if let Some(p) = tsv {
         fs::write(p, rows).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
@@ -338,7 +343,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
         println!("rec: {} routines, {mode:?}", routines.len());
-        m.rec = Some(Box::new(pc::rec::Rec::new(mode, routines)));
+        m.rec = Some(Box::new(pc::rec::Rec::new(mode, routines, dune_rec::leaders())));
     }
     if args.coverage.is_some() {
         m.coverage = Some(Box::default());
