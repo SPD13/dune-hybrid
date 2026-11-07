@@ -20,6 +20,8 @@ DNCDPRG.lst ─┼─ dune-lift ─ crates/dune-rec ─────────�
 coverage ────┘   (crates/lift)  generated.rs         └─ dune-run --rec on       (run)
    ▲
    └── dune-run --coverage  (intro, --rooms, --phase-ladder, --monkey)
+
+crates/dune-rec/src/hand.rs: readable ports, replacing generated routines
 ```
 
 ### 1. Coverage: what the game runs, without playing
@@ -40,13 +42,22 @@ python tools/coverage.py --lst ../Cryogenic/doc/DNCDPRG.lst cov-*.txt
   through `set_game_phase` (1000:121F), injected at the top of the main loop
   (1000:D820). Its handler table has entries only for multiples of 4.
 - `--rooms DIR`: the room harness also counts.
+- `--call-each N` (`runner/src/callall.rs`): at the end of the run, from the
+  top of the main loop, every routine is called directly N times: first with
+  the registers as they are there, then with random ones, each from the same
+  saved state, until it returns or for 300 ms of virtual time. The calls mean
+  nothing to the game, but under `--rec shadow` each is a full check, and
+  `--coverage` counts what they run. Random registers send indirect jumps to
+  garbage addresses: keep these coverage files out of the lifter's input.
 - `tools/coverage.py` merges any number of files: instruction and routine
   percentages, the largest routines never entered, executed code the listing
   shows as data.
 
-Measured on the CD 3.7 executable (intro, rooms, phase ladder and 12
-random-input runs, about an hour of compute): 57% of the listing's 24,133
-seg000 instructions and 74% of its 1,006 routines.
+Measured on the CD 3.7 executable. Intro, rooms, phase ladder and 12
+random-input runs (about an hour of compute): 57% of the listing's 24,133
+seg000 instructions and 74% of its 1,006 routines. With `--call-each 6` from
+three game states (a few minutes each): **80% of the instructions, every
+routine**.
 
 ### 2. Lifting: listing + bytes → Rust
 
@@ -69,13 +80,21 @@ cargo run --release -p lift -- --exe GAME/DNCDPRG.EXE \
   `REP` string op is a block of its own.
   State stays in the emulated machine; flags come from the interpreter's
   own ALU (`cpu::alu`, now public), so they match by construction.
-- About 96% of instructions are written out natively. The rest go through
-  the interpreter one instruction at a time (string ops, MUL/DIV, BCD,
-  PUSHF/POPF, ENTER/LEAVE, PUSHA/POPA). `INT` and far calls use
-  `Machine::rec_interp`; RETF, IRET and far jumps bail.
-- Self-modifying code: the only seg000 site is the immediate of
-  `mov ax, 25h` at C13B (patched at 0AD3 and 0B24). Instructions covering
-  a patched byte always run through the interpreter.
+- 98.8% of instructions are written out natively. String ops and
+  MUL/IMUL/DIV/IDIV call the interpreter's own operations
+  (`Cpu::string_op`, `Cpu::mul_div`) without its fetch and decode. IRET,
+  RETF and far jumps are native too. The rest (BCD, ENTER/LEAVE,
+  PUSHA/POPA, STI) go through the interpreter one instruction at a time.
+  `INT` and far calls use `Machine::rec_interp`.
+- Self-modifying code (found by `CODE_DIFF=1 dune-run ...`, which lists the
+  seg000 bytes that changed during a run):
+  - the immediate of `mov ax, 25h` at C13B (patched at 0AD3 and 0B24):
+    instructions covering it always run through the interpreter;
+  - the targets of the far jumps at EFDC and F04D, set at start-up to the
+    interrupt handlers the game replaced (it chains to them): every direct
+    far jump reads its target from the code when it runs.
+  - The other changed bytes are data kept in the code segment (saved
+    vectors at E956–E979, counters at 00AA, CC94, E8D4).
 
 ### 3. Checking: shadow mode
 
@@ -107,10 +126,14 @@ dune-run ... --rec shadow --rec-report shadow.tsv
 
 Measured (30-minute random-input runs, seeds 12 and 13, and a phase-ladder
 run): 679 to 803 routines called per run, 638 to 758 of them checked equal,
-**0 with differences**. About 60% of the replayed instructions ran in Rust.
-Not checked: the few routines whose calls are too long (`start`,
-`play_intro`, `game_loop`, `sub_afb5`), and entry points that were only ever
-reached by jumps.
+**0 with differences**. With `--call-each 4` added: all 1,113 routines
+called, about 1,080 checked equal, 0 with differences. About 60% of the
+replayed instructions ran in Rust. Not checked: the few routines whose calls
+are too long (`start`, `play_intro`, `game_loop`).
+
+A call that wrote into the code segment is marked in the report ("the call
+wrote into the code segment"): if it changed code, Rust, which keeps the
+code as loaded, would run differently.
 
 The checker was itself tested: a deliberately broken `add` in
 `adjust_sub_resource_pointers` was reported as "reg AX bbd0 vs bb2c", and
@@ -121,27 +144,48 @@ nothing else changed.
 The recompiled routines run instead of the original. The run loop calls a
 routine at any block start it reaches; a routine that bails leaves the
 machine at an instruction boundary, the interpreter runs that instruction,
-and Rust takes over again at the next block start. Interrupts are not
-delivered while a routine runs. Instead, at every block boundary a routine
-checks `Machine::rec_tick` and returns to the run loop (a bail) when a
-device event or an interrupt is due. Otherwise a loop polling a timer
-variable would wait forever.
+and Rust takes over again at the next block start.
 
-Measured on a 5-minute random-input game: 5.3 M entries into Rust, 2.6 M of
-them ending in a bail (mostly for an interrupt). All 10 screenshots are
-byte-identical to the same run without `--rec`, and the run is about 1.6×
-faster (21 s vs 34 s wall).
+The result is the same, to the instruction, as without `--rec`:
+- Interrupts are not delivered while Rust runs. At each block start a
+  routine checks `Machine::rec_tick`: if an interrupt is pending, or a device
+  event or the run's deadline falls inside the block (virtual time is a
+  function of the instruction count, so this is known in advance), it bails
+  and the interpreter runs the block.
+- `INT` and far calls (BIOS/DOS services, the drivers) run on the
+  interpreter inside the routine, with the same per-instruction checks,
+  the music-driver tracking and the battery saver's idle detection.
+- Port I/O sees the time of its instruction (the PIT counter).
+- While a harness breakpoint is set (`--phase-ladder`), Rust stays off: it
+  would run through the breakpoint.
+
+Measured: three 5- and 10-minute random-input games (one with the phase
+ladder): every screenshot byte-identical to the same run without `--rec`
+(50 of 50), at 135 to 165 MIPS against 63 for the interpreter (2.2 to 2.6×).
+
+### 5. Readable ports: `crates/dune-rec/src/hand.rs`
+
+Hand-written Rust for single routines, from the listing, replacing the
+generated routine of the same entry, and checked by shadow mode the same way
+(`[hand]` in the report). A port must end in the original's exact state:
+the registers and flags it returns are spelled out in its doc comment (callers
+may rely on any of them), and it keeps the instruction count (virtual time).
+A small `Ctx` holds the bookkeeping: `run(at, n)` counts a straight stretch
+of original instructions and bails at `at` if an interrupt falls inside it;
+`call` and `ret` keep the original's stack.
+
+Ported so far, all equal in every checked call: `set_game_phase`,
+`get_sky_palette_id_from_game_time_in_bl`, `tablat_lookup_from_bx_to_ax_bp`.
 
 ## Next steps
 
-1. **Coverage of the rest:** milestone saves; harnesses for the globe,
-   battles and the endings (`chankiss` etc.); more ladder × monkey seeds on
-   the Windows machine. Shadow-check those runs too.
-2. **Fewer bails:** run more instruction kinds natively (string ops,
-   MUL/DIV, PUSHF/POPF) and far calls into seg000, so less runs on the
-   interpreter in `--rec on` and in replays.
-3. **Readable Rust:** turn verified routines into idiomatic code (named
-   globals, typed structs, no `m.cpu` plumbing). Shadow mode is the oracle,
-   so this can run as a loop: rewrite, check, keep only what stays equal.
-4. **Drivers** (DNVGA is modelled in `gfx::model`; sound and music next) and
+1. **More readable ports**, the main work from here: name the data segment
+   (globals and the record layouts: locations, troops, the dialogue
+   scripts) and port routine by routine, leaves first. Shadow mode plus
+   `--call-each` is the oracle, so this can run as a loop: rewrite, check,
+   keep only what stays equal.
+2. **Coverage of the rest** (the 20% of instructions never run): milestone
+   saves, and harness states deeper in the game (the endings: `chankiss`
+   etc.).
+3. **Drivers** (DNVGA is modelled in `gfx::model`; sound and music next) and
    **DOS** behind a host API, for a build without the interpreter.

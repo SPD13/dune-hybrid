@@ -570,10 +570,11 @@ fn lift(insn: &Instruction, st: &mut Stats) -> (String, bool) {
                 };
                 let word = insn.op_register(data_op) == Register::AX;
                 Some(match (m, word) {
-                    (In, false) => format!("{{ let v = m.hw.in8({port}); m.cpu.set_reg8(0, v); }}"),
-                    (In, true) => format!("{{ let v = m.hw.in16({port}); m.cpu.regs[AX] = v; }}"),
-                    (_, false) => format!("{{ let p = {port}; let v = m.cpu.reg8(0); m.hw.out8(p, v); }}"),
-                    (_, true) => format!("{{ let p = {port}; let v = m.cpu.regs[AX]; m.hw.out16(p, v); }}"),
+                    // Devices see the time of this instruction (the PIT counter).
+                    (In, false) => format!("{{ m.hw.now_ns = m.now_ns(); let v = m.hw.in8({port}); m.cpu.set_reg8(0, v); }}"),
+                    (In, true) => format!("{{ m.hw.now_ns = m.now_ns(); let v = m.hw.in16({port}); m.cpu.regs[AX] = v; }}"),
+                    (_, false) => format!("{{ m.hw.now_ns = m.now_ns(); let p = {port}; let v = m.cpu.reg8(0); m.hw.out8(p, v); }}"),
+                    (_, true) => format!("{{ m.hw.now_ns = m.now_ns(); let p = {port}; let v = m.cpu.regs[AX]; m.hw.out16(p, v); }}"),
                 })
             })();
             native(code, st)
@@ -614,12 +615,112 @@ fn lift(insn: &Instruction, st: &mut Stats) -> (String, bool) {
             let n = if insn.op_count() > 0 { insn.immediate16() } else { 0 };
             (format!("{count} m.cpu.ip = m.cpu.pop(&mut m.hw); m.cpu.regs[SP] = m.cpu.regs[SP].wrapping_add(0x{n:x}); return Ok(());"), true)
         }
-        // Control that leaves the routine's segment or frame: the interpreter takes over.
-        Retf | Iret | Hlt => {
-            st.bail += 1;
-            (bail, true)
+        // String ops and MUL/DIV: the interpreter's own operations, without
+        // its fetch and decode. (A REP string op is a block of its own.)
+        Movsb | Movsw | Cmpsb | Cmpsw | Stosb | Stosw | Lodsb | Lodsw | Scasb | Scasw => {
+            st.native += 1;
+            let op = match m {
+                Movsb => 0xa4,
+                Movsw => 0xa5,
+                Cmpsb => 0xa6,
+                Cmpsw => 0xa7,
+                Stosb => 0xaa,
+                Stosw => 0xab,
+                Lodsb => 0xac,
+                Lodsw => 0xad,
+                Scasb => 0xae,
+                _ => 0xaf,
+            };
+            let seg = sreg(insn.segment_prefix()).map_or("None".to_string(), |s| format!("Some({s})"));
+            let rep = if insn.has_repne_prefix() {
+                0xf2
+            } else if insn.has_rep_prefix() || insn.has_repe_prefix() {
+                0xf3
+            } else {
+                0
+            };
+            (format!("{count} m.cpu.string_op(&mut m.hw, 0x{op:02x}, {seg}, 0x{rep:02x});"), false)
         }
-        Jmp => {
+        Mul | Imul | Div | Idiv if insn.op_count() == 1 => {
+            let sub = match m {
+                Mul => 4,
+                Imul => 5,
+                Div => 6,
+                _ => 7,
+            };
+            match get(insn, 0, w) {
+                Some(a) => {
+                    st.native += 1;
+                    // A divide error leaves CS:IP at the handler: bail there.
+                    (
+                        format!(
+                            "{count} {{ let a = {a}; m.cpu.insn_cs = LOAD_SEG; m.cpu.insn_ip = 0x{ip:04x}; m.cpu.ip = 0x{next:04x}; if m.cpu.mul_div(&mut m.hw, {wn}, {sub}, a) {{ return Err(Bail); }} }}"
+                        ),
+                        false,
+                    )
+                }
+                None => {
+                    st.stepped += 1;
+                    (step, false)
+                }
+            }
+        }
+        Xlatb => {
+            let seg = sreg(insn.segment_prefix()).unwrap_or("DS");
+            native(
+                Some(format!(
+                    "{{ let off = m.cpu.regs[BX].wrapping_add(m.cpu.reg8(0) as u16); let v = m.cpu.read8(&mut m.hw, {seg}, off); m.cpu.set_reg8(0, v); }}"
+                )),
+                st,
+            )
+        }
+        Lahf => native(Some("{ let f = m.cpu.flags() as u8; m.cpu.set_reg8(4, f); }".into()), st),
+        Sahf => native(Some("{ let ah = m.cpu.reg8(4) as u16; let f = (m.cpu.flags() & 0xff00) | (ah & 0xd5); m.cpu.set_flags(f); }".into()), st),
+        Pushf => native(Some("{ let f = m.cpu.flags(); m.cpu.push(&mut m.hw, f); }".into()), st),
+        Popf => native(Some("{ let f = m.cpu.pop(&mut m.hw); m.cpu.set_flags(f); }".into()), st),
+        Cli => native(Some("m.cpu.set_flag(IF, false);".into()), st),
+        // Control that leaves the routine's segment or frame: done here, then
+        // the run loop (or the caller) goes on from the new CS:IP.
+        Iret => {
+            st.native += 1;
+            (
+                format!("{count} m.cpu.ip = m.cpu.pop(&mut m.hw); m.cpu.sregs[CS] = m.cpu.pop(&mut m.hw); {{ let f = m.cpu.pop(&mut m.hw); m.cpu.set_flags(f); }} return Ok(());"),
+                true,
+            )
+        }
+        Retf => {
+            st.native += 1;
+            let n = if insn.op_count() > 0 { insn.immediate16() } else { 0 };
+            (
+                format!("{count} m.cpu.ip = m.cpu.pop(&mut m.hw); m.cpu.sregs[CS] = m.cpu.pop(&mut m.hw); m.cpu.regs[SP] = m.cpu.regs[SP].wrapping_add(0x{n:x}); return Ok(());"),
+                true,
+            )
+        }
+        // The target is read from the code as it runs: the program patches
+        // these (EFDCh and F04Dh chain to the interrupt handlers it replaced).
+        Jmp if insn.op0_kind() == OpKind::FarBranch16 => {
+            st.native += 1;
+            let at = next.wrapping_sub(4);
+            (
+                format!(
+                    "{count} {{ let o = m.cpu.read16(&mut m.hw, CS, 0x{at:04x}); let s = m.cpu.read16(&mut m.hw, CS, 0x{:04x}); m.cpu.ip = o; m.cpu.sregs[CS] = s; }} return Ok(());",
+                    at.wrapping_add(2)
+                ),
+                true,
+            )
+        }
+        Jmp if insn.op0_kind() == OpKind::Memory && sreg(insn.memory_segment()).is_some() => {
+            st.native += 1;
+            let seg = sreg(insn.memory_segment()).unwrap();
+            (
+                format!(
+                    "{count} {{ let a = {}; let o = m.cpu.read16(&mut m.hw, {seg}, a); let s = m.cpu.read16(&mut m.hw, {seg}, a.wrapping_add(2)); m.cpu.ip = o; m.cpu.sregs[CS] = s; }} return Ok(());",
+                    ea(insn)
+                ),
+                true,
+            )
+        }
+        Hlt | Jmp => {
             st.bail += 1;
             (bail, true)
         }
@@ -719,7 +820,7 @@ fn main() -> ExitCode {
         }
         let mut out = String::new();
         out.push_str("// Generated by dune-lift from DNCDPRG.EXE. Game-derived: do not commit or share.\n\n");
-        out.push_str("use pc::Machine;\nuse pc::cpu::{AX, BP, BX, CF, CS, CX, DF, DI, DS, DX, ES, SI, SP, SS, ZF, Bus, Width};\n");
+        out.push_str("use pc::Machine;\nuse pc::cpu::{AX, BP, BX, CF, CS, CX, DF, DI, DS, DX, ES, IF, SI, SP, SS, ZF, Bus, Width};\n");
         out.push_str("use pc::rec::{Bail, Routine};\n\nconst LOAD_SEG: u16 = 0x1000;\n\n");
         let mut st = Stats::default();
         let mut sizes = 0usize;

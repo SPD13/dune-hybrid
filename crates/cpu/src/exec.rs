@@ -724,6 +724,19 @@ impl Cpu {
                 self.set_flag(CF, a != 0);
                 self.put(bus, w, rm, r);
             }
+            _ => {
+                self.mul_div(bus, w, sub, a);
+            }
+        }
+        Step::Ok
+    }
+
+    /// MUL, IMUL, DIV, IDIV (group 3, `sub` 4 to 7) of AL/AX by `a`, exactly
+    /// as the interpreter runs them (for generated code). Returns true if it
+    /// raised a divide error (CS:IP is then at the handler; `insn_cs`/`insn_ip`
+    /// must name the instruction).
+    pub fn mul_div<B: Bus>(&mut self, bus: &mut B, w: Width, sub: usize, a: u32) -> bool {
+        match sub {
             4 => {
                 // MUL
                 if w == B {
@@ -766,14 +779,14 @@ impl Cpu {
                 // DIV
                 if a == 0 {
                     self.fault(bus, 0);
-                    return Step::Ok;
+                    return true;
                 }
                 if w == B {
                     let n = self.regs[AX] as u32;
                     let q = n / a;
                     if q > 0xff {
                         self.fault(bus, 0);
-                        return Step::Ok;
+                        return true;
                     }
                     self.set_reg8(AX, q as u8);
                     self.set_reg8(4, (n % a) as u8);
@@ -782,7 +795,7 @@ impl Cpu {
                     let q = n / a;
                     if q > 0xffff {
                         self.fault(bus, 0);
-                        return Step::Ok;
+                        return true;
                     }
                     self.regs[AX] = q as u16;
                     self.regs[DX] = (n % a) as u16;
@@ -792,7 +805,7 @@ impl Cpu {
                 // IDIV
                 if a == 0 {
                     self.fault(bus, 0);
-                    return Step::Ok;
+                    return true;
                 }
                 if w == B {
                     let n = self.regs[AX] as i16 as i32;
@@ -800,7 +813,7 @@ impl Cpu {
                     let q = n / d;
                     if !(-128..=127).contains(&q) {
                         self.fault(bus, 0);
-                        return Step::Ok;
+                        return true;
                     }
                     self.set_reg8(AX, q as u8);
                     self.set_reg8(4, (n % d) as u8);
@@ -810,14 +823,14 @@ impl Cpu {
                     let q = n / d;
                     if !(-32768..=32767).contains(&q) {
                         self.fault(bus, 0);
-                        return Step::Ok;
+                        return true;
                     }
                     self.regs[AX] = q as u16;
                     self.regs[DX] = (n % d) as u16;
                 }
             }
         }
-        Step::Ok
+        false
     }
 
     fn exec_0f<B: Bus>(&mut self, bus: &mut B, p: Prefix) -> Step {
@@ -839,6 +852,13 @@ impl Cpu {
     fn string_step(&mut self, w: Width, reg: usize) {
         let d = if w == B { 1u16 } else { 2 };
         self.regs[reg] = if self.flag(DF) { self.regs[reg].wrapping_sub(d) } else { self.regs[reg].wrapping_add(d) };
+    }
+
+    /// A string instruction (`op` A4h to AFh, without INS/OUTS), with an
+    /// optional segment override for the source and a REP prefix (0, F2h or
+    /// F3h), exactly as the interpreter runs it (for generated code).
+    pub fn string_op<B: Bus>(&mut self, bus: &mut B, op: u8, seg: Option<usize>, rep: u8) {
+        self.string(bus, op, Prefix { seg, rep });
     }
 
     fn string<B: Bus>(&mut self, bus: &mut B, op: u8, p: Prefix) {

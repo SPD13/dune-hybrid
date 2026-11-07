@@ -26,8 +26,10 @@
 //! `--rec shadow` checks the recompiled routines (`crates/dune-rec`) against
 //! the original as the game runs (see `pc::rec`) and prints a report;
 //! `--rec-report FILE` also writes it as TSV. `--rec on` runs them instead
-//! of the original.
+//! of the original. `--call-each N` calls every recompiled routine N times
+//! from the main-loop top at the end of the run (see `callall`).
 
+mod callall;
 mod gfxcheck;
 mod rooms;
 
@@ -67,6 +69,7 @@ struct Args {
     /// Recompiled routines: shadow-check them, or run them.
     rec: Option<pc::rec::RecMode>,
     rec_report: Option<PathBuf>,
+    call_each: u32,
 }
 
 /// Top of the main loop (`loc_0d820`), where nothing is half done.
@@ -101,6 +104,7 @@ fn parse() -> Result<Args, String> {
         monkey: None,
         rec: None,
         rec_report: None,
+        call_each: 0,
     };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
@@ -128,6 +132,7 @@ fn parse() -> Result<Args, String> {
                 })
             }
             "--rec-report" => a.rec_report = Some(v()?.into()),
+            "--call-each" => a.call_each = v()?.parse().map_err(|e| format!("--call-each: {e}"))?,
             "--phase-ladder" => {
                 let spec = v()?;
                 let (start, step) = spec.split_once(':').ok_or(format!("--phase-ladder START:STEP, got {spec}"))?;
@@ -166,6 +171,18 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>) {
     use std::fmt::Write as _;
     if rec.mode == pc::rec::RecMode::On {
         println!("rec: {} calls into Rust, {} bailed", rec.calls, rec.bails);
+        let names: std::collections::HashMap<u16, &str> = dune_rec::names().iter().copied().collect();
+        let mut bails: Vec<(u64, usize)> = rec.bail_at.iter().enumerate().filter(|(_, n)| **n > 0).map(|(i, n)| (*n, i)).collect();
+        bails.sort_unstable_by(|a, b| b.cmp(a));
+        for (n, ip) in bails.iter().take(15) {
+            // The routine the bail happened in: the nearest entry at or below.
+            let r = names.keys().filter(|&&e| e as usize <= *ip).max().map(|e| names[e]).unwrap_or("?");
+            println!("rec bail: {n:9} at {ip:04x} (in {r})");
+        }
+        let mut ops: Vec<(u64, usize)> = rec.stepped_op.iter().enumerate().filter(|(_, n)| **n > 0).map(|(i, n)| (*n, i)).collect();
+        ops.sort_unstable_by(|a, b| b.cmp(a));
+        let ops: Vec<String> = ops.iter().take(16).map(|(n, op)| format!("{op:02x}:{n}")).collect();
+        println!("rec stepped opcodes: {}", ops.join(" "));
         return;
     }
     let names: std::collections::HashMap<u16, &str> = dune_rec::names().iter().copied().collect();
@@ -177,8 +194,10 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>) {
         diff += (s.diff > 0) as u32;
         bailed += (s.bailed > 0 && s.diff == 0 && s.ok == 0) as u32;
         skipped += (s.skipped > 0 && s.ok + s.diff + s.bailed == 0) as u32;
-        let name = names.get(e).copied().unwrap_or("?");
+        let hand = if dune_rec::is_hand(*e) { " [hand]" } else { "" };
+        let name = format!("{}{hand}", names.get(e).copied().unwrap_or("?"));
         let fd = s.first_diff.clone().unwrap_or_default();
+        let name = name.as_str();
         let _ = writeln!(rows, "{e:04x}	{name}	{}	{}	{}	{}	{fd}", s.ok, s.diff, s.bailed, s.skipped);
         if s.diff > 0 {
             println!("rec diff: {e:04x} {name}: {} of {} calls differ; first: {fd}", s.diff, s.ok + s.diff + s.bailed);
@@ -387,6 +406,9 @@ fn main() -> ExitCode {
         }));
     }
 
+    // CODE_DIFF=1: report seg000 code bytes the program changes (self-
+    // modifying code), against the image as loaded.
+    let code_image = std::env::var_os("CODE_DIFF").map(|_| m.hw.mem[0x10000..0x1f4b0].to_vec());
     // Times (--seconds, --events) count from the start, or from the snapshot.
     let t0 = m.now_ns() as f64 / 1e9;
     let wall = std::time::Instant::now();
@@ -519,6 +541,10 @@ fn main() -> ExitCode {
             break r;
         }
     };
+    if args.call_each > 0 {
+        let entries: Vec<u16> = dune_rec::routines().iter().map(|r| r.0).collect();
+        callall::run(&mut m, MAIN_LOOP, &entries, args.call_each);
+    }
     if let (Some(dir), Some(tr)) = (&args.rooms, &tracker) {
         rooms::capture(&mut m, dir, tr.clone());
     }
@@ -528,6 +554,11 @@ fn main() -> ExitCode {
     }
     if let Some(rec) = &m.rec {
         rec_report(rec, args.rec_report.as_deref());
+    }
+    if let Some(img) = &code_image {
+        let changed: Vec<String> =
+            img.iter().zip(&m.hw.mem[0x10000..0x1f4b0]).enumerate().filter(|(_, (a, b))| a != b).map(|(i, (a, b))| format!("{i:04x}:{a:02x}->{b:02x}")).collect();
+        println!("code changed: {}", changed.join(" "));
     }
     let elapsed = wall.elapsed().as_secs_f64();
     if let Some(w) = &args.wav {

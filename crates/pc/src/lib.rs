@@ -112,6 +112,8 @@ pub struct Machine {
     /// Battery saver: skip ahead when the game spins polling the mouse.
     pub idle_skip: bool,
     idle: IdleDetector,
+    /// The current `run_until` deadline (recompiled code stops before it).
+    pub(crate) run_deadline: u64,
     /// Virtual nanoseconds skipped by the battery saver (diagnostics).
     pub idle_skipped_ns: u64,
     /// Next time a device needs servicing.
@@ -172,6 +174,7 @@ impl Machine {
             program_id: state::fnv64(exe),
             idle_skip: true,
             idle: IdleDetector::default(),
+            run_deadline: 0,
             idle_skipped_ns: 0,
             next_event: 0,
             sleep_until: None,
@@ -202,7 +205,13 @@ impl Machine {
 
     #[inline]
     pub fn now_ns(&self) -> u64 {
-        (self.cpu.instructions as f64 * self.ns_per_insn) as u64 + self.idle_ns
+        self.now_at(self.cpu.instructions)
+    }
+
+    /// Virtual time when the instruction count is `insns`.
+    #[inline]
+    pub(crate) fn now_at(&self, insns: u64) -> u64 {
+        (insns as f64 * self.ns_per_insn) as u64 + self.idle_ns
     }
 
     pub fn log(&mut self, msg: String) {
@@ -214,6 +223,7 @@ impl Machine {
 
     /// Run until virtual time `deadline_ns` (or an exit condition).
     pub fn run_until(&mut self, deadline_ns: u64) -> RunExit {
+        self.run_deadline = deadline_ns;
         loop {
             if let Some(code) = self.exited {
                 return RunExit::Exited(code);
@@ -301,19 +311,27 @@ impl Machine {
                 Step::Ok | Step::Halt => {}
                 Step::Callback(n) => {
                     self.service(n);
-                    if self.idle.pending {
-                        self.idle.pending = false;
-                        // Same as sleeping until the next device event: nothing the
-                        // loop polls can change before then.
-                        if self.next_event > self.now_ns() {
-                            self.sleep_until = Some(self.next_event);
-                            self.sleep_is_idle_skip = true;
-                        }
-                    }
+                    self.idle_check();
                 }
                 Step::Invalid { cs, ip, opcode } => return RunExit::Invalid { cs, ip, opcode },
             }
         }
+    }
+
+    /// After a service: if the idle detector saw the program polling for
+    /// input, sleep until the next device event (nothing the loop polls can
+    /// change before then). True if it did.
+    pub(crate) fn idle_check(&mut self) -> bool {
+        if !self.idle.pending {
+            return false;
+        }
+        self.idle.pending = false;
+        if self.next_event > self.now_ns() {
+            self.sleep_until = Some(self.next_event);
+            self.sleep_is_idle_skip = true;
+            return true;
+        }
+        false
     }
 
     /// A BIOS/DOS service the CPU reached ([`Step::Callback`]). While shadow

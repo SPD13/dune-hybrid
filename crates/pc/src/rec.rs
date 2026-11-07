@@ -75,6 +75,10 @@ pub struct Rec {
     /// `On` mode: entries into Rust (calls and resumptions), and bails.
     pub calls: u64,
     pub bails: u64,
+    /// `On` mode profile: bails by the seg000 offset they left at, and
+    /// instructions generated code ran through the interpreter, by opcode.
+    pub bail_at: Vec<u64>,
+    pub stepped_op: Vec<u64>,
     /// Shadow replays: instructions run by Rust and by the interpreter.
     pub replay_native: u64,
     pub replay_interp: u64,
@@ -103,12 +107,22 @@ struct Pending {
     cpu_instructions: u64,
 }
 
+/// seg000's code, physical, and the byte the program patches itself
+/// (the immediate of `mov ax, 25h` at C13B).
+const CODE_START: usize = (LOAD_SEG as usize) << 4;
+const CODE_END: usize = CODE_START + 0xf4b0;
+const PATCHED: usize = CODE_START + 0xc13c;
+
 /// Pending checks kept at most (each holds a copy of memory).
 const MAX_PENDING: usize = 32;
 
 /// Instructions the interpreter may spend finishing one routine; also the
 /// longest call that is checked.
 const BUDGET: u64 = 50_000_000;
+
+/// `--rec on`: instructions an `INT` or far call may take on the
+/// interpreter before the routine leaves it to the run loop.
+const ON_INTERP_BUDGET: u32 = 20_000;
 
 /// Recorded events kept at most; past this, pending checks are dropped.
 const MAX_EVENTS: usize = 1 << 21;
@@ -132,6 +146,8 @@ impl Rec {
             stats: BTreeMap::new(),
             calls: 0,
             bails: 0,
+            bail_at: vec![0; 0x10000],
+            stepped_op: vec![0; 256],
             replay_native: 0,
             replay_interp: 0,
             interp_nested: false,
@@ -156,6 +172,11 @@ impl Machine {
         }
         match rec.mode {
             RecMode::On => {
+                // A breakpoint (harnesses) must stop at its exact instruction,
+                // which Rust code would run through: interpret meanwhile.
+                if self.break_at.is_some() {
+                    return false;
+                }
                 let Some(f) = rec.resume[ip as usize] else { return false };
                 rec.calls += 1;
                 rec.busy = true;
@@ -165,6 +186,9 @@ impl Machine {
                 if r.is_err() {
                     rec.bails += 1;
                     rec.skip = Some(self.cpu.ip);
+                    if self.cpu.sregs[CS] == LOAD_SEG {
+                        rec.bail_at[self.cpu.ip as usize] += 1;
+                    }
                 }
                 true
             }
@@ -179,22 +203,51 @@ impl Machine {
                 // Only real calls: an entry reached by a jump or by falling
                 // through has no return address on the stack.
                 if room && self.called_from(ret, ip) {
-                    let p = Pending {
-                        entry: ip,
-                        f,
-                        cpu: self.cpu.clone(),
-                        mem: self.hw.mem.clone(),
-                        ss,
-                        sp,
-                        log_start: self.hw.io_log.events.len(),
-                        cpu_instructions: self.cpu.instructions,
-                    };
-                    self.rec.as_mut().unwrap().pending.push(p);
-                    self.hw.io_log.recording = true;
+                    self.push_check(ip, f);
                 }
                 false
             }
         }
+    }
+
+    fn push_check(&mut self, entry: u16, f: Routine) {
+        let p = Pending {
+            entry,
+            f,
+            cpu: self.cpu.clone(),
+            mem: self.hw.mem.clone(),
+            ss: self.cpu.sregs[SS],
+            sp: self.cpu.regs[SP],
+            log_start: self.hw.io_log.events.len(),
+            cpu_instructions: self.cpu.instructions,
+        };
+        self.rec.as_mut().unwrap().pending.push(p);
+        self.hw.io_log.recording = true;
+    }
+
+    /// Shadow mode, for harnesses that call a routine themselves: check the
+    /// call starting now (CS:IP at a routine's entry, the return address
+    /// pushed), whatever the sample count. False if there is no routine here.
+    pub fn rec_check_here(&mut self) -> bool {
+        let ip = self.cpu.ip;
+        let f = match &self.rec {
+            Some(r) if r.mode == RecMode::Shadow && self.cpu.sregs[CS] == LOAD_SEG => r.table[ip as usize],
+            _ => None,
+        };
+        let Some(f) = f else { return false };
+        self.push_check(ip, f);
+        true
+    }
+
+    /// Drop the checks in progress (before loading another state). Returns
+    /// how many there were.
+    pub fn rec_drop_checks(&mut self) -> usize {
+        let Some(rec) = &mut self.rec else { return 0 };
+        let n = rec.pending.len();
+        rec.pending.clear();
+        self.hw.io_log.recording = false;
+        self.hw.io_log.events.clear();
+        n
     }
 
     /// Whether the seg000 code just before `ret` is a near call that can
@@ -260,6 +313,11 @@ impl Machine {
     /// compare it with the original's result (the current state), which is
     /// then restored.
     fn shadow_replay(&mut self, p: Pending) {
+        // A call that wrote into the code segment (other than the known
+        // patch site) is marked in the report: if it changed code, the Rust
+        // version, which keeps the code as it was, runs differently.
+        let code = CODE_START..CODE_END;
+        let code_changed = p.mem[code.clone()].iter().zip(&self.hw.mem[code.clone()]).enumerate().any(|(i, (a, b))| a != b && CODE_START + i != PATCHED);
         let cpu1 = std::mem::replace(&mut self.cpu, p.cpu);
         let mem1 = std::mem::replace(&mut self.hw.mem, p.mem);
         let io1 = self.hw.io_count;
@@ -291,6 +349,7 @@ impl Machine {
             )),
             (None, true) => compare(&cpu1, &mem1, &self.cpu, &self.hw.mem),
         };
+        let diff = diff.map(|d| if code_changed { format!("{d} (the call wrote into the code segment)") } else { d });
         let st = rec.stats.entry(p.entry).or_default();
         match &diff {
             Some(d) => {
@@ -402,9 +461,10 @@ impl Machine {
 
     /// For generated code, at the start of a block of `len` instructions:
     /// true when the routine must stop there (it bails).
-    /// - Running (`--rec on`): a device event or an interrupt is due, so the
-    ///   run loop must get the machine (a native loop polling a timer
-    ///   variable would otherwise wait forever).
+    /// - Running (`--rec on`): an interrupt is pending, or a device event or
+    ///   the run's deadline falls inside the block: the interpreter runs it,
+    ///   so all of these happen at the same instruction as without `--rec`
+    ///   (and a native loop polling a timer variable sees it change).
     /// - Shadow replay: a recorded interrupt, or the end of the original's
     ///   call, falls in this block; the interpreter gets there exactly.
     #[inline]
@@ -420,7 +480,11 @@ impl Machine {
         if self.rec.as_ref().is_some_and(|r| r.interp_nested) {
             return false;
         }
-        self.now_ns() >= self.next_event || self.hw.reschedule || (self.cpu.accepts_irq() && self.hw.irq_pending())
+        // The run loop checks before every instruction; the block's last
+        // instruction starts at this count. Time comes from the count, so a
+        // device event or the run's deadline inside the block is known now.
+        let last = self.now_at(self.cpu.instructions + len.max(1) as u64 - 1);
+        last >= self.next_event || last >= self.run_deadline || self.hw.reschedule || (self.cpu.accepts_irq() && self.hw.irq_pending())
     }
 
     fn interp_until(&mut self, budget: u64, done: impl Fn(&Cpu) -> bool) -> Result<(), Bail> {
@@ -451,11 +515,25 @@ impl Machine {
             rec.replay_interp += self.cpu.instructions - n;
             return r;
         }
+        if let Some(rec) = &mut self.rec
+            && rec.mode == RecMode::On
+        {
+            // Skip prefixes: the opcode that needed the interpreter.
+            let base = (self.cpu.sregs[CS] as usize) << 4;
+            let mut off = self.cpu.ip;
+            let mut op = self.hw.mem[(base + off as usize) & 0xf_ffff];
+            while matches!(op, 0x26 | 0x2e | 0x36 | 0x3e | 0xf0 | 0xf2 | 0xf3) {
+                off = off.wrapping_add(1);
+                op = self.hw.mem[(base + off as usize) & 0xf_ffff];
+            }
+            rec.stepped_op[op as usize] += 1;
+        }
         self.step_raw()
     }
 
     fn step_raw(&mut self) -> Result<(), Bail> {
         let replay = self.hw.io_log.replay.is_some();
+        self.hw.now_ns = self.now_ns();
         match self.cpu.step(&mut self.hw) {
             Step::Ok => Ok(()),
             Step::Callback(n) => {
@@ -474,12 +552,50 @@ impl Machine {
     /// CS:IP on that instruction.
     pub fn rec_interp(&mut self, ip: u16, next: u16) -> Result<(), Bail> {
         self.cpu.ip = ip;
-        if !self.rec.as_ref().is_some_and(|r| r.interp_nested) {
+        let nested = self.rec.as_ref().is_some_and(|r| r.interp_nested);
+        let (cs, ss, sp) = (self.cpu.sregs[CS], self.cpu.sregs[SS], self.cpu.regs[SP]);
+        let back = |c: &Cpu| c.sregs[CS] == cs && c.ip == next && c.sregs[SS] == ss && c.regs[SP] == sp;
+        if nested {
+            self.step_insn()?;
+            return self.interp_until(BUDGET, back);
+        }
+        // The graphics model check watches every instruction: leave these to
+        // the run loop then. (Music driver calls are tracked here as there.)
+        if self.gfx.active() {
             return Err(Bail);
         }
-        let (cs, ss, sp) = (self.cpu.sregs[CS], self.cpu.sregs[SS], self.cpu.regs[SP]);
-        self.step_insn()?;
-        self.interp_until(BUDGET, |c| c.sregs[CS] == cs && c.ip == next && c.sregs[SS] == ss && c.regs[SP] == sp)
+        // Running: BIOS/DOS services and driver calls are short; interpret
+        // them here. One that takes long (it waits for an interrupt) is left
+        // to the run loop, mid-way. After a service that showed the program
+        // idle, the run loop must sleep: bail there too.
+        for _ in 0..ON_INTERP_BUDGET {
+            if self.music.watch[0] != 0 {
+                let pc = self.cpu.phys(self.cpu.sregs[CS], self.cpu.ip);
+                if let Some(entry) = self.music.hit(pc) {
+                    self.on_music_call(entry);
+                }
+            }
+            self.hw.now_ns = self.now_ns();
+            match self.cpu.step(&mut self.hw) {
+                Step::Ok => {}
+                Step::Callback(n) => {
+                    self.service(n);
+                    if self.idle_check() {
+                        return Err(Bail);
+                    }
+                }
+                Step::Halt | Step::Invalid { .. } => return Err(Bail),
+            }
+            if back(&self.cpu) {
+                return Ok(());
+            }
+            // An interrupt or device event due: the run loop takes it now,
+            // as it would have between these instructions.
+            if self.exited.is_some() || self.rec_tick(1) {
+                return Err(Bail);
+            }
+        }
+        Err(Bail)
     }
 
     /// For generated code: call the routine at seg000 `target` with the
