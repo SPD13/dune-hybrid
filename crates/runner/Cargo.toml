@@ -12,4 +12,5 @@ path = "src/main.rs"
 [dependencies]
 pc = { workspace = true }
 gfx = { workspace = true }
+dune-rec = { path = "../dune-rec" }
 png = "0.18"

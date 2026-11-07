@@ -10,6 +10,7 @@
 mod alu;
 mod exec;
 
+pub use alu::Width;
 pub use exec::Step;
 
 /// Physical memory and I/O ports, as seen by the CPU.

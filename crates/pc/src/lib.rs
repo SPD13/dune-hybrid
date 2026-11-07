@@ -7,11 +7,13 @@
 //! reproducible.
 
 mod bios;
+pub mod coverage;
 mod dos;
 pub mod fs;
 pub mod gfx;
 pub mod hw;
 pub mod music;
+pub mod rec;
 pub mod sound;
 pub mod state;
 
@@ -51,6 +53,8 @@ pub enum RunExit {
     Stuck,
     /// An opcode the interpreter does not implement.
     Invalid { cs: u16, ip: u16, opcode: u16 },
+    /// Reached [`Machine::break_at`] (which is then cleared).
+    Break,
 }
 
 /// A DOS file handle: the host file plus the name it was opened under (so a
@@ -122,6 +126,12 @@ pub struct Machine {
     pub replaced_songs: u16,
     /// Graphics driver call recording (off unless enabled).
     pub gfx: gfx::GfxRecorder,
+    /// Code coverage of seg000 (decompilation tooling), when set.
+    pub coverage: Option<Box<coverage::Coverage>>,
+    /// Stop [`Machine::run_until`] before executing this CS:IP (tools only).
+    pub break_at: Option<(u16, u16)>,
+    /// Recompiled routines (see [`rec`]), when set.
+    pub rec: Option<Box<rec::Rec>>,
 }
 
 /// Detects the game's busy-wait: back-to-back INT 33h/3 polls with nothing
@@ -169,6 +179,9 @@ impl Machine {
             music: music::MusicTracker::default(),
             replaced_songs: 0,
             gfx: gfx::GfxRecorder::default(),
+            coverage: None,
+            break_at: None,
+            rec: None,
         };
         for _ in 0..5 {
             m.files.push(None);
@@ -264,7 +277,24 @@ impl Machine {
                     self.watch_gfx(pc);
                 }
             }
-            match self.cpu.step(&mut self.hw) {
+            if self.rec.is_some() {
+                self.rec_pending();
+                if self.rec_hook() {
+                    continue;
+                }
+            }
+            if self.break_at == Some((self.cpu.sregs[CS], self.cpu.ip)) {
+                self.break_at = None;
+                return RunExit::Break;
+            }
+            if let Some(c) = &mut self.coverage {
+                c.before(&self.cpu, &self.hw);
+            }
+            let step = self.cpu.step(&mut self.hw);
+            if let Some(c) = &mut self.coverage {
+                c.after(&self.cpu);
+            }
+            match step {
                 Step::Ok | Step::Halt => {}
                 Step::Callback(n) => {
                     self.callback(n);
@@ -447,7 +477,14 @@ impl Machine {
                 let pc = self.cpu.phys(self.cpu.sregs[CS], self.cpu.ip);
                 self.watch_gfx(pc);
             }
-            match self.cpu.step(&mut self.hw) {
+            if let Some(c) = &mut self.coverage {
+                c.before(&self.cpu, &self.hw);
+            }
+            let step = self.cpu.step(&mut self.hw);
+            if let Some(c) = &mut self.coverage {
+                c.after(&self.cpu);
+            }
+            match step {
                 Step::Ok => {}
                 Step::Callback(n) => self.callback(n),
                 Step::Halt => return Err(format!("HLT at {}", self.regs_string())),

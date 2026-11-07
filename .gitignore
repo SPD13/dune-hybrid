@@ -34,3 +34,7 @@ __pycache__/
 # Generative portraits: renders and caches (derived from the game)
 /tools/portraits/out
 /tools/portraits/heads
+
+# Generated from the game executable by dune-lift: game-derived, never commit.
+crates/dune-rec/src/generated.rs
+target-*/

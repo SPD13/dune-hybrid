@@ -107,7 +107,8 @@ impl Cpu {
         }
     }
 
-    fn cond(&self, c: u8) -> bool {
+    /// Condition code `c` (the low nibble of Jcc) against the flags.
+    pub fn cond(&self, c: u8) -> bool {
         let f = |b| self.flag(b);
         let r = match c >> 1 {
             0 => f(OF),

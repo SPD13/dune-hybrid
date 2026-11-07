@@ -276,6 +276,8 @@ pub struct Hardware {
     pub audio: Audio,
     /// Diagnostics: log sound/DMA/PIC port traffic (port, value, write?).
     pub trace_ports: Option<Vec<(u64, u16, u8, bool)>>,
+    /// Port reads and writes so far (shadow checking skips calls that did any).
+    pub io_count: u64,
     /// CS:IP of the current instruction (maintained only while tracing).
     pub trace_pc: (u16, u16),
     /// Set when a device changed its schedule; the machine re-polls `update`.
@@ -295,6 +297,7 @@ impl Hardware {
             game_port: 0xf0,
             audio: Audio::new(),
             trace_ports: None,
+            io_count: 0,
             reschedule: false,
             trace_pc: (0, 0),
         }
@@ -409,6 +412,7 @@ impl Bus for Hardware {
     }
 
     fn in8(&mut self, port: u16) -> u8 {
+        self.io_count += 1;
         let now = self.now_ns;
         if let Some(v) = self.audio.read(port, now) {
             if let Some(t) = &mut self.trace_ports {
@@ -454,6 +458,7 @@ impl Bus for Hardware {
     }
 
     fn out8(&mut self, port: u16, v: u8) {
+        self.io_count += 1;
         let now = self.now_ns;
         if let Some(t) = &mut self.trace_ports {
             if matches!(port, 0x00..=0x0f | 0x20 | 0x21 | 0x81..=0x87 | 0x220..=0x22f | 0x388..=0x38b) && t.len() < 20000 {

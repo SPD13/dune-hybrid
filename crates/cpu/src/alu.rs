@@ -41,14 +41,14 @@ fn parity(v: u32) -> bool {
 impl Cpu {
     /// Set SF, ZF, PF from a result.
     #[inline]
-    pub(crate) fn set_szp(&mut self, w: Width, r: u32) {
+    pub fn set_szp(&mut self, w: Width, r: u32) {
         let r = r & w.mask();
         self.set_flag(SF, r & w.sign() != 0);
         self.set_flag(ZF, r == 0);
         self.set_flag(PF, parity(r));
     }
 
-    pub(crate) fn add(&mut self, w: Width, a: u32, b: u32, carry: bool) -> u32 {
+    pub fn add(&mut self, w: Width, a: u32, b: u32, carry: bool) -> u32 {
         let c = carry as u32;
         let full = a + b + c;
         let r = full & w.mask();
@@ -59,7 +59,7 @@ impl Cpu {
         r
     }
 
-    pub(crate) fn sub(&mut self, w: Width, a: u32, b: u32, borrow: bool) -> u32 {
+    pub fn sub(&mut self, w: Width, a: u32, b: u32, borrow: bool) -> u32 {
         let c = borrow as u32;
         let r = a.wrapping_sub(b).wrapping_sub(c) & w.mask();
         self.set_flag(CF, b + c > a);
@@ -69,7 +69,7 @@ impl Cpu {
         r
     }
 
-    pub(crate) fn logic(&mut self, w: Width, r: u32) -> u32 {
+    pub fn logic(&mut self, w: Width, r: u32) -> u32 {
         let r = r & w.mask();
         self.set_flag(CF, false);
         self.set_flag(OF, false);
@@ -78,14 +78,14 @@ impl Cpu {
         r
     }
 
-    pub(crate) fn inc(&mut self, w: Width, a: u32) -> u32 {
+    pub fn inc(&mut self, w: Width, a: u32) -> u32 {
         let cf = self.flag(CF);
         let r = self.add(w, a, 1, false);
         self.set_flag(CF, cf);
         r
     }
 
-    pub(crate) fn dec(&mut self, w: Width, a: u32) -> u32 {
+    pub fn dec(&mut self, w: Width, a: u32) -> u32 {
         let cf = self.flag(CF);
         let r = self.sub(w, a, 1, false);
         self.set_flag(CF, cf);
@@ -94,7 +94,7 @@ impl Cpu {
 
     /// The eight ALU operations of opcodes 00..3F and group 1 (0x80..0x83).
     /// Returns None for CMP (result not written back).
-    pub(crate) fn alu_op(&mut self, op: usize, w: Width, a: u32, b: u32) -> Option<u32> {
+    pub fn alu_op(&mut self, op: usize, w: Width, a: u32, b: u32) -> Option<u32> {
         match op {
             0 => Some(self.add(w, a, b, false)),
             1 => Some(self.logic(w, a | b)),
@@ -118,7 +118,7 @@ impl Cpu {
 
     /// Group 2: rotates and shifts. `count` is already masked to 5 bits;
     /// a zero count leaves operand and flags untouched.
-    pub(crate) fn shift(&mut self, op: usize, w: Width, a: u32, count: u32) -> u32 {
+    pub fn shift(&mut self, op: usize, w: Width, a: u32, count: u32) -> u32 {
         if count == 0 {
             return a;
         }

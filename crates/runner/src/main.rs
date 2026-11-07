@@ -9,6 +9,24 @@
 //! (decoded operation, target buffer, sprite hash and sheet), `GFX_VERIFY=1`
 //! checks `gfx::model` against the real driver call by call, `GFX_STATS=1`
 //! counts calls per slot. `--snapshot FILE` starts from a saved state.
+//!
+//! Decompilation: `--coverage FILE` writes which seg000 instructions ran and
+//! where indirect calls and jumps went (see `pc::coverage`; read it with
+//! `tools/coverage.py`). It covers the `--rooms` harness too.
+//! `--monkey SEED:START:STEP` adds random input from START seconds on, one
+//! action every STEP seconds (clicks anywhere, mostly; a few keys), to reach
+//! code without playing. The same seed gives the same run. If the random
+//! input quits the game, the run rewinds to the last screenshot's state and
+//! continues with new random input (at most 50 times).
+//! `--phase-ladder START:STEP` raises the game phase (`[DS:2A]`) one step every
+//! STEP seconds from START on, the way the story does: at the top of the
+//! main loop (1000:D820) it calls `set_game_phase` (1000:121F) with the next
+//! phase, which runs that phase's handler. Late-game code without playing.
+//!
+//! `--rec shadow` checks the recompiled routines (`crates/dune-rec`) against
+//! the original as the game runs (see `pc::rec`) and prints a report;
+//! `--rec-report FILE` also writes it as TSV. `--rec on` runs them instead
+//! of the original.
 
 mod gfxcheck;
 mod rooms;
@@ -42,7 +60,26 @@ struct Args {
     hd_pack: Option<PathBuf>,
     /// After the run: make the game draw every room into this folder.
     rooms: Option<PathBuf>,
+    /// Write seg000 code coverage here.
+    coverage: Option<PathBuf>,
+    /// Random input: seed, start time, seconds between actions.
+    monkey: Option<(u64, f64, f64)>,
+    /// Recompiled routines: shadow-check them, or run them.
+    rec: Option<pc::rec::RecMode>,
+    rec_report: Option<PathBuf>,
 }
+
+/// Top of the main loop (`loc_0d820`), where nothing is half done.
+const MAIN_LOOP: u16 = 0xd820;
+/// `set_game_phase` (AL = phase): raises `[2Ah]`, runs the phase's handler.
+const SET_GAME_PHASE: u16 = 0x121f;
+/// Phases for the ladder. The handler table (word pointers at CS:11E7 +
+/// phase / 2) has entries only for multiples of 4; other values the listing
+/// compares against are passed on the way.
+const PHASES: &[u8] = &[
+    0x04, 0x08, 0x0c, 0x10, 0x14, 0x18, 0x1c, 0x20, 0x24, 0x28, 0x2c, 0x30, 0x34, 0x38, 0x3c, 0x40, 0x44, 0x48, 0x4c, 0x50, 0x54,
+    0x58, 0x5c, 0x60, 0x64, 0x68, 0x6c,
+];
 
 fn parse() -> Result<Args, String> {
     let mut a = Args {
@@ -60,6 +97,10 @@ fn parse() -> Result<Args, String> {
         hd_shots: false,
         hd_pack: None,
         rooms: None,
+        coverage: None,
+        monkey: None,
+        rec: None,
+        rec_report: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
@@ -78,6 +119,34 @@ fn parse() -> Result<Args, String> {
             "--hd-shots" => a.hd_shots = true,
             "--hd-pack" => a.hd_pack = Some(v()?.into()),
             "--rooms" => a.rooms = Some(v()?.into()),
+            "--coverage" => a.coverage = Some(v()?.into()),
+            "--rec" => {
+                a.rec = Some(match v()?.as_str() {
+                    "shadow" => pc::rec::RecMode::Shadow,
+                    "on" => pc::rec::RecMode::On,
+                    other => return Err(format!("--rec shadow|on, got {other}")),
+                })
+            }
+            "--rec-report" => a.rec_report = Some(v()?.into()),
+            "--phase-ladder" => {
+                let spec = v()?;
+                let (start, step) = spec.split_once(':').ok_or(format!("--phase-ladder START:STEP, got {spec}"))?;
+                let start: f64 = start.parse().map_err(|e| format!("{e}"))?;
+                let step: f64 = step.parse().map_err(|e| format!("{e}"))?;
+                for (i, p) in PHASES.iter().enumerate() {
+                    a.events.push((start + step * i as f64, vec!["phase".into(), format!("{p:02x}")]));
+                }
+                a.events.sort_by(|x, y| x.0.total_cmp(&y.0));
+            }
+            "--monkey" => {
+                let spec = v()?;
+                let p: Vec<&str> = spec.split(':').collect();
+                let num = |i: usize| p.get(i).ok_or(format!("--monkey SEED:START:STEP, got {spec}"));
+                let seed: u64 = num(0)?.parse().map_err(|e| format!("{e}"))?;
+                let start: f64 = num(1)?.parse().map_err(|e| format!("{e}"))?;
+                let step: f64 = num(2)?.parse().map_err(|e| format!("{e}"))?;
+                a.monkey = Some((seed, start, step));
+            }
             "--events" => {
                 for ev in v()?.split(',') {
                     let parts: Vec<String> = ev.split(':').map(String::from).collect();
@@ -90,6 +159,101 @@ fn parse() -> Result<Args, String> {
         }
     }
     Ok(a)
+}
+
+/// Summary of `--rec`: shadow results per routine, or call counts.
+fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>) {
+    use std::fmt::Write as _;
+    if rec.mode == pc::rec::RecMode::On {
+        println!("rec: {} calls into Rust, {} bailed", rec.calls, rec.bails);
+        return;
+    }
+    let names: std::collections::HashMap<u16, &str> = dune_rec::names().iter().copied().collect();
+    let (mut ok, mut diff, mut bailed, mut skipped, mut counts) = (0, 0, 0, 0, 0);
+    let mut rows = String::from("entry	name	ok	diff	bailed	skipped	count_diff	first_diff
+");
+    for (e, s) in &rec.stats {
+        ok += (s.ok > 0 && s.diff == 0) as u32;
+        diff += (s.diff > 0) as u32;
+        bailed += (s.bailed > 0 && s.diff == 0 && s.ok == 0) as u32;
+        skipped += (s.skipped > 0 && s.ok + s.diff + s.bailed == 0) as u32;
+        counts += (s.count_diff > 0) as u32;
+        let name = names.get(e).copied().unwrap_or("?");
+        let fd = s.first_diff.clone().unwrap_or_default();
+        let _ = writeln!(rows, "{e:04x}	{name}	{}	{}	{}	{}	{}	{fd}", s.ok, s.diff, s.bailed, s.skipped, s.count_diff);
+        if s.diff > 0 {
+            println!("rec diff: {e:04x} {name}: {} of {} calls differ; first: {fd}", s.diff, s.ok + s.diff + s.bailed);
+        }
+    }
+    println!(
+        "rec shadow: {} routines called; {ok} verified equal, {diff} with differences, {bailed} only bailed, {skipped} not checkable (DOS/BIOS); {counts} with different instruction counts",
+        rec.stats.len()
+    );
+    if let Some(p) = tsv {
+        fs::write(p, rows).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+    }
+}
+
+/// Waits (up to 10 virtual seconds) for the top of the main loop, then makes
+/// the game call `set_game_phase(phase)` from there, as if the loop had.
+/// Returns the run's exit if the game stopped instead.
+fn enter_phase(m: &mut Machine, phase: u8) -> Option<RunExit> {
+    m.break_at = Some((pc::LOAD_SEG, MAIN_LOOP));
+    let r = m.run_until(m.now_ns() + 10_000_000_000);
+    m.break_at = None;
+    match r {
+        RunExit::Break => {
+            let ds = pc::GAME_DS as usize * 16;
+            println!("phase {:02x} -> {phase:02x} at {:.1}s", m.hw.mem[ds + 0x2a], m.now_ns() as f64 / 1e9);
+            // CALL from the loop top: return address D820, AL = phase.
+            let (ss, sp) = (m.cpu.sregs[pc::cpu::SS], m.cpu.regs[pc::cpu::SP].wrapping_sub(2));
+            m.cpu.regs[pc::cpu::SP] = sp;
+            let a = (ss as usize * 16 + sp as usize) & 0xf_ffff;
+            m.hw.mem[a..a + 2].copy_from_slice(&MAIN_LOOP.to_le_bytes());
+            m.cpu.regs[pc::cpu::AX] = (m.cpu.regs[pc::cpu::AX] & 0xff00) | phase as u16;
+            m.cpu.ip = SET_GAME_PHASE;
+            None
+        }
+        RunExit::Deadline => {
+            println!("phase {phase:02x}: main loop not reached in 10 s, skipped");
+            None
+        }
+        other => Some(other),
+    }
+}
+
+/// Random input for coverage runs: mostly left clicks (half of them on the
+/// interface strip at the bottom), some right clicks and keys.
+fn monkey_events(seed: u64, start: f64, step: f64, end: f64) -> Vec<(f64, Vec<String>)> {
+    let mut x = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+    let mut rnd = move |n: u64| {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x % n
+    };
+    let ev = |s: String| s.split(':').map(String::from).collect::<Vec<_>>();
+    let mut out = Vec::new();
+    let mut t = start;
+    while t < end {
+        let r = rnd(100);
+        if r < 80 {
+            let px = rnd(320);
+            let py = if rnd(2) == 0 { 152 + rnd(48) } else { rnd(200) };
+            let b = if r < 68 { 1 } else { 2 };
+            out.push((t, ev(format!("mouse:{px}:{py}:0"))));
+            out.push((t + 0.05, ev(format!("mouse:{px}:{py}:{b}"))));
+            out.push((t + 0.15, ev(format!("mouse:{px}:{py}:0"))));
+        } else {
+            // Esc, Enter, Space, the arrow keys.
+            let keys = ["01", "1c", "39", "48", "50", "4b", "4d"];
+            let k = keys[rnd(keys.len() as u64) as usize];
+            out.push((t, ev(format!("key:{k}:1"))));
+            out.push((t + 0.1, ev(format!("key:{k}:0"))));
+        }
+        t += step;
+    }
+    out
 }
 
 fn write_png(path: &PathBuf, rgb: &[u8]) {
@@ -167,6 +331,18 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
+    if let Some(mode) = args.rec {
+        let routines = dune_rec::routines();
+        if routines.is_empty() {
+            eprintln!("--rec: dune-rec was built without src/generated.rs (run dune-lift first)");
+            return ExitCode::FAILURE;
+        }
+        println!("rec: {} routines, {mode:?}", routines.len());
+        m.rec = Some(Box::new(pc::rec::Rec::new(mode, routines)));
+    }
+    if args.coverage.is_some() {
+        m.coverage = Some(Box::default());
+    }
     m.set_speed(args.mips * 1e6);
     let gfx_stats = std::env::var_os("GFX_STATS").is_some();
     let gfx_verify = std::env::var_os("GFX_VERIFY").is_some();
@@ -214,14 +390,29 @@ fn main() -> ExitCode {
     let mut shot = 0;
     let mut audio: Vec<f32> = Vec::new();
     m.hw.audio.enabled = args.wav.is_some();
-    let mut events = args.events.iter().peekable();
+    // Scripted events plus random input; replaced when a monkey run rewinds.
+    let schedule = |from: f64, seed_bump: u64| {
+        let mut ev: Vec<(f64, Vec<String>)> = args.events.iter().filter(|e| e.0 >= from).cloned().collect();
+        if let Some((seed, start, step)) = args.monkey {
+            ev.extend(monkey_events(seed.wrapping_add(seed_bump), start.max(from), step, args.seconds));
+            ev.sort_by(|x, y| x.0.total_cmp(&y.0));
+        }
+        ev
+    };
+    let mut events = schedule(0.0, 0);
+    let mut ei = 0;
+    let mut checkpoint: Option<(Vec<u8>, f64)> = None;
+    let mut rewinds = 0u64;
     let trace_music = std::env::var_os("TRACE_MUSIC").is_some();
     let mut last_music = pc::MusicState::default();
     let exit = loop {
+        if args.monkey.is_some() {
+            checkpoint = Some((m.save_state(), t));
+        }
         t += args.shot_every;
         let end = t.min(args.seconds);
         let mut r = RunExit::Deadline;
-        while let Some((et, ev)) = events.peek() {
+        while let Some((et, ev)) = events.get(ei) {
             if *et > end {
                 break;
             }
@@ -232,9 +423,16 @@ fn main() -> ExitCode {
             match ev[0].as_str() {
                 "key" => m.key(u8::from_str_radix(&ev[1], 16).unwrap(), ev[2] == "1"),
                 "mouse" => m.mouse_input(ev[1].parse().unwrap(), ev[2].parse().unwrap(), ev[3].parse().unwrap()),
+                "phase" => {
+                    let phase = u8::from_str_radix(&ev[1], 16).unwrap();
+                    if let Some(r2) = enter_phase(&mut m, phase) {
+                        r = r2;
+                        break;
+                    }
+                }
                 _ => eprintln!("unknown event {ev:?}"),
             }
-            events.next();
+            ei += 1;
         }
         if r == RunExit::Deadline {
             if trace_music {
@@ -300,12 +498,31 @@ fn main() -> ExitCode {
             }
         }
         shot += 1;
+        if let (RunExit::Exited(_), Some((state, at))) = (&r, &checkpoint)
+            && rewinds < 50
+        {
+            rewinds += 1;
+            println!("monkey: the game exited at {:.1}s; rewinding to {at:.1}s", m.now_ns() as f64 / 1e9 - t0);
+            m.exited = None;
+            m.load_state(state).expect("rewind");
+            t = *at;
+            events = schedule(*at, rewinds * 0x1_0000);
+            ei = 0;
+            continue;
+        }
         if r != RunExit::Deadline || t >= args.seconds {
             break r;
         }
     };
     if let (Some(dir), Some(tr)) = (&args.rooms, &tracker) {
         rooms::capture(&mut m, dir, tr.clone());
+    }
+    if let (Some(path), Some(c)) = (&args.coverage, &m.coverage) {
+        fs::write(path, c.to_text()).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        println!("coverage: {} seg000 instructions, {} indirect transfers -> {}", c.count(), c.indirect.len(), path.display());
+    }
+    if let Some(rec) = &m.rec {
+        rec_report(rec, args.rec_report.as_deref());
     }
     let elapsed = wall.elapsed().as_secs_f64();
     if let Some(w) = &args.wav {
