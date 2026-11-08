@@ -261,6 +261,12 @@ pub fn outside_view_after_b647(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(0xb647, 0x62d9)?;
+    outside_view_tail(&mut c)
+}
+
+/// From 62D9: CF set when (DX, BX) is outside the view (right, bottom
+/// out); returns.
+fn outside_view_tail(c: &mut Ctx) -> Result<(), Bail> {
     let (dx, bx) = (c.reg(DX), c.reg(BX));
     let v = [c.word(VIEW), c.word(VIEW + 2), c.word(VIEW + 4), c.word(VIEW + 6)];
     let n = if dx < v[0] {
@@ -914,5 +920,456 @@ pub fn heading_51cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.or(B, v, 0x40);
     c.set_reg(AX, ah << 8 | v);
     c.set_byte(0x11c7, v as u8);
+    c.ret()
+}
+
+/// `loc_0578b`: for AL (not negative), the driver's function at 3961h at
+/// [`POINT_4710`] + (5Eh + 4 AL, 62h), 5 x 7. AX kept.
+pub fn gfx_call_3961_at_4710(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x578b)?;
+    let mut c = Ctx::new(m);
+    let al = c.reg8(r8::AL);
+    if al & 0x80 != 0 {
+        c.run(start, 3)?;
+        c.or(B, al as u16, al as u16);
+        return c.ret();
+    }
+    c.run(start, 4)?;
+    c.or(B, al as u16, al as u16);
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.call(0x557b, 0x5793)?;
+    c.run(0x5793, 8)?;
+    let dx = c.reg(DX);
+    let dx = c.add(W, dx, 0x5e);
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 0x62);
+    c.set_reg(BX, bx);
+    let al = c.reg8(r8::AL) as u16;
+    c.xor(B, 0, 0);
+    let a4 = c.shl1(W, al, 2);
+    c.set_reg(AX, a4);
+    let dx = c.add(W, dx, a4);
+    c.set_reg(DX, dx);
+    c.set_reg(SI, 5);
+    c.set_reg(CX, 7);
+    c.interp(0x57a7, 0x57ab)?;
+    c.run(0x57ab, 2)?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.ret()
+}
+
+/// `loc_058fa`: leaving bit 40h of [46EBh]: the sprite list (DBE0h, or
+/// DBE2h unless the first is 4710h's) dropped and its rect redrawn, the
+/// mouse rect the view. Registers kept.
+pub fn drop_point_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x58fa)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x46eb);
+    c.run(start, 3)?;
+    c.test(B, k as u16, 0x40);
+    if k & 0x40 == 0 {
+        return c.ret();
+    }
+    c.call(code::SAVE_REGS, 0x5904)?;
+    let first = c.word(SPRITE_LIST) == POINT_4710;
+    c.run(0x5904, 4 + (!first) as u32 + 3)?;
+    let k = c.byte(0x46eb);
+    let k = c.and(B, k as u16, 0xbf);
+    c.set_byte(0x46eb, k as u8);
+    let w = c.word(SPRITE_LIST);
+    c.cmp(W, w, POINT_4710);
+    let di = if first { SPRITE_LIST } else { SPRITE_LIST + 2 };
+    c.set_reg(DI, di);
+    let si = c.reg(SI);
+    c.xor(W, si, si);
+    let old = c.word(di);
+    c.set_word(di, 0);
+    c.set_reg(SI, old);
+    c.call(code::PARTICLES_UPDATE_DIRTY_RECT, 0x591c)?;
+    c.run(0x591c, 1)?;
+    c.call(0x5ad9, 0x591f)?;
+    c.run(0x591f, 1)?;
+    c.call(code::RESTORE_REGS, 0x5922)?;
+    c.run(0x5922, 1)?;
+    c.ret()
+}
+
+/// From 5B6E (the stretch from `at`, `prefix` instructions before, done by
+/// `ops`): a 4-wide frame around the rect at SI, colours AL, AL - 2, ...
+fn frame_rect(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    c.run(at, prefix + 5 + 5)?;
+    ops(c);
+    let si = c.reg(SI);
+    let r = [c.word(si), c.word(si.wrapping_add(2)), c.word(si.wrapping_add(4)), c.word(si.wrapping_add(6))];
+    c.set_reg(DX, r[0]);
+    c.set_reg(BX, r[1]);
+    c.set_reg(DI, r[2]);
+    c.set_reg(CX, r[3]);
+    c.set_reg(BP, 4);
+    let mut first = true;
+    loop {
+        if !first {
+            c.run(0x5b7c, 5)?;
+        }
+        first = false;
+        let ax = c.reg(AX);
+        c.push(ax);
+        let bp = c.reg(BP);
+        c.push(bp);
+        let dx = c.reg(DX);
+        let dx = c.dec(W, dx);
+        c.set_reg(DX, dx);
+        let bx = c.reg(BX);
+        let bx = c.dec(W, bx);
+        c.set_reg(BX, bx);
+        c.call(0xc560, 0x5b83)?;
+        let sp = c.reg(SP);
+        let left = c.word_in(SS, sp).wrapping_sub(1);
+        c.run(0x5b83, 7 + if left == 0 { 1 } else { 0 })?;
+        let bp = c.pop();
+        let ax = c.pop();
+        c.set_reg(AX, ax);
+        let di = c.reg(DI);
+        let di = c.inc(W, di);
+        c.set_reg(DI, di);
+        let cx = c.reg(CX);
+        let cx = c.inc(W, cx);
+        c.set_reg(CX, cx);
+        let al = c.sub(B, ax & 0xff, 2);
+        c.set_reg(AX, ax & 0xff00 | al);
+        let bp = c.dec(W, bp);
+        c.set_reg(BP, bp);
+        if bp == 0 {
+            return c.ret();
+        }
+    }
+}
+
+/// `loc_05b6e`: see [`frame_rect`].
+pub fn frame_rect_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5b6e)?;
+    frame_rect(&mut Ctx::new(m), start, 0, |_| {})
+}
+
+/// `loc_05b69`: the view's frame, from colour FCh.
+pub fn frame_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5b69)?;
+    frame_rect(&mut Ctx::new(m), start, 2, |c| {
+        c.set_reg(SI, VIEW);
+        c.set_reg8(r8::AL, 0xfc);
+    })
+}
+
+/// `loc_05bb0`: the map's caption: on the screen, the sprite list 194Ah,
+/// `loc_07b1b`, phrase E2h with the number [28h] drawn (tall font, colour
+/// F0h) at the list's place + (0Ah, 8); then the front buffer active.
+pub fn draw_map_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5bb0)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xc08e, 0x5bb3)?;
+    c.run(0x5bb3, 3)?;
+    c.set_reg(SI, SPRITE_LIST_MAP);
+    c.set_word(SPRITE_LIST, SPRITE_LIST_MAP);
+    c.call(0x7b1b, 0x5bbd)?;
+    c.run(0x5bbd, 1)?;
+    c.call(0xd068, 0x5bc0)?;
+    c.run(0x5bc0, 2)?;
+    c.set_reg(SI, 0xe2);
+    c.call(0xcf70, 0x5bc6)?;
+    c.run(0x5bc6, 1)?;
+    c.call(0xd03c, 0x5bc9)?;
+    c.run(0x5bc9, 3)?;
+    let n = c.byte(0x28);
+    c.set_reg8(r8::AL, n);
+    c.xor(B, 0, 0);
+    c.set_reg(AX, n as u16);
+    c.call(0xe2e3, 0x5bd1)?;
+    c.run(0x5bd1, 7)?;
+    let (x, y) = (c.word(SPRITE_LIST_MAP), c.word(SPRITE_LIST_MAP + 2));
+    let x = c.add(W, x, 0x0a);
+    c.set_reg(DX, x);
+    let y = c.add(W, y, 8);
+    c.set_reg(BX, y);
+    c.set_reg(CX, 0xf0);
+    c.set_reg(AX, 0xe2);
+    c.call(0xd194, 0x5be8)?;
+    c.run(0x5be8, 1)?;
+    super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
+}
+
+/// `loc_05d50`: one more at [46ECh] for the location at DI shown in the
+/// hotspot mode (not of bit 80h of byte 0Ah, `loc_062c9` in view). SI, DI
+/// kept.
+pub fn count_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5d50)?;
+    let mut c = Ctx::new(m);
+    let di = c.reg(DI);
+    let f = c.byte(di.wrapping_add(0x0a));
+    let k = c.byte(0x46eb);
+    let si = c.reg(SI);
+    let n = if f & 0x80 != 0 { 7 } else if k == 0 { 9 } else { 8 };
+    c.run(start, n)?;
+    c.push(si);
+    c.push(di);
+    c.test(B, f as u16, 0x80);
+    if f & 0x80 == 0 {
+        c.cmp(B, k as u16, 0);
+        if k != 0 {
+            c.set_reg(SI, di);
+            c.call(0x62c9, 0x5d64)?;
+            let out = c.flag(CF);
+            c.run(0x5d64, if out { 4 } else { 5 })?;
+            if !out {
+                let v = c.byte(0x46ec);
+                let v = c.inc(B, v as u16);
+                c.set_byte(0x46ec, v as u8);
+            }
+        }
+    }
+    let di = c.pop();
+    c.set_reg(DI, di);
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.ret()
+}
+
+/// `loc_05e42`: AX = the map icon of the location at SI: 3Ah (7Ah zoomed)
+/// plus how many of 20h, 21h, 28h, 30h its kind reaches. CL = the kind.
+pub fn location_icon(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5e42)?;
+    let mut c = Ctx::new(m);
+    let zoom = c.byte(0x46eb) & 0x80 != 0;
+    let si = c.reg(SI);
+    let kind = c.byte(si.wrapping_add(8));
+    let reached = [0x20u8, 0x21, 0x28, 0x30].iter().take_while(|&&t| kind >= t).count() as u32;
+    c.run(start, 3 + zoom as u32 + 1 + 3 * reached + if reached < 4 { 3 } else { 1 })?;
+    let k = c.byte(0x46eb);
+    c.test(B, k as u16, 0x80);
+    let mut ax = if zoom { 0x7a } else { 0x3a };
+    c.set_reg8(r8::CL, kind);
+    for (i, t) in [0x20u16, 0x21, 0x28, 0x30].into_iter().enumerate() {
+        c.cmp(B, kind as u16, t);
+        if i as u32 >= reached {
+            break;
+        }
+        ax = c.inc(W, ax);
+    }
+    c.set_reg(AX, ax);
+    c.ret()
+}
+
+/// `loc_05f91`: the map's marks dropped ([46F8h], [46F7h]), the front
+/// buffer active, the sprite list gone with its rect (1668h) redrawn,
+/// then driver function 30 unless redrawing.
+pub fn drop_map_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5f91)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    c.set_word(0x46f8, 0);
+    c.set_byte(0x46f7, 0);
+    c.set_reg(SI, 0x1668);
+    c.call(0xc07c, 0x5fa2)?;
+    c.run(0x5fa2, 2)?;
+    c.set_word(SPRITE_LIST, 0);
+    c.call(code::PARTICLES_UPDATE_DIRTY_RECT, 0x5fab)?;
+    c.run(0x5fab, 2)?;
+    c.set_reg8(r8::AL, 8);
+    super::troops::gfx_call_30_unless_redrawing(c.m, 0x7b2b)
+}
+
+/// `loc_062c9`: in the hotspot mode, CF set when the screen place of the
+/// record at SI (its map point, `loc_0b647`) is outside the view; CF set
+/// out of it ([46EBh] = 0).
+pub fn record_outside_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x62c9)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x46eb);
+    if k < 1 {
+        c.run(start, 3)?;
+        c.cmp(B, k as u16, 1);
+        return c.ret();
+    }
+    c.run(start, 5)?;
+    c.cmp(B, k as u16, 1);
+    let si = c.reg(SI);
+    let (x, y) = (c.word(si.wrapping_add(2)), c.word(si.wrapping_add(4)));
+    c.set_reg(DX, x);
+    c.set_reg(BX, y);
+    c.call(0xb647, 0x62d9)?;
+    outside_view_tail(&mut c)
+}
+
+/// `loc_0627e`: CF set when the location at DI is a place to show (bit 2
+/// of byte 0Ah, or a kind past `location_kind_check` with troops counted
+/// by `loc_05098`). Registers kept.
+pub fn location_to_show(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x627e)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(code::SAVE_REGS, 0x6281)?;
+    let di = c.reg(DI);
+    let f = c.byte(di.wrapping_add(0x0a));
+    let show = if f & 2 != 0 {
+        c.run(0x6281, 3)?;
+        c.test(B, f as u16, 2);
+        true
+    } else {
+        c.run(0x6281, 3)?;
+        c.test(B, f as u16, 2);
+        c.call(0x5d36, 0x628a)?;
+        if c.flag(CF) {
+            c.run(0x628a, 2)?;
+            false
+        } else {
+            c.run(0x628a, 2)?;
+            c.call(0x5098, 0x628f)?;
+            let dx = c.reg(DX);
+            c.run(0x628f, 3)?;
+            c.or(W, dx, dx);
+            dx != 0
+        }
+    };
+    c.call(code::RESTORE_REGS, if show { 0x6296 } else { 0x629b })?;
+    c.run(if show { 0x6296 } else { 0x629b }, 2)?;
+    c.set_flag(CF, show);
+    c.ret()
+}
+
+/// `loc_06252`: AX = how the location at DI shows on the map: 1 a place to
+/// show (`loc_0627e`), 2 one of a kind past `location_kind_check`; for
+/// the others with bit 10h of byte 0Ah, by its type string (0 none or
+/// type 3, 1 type 2, else 2).
+pub fn location_map_kind(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6252)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x627e, 0x6255)?;
+    if c.flag(CF) {
+        c.run(0x6255, 3)?;
+        c.set_reg(AX, 1);
+        return c.ret();
+    }
+    c.run(0x6255, 2)?;
+    c.call(0x5d36, 0x625a)?;
+    let cf = c.flag(CF);
+    let di = c.reg(DI);
+    let f = c.byte(di.wrapping_add(0x0a));
+    if !cf {
+        c.run(0x625a, 3)?;
+        c.set_reg(AX, 2);
+        return c.ret();
+    }
+    if f & 0x10 == 0 {
+        c.run(0x625a, 5)?;
+        c.set_reg(AX, 2);
+        c.test(B, f as u16, 0x10);
+        return c.ret();
+    }
+    c.run(0x625a, 5)?;
+    c.set_reg(AX, 2);
+    c.test(B, f as u16, 0x10);
+    c.call(0x6231, 0x6269)?;
+    let ax = c.reg(AX);
+    let al = ax as u8;
+    let n = if ax == 0 { 3 } else if al == 3 { 6 } else if al != 2 { 8 } else { 9 };
+    c.run(0x6269, n)?;
+    c.or(W, ax, ax);
+    if ax == 0 {
+        return c.ret();
+    }
+    c.cmp(B, al as u16, 3);
+    if al == 3 {
+        c.xor(W, ax, ax);
+        c.set_reg(AX, 0);
+        return c.ret();
+    }
+    c.cmp(B, al as u16, 2);
+    c.set_reg(AX, ax & 0xff00 | 2);
+    if al == 2 {
+        c.set_reg(AX, 1);
+    }
+    c.ret()
+}
+
+/// `loc_0634d`: for (DX, BX) in the view (`loc_062d6`), `loc_0636a` and
+/// `loc_0639a` from it (the map row both ways); CF clear then, set when
+/// outside. BX, DX kept.
+pub fn scan_row_both_ways(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x634d)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    let (bx, dx) = (c.reg(BX), c.reg(DX));
+    c.push(bx);
+    c.push(dx);
+    c.call(0x62d6, 0x6352)?;
+    let out = c.flag(CF);
+    c.run(0x6352, if out { 4 } else { 8 })?;
+    let si = c.pop();
+    c.set_reg(SI, si);
+    let cx = c.pop();
+    c.set_reg(CX, cx);
+    if out {
+        return c.ret();
+    }
+    for r in [BX, CX, DX, SI] {
+        let v = c.reg(r);
+        c.push(v);
+    }
+    c.call(0x636a, 0x635d)?;
+    c.run(0x635d, 7)?;
+    for r in [SI, DX, CX, BX] {
+        let v = c.pop();
+        c.set_reg(r, v);
+    }
+    let (cx, si) = (c.reg(CX), c.reg(SI));
+    c.push(cx);
+    c.push(si);
+    c.call(0x639a, 0x6366)?;
+    c.run(0x6366, 4)?;
+    let dx = c.pop();
+    c.set_reg(DX, dx);
+    let bx = c.pop();
+    c.set_reg(BX, bx);
+    c.set_flag(CF, false);
+    c.ret()
+}
+
+/// `loc_0642e`: DX = how many of the 6 bytes from ES:SI - 1 have bits
+/// 30h = 10h.
+pub fn count_10_bytes(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x642e)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI).wrapping_sub(1);
+    let step = c.string_step(W);
+    let mut n = 3;
+    let mut p = si;
+    for _ in 0..3 {
+        let w = c.word_in(ES, p);
+        n += 4 + ((w >> 8) & 0x30 == 0x10) as u32 + 2 + (w & 0x30 == 0x10) as u32 + 1;
+        p = p.wrapping_add(step);
+    }
+    c.run(start, n + 1)?;
+    c.set_reg(CX, 3);
+    c.set_reg(SI, si);
+    c.xor(W, 0, 0);
+    let mut dx = 0u16;
+    for i in 0..3u16 {
+        let w = c.lods(W, ES);
+        let w = c.and(W, w, 0x3030);
+        c.set_reg(AX, w);
+        c.cmp(B, w >> 8, 0x10);
+        if w >> 8 == 0x10 {
+            dx = c.inc(W, dx);
+        }
+        c.cmp(B, w & 0xff, 0x10);
+        if w & 0xff == 0x10 {
+            dx = c.inc(W, dx);
+        }
+        c.set_reg(CX, 2 - i);
+    }
+    c.set_reg(DX, dx);
     c.ret()
 }
