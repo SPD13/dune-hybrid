@@ -3363,3 +3363,42 @@ pub fn nearest_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, s);
     c.ret()
 }
+
+/// `loc_05605`: the map header's area (the rect 4710h less its frame:
+/// +6, +62h, -6, -2, built on the stack) filled with colour F5h by the
+/// driver (far [38DDh]) on the screen [0DBDAh]; [4724h] = FFh,
+/// `loc_0d075`; then [`get_point_4710`].
+pub fn clear_map_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5605)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 20)?;
+    let sp = c.reg(SP);
+    let sp = c.sub(W, sp, 8);
+    c.set_reg(SP, sp);
+    c.set_reg(SI, 0x4710);
+    c.set_reg(DI, sp);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    for (add, v) in [(true, 6u16), (true, 0x62), (false, 6), (false, 2)] {
+        let a = c.lods(W, DS);
+        let r = if add { c.add(W, a, v) } else { c.sub(W, a, v) };
+        c.set_reg(AX, r);
+        c.stos(W);
+    }
+    let di = c.reg(DI);
+    c.set_reg(SI, di.wrapping_sub(8));
+    c.set_reg8(r8::AL, 0xf5);
+    let es = c.word(0xdbda);
+    c.set_sreg(ES, es);
+    c.interp(0x562c, 0x5630)?;
+    c.run(0x5630, 2)?;
+    c.set_byte(0x4724, 0xff);
+    c.call(0xd075, 0x5638)?;
+    c.run(0x5638, 2)?;
+    let sp = c.reg(SP);
+    let sp = c.add(W, sp, 8);
+    c.set_reg(SP, sp);
+    get_point_4710(c.m, 0x557b)
+}

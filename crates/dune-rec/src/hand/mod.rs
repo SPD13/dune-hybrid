@@ -886,6 +886,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x9cc6, dialogue::grow_dialogue_rect, "loc_09cc6"),
     (0xd7b7, screens::blink_gauges, "loc_0d7b7"),
     (0x3d83, story::sal_read_position_markers, "sal_read_position_markers"),
+    (0x8ed3, text::word_width, "loc_08ed3"),
+    (0x5605, map::clear_map_header, "loc_05605"),
 ];
 
 /// 8-bit register numbers (the CPU's encoding).

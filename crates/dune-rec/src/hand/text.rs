@@ -348,3 +348,114 @@ pub fn decimal_digits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.aam(10);
     c.ret()
 }
+
+/// `loc_08ed3`: CL (CX) = the width of the word at SI by the font's
+/// width table [47A0h] (as at the start), to a space, CR or a control
+/// code that ends it; codes 6 and 8 switch [47A0h] to CF6Ch / CEECh; in
+/// the phrase A6B1h with the writer D0FFh the special characters
+/// (`special_char`) count their own width. SI on the ending byte; BX kept.
+pub fn word_width(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8ed3)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    c.set_reg(CX, 0);
+    c.xor(W, 0, 0);
+    let bx0 = c.reg(BX);
+    c.push(bx0);
+    let tab = c.word(0x47a0);
+    c.set_reg(BX, tab);
+    loop {
+        let si = c.reg(SI);
+        let al = c.byte(si);
+        let ends = |n: u32| n + 3;
+        if al == 0x20 {
+            c.run(0x8eda, ends(3))?;
+            c.lods(B, DS);
+            c.cmp(B, 0x20, 0x20);
+            break;
+        }
+        if al == 0x0d {
+            c.run(0x8eda, ends(5))?;
+            c.lods(B, DS);
+            c.cmp(B, 0x0d, 0x20);
+            c.cmp(B, 0x0d, 0x0d);
+            break;
+        }
+        let ctl = al != 0 && al < 9;
+        let neg = !ctl && al != 0 && al.wrapping_sub(9) & 0x80 != 0;
+        if neg {
+            c.run(0x8eda, ends(10))?;
+            c.lods(B, DS);
+            c.cmp(B, al as u16, 0x20);
+            c.cmp(B, al as u16, 0x0d);
+            c.or(B, al as u16, al as u16);
+            c.cmp(B, al as u16, 9);
+            break;
+        }
+        if ctl {
+            let n = 9 + 2 + 2 + if al == 6 { 2 } else { 2 + if al == 8 { 2 } else { 0 } };
+            c.run(0x8eda, n)?;
+            c.lods(B, DS);
+            c.cmp(B, al as u16, 0x20);
+            c.cmp(B, al as u16, 0x0d);
+            c.or(B, al as u16, al as u16);
+            c.cmp(B, al as u16, 9);
+            c.cmp(B, al as u16, 0x0d);
+            c.cmp(B, al as u16, 6);
+            if al == 6 {
+                c.set_word(0x47a0, 0xcf6c);
+            } else {
+                c.cmp(B, al as u16, 8);
+                if al == 8 {
+                    c.set_word(0x47a0, 0xceec);
+                }
+            }
+            continue;
+        }
+        // A character (0, or 9 and up below 89h): its width.
+        let pre = if al == 0 { 7 } else { 10 };
+        let wr = c.word(0x2518);
+        let sp = wr == 0xd0ff && si.wrapping_add(c.string_step(B)) == 0xa6b1;
+        let n1 = pre + 2 + if wr == 0xd0ff { 2 } else { 0 } + sp as u32;
+        c.run(0x8eda, n1)?;
+        c.lods(B, DS);
+        c.cmp(B, al as u16, 0x20);
+        c.cmp(B, al as u16, 0x0d);
+        c.or(B, al as u16, al as u16);
+        if al != 0 {
+            c.cmp(B, al as u16, 9);
+        }
+        c.cmp(W, wr, 0xd0ff);
+        if wr == 0xd0ff {
+            let s = c.reg(SI);
+            c.cmp(W, s, 0xa6b1);
+        }
+        if sp {
+            c.call(0xd0e3, 0x8efe)?;
+            if !c.flag(pc::cpu::CF) {
+                c.run(0x8efe, 3)?;
+                let a = c.reg8(r8::AL);
+                let cl = c.reg8(r8::CL);
+                let v = c.add(B, cl as u16, a as u16);
+                c.set_reg8(r8::CL, v as u8);
+                continue;
+            }
+            c.run(0x8efe, 4)?;
+        } else {
+            c.run(0x8f04, 3)?;
+        }
+        let a = c.reg8(r8::AL);
+        let bx = c.reg(BX);
+        let w = c.byte(bx.wrapping_add(a as u16));
+        c.set_reg8(r8::AL, w);
+        let cl = c.reg8(r8::CL);
+        let v = c.add(B, cl as u16, w as u16);
+        c.set_reg8(r8::CL, v as u8);
+    }
+    let si = c.reg(SI);
+    let si = c.dec(W, si);
+    c.set_reg(SI, si);
+    let b = c.pop();
+    c.set_reg(BX, b);
+    c.ret()
+}
