@@ -974,3 +974,154 @@ fn music_walk(c: &mut Ctx, write: bool) -> u32 {
     ax = ax & 0xff00 | 0x0a;
     fin(c, n + 1, ax, dx, bx)
 }
+
+/// `loc_0ace6`: the music's frame step, unless a voice plays: in the
+/// sequence mode (bit 1 of [3810h]) by day and with a song running,
+/// every C8h ticks the next song of the list [380Eh] (restarting at
+/// 37FAh, `loc_0acbf` first in mode 2); else after `loc_0aec6` the
+/// pending song [0DBCCh] ([0DBCBh] cleared); a new song starts at
+/// `music_start` (AD95h).
+pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xace6)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xabcc, 0xace9)?;
+    if !c.flag(ZF) {
+        c.run(0xace9, 2)?;
+        return c.ret();
+    }
+    let f = c.byte(0x3810);
+    if f & 1 == 0 {
+        c.run(0xace9, 4)?;
+        c.test(B, f as u16, 1);
+        c.call(0xaec6, 0xad3a)?;
+        if c.flag(CF) {
+            c.run(0xad3a, 2)?;
+            return c.ret();
+        }
+        let s = c.byte(0xdbcd);
+        if s & 0x80 != 0 {
+            c.run(0xad3a, 4)?;
+            c.cmp(B, s as u16, 0);
+            return c.ret();
+        }
+        let al = c.byte(0xdbcc);
+        c.run(0xad3a, 7 + if al == 0 { 1 } else { 0 })?;
+        c.cmp(B, s as u16, 0);
+        c.set_reg8(r8::AL, al);
+        c.set_byte(0xdbcb, 0);
+        c.or(B, al as u16, al as u16);
+        if al == 0 {
+            return c.ret();
+        }
+        return music_start_at(&mut c, 0xad95, 0);
+    }
+    let night = c.byte(0x227d);
+    let s = c.byte(0xdbcd);
+    if night != 0 || s & 0x80 != 0 {
+        c.run(0xace9, 3 + 2 + if night != 0 { 1 } else { 3 })?;
+        c.test(B, f as u16, 1);
+        c.cmp(B, night as u16, 0);
+        if night == 0 {
+            c.cmp(B, s as u16, 0);
+        }
+        return c.ret();
+    }
+    let t0 = c.word(0xdbd2);
+    let now = c.word(0xce7a);
+    let base = if t0 == 0 { now } else { t0 };
+    let el = now.wrapping_sub(base);
+    let n = 3 + 4 + 3 + if t0 == 0 { 2 } else { 0 } + 4;
+    if el < 0xc8 {
+        c.run(0xace9, n + 1)?;
+    } else {
+        c.run(0xace9, n)?;
+    }
+    c.test(B, f as u16, 1);
+    c.cmp(B, 0, 0);
+    c.cmp(B, s as u16, 0);
+    c.set_reg(AX, t0);
+    c.or(W, t0, t0);
+    if t0 == 0 {
+        c.set_reg(AX, now);
+        c.set_word(0xdbd2, now);
+    }
+    let a = c.sub(W, base, now);
+    let a = c.neg(W, a);
+    c.set_reg(AX, a);
+    c.cmp(W, a, 0xc8);
+    if el < 0xc8 {
+        return c.ret();
+    }
+    let si = c.word(0x380e);
+    let b = c.byte(si);
+    let step = c.string_step(B);
+    if b & 0x80 == 0 {
+        c.run(0xad18, 4 + 2)?;
+        c.set_reg(SI, si);
+        c.lods(B, DS);
+        c.or(B, b as u16, b as u16);
+    } else {
+        let b2 = c.byte(0x37fa);
+        let two = f & 2 != 0;
+        c.run(0xad18, 8 + if two { 1 } else { 2 })?;
+        c.set_reg(SI, si);
+        c.lods(B, DS);
+        c.or(B, b as u16, b as u16);
+        c.set_reg(SI, 0x37fa);
+        c.lods(B, DS);
+        c.test(B, f as u16, 2);
+        let _ = (b2, step);
+        if two {
+            c.call(0xacbf, 0xad2f)?;
+            c.run(0xad2f, 3)?;
+            c.lods(B, DS);
+        }
+    }
+    let si = c.reg(SI);
+    c.set_word(0x380e, si);
+    music_start_at(&mut c, 0xad95, 0)
+}
+
+/// From `loc_0ad95` (after `pre` instructions from `at`): the song AL
+/// (AH 0) started unless `loc_0aec6` refuses or it already plays
+/// ([0DBCBh]): `loc_0ae62`, the driver's start (far [3971h], the song
+/// data [0DBB6h], mode bit 1 of [3810h]) into [0DBCDh], [0DBD2h] 0.
+fn music_start_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
+    c.run(at, pre + 2)?;
+    let al = c.reg8(r8::AL);
+    c.xor(B, 0, 0);
+    c.set_reg(AX, al as u16);
+    c.call(0xaec6, 0xad9a)?;
+    if c.flag(CF) {
+        c.run(0xad9a, 2)?;
+        return c.ret();
+    }
+    let al = c.reg8(r8::AL);
+    let cur = c.byte(0xdbcb);
+    if al == cur {
+        c.run(0xad9a, 4)?;
+        c.cmp(B, al as u16, cur as u16);
+        return c.ret();
+    }
+    c.run(0xad9a, 4)?;
+    c.cmp(B, al as u16, cur as u16);
+    c.call(0xae62, 0xada5)?;
+    c.run(0xada5, 4)?;
+    let al = c.reg8(r8::AL);
+    c.set_byte(0xdbcb, al);
+    let (si, es) = (c.word(0xdbb6), c.word(0xdbb8));
+    c.set_reg(SI, si);
+    c.set_sreg(ES, es);
+    let f = c.byte(0x3810);
+    let a = c.and(B, f as u16, 1);
+    c.set_reg8(r8::AL, a as u8);
+    c.interp(0xadb1, 0xadb5)?;
+    c.run(0xadb5, 4)?;
+    let al = c.reg8(r8::AL);
+    c.set_byte(0xdbcd, al);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.set_word(0xdbd2, 0);
+    c.ret()
+}
