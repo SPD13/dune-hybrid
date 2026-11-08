@@ -5015,3 +5015,186 @@ fn spread_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     }
     c.ret()
 }
+
+/// `sub_59c1`: with the map point up ([4723h]): below 98h it moves by
+/// (DI, CX), kept 5 inside 0..8Ch, 0..18h ([11C1h], [11C3h]; drawn
+/// before and after by [`gfx_call_3961`]); from 98h down
+/// [`map_point_moved`].
+pub fn move_map_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x59c1)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x4723);
+    if k == 0 {
+        c.run(start, 3)?;
+        c.cmp(B, 0, 0);
+        return c.ret();
+    }
+    let bx = c.reg(BX);
+    if bx >= 0x98 {
+        c.run(start, 4)?;
+        c.cmp(B, k as u16, 0);
+        c.cmp(W, bx, 0x98);
+        return map_point_moved(c.m, 0x599f);
+    }
+    c.run(start, 5)?;
+    c.cmp(B, k as u16, 0);
+    c.cmp(W, bx, 0x98);
+    c.call(0x5982, 0x59d1)?;
+    let (di, cx) = (c.reg(DI), c.reg(CX));
+    let (x, y) = (c.word(0x11c1), c.word(0x11c3));
+    let clamp = |v: u16, lim: u16, d: u16| -> (u16, u32) {
+        let a = v.wrapping_add(d).wrapping_sub(5);
+        if a < lim {
+            (d, 0)
+        } else if (a as i16) < lim as i16 {
+            (d.wrapping_sub(a), 2)
+        } else {
+            (d.wrapping_sub(a.wrapping_sub(lim)), 3)
+        }
+    };
+    let (d1, e1) = clamp(x, 0x8c, di);
+    let (d2, e2) = clamp(y, 0x18, cx);
+    c.run(0x59d1, 6 + e1 + 6 + e2 + 2)?;
+    c.set_reg(SI, 0x11c1);
+    let a = c.add(W, x, di);
+    let a = c.sub(W, a, 5);
+    c.cmp(W, a, 0x8c);
+    let mut a1 = a;
+    if e1 == 3 {
+        a1 = c.sub(W, a, 0x8c);
+    }
+    if e1 != 0 {
+        c.sub(W, di, a1);
+    }
+    c.set_reg(DI, d1);
+    let nx = c.add(W, x, d1);
+    c.set_word(0x11c1, nx);
+    let a = c.add(W, y, cx);
+    let a = c.sub(W, a, 5);
+    c.cmp(W, a, 0x18);
+    let mut a2 = a;
+    if e2 == 3 {
+        a2 = c.sub(W, a, 0x18);
+    }
+    if e2 != 0 {
+        c.sub(W, cx, a2);
+    }
+    c.set_reg(CX, d2);
+    c.set_reg(AX, a2);
+    let ny = c.add(W, y, d2);
+    c.set_word(0x11c3, ny);
+    gfx_call_3961(c.m, 0x5982)
+}
+
+/// `loc_05206`: a step from (DX, BX) along the heading `heading_51cb`
+/// sets: the `direction_step` (DX, BX) scaled by the row factor
+/// [4880h + 2|BX|] / 20h; the across part plus the fraction [11CCh] carried
+/// (above 1FFh it divides the along part instead), its whole part added
+/// to BX, the along part to DX; past the pole (BX + 60h from C0h) the
+/// heading [11C7h] and DX turn by 80h / 8000h. Bails before a division
+/// that would fault.
+pub fn heading_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5206)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x51cb, 0x5209)?;
+    let (bx0, dx0) = (c.reg(BX), c.reg(DX));
+    let neg = bx0 & 0x4000 != 0;
+    c.run(0x5209, 7 + neg as u32)?;
+    let h = c.byte(0x11c7);
+    c.set_reg8(r8::AL, h);
+    c.push(dx0);
+    c.push(bx0);
+    let mut b = c.shl1(W, bx0, 1);
+    if neg {
+        b = c.neg(W, b);
+    }
+    c.set_reg(BX, b);
+    let bp = c.word(b.wrapping_add(0x4880));
+    c.set_reg(BP, bp);
+    c.call(0x5198, 0x521b)?;
+    let (bp, dx, bx) = (c.reg(BP), c.reg(DX), c.reg(BX));
+    let fits = |q: i32| (-0x7fff..=0x7fff).contains(&q);
+    let q1 = (bp as i16 as i32) * (dx as i16 as i32) / 0x20;
+    let q2 = (bx as i16 as i32) * (bp as i16 as i32) / 0x20;
+    if !fits(q1) || !fits(q2) {
+        c.m.cpu.ip = 0x521b;
+        return Err(Bail);
+    }
+    let (q1, q2) = (q1 as u16, q2 as u16);
+    let neg2 = q2 & 0x8000 != 0;
+    let frac = c.word(0x11cc);
+    let s = (if neg2 { q2.wrapping_neg() } else { q2 }).wrapping_add(frac);
+    let big = s >> 8 > 1;
+    if big {
+        let q3 = ((q1 as i16 as i32) << 8) / (s as i16 as i32);
+        if !fits(q3) {
+            c.m.cpu.ip = 0x521b;
+            return Err(Bail);
+        }
+    }
+    let ax = if big { 0x100 } else { s };
+    let mut v = (ax >> 8) as u8 as i8 as i16 as u16;
+    if neg2 {
+        v = v.wrapping_neg();
+    }
+    let t = bx0.wrapping_add(v).wrapping_add(0x60);
+    let pole = t >= 0xc0;
+    c.run(0x521b, 14 + neg2 as u32 + if big { 9 } else { 0 } + 5 + neg2 as u32 + 8 + if pole { 2 } else { 0 } + 1)?;
+    c.set_reg(CX, 0x20);
+    c.set_reg(AX, bp);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 5, dx as u32); // imul dx
+    c.m.cpu.mul_div(&mut c.m.hw, W, 7, 0x20); // idiv cx
+    let a = c.reg(AX);
+    c.set_reg(AX, bx);
+    c.set_reg(BX, a);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 5, bp as u32); // imul bp
+    c.m.cpu.mul_div(&mut c.m.hw, W, 7, 0x20); // idiv cx
+    c.set_reg(DX, q1);
+    c.set_reg(BX, q2);
+    c.or(W, q2, q2);
+    let mut a = q2;
+    if neg2 {
+        a = c.neg(W, q2);
+    }
+    let a = c.add(W, a, frac);
+    c.set_reg(AX, a);
+    c.cmp(B, a >> 8, 1);
+    if big {
+        c.set_reg(CX, s);
+        let hi = if q1 & 0x8000 != 0 { 0xff00 } else { 0 };
+        c.set_reg(DX, hi | q1 >> 8);
+        c.set_reg(AX, q1 << 8);
+        c.xor(B, 0, 0);
+        c.m.cpu.mul_div(&mut c.m.hw, W, 7, s as u32); // idiv cx
+        let q3 = c.reg(AX);
+        c.set_reg(DX, q3);
+        c.set_reg(AX, 0x100);
+    }
+    c.set_byte(0x11cc, ax as u8);
+    c.set_reg(AX, (ax >> 8) as u8 as i8 as i16 as u16);
+    c.or(W, q2, q2);
+    if neg2 {
+        let a = c.reg(AX);
+        c.neg(W, a);
+        c.set_reg(AX, v);
+    }
+    let pb = c.pop();
+    let nb = c.add(W, pb, v);
+    c.set_reg(BX, nb);
+    let pa = c.pop();
+    let d = c.reg(DX);
+    let mut nd = c.add(W, d, pa);
+    c.set_reg(AX, pa);
+    let t = c.add(W, nb, 0x60);
+    c.set_reg(AX, t);
+    c.cmp(W, t, 0xc0);
+    if pole {
+        let h = c.byte(0x11c7);
+        let h = c.add(B, h as u16, 0x80);
+        c.set_byte(0x11c7, h as u8);
+        nd = c.add(W, nd, 0x8000);
+    }
+    c.set_reg(DX, nd);
+    c.ret()
+}

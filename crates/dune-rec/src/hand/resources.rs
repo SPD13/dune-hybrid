@@ -283,3 +283,115 @@ pub fn preload_resources_63_to_68(m: &mut Machine, start: u16) -> Result<(), Bai
 
 /// Bit 2: preload resources 63h..68h.
 const PRELOAD_FLAGS: u16 = 0x3403;
+
+/// `loc_0cfb9` (start-up): per group of 8 pointers at AA76h, the first
+/// not at an FFFFh entry gives its word 2 (bytes swapped, low 10 bits,
+/// less 1) to the table D7F4h (17 groups); then `loc_0f0b9` loads the
+/// resource BBh (C7h for [0CEEBh] 6) to CEECh, C0h + [0CEEBh] to far
+/// [47ACh] (`adjust_sub_resource_pointers`), and 9Ah + [0CEEBh] to far
+/// [47B0h] unless it is [477Eh] already. Bails when DF is set or the scan
+/// reads what it writes.
+pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xcfb9)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    let hit = |a: u16| (0xd7f4..0xd7f4 + 2 * 18).contains(&a) || (0xd7f4..0xd7f4 + 2 * 18).contains(&a.wrapping_add(1));
+    let mut n = 4u32;
+    let mut bx = 0u16;
+    let mut ev = Vec::new();
+    loop {
+        let p = bx.wrapping_add(0xaa76);
+        let si = c.word(p);
+        if hit(p) || hit(si) || hit(si.wrapping_add(2)) || ev.len() > 0x10000 {
+            return Err(Bail);
+        }
+        n += 3;
+        ev.push(si);
+        if c.word(si) == 0xffff {
+            n += 2;
+            bx = bx.wrapping_add(2);
+            continue;
+        }
+        n += 9;
+        bx = (bx & 0xfff0).wrapping_add(0x10);
+        if bx >= 0x110 {
+            break;
+        }
+    }
+    let k = c.byte(0xceeb);
+    n += 4 + (k == 6) as u32 + 4;
+    c.run(start, n)?;
+    c.xor(W, 0, 0);
+    let mut bx = 0u16;
+    c.set_reg(DI, 0xd7f4);
+    let ds = c.sreg(DS);
+    c.set_sreg(ES, ds);
+    for si in ev {
+        c.set_reg(SI, si);
+        let w = c.word(si);
+        c.cmp(W, w, 0xffff);
+        if w == 0xffff {
+            bx = c.add(W, bx, 2);
+            continue;
+        }
+        let a = c.word(si.wrapping_add(2)).swap_bytes();
+        let a = c.and(W, a, 0x3ff);
+        let a = c.dec(W, a);
+        c.set_reg(AX, a);
+        c.stos(W);
+        bx = c.and(W, bx, 0xfff0);
+        bx = c.add(W, bx, 0x10);
+        c.cmp(W, bx, 0x110);
+    }
+    c.set_reg(BX, bx);
+    c.set_reg8(super::r8::AL, k);
+    c.set_reg(SI, if k == 6 { 0xc7 } else { 0xbb });
+    c.cmp(B, k as u16, 6);
+    c.set_reg(DI, 0xceec);
+    c.set_sreg(ES, ds);
+    c.call(0xf0b9, 0xcff9)?;
+    c.run(0xcff9, 6)?;
+    let k = c.byte(0xceeb);
+    let a = c.add(B, 0xc0, k as u16);
+    c.xor(B, 0, 0);
+    c.set_reg(AX, a);
+    c.set_reg(SI, a);
+    let (di, es) = (c.word(0x47ac), c.word(0x47ae));
+    c.set_reg(DI, di);
+    c.set_sreg(ES, es);
+    c.call(0xf0b9, 0xd00a)?;
+    c.run(0xd00a, 1)?;
+    c.call(0x0098, 0xd00d)?;
+    let k = c.byte(0xceeb);
+    let a = (0x9au8).wrapping_add(k);
+    let cur = c.byte(0x477e);
+    c.run(0xd00d, 5 + if a == cur { 1 } else { 6 })?;
+    let a = c.add(B, 0x9a, k as u16);
+    c.set_reg8(super::r8::AL, a as u8);
+    c.cmp(B, a, cur as u16);
+    if a as u8 == cur {
+        return c.ret();
+    }
+    let si = c.reg(SI);
+    c.push(si);
+    c.set_byte(0x477e, a as u8);
+    c.xor(B, 0, 0);
+    c.set_reg(AX, a);
+    c.set_reg(SI, a);
+    let (di, es) = (c.word(0x47b0), c.word(0x47b2));
+    c.set_reg(DI, di);
+    c.set_sreg(ES, es);
+    c.call(0xf0b9, 0xd035)?;
+    c.run(0xd035, 2)?;
+    let cx = c.reg(CX);
+    c.push(cx);
+    c.call(0x0098, 0xd039)?;
+    c.run(0xd039, 3)?;
+    let x = c.pop();
+    c.set_reg(CX, x);
+    let s = c.pop();
+    c.set_reg(SI, s);
+    c.ret()
+}
