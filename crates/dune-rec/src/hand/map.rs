@@ -4644,3 +4644,110 @@ pub fn redraw_and_toggle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x8770, 0x876d)?;
     toggle_map_at(&mut c, 0x876d, 1)
 }
+
+/// `loc_05c03`: the map's hover: after 3E8h ticks over the element 194Ah
+/// the map redrawn (`loc_05beb`, cursor hidden meanwhile); over the map
+/// (4710h, as [0DBE0h] or [0DBE2h]) the nearest shown location within 9
+/// of the cursor (`nearest_shown_location`, `point_in_rect` first)
+/// becomes [46FCh], its caption redrawn (`loc_05692`) when it changed,
+/// and with none the header by the cursor (`map_header_by_cursor`).
+pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5c03)?;
+    let mut c = Ctx::new(m);
+    let e0 = c.word(0xdbe0);
+    if e0 == 0x194a {
+        let (t1, t0) = (c.word(0xce7a), c.word(0xdc5a));
+        let t = t1.wrapping_sub(t0);
+        if t >= 0x3e8 {
+            c.run(start, 8)?;
+            c.set_reg(DI, e0);
+            c.cmp(W, e0, 0x194a);
+            let (t1, t0) = (c.word(0xce7a), c.word(0xdc5a));
+            let a = c.sub(W, t1, t0);
+            c.set_reg(AX, a);
+            c.cmp(W, a, 0x3e8);
+            c.call(0xdbb2, 0x5c1c)?;
+            c.run(0x5c1c, 1)?;
+            c.call(0x5beb, 0x5c1f)?;
+            c.run(0x5c1f, 1)?;
+            return super::mouse::draw_mouse(c.m, 0xdbec);
+        }
+    }
+    let e2 = c.word(0xdbe2);
+    let pre = 3 + if e0 == 0x194a { 4 } else { 0 };
+    let over = e0 == 0x4710 || e2 == 0x4710;
+    let n = pre + 2 + if e0 == 0x4710 { 1 } else { 3 + if over { 1 } else { 1 } };
+    c.run(start, n)?;
+    c.set_reg(DI, e0);
+    c.cmp(W, e0, 0x194a);
+    if e0 == 0x194a {
+        let (t1, t0) = (c.word(0xce7a), c.word(0xdc5a));
+            let a = c.sub(W, t1, t0);
+        c.set_reg(AX, a);
+        c.cmp(W, a, 0x3e8);
+    }
+    c.cmp(W, e0, 0x4710);
+    if e0 != 0x4710 {
+        c.set_reg(DI, e2);
+        c.cmp(W, e2, 0x4710);
+        if e2 != 0x4710 {
+            return c.ret();
+        }
+    }
+    c.call(0xd6fe, 0x5c35)?;
+    if c.flag(CF) {
+        c.run(0x5c35, 4)?;
+        c.set_byte(0x46eb, 0x40);
+        c.set_reg8(r8::AL, 0xff);
+        c.call(0x5e6d, 0x5c41)?;
+        let ax = c.reg(AX);
+        c.run(0x5c41, 3 + if ax < 9 { 0 } else { 1 })?;
+        c.set_byte(0x46eb, 0xc0);
+        c.cmp(W, ax, 9);
+        if ax >= 9 {
+            c.xor(W, 0, 0);
+            c.set_reg(DI, 0);
+        }
+    } else {
+        c.run(0x5c35, 2)?;
+        c.xor(W, 0, 0);
+        c.set_reg(DI, 0);
+    }
+    let di = c.reg(DI);
+    let old = c.word(0x46fc);
+    c.run(0x5c4d, 4 + if old != di { 5 } else { 0 })?;
+    c.set_reg(AX, old);
+    c.set_word(0x46fc, di);
+    c.cmp(W, old, di);
+    if old != di {
+        let (bx, dx) = (c.reg(BX), c.reg(DX));
+        c.push(bx);
+        c.push(dx);
+        c.push(di);
+        let fb = c.word(0xdbda);
+        c.push(fb);
+        c.call(0xdbb2, 0x5c61)?;
+        c.run(0x5c61, 1)?;
+        c.call(0xc08e, 0x5c64)?;
+        c.run(0x5c64, 1)?;
+        c.call(0x5692, 0x5c67)?;
+        c.run(0x5c67, 4)?;
+        let v = c.pop();
+        c.set_word(0xdbda, v);
+        for r in [DI, DX, BX] {
+            let v = c.pop();
+            c.set_reg(r, v);
+        }
+    }
+    let di = c.reg(DI);
+    if di != 0 {
+        c.run(0x5c6e, 3)?;
+        c.or(W, di, di);
+        return c.ret();
+    }
+    c.run(0x5c6e, 3)?;
+    c.or(W, 0, 0);
+    c.call(0x5746, 0x5c75)?;
+    c.run(0x5c75, 1)?;
+    c.ret()
+}

@@ -955,6 +955,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x8763, map::redraw_and_toggle, "loc_08763"),
     (0xd962, input::cursor_glide, "loc_0d962"),
     (0x2170, story::update_people, "loc_02170"),
+    (0x5c03, map::map_hover, "loc_05c03"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
 
