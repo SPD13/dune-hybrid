@@ -895,6 +895,13 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x4c92, map::setup_scroll_scene, "loc_04c92"),
     (0x4d57, map::scroll_scene_31, "loc_04d57"),
     (0x3916, ui::sky_fade_task, "loc_03916"),
+    (0xb9b9, globe::globe_tilt_down, "loc_0b9b9"),
+    (0xb9c0, globe::globe_tilt_up, "loc_0b9c0"),
+    (0xb9cc, globe::globe_turn_left, "loc_0b9cc"),
+    (0xb9d3, globe::globe_turn_right, "loc_0b9d3"),
+    (0x7f90, troops::nearest_needing_location, "loc_07f90"),
+    (0x851f, troops::link_troop, "loc_0851f"),
+    (0xbc99, screens::open_box, "loc_0bc99"),
 ];
 
 /// 8-bit register numbers (the CPU's encoding).

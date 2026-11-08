@@ -6,7 +6,7 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CS, CX, DI, ES, SI, SP, SS},
+    cpu::{AX, BP, BX, CF, CS, CX, DI, DX, ES, SI, SP, SS},
     rec::Bail,
 };
 
@@ -982,4 +982,78 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.pop();
     c.set_word(0x1152, v);
     c.ret()
+}
+
+/// `loc_0bc99`: a box opening from (DX, BX): the rect 0DD06h (colour 7)
+/// grown 8 times (by 4 then 2 at the start, 4 then 2 at the end, kept
+/// within the bounds at 2440h), each step outlined (`draw_rect_outline_at_si`)
+/// and `loc_0bd00`; on the back buffer.
+pub fn open_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xbc99)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 10)?;
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    c.set_reg(SI, 0xdd06);
+    c.set_word(0xdd06, dx);
+    c.set_word(0xdd08, bx);
+    let d = c.inc(W, dx);
+    let d = c.inc(W, d);
+    c.set_reg(DX, d);
+    let b = c.inc(W, bx);
+    c.set_reg(BX, b);
+    c.set_word(0xdd0a, d);
+    c.set_word(0xdd0c, b);
+    c.set_byte(0xdd0e, 7);
+    c.call(0xc08e, 0xbcb1)?;
+    c.run(0xbcb1, 1)?;
+    c.set_reg(CX, 8);
+    loop {
+        let v = [c.word(0xdd06), c.word(0xdd08), c.word(0xdd0a), c.word(0xdd0c)];
+        let b = [c.word(0x2440), c.word(0x2442), c.word(0x2444), c.word(0x2446)];
+        let steps = [0xfffcu16, 0xfffe, 4, 2];
+        let mut n = 5 + 2 + 2;
+        for k in 0..4 {
+            let a = v[k].wrapping_add(steps[k]);
+            let clamp = if k < 2 { a < b[k] } else { a >= b[k] };
+            n += 9 + clamp as u32;
+        }
+        c.run(0xbcb4, n)?;
+        let cx = c.reg(CX);
+        c.push(cx);
+        c.set_reg(SI, 0xdd06);
+        c.set_reg(DI, 0x2440);
+        let mut ax = 0;
+        let mut dx = 0;
+        for k in 0..4u16 {
+            if k == 0 || k == 2 {
+                c.set_reg(CX, 2);
+                dx = if k == 0 { 0xfffc } else { 4 };
+            }
+            let p = 0xdd06 + 2 * k;
+            let q = 0x2440 + 2 * k;
+            let a = c.add(W, v[k as usize], dx);
+            c.cmp(W, a, b[k as usize]);
+            let clamp = if k < 2 { a < b[k as usize] } else { a >= b[k as usize] };
+            ax = if clamp { b[k as usize] } else { a };
+            c.set_word(p, ax);
+            c.add(W, q, 2);
+            c.add(W, p, 2);
+            dx = c.m.cpu.shift(7, W, dx as u32, 1) as u16;
+            c.set_reg(CX, 1 - (k & 1));
+        }
+        c.set_reg(AX, ax);
+        c.set_reg(DX, dx);
+        c.set_reg(DI, 0x2448);
+        c.set_reg(SI, 0xdd06);
+        c.call(0xc551, 0xbcf9)?;
+        c.run(0xbcf9, 1)?;
+        c.call(0xbd00, 0xbcfc)?;
+        let cx = c.word_in(SS, c.reg(SP)).wrapping_sub(1);
+        c.run(0xbcfc, 2 + (cx == 0) as u32)?;
+        c.pop();
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            return c.ret();
+        }
+    }
 }

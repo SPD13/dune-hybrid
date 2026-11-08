@@ -3929,3 +3929,249 @@ pub fn set_troop_activity(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x6b24, 1)?;
     c.ret()
 }
+
+/// `loc_07f90`: for the troop SI, the nearest other location from 138h
+/// (no bit 80h of byte 0Ah, below 28h; distance the larger of the
+/// coordinate deltas' high bytes, under 32h, halved twice for sietches
+/// from 21h) that still needs skill BX after this troop's own location
+/// and the movers (`skill_needs` into 4C60h, `lower_needs_by_movers`):
+/// [470Eh] it, [470Ch] its distance (FFFFh for none).
+pub fn nearest_needing_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7f90)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 7)?;
+    let si = c.reg(SI);
+    let home = c.word(si.wrapping_add(4));
+    let (hx, hy) = (c.word(home.wrapping_add(2)), c.word(home.wrapping_add(4)));
+    c.set_reg(DI, home);
+    c.push(home);
+    c.push(hy);
+    c.push(hx);
+    let bp = c.reg(SP);
+    c.set_reg(BP, bp);
+    c.set_word(0x470c, 0xffff);
+    let mut di = 0x138u16;
+    c.set_reg(DI, di);
+    loop {
+        let w = c.word(di);
+        if w == 0xffff {
+            c.run(0x7fa5, 4)?;
+            c.cmp(W, w, 0xffff);
+            let sp = c.reg(SP);
+            let sp = c.add(W, sp, 6);
+            c.set_reg(SP, sp);
+            return c.ret();
+        }
+        let f = c.byte(di.wrapping_add(0x0a));
+        let b8 = c.byte(di.wrapping_add(8));
+        'one: {
+            if f & 0x80 != 0 {
+                c.run(0x7fa5, 4)?;
+                c.cmp(W, w, 0xffff);
+                c.test(B, f as u16, 0x80);
+                break 'one;
+            }
+            if b8 >= 0x28 {
+                c.run(0x7fa5, 6)?;
+                c.cmp(W, w, 0xffff);
+                c.test(B, f as u16, 0x80);
+                c.cmp(B, b8 as u16, 0x28);
+                break 'one;
+            }
+            if di == home {
+                c.run(0x7fa5, 8)?;
+                c.cmp(W, w, 0xffff);
+                c.test(B, f as u16, 0x80);
+                c.cmp(B, b8 as u16, 0x28);
+                c.cmp(W, di, home);
+                break 'one;
+            }
+            let (x, y) = (c.word(di.wrapping_add(2)), c.word(di.wrapping_add(4)));
+            let dxr = x.wrapping_sub(hx);
+            let n1 = dxr & 0x8000 != 0;
+            let dxa = if n1 { dxr.wrapping_neg() } else { dxr };
+            let axr = y.wrapping_sub(hy);
+            let n2 = axr & 0x8000 != 0;
+            let axa = if n2 { axr.wrapping_neg() } else { axr };
+            let dl = (dxa >> 8) as u8;
+            let take_ax = dl < axa as u8;
+            let mut d = if take_ax { axa } else { dl as u16 };
+            let far = (d as u8) >= 0x32;
+            let sietch = b8 < 0x21;
+            if !sietch && !far {
+                d >>= 2;
+            }
+            let best = c.word(0x470c);
+            let mut n = 8 + 3 + n1 as u32 + 3 + n2 as u32 + 4 + take_ax as u32 + 2;
+            if far {
+                c.run(0x7fa5, n)?;
+            } else {
+                n += 2 + if sietch { 0 } else { 2 } + 2;
+                if d >= best {
+                    c.run(0x7fa5, n)?;
+                } else {
+                    c.run(0x7fa5, n + 3)?;
+                }
+            }
+            c.cmp(W, w, 0xffff);
+            c.test(B, f as u16, 0x80);
+            c.cmp(B, b8 as u16, 0x28);
+            c.cmp(W, di, home);
+            let a = c.sub(W, x, hx);
+            let a = if n1 { c.neg(W, a) } else { a };
+            let b = c.sub(W, y, hy);
+            let b = if n2 { c.neg(W, b) } else { b };
+            c.set_reg(AX, b);
+            c.xor(B, 0, 0);
+            let mut dx = a >> 8;
+            c.cmp(B, dx, b & 0xff);
+            if take_ax {
+                dx = b;
+            }
+            c.cmp(B, dx & 0xff, 0x32);
+            if far {
+                c.set_reg(DX, dx);
+                break 'one;
+            }
+            c.cmp(B, b8 as u16, 0x21);
+            if !sietch {
+                dx = c.shr1(W, dx, 2);
+            }
+            c.set_reg(DX, dx);
+            c.cmp(W, dx, best);
+            if dx >= best {
+                break 'one;
+            }
+            let bx = c.reg(BX);
+            c.push(bx);
+            c.set_reg(BX, 0x4c60);
+            c.call(0x7f2a, 0x7ff5)?;
+            let bx = c.word_in(SS, c.reg(SP));
+            let need = c.byte(bx.wrapping_add(0x4c60));
+            c.run(0x7ff5, 3 + (need != 0) as u32)?;
+            let b = c.pop();
+            c.set_reg(BX, b);
+            c.cmp(B, need as u16, 0);
+            if need == 0 {
+                break 'one;
+            }
+            c.call(0x8018, 0x8000)?;
+            let bx = c.reg(BX);
+            let need = c.byte(bx.wrapping_add(0x4c60));
+            c.run(0x8000, 2 + if need != 0 { 2 } else { 0 })?;
+            c.cmp(B, need as u16, 0);
+            if need != 0 {
+                let (dx, di) = (c.reg(DX), c.reg(DI));
+                c.set_word(0x470c, dx);
+                c.set_word(0x470e, di);
+            }
+        }
+        di = c.reg(DI);
+        c.run(0x800f, 2)?;
+        di = c.add(W, di, 0x1c);
+        c.set_reg(DI, di);
+    }
+}
+
+/// `loc_0851f`: the troop SI linked into the location DI's chain (first,
+/// or after the last) and given the first free slot (byte 2, from 1; from
+/// 9 for those with bit 80h of word 10h), by a table of the slots taken
+/// built on the stack. CX the slot.
+pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x851f)?;
+    let mut c = Ctx::new(m);
+    let (si, di) = (c.reg(SI), c.reg(DI));
+    let id = c.byte(si);
+    let first = c.byte(di.wrapping_add(9));
+    let w10 = c.word(si.wrapping_add(0x10));
+    let hi = w10 & 0x80 != 0;
+    if first == 0 {
+        c.run(start, 4 + 5 + if hi { 2 } else { 0 } + 1)?;
+        c.set_reg(AX, (id as u16) << 8);
+        c.or(B, 0, 0);
+        c.set_byte(di.wrapping_add(9), id);
+        c.set_reg(CX, 1);
+        c.set_byte(si.wrapping_add(2), 1);
+        c.test(W, w10, 0x80);
+        if hi {
+            let v = c.add(B, 1, 8);
+            c.set_byte(si.wrapping_add(2), v as u8);
+            let cl = c.add(B, 1, 8);
+            c.set_reg(CX, cl);
+        }
+        return c.ret();
+    }
+    c.run(start, 4 + 9)?;
+    let ax = (id as u16) << 8 | first as u16;
+    c.set_reg(AX, ax);
+    c.or(B, first as u16, first as u16);
+    c.push(di);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    let sp = c.reg(SP);
+    let sp = c.sub(W, sp, 0x1e);
+    c.set_reg(SP, sp);
+    c.set_reg(DI, sp);
+    c.set_reg(CX, 0x1e);
+    c.push(ax);
+    c.xor(B, 0, 0);
+    c.set_reg(AX, ax & 0xff00);
+    c.rep(0xaa);
+    c.run(0x8550, 5)?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    let buf = c.reg(SP);
+    c.set_reg(DI, buf);
+    c.push(si);
+    c.xor(W, 0, 0);
+    c.set_reg(BX, 0);
+    loop {
+        c.call(0x6906, 0x8559)?;
+        let s = c.reg(SI);
+        let slot = c.byte(s.wrapping_add(2));
+        let next = c.byte(s.wrapping_add(1));
+        c.run(0x8559, 5 + if next == 0 { 5 } else { 1 })?;
+        c.set_reg(BX, slot as u16);
+        let di = c.reg(DI);
+        c.set_byte((slot as u16).wrapping_add(di).wrapping_sub(1), 0xff);
+        c.set_reg8(r8::AL, next);
+        c.or(B, next as u16, next as u16);
+        if next != 0 {
+            continue;
+        }
+        let ah = c.reg8(r8::AH);
+        c.set_byte(s.wrapping_add(1), ah);
+        c.set_reg(CX, 0x1e);
+        let si = c.pop();
+        c.set_reg(SI, si);
+        let w = c.word(si.wrapping_add(0x10));
+        c.test(W, w, 0x80);
+        if w & 0x80 != 0 {
+            c.run(0x8575, 2)?;
+            let cx = c.sub(W, 0x1e, 8);
+            c.set_reg(CX, cx);
+            let d = c.add(W, di, 8);
+            c.set_reg(DI, d);
+        }
+        break;
+    }
+    c.run(0x857b, 2)?;
+    c.xor(B, 0, 0);
+    c.set_reg8(r8::AL, 0);
+    c.m.cpu.string_op(&mut c.m.hw, 0xae, None, 0xf2); // repne scasb
+    c.run(0x857f, 6)?;
+    let cx = c.reg(CX);
+    let cx = c.sub(W, cx, 0x1e);
+    let cx = c.neg(W, cx);
+    c.set_reg(CX, cx);
+    let sp = c.reg(SP);
+    let sp = c.add(W, sp, 0x1e);
+    c.set_reg(SP, sp);
+    let d = c.pop();
+    c.set_reg(DI, d);
+    let si = c.reg(SI);
+    c.set_byte(si.wrapping_add(2), cx as u8);
+    c.ret()
+}

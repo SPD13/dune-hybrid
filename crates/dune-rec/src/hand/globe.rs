@@ -1119,3 +1119,43 @@ fn tilt_walk(c: &mut Ctx, write: bool) -> Result<u32, Bail> {
     }
     Ok(n)
 }
+
+/// `loc_0b9b9`, `loc_0b9c0`, `loc_0b9cc`, `loc_0b9d3`: the globe's
+/// arrow buttons: with bit 1 of AX (the click), the tilt by 8 / -8
+/// (`globe_increment_tilt_by_ax`) or the rotation by -20h / 20h
+/// (`globe_rotation_increment_ax`), then a [`globe_frame`].
+pub fn globe_tilt_down(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb9b9)?;
+    globe_button(m, start, 3, 8, 0xba15, 0xb9c5)
+}
+
+pub fn globe_tilt_up(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb9c0)?;
+    globe_button(m, start, 2, 0xfff8, 0xba15, 0xb9c5)
+}
+
+pub fn globe_turn_left(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb9cc)?;
+    globe_button(m, start, 3, 0xffe0, 0xb9e0, 0xb9d8)
+}
+
+pub fn globe_turn_right(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb9d3)?;
+    globe_button(m, start, 2, 0x20, 0xb9e0, 0xb9d8)
+}
+
+fn globe_button(m: &mut Machine, start: u16, pre: u32, step: u16, by: u16, jnb: u16) -> Result<(), Bail> {
+    let mut c = Ctx::new(m);
+    let ax = c.reg(AX);
+    let click = ax & 1 != 0;
+    c.run(start, pre + 1 + click as u32)?;
+    c.shr1(W, ax, 1);
+    c.set_reg(AX, step);
+    if !click {
+        c.run(0xb9df, 1)?;
+        return c.ret();
+    }
+    c.call(by, jnb + 5)?;
+    c.run(jnb + 5, 1)?;
+    globe_frame(c.m, 0xb98b)
+}
