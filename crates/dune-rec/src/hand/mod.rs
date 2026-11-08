@@ -28,12 +28,15 @@ use pc::{
 mod audio;
 mod dos;
 mod files;
+mod frame;
 mod gfx;
 mod globals;
+mod globe;
 mod hnm;
 mod hsq;
 mod input;
 mod intro;
+mod mouse;
 mod panels;
 mod phases;
 mod math;
@@ -318,6 +321,43 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xae28, voice::music_enabled, "loc_0ae28"),
     (0xae62, voice::load_music, "load_music"),
     (0xaec6, voice::sound_off, "loc_0aec6"),
+    // The globe, the frieze.
+    (0xb84a, globe::globe_fill_blue_background, "globe_fill_blue_background_to_front_buffer"),
+    (0xb85a, globe::draw_globe_with_atmosphere, "draw_globe_with_atmosphere"),
+    (0xb87e, globe::draw_globe_side_decorations, "draw_globe_side_decorations"),
+    (0xb8a7, globe::setup_globe_draw, "setup_globe_draw"),
+    (0xb8f3, globe::globe_slide_decorations_open, "globe_slide_decorations_open"),
+    (0xb915, globe::globe_slide_decorations_close, "globe_slide_decorations_close"),
+    (0xb930, globe::remove_globe_frame_tasks, "remove_globe_frame_tasks"),
+    (0xb93b, globe::sub_b93b, "loc_0b93b"),
+    (0xb9e0, globe::globe_rotation_increment_ax, "globe_rotation_increment_ax"),
+    (0xb9f6, globe::recalculate_globe_rotation_table, "recalculate_globe_rotation_table"),
+    (0xd75a, globe::frieze_sides_closed_book, "ui_set_and_draw_frieze_sides_closed_book"),
+    (0xd792, globe::frieze_sides_map, "ui_set_and_draw_frieze_sides_map"),
+    (0xd795, globe::ui_set_and_draw_frieze_sides, "ui_set_and_draw_frieze_sides"),
+    (0xd7ad, globe::frieze_sides_open_book, "ui_set_and_draw_frieze_sides_open_book"),
+    (0xd7b2, globe::frieze_sides_globe, "ui_set_and_draw_frieze_sides_globe"),
+    // The mouse.
+    (0xdae3, mouse::set_mouse_pos, "set_mouse_pos"),
+    (0xdb14, mouse::define_mouse_range, "define_mouse_range"),
+    (0xdb67, mouse::draw_mouse_cursor_if_needed, "draw_mouse_cursor_if_needed"),
+    (0xdb74, mouse::restore_mouse_if_rect_intersects, "restore_mouse_if_rect_intersects"),
+    (0xdbb2, mouse::call_restore_cursor, "call_restore_cursor"),
+    (0xdbec, mouse::draw_mouse, "draw_mouse"),
+    (0xdc20, mouse::redraw_mouse, "redraw_mouse"),
+    (0xdc6a, mouse::get_mouse_cursor_image_addr, "get_mouse_cursor_image_addr"),
+    // The frame.
+    (0xd9d2, frame::process_frame_tasks, "process_frame_tasks"),
+    (0xdd63, frame::stc_on_user_input, "stc_on_user_input"),
+    (0xe353, frame::wait_processing_frame_tasks_interruptable, "wait_processing_frame_tasks_interruptable"),
+    (0xcad4, frame::hnm_wait_for_frame, "hnm_wait_for_frame"),
+    (0xca60, frame::hnm_do_frame, "hnm_do_frame"),
+    (0xc1aa, frame::apply_sprite_sheet_palette, "apply_sprite_sheet_palette"),
+    (0xc1ba, frame::apply_palette, "apply_palette"),
+    (0xd03c, frame::find_last_numeric_digit, "find_last_numeric_digit_in_str_at_es_si"),
+    (0xc827, frame::sub_c827, "sub_c827"),
+    (0xb23f, frame::sub_b23f, "sub_b23f"),
+    (0xb270, frame::handle_ctrl_v_once, "handle_ctrl_v_once"),
     // Input.
     (0xdaa3, input::clear_some_mouse_rect, "clear_some_mouse_rect"),
     (0xdaaa, input::set_some_mouse_rect, "set_some_mouse_rect"),

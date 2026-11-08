@@ -310,3 +310,54 @@ pub const VOICE_FILE_LEFT: u16 = 0xdbc4;
 pub const VOICE_PART: u16 = 0x3823;
 pub const VOICE_LANGUAGE_PART: u16 = 0x47e0;
 pub const MUSIC_LOADED: u16 = 0xdbca;
+
+// --- The globe, the frieze ------------------------------------------------------
+
+/// The globe's map (resource 92h), its rotation (0..18Eh, the row table
+/// after it), its starting tilt and rotation.
+pub const GLOBE_MAP: u16 = 0x4c60;
+pub const GLOBE_ROTATION: u16 = 0x494c;
+pub const GLOBE_TILT_START: u16 = 0x197c;
+/// The x of the globe's side decorations (0: closed, down to -6Ah: open).
+pub const GLOBE_DECORATIONS_X: u16 = 0xdd0f;
+pub const GLOBE_DD03: u16 = 0xdd03;
+/// The frieze's UI elements (3, the sides from +8).
+pub const FRIEZE_ELEMENTS: u16 = 0x1ae6;
+/// The closed book's two page counters (UI elements) and their pages.
+pub const BOOK_COUNTERS: u16 = 0x1c0c;
+pub const BOOK_PAGE: u16 = 0x1152;
+
+// --- The mouse, the frame ------------------------------------------------------
+
+/// Command-line options (Cryogenic: `cmdArgs`): bit 40h no mouse driver,
+/// 80h joystick.
+pub const CMD_ARGS: u16 = 0x2942;
+/// The mouse's shift counts (x, y) between the driver and the game
+/// (Cryogenic: `mousePosScalerX`, `mousePosScalerY`).
+pub const MOUSE_SCALE: u16 = 0x2580;
+pub const MOUSE_RANGE: u16 = 0xdc3a;
+/// Where the cursor was drawn.
+pub const CURSOR_X: u16 = 0xdc42;
+pub const CURSOR_Y: u16 = 0xdc44;
+/// 0 while the cursor is drawn, negative while hidden.
+pub const CURSOR_SHOWN: u16 = 0xdc46;
+/// Negative while it is hidden for a rectangle being drawn.
+pub const CURSOR_HIDDEN_FOR_RECT: u16 = 0xdc47;
+/// Set: only the plain arrow.
+pub const CURSOR_PLAIN: u16 = 0x4723;
+/// The frame tasks' last tick.
+pub const FRAME_TASKS_LAST_TICK: u16 = 0xdc68;
+/// HNM timing: FFFFh for the video's own; the tick of the last frame,
+/// ticks per frame; the video's flags (bit 80h).
+pub const HNM_SYNC: u16 = 0xdc1c;
+pub const HNM_FRAME_TICK: u16 = 0xdc22;
+pub const HNM_FRAME_TICKS: u16 = 0xdbff;
+pub const HNM_FLAGS: u16 = 0xdbfe;
+/// Cryogenic: `hnmFlagMsb`.
+pub const HNM_FLAG_MSB: u16 = 0xdbb5;
+/// The voice buffer playing.
+pub const VOICE_BUFFER_PLAYING: u16 = 0x3824;
+pub const WORD_479E: u16 = 0x479e;
+/// The end of the table `handle_ctrl_v_once` appends to (in the code
+/// segment).
+pub const CTRL_V_TABLE_END: u16 = 0x11bd;

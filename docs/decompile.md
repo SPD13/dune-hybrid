@@ -173,7 +173,8 @@ a difference comes from one). Modules by area: `story`, `phases`, `intro`,
 (frame tasks), `video`, `gfx`, `screen`, `sprites`, `text`, `hnm`, `hsq`
 (the decompressor), `sound`, `audio`, `voice`, `input`, `dos`, `files`,
 `resources` (opening sprite sheets, the condition evaluator), `ui`,
-`panels`; data-segment
+`panels`, `globe`, `mouse`, `frame` (the frame-task runner, input
+checks, HNM frame steps); data-segment
 globals are named in `globals.rs` (from the routines that use them and
 Cryogenic's `GlobalsOnDs.cs`; unknown ones keep their offset).
 
@@ -193,17 +194,26 @@ the instruction count (virtual time). `Ctx` holds the bookkeeping:
   `interp` (`INT` and far calls into the drivers), and tail jumps call the
   target port directly.
 
-Ported: 241 routines (the small ones first: flags and setters, game time,
+Ported: 275 routines (the small ones first: flags and setters, game time,
 location kinds, frame tasks, condition operators, the intro's steps,
 framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
 decompression, voice and music start/stop, DUNE.DAT access, the memory
 driver calls; then the condition evaluator, resource opening, the sky,
 the date panel, the communication device, settings sliders, voice-file
-streaming, music loading), all equal to the original in every checked call (two
+streaming, music loading; the globe and the frieze, the mouse cursor,
+the frame-task runner, the input check, HNM frame stepping), all equal to the original in every checked call (two
 10-minute games with `--call-each 4`, 0 differences), and `--rec on`
 screenshots unchanged. A port no run has checked to completion stays out of the table
 (`copy_pal_and_transition`, `comm_fade_in_glow`,
 `comm_animate_incoming_call`: longer than the harness's 300 ms).
+
+The check catches a port's mistakes where they matter: an instruction
+count one short in `apply_sprite_sheet_palette` showed as differences in
+the 40 routines that open resources, and was found from them.
+
+`handle_ctrl_v_once` (B270) turns itself into a bare `ret` after it ran
+(a code write the generated code does not see): its port reads its own
+first byte where it runs.
 
 Open: under `--call-each` on seed 21, two generated routines differ
 (`hnm_render_timer_callback` and `parse_command_line`, which it interrupts,
