@@ -197,3 +197,97 @@ pub fn move_cursor_by(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xdb02, 1)?;
     c.ret()
 }
+
+/// `loc_0d962`: the cursor's glide toward its target ([0DC4Ch],
+/// [0DC4Eh]): every 6 ticks or more (from [0DC4Ah]) one step of the
+/// distance / 2^CX (CX 2, 1 or 0 for gaps up to 0Ch, 18h and more; CX 0
+/// takes 3/4) by [`move_cursor_by`], [0DC4Bh] counted down (0 when
+/// there); then [`mouse_stuff`].
+pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd962)?;
+    let mut c = Ctx::new(m);
+    let t = c.word(0xce7a);
+    let last = c.byte(0xdc4a);
+    let gap = (t as u8).wrapping_sub(last);
+    if gap < 6 {
+        c.run(start, 5)?;
+        c.set_reg(AX, t);
+        let a = c.sub(B, t & 0xff, last as u16);
+        c.set_reg8(r8::AL, a as u8);
+        c.cmp(B, a, 6);
+        return mouse_stuff(c.m, 0xdb4c);
+    }
+    let cx: u16 = if gap < 0x0c { 2 } else if gap < 0x18 { 1 } else { 0 };
+    let (tx, ty) = (c.word(0xdc4c), c.word(0xdc4e));
+    let (cx0, cy0) = (c.word(0xdc36), c.word(0xdc38));
+    let dx = tx.wrapping_sub(cx0);
+    let dy = ty.wrapping_sub(cy0);
+    let leg = |d: u16| -> u32 {
+        if d == 0 { 0 } else if cx != 0 { 4 } else { 5 }
+    };
+    let n = 4 + 3 + if gap >= 0x0c { 3 + (gap >= 0x18) as u32 } else { 0 } + 7 + leg(dx) + 2 + leg(dy) + 3;
+    let fdx = step(dx, cx);
+    let fdy = step(dy, cx);
+    let zero = fdx | fdy == 0;
+    c.run(start, n + if zero { 3 } else { 1 })?;
+    c.set_reg(AX, t);
+    let a = c.sub(B, t & 0xff, last as u16);
+    c.cmp(B, a, 6);
+    c.set_reg(CX, 2);
+    c.cmp(B, a, 0x0c);
+    if gap >= 0x0c {
+        c.dec(W, 2);
+        c.cmp(B, a, 0x18);
+        if gap >= 0x18 {
+            c.dec(W, 1);
+        }
+    }
+    c.set_reg(CX, cx);
+    c.set_reg(AX, t);
+    c.set_byte(0xdc4a, t as u8);
+    let k = c.byte(0xdc4b);
+    let k = c.dec(B, k as u16);
+    c.set_byte(0xdc4b, k as u8);
+    let d = leg_ops(&mut c, tx, cx0, cx);
+    let b = leg_ops(&mut c, ty, cy0, cx);
+    c.set_reg(DX, d);
+    c.set_reg(BX, b);
+    c.set_reg(AX, b);
+    c.or(W, b, d);
+    c.set_reg(AX, b | d);
+    if zero {
+        c.set_byte(0xdc4b, 0);
+        return mouse_stuff(c.m, 0xdb4c);
+    }
+    c.call(0xdaaf, 0xd9ca)?;
+    c.run(0xd9ca, 2)?;
+    c.set_byte(0xdc34, 0);
+    mouse_stuff(c.m, 0xdb4c)
+}
+
+/// The step for one axis of [`cursor_glide`].
+fn step(d: u16, cx: u16) -> u16 {
+    if d == 0 {
+        0
+    } else if cx != 0 {
+        ((d as i16) >> cx) as u16 | 1
+    } else {
+        d.wrapping_sub(((d as i16) >> 2) as u16)
+    }
+}
+
+fn leg_ops(c: &mut Ctx, to: u16, from: u16, cx: u16) -> u16 {
+    let d = c.sub(W, to, from);
+    if d == 0 {
+        return 0;
+    }
+    if cx != 0 {
+        let s = c.m.cpu.shift(7, W, d as u32, cx as u32) as u16;
+        c.or(B, s & 0xff, 1) | s & 0xff00
+    } else {
+        let a = c.m.cpu.shift(7, W, d as u32, 1) as u16;
+        let a = c.m.cpu.shift(7, W, a as u32, 1) as u16;
+        c.set_reg(AX, a);
+        c.sub(W, d, a)
+    }
+}

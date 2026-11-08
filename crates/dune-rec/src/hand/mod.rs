@@ -951,6 +951,10 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x9efd, dialogue::start_text_voice, "loc_09efd"),
     (0xab45, voice::play_voice_after_ade0, "loc_0ab45"),
     (0xab4f, voice::play_voice_19, "loc_0ab4f"),
+    (0x186b, map::toggle_map_screen, "loc_0186b"),
+    (0x8763, map::redraw_and_toggle, "loc_08763"),
+    (0xd962, input::cursor_glide, "loc_0d962"),
+    (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
 
 /// 8-bit register numbers (the CPU's encoding).

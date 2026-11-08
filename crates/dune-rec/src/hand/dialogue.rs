@@ -2519,3 +2519,12 @@ pub fn start_text_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xa788, 1)?;
     c.ret()
 }
+
+/// `loc_098af`: [`close_dialogue_box`], then [`close_dialogue_text`].
+pub fn close_dialogue(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x98af)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x8c8a, 0x98b2)?;
+    close_dialogue_text(c.m, 0x98b2)
+}

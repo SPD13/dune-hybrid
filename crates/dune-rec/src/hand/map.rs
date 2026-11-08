@@ -4565,3 +4565,82 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x586d, 1)?;
     c.ret()
 }
+
+/// `loc_0186b`: the map screen toggled ([0FBh] negated): to the map
+/// ([`open_map_screen`]), or back: `loc_0d2bd`, `leave_map_screen`,
+/// [28E7h] = [28E8h], `loc_0b930`, the buttons 1C14h/1C22h back to 80h
+/// and drawn (`loc_0c097`, BP D75Ah), the transition 34h (`loc_0c108`),
+/// front buffer, `loc_0ae04`, [0DC5Ah] the time, the head up
+/// ([`ui_head_animate_up`]). With [46D9h] set the code jumps to 2DB1h
+/// instead; the port leaves that to the original.
+pub fn toggle_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x186b)?;
+    let mut c = Ctx::new(m);
+    toggle_map_at(&mut c, start, 0)
+}
+
+fn toggle_map_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
+    c.run(at, pre + 1)?;
+    c.call(0xdaa3, 0x186e)?;
+    let v = c.byte(0xfb);
+    let nv = v.wrapping_neg();
+    if nv & 0x80 != 0 {
+        c.run(0x186e, 3)?;
+        let r = c.neg(B, v as u16);
+        c.set_byte(0xfb, r as u8);
+        return open_map_screen(c.m, 0x5a1a);
+    }
+    c.run(0x186e, 3)?;
+    let r = c.neg(B, v as u16);
+    c.set_byte(0xfb, r as u8);
+    c.call(0xd2bd, 0x187a)?;
+    c.run(0x187a, 1)?;
+    c.call(0x5adf, 0x187d)?;
+    c.run(0x187d, 3)?;
+    let a = c.byte(0x28e8);
+    c.set_reg8(r8::AL, a);
+    c.set_byte(0x28e7, a);
+    c.call(0xb930, 0x1886)?;
+    c.run(0x1886, 4)?;
+    c.set_word(0x1c14, 0x80);
+    c.set_word(0x1c22, 0x80);
+    c.set_reg(BP, 0xd75a);
+    c.call(0xc097, 0x1898)?;
+    if c.byte(0x46d9) != 0 {
+        c.m.cpu.ip = 0x1898;
+        return Err(Bail);
+    }
+    c.run(0x1898, 6)?;
+    c.set_reg8(r8::AL, 0x34);
+    c.set_reg(BP, 0x2db1);
+    c.cmp(B, 0, 0);
+    c.xor(W, 0, 0);
+    c.set_reg(DX, 0);
+    c.call(0xc108, 0x18ab)?;
+    c.run(0x18ab, 1)?;
+    c.call(0xc07c, 0x18ae)?;
+    c.run(0x18ae, 1)?;
+    c.call(0xae04, 0x18b1)?;
+    c.run(0x18b1, 3)?;
+    let t = c.word(0xce7a);
+    c.set_reg(AX, t);
+    c.set_word(0xdc5a, t);
+    super::ui::ui_head_animate_up(c.m, 0x17e6)
+}
+
+/// `loc_08763`: with [46F3h] set, [`redraw_8770`] and the map screen
+/// toggled ([`toggle_map_screen`]); else just [`redraw_8770`].
+pub fn redraw_and_toggle(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8763)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x46f3);
+    if k == 0 {
+        c.run(start, 2)?;
+        c.cmp(B, 0, 0);
+        return redraw_8770(c.m, 0x8770);
+    }
+    c.run(start, 3)?;
+    c.cmp(B, k as u16, 0);
+    c.call(0x8770, 0x876d)?;
+    toggle_map_at(&mut c, 0x876d, 1)
+}
