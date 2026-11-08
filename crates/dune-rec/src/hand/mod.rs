@@ -963,6 +963,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xaa96, voice::music_for_situation, "loc_0aa96"),
     (0x4821, ui::scene_2a, "sub_4821"),
     (0xace6, voice::music_step, "loc_0ace6"),
+    (0xad5e, voice::pick_music, "loc_0ad5e"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
 

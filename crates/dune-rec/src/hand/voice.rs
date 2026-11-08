@@ -1125,3 +1125,106 @@ fn music_start_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.set_word(0xdbd2, 0);
     c.ret()
 }
+
+/// `loc_0ad5e`: the music for the situation (`music_for_situation`)
+/// started, unless `loc_0aec6` refuses: in the sequence mode the next
+/// song of the list (while one runs), else the song from 375Ch by the
+/// situation: a plain one by the driver (far [3979h]), a marked one (bit
+/// 80h, low 6 bits) through [`music_driver_397d`] when it changes.
+pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xad5e)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xaec6, 0xad61)?;
+    if c.flag(CF) {
+        c.run(0xad61, 2)?;
+        return c.ret();
+    }
+    c.run(0xad61, 2)?;
+    c.call(0xaa96, 0xad66)?;
+    let f = c.byte(0x3810);
+    if f != 0 {
+        let s = c.byte(0xdbcd);
+        if s & 0x80 != 0 {
+            c.run(0xad66, 5)?;
+            c.cmp(B, f as u16, 0);
+            c.cmp(B, s as u16, 0);
+            return c.ret();
+        }
+        let ops = |c: &mut Ctx| {
+            c.cmp(B, f as u16, 0);
+            c.cmp(B, s as u16, 0);
+        };
+        return song_list_at(&mut c, 0xad66, 4, f, ops);
+    }
+    let al = c.reg8(r8::AL);
+    let v = c.byte(0x375cu16.wrapping_add(al as u16));
+    if v == 0 {
+        c.run(0xad66, 2 + 4 + 1)?;
+        c.cmp(B, 0, 0);
+        c.set_reg(BX, 0x375c);
+        c.set_reg8(r8::AL, 0);
+        c.or(B, 0, 0);
+        return c.ret();
+    }
+    if v & 0x80 == 0 {
+        c.run(0xad66, 2 + 4 + 2 + 1)?;
+        c.cmp(B, 0, 0);
+        c.set_reg(BX, 0x375c);
+        c.set_reg8(r8::AL, v);
+        c.or(B, v as u16, v as u16);
+        c.or(B, v as u16, v as u16);
+        c.set_byte(0xdbcc, v);
+        c.interp(0xad84, 0xad88)?;
+        c.run(0xad88, 1)?;
+        return c.ret();
+    }
+    let a = v & 0x3f;
+    let cur = c.byte(0xdbcb);
+    c.run(0xad66, 2 + 4 + 2 + 4 + if a == cur { 1 } else { 0 })?;
+    c.cmp(B, 0, 0);
+    c.set_reg(BX, 0x375c);
+    c.or(B, v as u16, v as u16);
+    c.or(B, v as u16, v as u16);
+    let a = c.and(B, v as u16, 0x3f);
+    c.set_reg8(r8::AL, a as u8);
+    c.set_byte(0xdbcc, a as u8);
+    c.cmp(B, a, cur as u16);
+    if a as u8 == cur {
+        return c.ret();
+    }
+    music_driver_397d(c.m, 0xadbe)
+}
+
+/// From `loc_0ad18` (after `pre` instructions from `at` with `ops`):
+/// the next song of the list [380Eh] (from 37FAh again at its end,
+/// `loc_0acbf` first in mode 2 of `f`) to `play_music`.
+fn song_list_at(c: &mut Ctx, at: u16, pre: u32, f: u8, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    let si = c.word(0x380e);
+    let b = c.byte(si);
+    if b & 0x80 == 0 {
+        c.run(at, pre + 4 + 2)?;
+        ops(c);
+        c.set_reg(SI, si);
+        c.lods(B, DS);
+        c.or(B, b as u16, b as u16);
+    } else {
+        let two = f & 2 != 0;
+        c.run(at, pre + 8 + if two { 1 } else { 2 })?;
+        ops(c);
+        c.set_reg(SI, si);
+        c.lods(B, DS);
+        c.or(B, b as u16, b as u16);
+        c.set_reg(SI, 0x37fa);
+        c.lods(B, DS);
+        c.test(B, f as u16, 2);
+        if two {
+            c.call(0xacbf, 0xad2f)?;
+            c.run(0xad2f, 3)?;
+            c.lods(B, DS);
+        }
+    }
+    let si = c.reg(SI);
+    c.set_word(0x380e, si);
+    super::audio::play_music(c.m, 0xad95)
+}
