@@ -27,6 +27,7 @@ use pc::{
 
 mod audio;
 mod dos;
+mod draw;
 mod files;
 mod frame;
 mod gfx;
@@ -358,6 +359,16 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xc827, frame::sub_c827, "sub_c827"),
     (0xb23f, frame::sub_b23f, "sub_b23f"),
     (0xb270, frame::handle_ctrl_v_once, "handle_ctrl_v_once"),
+    // Drawing sprites, UI elements, screen updates, strings.
+    (0xbfa7, draw::string_update_ordinal_suffix, "string_update_ordinal_suffix"),
+    (0xc137, draw::load_icones_sprites, "load_icones_sprites"),
+    (0xc22f, draw::draw_sprite_clobbering_bx_dx, "draw_sprite_clobbering_bx_dx"),
+    (0xc4dd, draw::sub_c4dd, "loc_0c4dd"),
+    (0xc4ed, draw::update_screen_at_sprite_rect_updating_head, "update_screen_at_sprite_rect_updating_head"),
+    (0xc4f0, draw::draw_head_if_needed_and_update_screen_rect_at_si, "draw_head_if_needed_and_update_screen_rect_at_si"),
+    (0xc4fb, draw::draw_head_if_needed_and_update_screen_rect, "draw_head_if_needed_and_update_screen_rect"),
+    (0xd200, draw::draw_ui_element, "draw_ui_element"),
+    (0xe75b, draw::res_store_in_lookup_table, "res_store_in_lookup_table"),
     // Input.
     (0xdaa3, input::clear_some_mouse_rect, "clear_some_mouse_rect"),
     (0xdaaa, input::set_some_mouse_rect, "set_some_mouse_rect"),

@@ -29,7 +29,7 @@ const RESOURCE_LAST_USE: u16 = 0xda8c;
 /// its palette when it has one, and telling the graphics driver), notes
 /// when the previous one was last used. Exit: the sheet's pointer at
 /// [`g::SPRITE_SHEET`]; BX, SI, DI kept.
-fn open(c: &mut Ctx) -> Result<(), Bail> {
+pub(super) fn open(c: &mut Ctx) -> Result<(), Bail> {
     let ax = c.reg(AX);
     if ax & 0x8000 != 0 {
         c.run(0xc13e, 3)?;
