@@ -1534,3 +1534,104 @@ pub fn draw_head_panel_0083(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xcfa0, 0x0086)?;
     draw_head_panel_0086(c.m, 0x0086)
 }
+
+/// `sub_4821`: scene 2Ah drawn (game area, palette, front buffer,
+/// `loc_03a95`; for [4731h] 0Dh `loc_0ac30`); past 0Eh the place (DX, BX)
+/// moved by the zoom ([4731h] - 0Eh steps of 5 along x, by CL's sign;
+/// y up by its square / 2); `loc_03aa9`, `loc_03a95`; with [46FFh] the
+/// overlay `loc_03a73` with [4731h] 0 meanwhile; `sub_c4dd`, and
+/// `sky_fade_task` while [46D7h] runs. CX kept.
+pub fn scene_2a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4821)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let cx0 = c.reg(CX);
+    c.push(cx0);
+    c.call(0xc43e, 0x4825)?;
+    c.run(0x4825, 2)?;
+    c.set_reg(AX, 0x2a);
+    c.call(0xc13e, 0x482b)?;
+    for (at, to) in [(0x482bu16, 0xc0f4u16), (0x482e, 0xc07c), (0x4831, 0x3a95)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    let z = c.byte(0x4731);
+    c.run(0x4834, 3 + if z == 0x0d { 2 } else { 0 })?;
+    c.set_reg8(r8::AL, z);
+    c.cmp(B, z as u16, 0x0d);
+    if z == 0x0d {
+        let ax = c.reg(AX);
+        c.push(ax);
+        c.call(0xac30, 0x483f)?;
+        c.run(0x483f, 1)?;
+        let a = c.pop();
+        c.set_reg(AX, a);
+    }
+    let al = c.reg8(r8::AL);
+    let steps = al.wrapping_sub(0x0e);
+    let move_ = al > 0x0e;
+    if move_ {
+        let cl = (c.word_in(SS, c.reg(SP)) & 0xff) as u8;
+        let neg = cl & 0x80 != 0;
+        c.run(0x4840, 2 + 5 + neg as u32 + 1 + 3 * steps as u32 + 3 + 1)?;
+        let a = c.sub(B, al as u16, 0x0e);
+        c.set_reg8(r8::AL, a as u8);
+        let x = c.pop();
+        c.push(x);
+        c.or(B, cl as u16, cl as u16);
+        let mut cx = 5u16;
+        if neg {
+            cx = c.neg(W, 5);
+        }
+        c.set_reg(CX, cx);
+        let mut dx = c.reg(DX);
+        let mut ah = a;
+        for _ in 0..steps {
+            dx = c.sub(W, dx, cx);
+            ah = c.dec(B, ah);
+        }
+        c.set_reg(DX, dx);
+        c.set_reg(AX, ah << 8 | a);
+        c.mul8(a as u8);
+        let p = c.reg(AX);
+        let p = c.m.cpu.shift(7, W, p as u32, 1) as u16;
+        c.set_reg(AX, p);
+        let bx = c.reg(BX);
+        let bx = c.sub(W, bx, p);
+        c.set_reg(BX, bx);
+    } else {
+        c.run(0x4840, 3)?;
+        let a = c.sub(B, al as u16, 0x0e);
+        c.set_reg8(r8::AL, a as u8);
+    }
+    c.call(0x3aa9, 0x4860)?;
+    c.run(0x4860, 1)?;
+    c.call(0x3a95, 0x4863)?;
+    let ov = c.byte(0x46ff);
+    c.run(0x4863, 3 + if ov != 0 { 4 } else { 1 })?;
+    c.set_reg(CX, ov as u16);
+    c.xor(B, 0, 0);
+    if ov != 0 {
+        let z = c.byte(0x4731);
+        c.set_reg8(r8::AL, z);
+        let ax = c.reg(AX);
+        c.push(ax);
+        c.set_byte(0x4731, 0);
+        c.call(0x3a73, 0x4877)?;
+        c.run(0x4877, 3)?;
+        let a = c.pop();
+        c.set_reg(AX, a);
+        c.set_byte(0x4731, a as u8);
+    }
+    c.call(0xc4dd, 0x487e)?;
+    let k = c.byte(0x46d7);
+    c.run(0x487e, 2 + if k != 0 { 1 } else { 2 })?;
+    c.cmp(B, k as u16, 0);
+    if k != 0 {
+        c.call(0x3916, 0x4888)?;
+        c.run(0x4888, 2)?;
+    }
+    let x = c.pop();
+    c.set_reg(CX, x);
+    c.ret()
+}

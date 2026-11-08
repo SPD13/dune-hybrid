@@ -848,3 +848,129 @@ fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_sreg(ES, es);
     c.ret()
 }
+
+/// `loc_0aa96`: AX = the music for the situation: 0Ah in phase 48h during
+/// a scene ([4774h]); else 0Dh (busy [46D9h]), 1 ([0DD03h]), 2 (a
+/// negative [0FBh]), 3 ([0C6h]), 4 ([0EAh] above 0), then by the place:
+/// at a sietch (byte 80h) 9/8 by its kind and 0Ah from phase 48h with
+/// bit 0 of BL clear, 0Ch/0Bh/0Ah for palaces; else 5/6/7 by the map
+/// mode [11C9h].
+pub fn music_for_situation(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xaa96)?;
+    let mut c = Ctx::new(m);
+    let saved = c.m.cpu.flags();
+    let n = music_walk(&mut c, false);
+    c.m.cpu.set_flags(saved);
+    c.run(start, n)?;
+    music_walk(&mut c, true);
+    c.ret()
+}
+
+/// The code of `loc_0aa96`; with `write` its registers too. Its count.
+fn music_walk(c: &mut Ctx, write: bool) -> u32 {
+    let mut n = 1u32;
+    let mut ax = c.xor(W, 0, 0);
+    let mut dx = c.reg(DX);
+    let mut bx = c.reg(BX);
+    let fin = |c: &mut Ctx, n: u32, ax: u16, dx: u16, bx: u16| -> u32 {
+        if write {
+            c.set_reg(AX, ax);
+            c.set_reg(DX, dx);
+            c.set_reg(BX, bx);
+        }
+        n + 1
+    };
+    let k = c.byte(0x4774);
+    c.cmp(B, k as u16, 0);
+    n += 2;
+    let ph = c.byte(0x2a);
+    if k != 0 {
+        c.cmp(B, ph as u16, 0x48);
+        n += 2;
+        if ph != 0x48 {
+            return fin(c, n, ax, dx, bx);
+        }
+        ax = 0x0a;
+        return fin(c, n + 2, ax, dx, bx);
+    }
+    ax = 0x0d;
+    for (addr, kind) in [(0x46d9u16, 0), (0xdd03, 0), (0xfb, 1), (0xc6, 0), (0xea, 2)] {
+        let v = c.byte(addr);
+        c.cmp(B, v as u16, 0);
+        n += 3;
+        let stop = match kind {
+            0 => v != 0,
+            1 => v & 0x80 != 0,
+            _ => (v as i8) > 0,
+        };
+        if stop {
+            return fin(c, n, ax, dx, bx);
+        }
+        ax = if addr == 0x46d9 { 1 } else { c.inc(W, ax) };
+    }
+    n += 5;
+    dx = c.word(4);
+    bx = c.word(6);
+    c.cmp(B, bx & 0xff, 0x80);
+    let at_place = bx & 0xff == 0x80;
+    if at_place {
+        c.cmp(B, dx & 0xff, 1);
+        n += 2;
+    }
+    if !at_place || dx & 0xff == 1 {
+        let mode = c.byte(0x11c9);
+        let b = c.and(B, mode as u16, 3);
+        bx = bx & 0xff00 | b;
+        n += 3;
+        if b == 0 {
+            return fin(c, n, ax, dx, bx);
+        }
+        ax = c.inc(W, ax);
+        let b2 = c.dec(B, b);
+        bx = bx & 0xff00 | b2;
+        n += 3;
+        if b2 == 0 {
+            return fin(c, n, ax, dx, bx);
+        }
+        ax = c.inc(W, ax);
+        return fin(c, n + 1, ax, dx, bx);
+    }
+    let dh = dx >> 8;
+    c.cmp(B, dh, 0x20);
+    n += 2;
+    if dh < 0x20 {
+        let a = c.sub(B, 9, 0);
+        let _ = a;
+        c.cmp(B, dh, 7);
+        let al = c.sbb(B, 9, 0);
+        ax = ax & 0xff00 | al;
+        n += 3;
+        c.cmp(B, ph as u16, 0x48);
+        n += 2;
+        if ph < 0x48 {
+            return fin(c, n, ax, dx, bx);
+        }
+        let b = c.shr1(B, bx & 0xff, 1);
+        let cf = c.flag(pc::cpu::CF);
+        bx = bx & 0xff00 | b;
+        n += 2;
+        if cf {
+            return fin(c, n, ax, dx, bx);
+        }
+        ax = ax & 0xff00 | 0x0a;
+        return fin(c, n + 2, ax, dx, bx);
+    }
+    ax = ax & 0xff00 | 0x0c;
+    n += 2;
+    if dh != 0x20 {
+        return fin(c, n, ax, dx, bx);
+    }
+    ax = c.dec(W, ax);
+    c.cmp(B, dx & 0xff, 3);
+    n += 3;
+    if dx & 0xff != 3 {
+        return fin(c, n, ax, dx, bx);
+    }
+    ax = ax & 0xff00 | 0x0a;
+    fin(c, n + 1, ax, dx, bx)
+}
