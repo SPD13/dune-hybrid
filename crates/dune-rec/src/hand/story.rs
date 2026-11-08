@@ -3888,3 +3888,85 @@ pub fn sal_read_position_markers(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_word(0x47f6, di);
     c.ret()
 }
+
+/// `sub_11e6`: of the locations from 138h with a kind past
+/// `location_kind_check` and no troops counted by `loc_05098` (DX), the
+/// one with the largest y (word 4, above -64h; 100h for none) becomes
+/// record 1048h's place (its coordinates, `location_coords`, DL 3) and
+/// [0F2h] its name; then event 2B0Ah ([`note_event`]).
+pub fn event_2b0a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x11e6)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    c.set_reg(DI, 0x138);
+    c.set_reg(BX, 0xff9c);
+    loop {
+        let (di, bx) = (c.reg(DI), c.reg(BX));
+        let ax = c.word(di.wrapping_add(4));
+        'one: {
+            if (ax as i16) <= bx as i16 {
+                c.run(0x1f19, 3)?;
+                c.set_reg(AX, ax);
+                c.cmp(W, ax, bx);
+                break 'one;
+            }
+            c.run(0x1f19, 4)?;
+            c.set_reg(AX, ax);
+            c.cmp(W, ax, bx);
+            c.call(0x5d36, 0x1f23)?;
+            if c.flag(CF) {
+                c.run(0x1f23, 1)?;
+                break 'one;
+            }
+            c.run(0x1f23, 2)?;
+            c.call(0x5098, 0x1f28)?;
+            let dx = c.reg(DX);
+            if dx != 0 {
+                c.run(0x1f28, 2)?;
+                c.or(W, dx, dx);
+                break 'one;
+            }
+            let (di, bx) = (c.reg(DI), c.reg(BX));
+            let ax = c.word(di.wrapping_add(4));
+            let more = (ax as i16) > bx as i16;
+            c.run(0x1f28, 5 + if more { 2 } else { 0 })?;
+            c.or(W, 0, 0);
+            c.set_reg(AX, ax);
+            c.cmp(W, ax, bx);
+            if more {
+                c.set_reg(BX, ax);
+                c.set_reg(SI, di);
+            }
+        }
+        let di = c.reg(DI);
+        let nd = di.wrapping_add(0x1c);
+        let nb = c.byte(nd);
+        let bx = c.reg(BX);
+        let more = nb < 8;
+        c.run(0x1f37, 3 + if more { 0 } else { 2 + (bx == 0xff9c) as u32 + 2 })?;
+        let d = c.add(W, di, 0x1c);
+        c.set_reg(DI, d);
+        c.cmp(B, nb as u16, 8);
+        if more {
+            continue;
+        }
+        c.cmp(W, bx, 0xff9c);
+        if bx == 0xff9c {
+            c.set_reg(SI, 0x100);
+        }
+        let si = c.reg(SI);
+        c.set_reg(DI, si);
+        break;
+    }
+    c.call(0x40ae, 0x1f4c)?;
+    c.run(0x1f4c, 8)?;
+    let (dx, bx, di) = (c.reg(DX), c.reg(BX), c.reg(DI));
+    let dx = dx & 0xff00 | 3;
+    c.set_reg(DX, dx);
+    c.set_word(0x1048, dx);
+    c.set_word(0x104a, bx);
+    let ax = (c.byte(di) as u16) << 8 | c.byte(di.wrapping_add(1)) as u16;
+    c.set_word(0xf2, ax);
+    c.set_reg(AX, 0x2b0a);
+    note_event_at(&mut c)
+}

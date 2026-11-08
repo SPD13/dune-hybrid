@@ -1275,3 +1275,101 @@ pub fn bring_portrait(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(DS, ds);
     super::screen::copy_game_area_to_screen_fb2_to_fb1(c.m, 0xc43e)
 }
+
+/// `ui_draw_head_and_shoulders`: on the screen (resource [2784h] kept):
+/// `loc_0c137`, sprite 0Fh at (7Eh, 94h) and the head 10h + [0E8h] at
+/// (96h, 89h) (`draw_sprite_clobbering_bx_dx`); the resource reopened.
+pub fn ui_draw_head_and_shoulders(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1797)?;
+    let mut c = Ctx::new(m);
+    head_and_shoulders_at(&mut c)
+}
+
+fn head_and_shoulders_at(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x1797, 2)?;
+    let r = c.word(0x2784);
+    c.push(r);
+    c.call(0xc137, 0x179e)?;
+    c.run(0x179e, 4)?;
+    c.set_reg(DX, 0x7e);
+    c.set_reg(BX, 0x94);
+    c.set_reg(AX, 0x0f);
+    c.call(0xc22f, 0x17aa)?;
+    c.run(0x17aa, 5)?;
+    let h = c.byte(0xe8);
+    let al = c.add(B, 0x10, h as u16);
+    c.set_reg(AX, al);
+    c.set_reg(DX, 0x96);
+    c.set_reg(BX, 0x89);
+    c.call(0xc22f, 0x17ba)?;
+    c.run(0x17ba, 2)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    super::resources::open_resource_by_index(c.m, 0xc13e)
+}
+
+/// `loc_00086`: on the front buffer, `loc_0c0ad`, the panel 1AE4h
+/// (`loc_0c097`, BP D1EFh), then [`ui_draw_head_and_shoulders`].
+pub fn draw_head_panel_0086(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0086)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xc07c, 0x0089)?;
+    c.run(0x0089, 1)?;
+    c.call(0xc0ad, 0x008c)?;
+    c.run(0x008c, 3)?;
+    c.set_reg(SI, 0x1ae4);
+    c.set_reg(BP, 0xd1ef);
+    c.call(0xc097, 0x0095)?;
+    c.run(0x0095, 1)?;
+    head_and_shoulders_at(&mut c)
+}
+
+/// `loc_0439f`: the scene 24h on the front buffer: outside [473Eh] its
+/// frame (`loc_0c49a`, `loc_0c412`, the driver's palette far [3935h],
+/// `loc_05b69`, the rect 14A4h filled F5h by far [38DDh]) and
+/// [`sub_c4dd`]; else (`loc_038b4` out of a dialogue) only the rect 14B4h
+/// (`loc_0c21b`).
+pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x439f)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xc07c, 0x43a2)?;
+    let k = c.byte(0x473e);
+    if k == 0 {
+        c.run(0x43a2, 4)?;
+        c.cmp(B, 0, 0);
+        c.set_reg(AX, 0x24);
+        c.call(0xc13e, 0x43af)?;
+        c.run(0x43af, 1)?;
+        c.call(0xc49a, 0x43b2)?;
+        c.run(0x43b2, 1)?;
+        c.call(0xc412, 0x43b5)?;
+        c.interp(0x43b5, 0x43b9)?;
+        c.run(0x43b9, 1)?;
+        c.call(0x5b69, 0x43bc)?;
+        c.run(0x43bc, 3)?;
+        c.set_reg(SI, 0x14a4);
+        c.set_reg8(r8::AL, 0xf5);
+        let es = c.word(0xdbda);
+        c.set_sreg(ES, es);
+        c.interp(0x43c5, 0x43c9)?;
+        c.run(0x43c9, 1)?;
+        return super::draw::sub_c4dd(c.m, 0xc4dd);
+    }
+    let d = c.byte(0x2b);
+    c.run(0x43a2, 4 + if d == 0 { 1 } else { 2 })?;
+    c.cmp(B, k as u16, 0);
+    c.cmp(B, d as u16, 0);
+    if d == 0 {
+        c.call(0x38b4, 0x43d6)?;
+        c.run(0x43d6, 2)?;
+    }
+    c.set_reg(AX, 0x24);
+    c.call(0xc13e, 0x43dc)?;
+    c.run(0x43dc, 2)?;
+    c.set_reg(SI, 0x14b4);
+    c.call(0xc21b, 0x43e2)?;
+    c.run(0x43e2, 1)?;
+    c.ret()
+}

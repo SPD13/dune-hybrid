@@ -920,6 +920,11 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x9123, dialogue::pick_sentence, "loc_09123"),
     (0x920f, dialogue::open_talking_head_resource, "open_talking_head_resource"),
     (0x41e1, map::location_ahead, "loc_041e1"),
+    (0x7be0, troops::refresh_selected_troop, "loc_07be0"),
+    (0x11e6, story::event_2b0a, "sub_11e6"),
+    (0x1797, ui::ui_draw_head_and_shoulders, "ui_draw_head_and_shoulders"),
+    (0x0086, ui::draw_head_panel_0086, "loc_00086"),
+    (0x439f, ui::scene_24, "loc_0439f"),
 ];
 
 /// 8-bit register numbers (the CPU's encoding).

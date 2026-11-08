@@ -4338,3 +4338,132 @@ pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
 }
+
+/// `loc_07be0`: for the selected troop ([46EFh] = SI): [47BAh] 0; in its
+/// skills panel ([46F4h], [46F5h]) a click on a need (rect 1936h,
+/// `find_range` over 4C7Ch) moves one point from 4705h to 46FEh and
+/// redraws the panel (`draw_skills_panel`). Else its full refresh:
+/// `loc_07ba3`, `loc_031f6`, its location (`loc_02e98`), and when it is
+/// farther than [1176h] ([4Ch] FFh) the marked location [4752h] gets
+/// 1916h; `loc_09719` until CF clear, `loc_09efd`, and for an order panel
+/// ([47A5h] 80h) `loc_07efb` and the skill bars (`skill_bars_4705`); in
+/// the hotspot mode `loc_09901`; front buffer active.
+pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7be0)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let sel = c.word(0x46ef);
+    if si != sel {
+        c.run(start, 3)?;
+        c.cmp(W, si, sel);
+        return c.ret();
+    }
+    let (p4, p5) = (c.byte(0x46f4), c.byte(0x46f5));
+    if p4 != 0 && p5 != 0 {
+        c.run(start, 2 + 3 + 2 + 1 + 2 + 2)?;
+        c.cmp(W, si, sel);
+        c.set_word(0x47ba, 0);
+        c.cmp(B, p4 as u16, 0);
+        c.cmp(B, p5 as u16, 0);
+        c.cmp(B, p5 as u16, 0);
+        c.set_reg(DI, 0x1936);
+        c.call(0xd6fe, 0x7ea4)?;
+        if !c.flag(CF) {
+            c.run(0x7ea4, 2)?;
+            return c.ret();
+        }
+        c.run(0x7ea4, 3)?;
+        c.set_reg(SI, 0x4c7c);
+        c.call(0x7ee2, 0x7eac)?;
+        if !c.flag(CF) {
+            c.run(0x7eac, 2)?;
+            return c.ret();
+        }
+        c.run(0x7eac, 5)?;
+        let di = c.reg(DI);
+        let v = c.byte(di.wrapping_add(0x4705));
+        let v = c.dec(B, v as u16);
+        c.set_byte(di.wrapping_add(0x4705), v as u8);
+        let v = c.byte(di.wrapping_add(0x46fe));
+        let v = c.inc(B, v as u16);
+        c.set_byte(di.wrapping_add(0x46fe), v as u8);
+        c.call(0x7d0c, 0x7ee1)?;
+        c.run(0x7ee1, 1)?;
+        return c.ret();
+    }
+    c.run(start, 2 + 3 + if p4 == 0 { 0 } else { 2 } + 2)?;
+    c.cmp(W, si, sel);
+    c.set_word(0x47ba, 0);
+    c.cmp(B, p4 as u16, 0);
+    if p4 != 0 {
+        c.cmp(B, 0, 0);
+    }
+    c.set_reg(SI, sel);
+    c.call(0x7ba3, 0x7c05)?;
+    c.run(0x7c05, 1)?;
+    c.call(0x31f6, 0x7c08)?;
+    c.run(0x7c08, 2)?;
+    let si = c.reg(SI);
+    let di = c.word(si.wrapping_add(4));
+    c.set_reg(DI, di);
+    c.call(0x2e98, 0x7c0e)?;
+    c.run(0x7c0e, 1)?;
+    c.call(0x7c63, 0x7c11)?;
+    let ax = c.reg(AX);
+    let lim = c.word(0x1176);
+    if ax <= lim {
+        c.run(0x7c11, 3)?;
+        c.cmp(W, ax, lim);
+    } else {
+        let m4 = c.word(0x4752);
+        c.run(0x7c11, 6 + if m4 != 0 { 3 } else { 0 } + 1)?;
+        c.cmp(W, ax, lim);
+        c.set_byte(0x4c, 0xff);
+        c.set_reg(DI, m4);
+        c.or(W, m4, m4);
+        if m4 != 0 {
+            c.set_reg(AX, 0x1916);
+            c.set_word(m4.wrapping_add(0x0d), 0x1916);
+            c.set_word(m4.wrapping_add(0x0f), 0x1916);
+        }
+    }
+    loop {
+        c.call(0x9719, 0x7c30)?;
+        let cf = c.flag(CF);
+        c.run(0x7c30, 2 + if cf { 1 } else { 2 })?;
+        let s = c.word(0x46ef);
+        c.set_reg(SI, s);
+        if !cf {
+            break;
+        }
+    }
+    let si = c.reg(SI);
+    c.push(si);
+    c.call(0x9efd, 0x7c3a)?;
+    let k = c.byte(0x47a5);
+    c.run(0x7c3a, 4 + if k == 0x80 { 2 } else { 0 })?;
+    let s = c.pop();
+    c.set_reg(SI, s);
+    c.set_byte(0x46f4, 0);
+    c.cmp(B, k as u16, 0x80);
+    if k == 0x80 {
+        let v = c.inc(B, 0);
+        c.set_byte(0x46f4, v as u8);
+        c.call(0x7efb, 0x7c4e)?;
+        c.run(0x7c4e, 2)?;
+        let si = c.reg(SI);
+        c.push(si);
+        c.call(0x7e1e, 0x7c52)?;
+        c.run(0x7c52, 2)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+    }
+    let h = c.byte(0x46eb);
+    c.run(0x7c56, 2 + if h & 0x80 != 0 { 1 } else { 1 })?;
+    c.cmp(B, h as u16, 0);
+    if h & 0x80 != 0 {
+        c.call(0x9901, 0x7c60)?;
+        c.run(0x7c60, 1)?;
+    }
+    super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
+}
