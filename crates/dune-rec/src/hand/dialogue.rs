@@ -1964,3 +1964,104 @@ pub fn break_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
 }
+
+/// `loc_09123`: the sentence AL picked for a speaker: [47D0h] = its
+/// variant (AL 0Dh by the current location's first byte; 0Eh and up by
+/// the speaker's record, its byte split in threes into 0Fh or 11h
+/// choices; from 11h by the time and [0F4h]), AL the sentence, AH 0.
+pub fn pick_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9123)?;
+    let mut c = Ctx::new(m);
+    let al0 = c.reg8(r8::AL);
+    let dx = c.reg(DX);
+    let mut n;
+    let (mut al, mut ah) = (al0, 0u8);
+    let mut si = None;
+    let mut di = None;
+    let mut pushed = false;
+    if al0 >= 0x11 {
+        let t = c.word(2) << 2;
+        ah = (t >> 8) as u8;
+        n = 2 + 5;
+        if ah >= 8 {
+            ah = 8;
+            n += 1;
+        }
+        ah <<= 1;
+        if c.byte(0xf4) >= 0x10 {
+            ah = ah.wrapping_add(1);
+        }
+        al = 0x2d;
+        ah = ah.wrapping_add(1);
+        n += 6 + 1 + 3;
+    } else {
+        n = 2 + 3;
+        if al0 < 0x0d {
+            n += 3;
+        } else if al0 == 0x0d {
+            let d = c.word(0x114e);
+            di = Some(d);
+            ah = (c.byte(d) >> 1).wrapping_add(1);
+            n += 1 + 5 + 3;
+        } else {
+            let mut s = c.word(0x4756);
+            n += 1 + 3;
+            let mut go = true;
+            if al0 != 0x0e {
+                n += 2;
+                if c.byte(0x2a) == 0xc8 {
+                    n += 3;
+                    go = false;
+                } else {
+                    let a = (c.byte(0x476c) as u16) << 1;
+                    ah = (a >> 8) as u8;
+                    s = c.word(a.wrapping_add(0x4758));
+                    n += 4;
+                }
+            }
+            si = Some(s);
+            if go {
+                pushed = true;
+                let ax = (ah as u16) << 8 | c.byte(s) as u16;
+                let (mut q, r) = ((ax / 3) as u8, (ax % 3) as u8);
+                n += 7;
+                let dl = if r == 0 { 0x0f } else { 0x11 };
+                n += (r != 0) as u32;
+                n += 2;
+                while q >= dl {
+                    q -= dl;
+                    n += 4;
+                }
+                ah = q.wrapping_add(1);
+                al = r.wrapping_add(0x0e);
+                n += 3 + 1 + 3;
+            }
+        }
+    }
+    c.run(start, n)?;
+    if let Some(d) = di {
+        c.set_reg(DI, d);
+    }
+    if let Some(s) = si {
+        c.set_reg(SI, s);
+    }
+    if pushed {
+        c.below_sp(1, dx);
+    }
+    c.set_byte(0x47d0, ah);
+    c.xor(B, 0, 0);
+    c.set_reg(AX, al as u16);
+    c.ret()
+}
+
+/// `open_talking_head_resource`: resource AX + 2 opened
+/// (`open_resource_by_index`).
+pub fn open_talking_head_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x920f)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let ax = c.reg(AX);
+    let ax = c.add(W, ax, 2);
+    c.set_reg(AX, ax);
+    super::resources::open_resource_by_index(c.m, 0xc13e)
+}

@@ -4181,3 +4181,153 @@ pub fn drop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, 8);
     super::troops::gfx_call_30_unless_redrawing(c.m, 0x7b2b)
 }
+
+/// `loc_041e1`: while [196Ch] counts down, CF clear. Else the 8 map cells
+/// ahead (`loc_0b56c`, a row or a column by the direction [11C7h]) are
+/// searched for a location (bit 40h, `loc_0409a`; with bit 80h of byte
+/// 0Ah only once due) lying ahead (`loc_05124` within 20h of [11C7h]):
+/// its offset (direction·32) in [1968h], its scene sprite (196Dh by
+/// `calc_SAL_index`) in [196Ah], [196Ch] 6, CF set.
+pub fn location_ahead(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x41e1)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x196c);
+    if k != 0 {
+        c.run(start, 5)?;
+        c.cmp(B, k as u16, 0);
+        let v = c.dec(B, k as u16);
+        c.set_byte(0x196c, v as u8);
+        c.set_flag(CF, false);
+        return c.ret();
+    }
+    let dir = c.byte(0x11c7);
+    let a = dir.wrapping_add(0x20);
+    let col = a & 0x40 == 0;
+    c.run(start, 8 + (!col) as u32 + 1)?;
+    c.cmp(B, 0, 0);
+    c.set_reg8(r8::AL, dir);
+    let a = c.add(B, dir as u16, 0x20);
+    c.set_reg8(r8::AL, a as u8);
+    c.test(B, a, 0x40);
+    if col {
+        c.set_reg(CX, 1);
+        c.set_reg(AX, 8);
+    } else {
+        c.set_reg(CX, 8);
+        c.set_reg(AX, 1);
+    }
+    c.call(0xb56c, 0x41fb)?;
+    c.run(0x41fb, 1)?;
+    c.set_reg(CX, 8);
+    let mut cx = 8u16;
+    loop {
+        let si = c.reg(SI);
+        let al = c.byte(si);
+        let next = |c: &mut Ctx, cx: u16| -> Result<bool, Bail> {
+            let more = cx != 1;
+            c.run(0x4203, 2 + if more { 0 } else { 2 })?;
+            let s = c.reg(SI);
+            let s = c.add(W, s, 2);
+            c.set_reg(SI, s);
+            c.set_reg(CX, cx - 1);
+            if !more {
+                c.set_flag(CF, false);
+            }
+            Ok(more)
+        };
+        if al & 0x40 == 0 {
+            c.run(0x41fe, 3)?;
+            c.lods(B, DS);
+            c.test(B, al as u16, 0x40);
+            if !next(&mut c, cx)? {
+                return c.ret();
+            }
+            cx -= 1;
+            continue;
+        }
+        c.run(0x41fe, 7)?;
+        c.lods(B, DS);
+        c.test(B, al as u16, 0x40);
+        let si = c.reg(SI);
+        let di = c.word(si);
+        c.set_reg(DI, di);
+        c.push(cx);
+        c.push(si);
+        c.call(0x409a, 0x4211)?;
+        let skip = |c: &mut Ctx, at: u16, n: u32| -> Result<(), Bail> {
+            c.run(at, n + 3)?;
+            let s = c.pop();
+            c.set_reg(SI, s);
+            let x = c.pop();
+            c.set_reg(CX, x);
+            Ok(())
+        };
+        let found = 'f: {
+            if !c.flag(ZF) {
+                skip(&mut c, 0x4211, 1)?;
+                break 'f false;
+            }
+            let si = c.reg(SI);
+            let f = c.byte(si.wrapping_add(0x0a));
+            if f & 0x80 != 0 {
+                let ph = c.byte(0x2a);
+                let due = c.byte(si.wrapping_add(0x0b));
+                if ph < due {
+                    skip(&mut c, 0x4211, 6)?;
+                    break 'f false;
+                }
+                c.run(0x4211, 8)?;
+                c.test(B, f as u16, 0x80);
+                c.set_reg8(r8::AL, ph);
+                c.cmp(B, ph as u16, due as u16);
+            } else {
+                c.run(0x4211, 5)?;
+                c.test(B, f as u16, 0x80);
+            }
+            c.set_reg(DI, si);
+            c.call(0x5124, 0x4226)?;
+            if c.flag(CF) {
+                skip(&mut c, 0x4226, 1)?;
+                break 'f false;
+            }
+            let al = c.reg8(r8::AL);
+            let v = al.wrapping_sub(dir).wrapping_add(0x20);
+            if v >= 0x40 {
+                skip(&mut c, 0x4226, 5)?;
+                break 'f false;
+            }
+            c.run(0x4226, 15)?;
+            let a = c.sub(B, al as u16, dir as u16);
+            let a = c.add(B, a, 0x20);
+            c.cmp(B, a, 0x40);
+            let a = c.sub(B, a, 0x20);
+            let a = a as u8 as i8 as i16 as u16;
+            let a = c.shl1(W, a, 5);
+            c.set_word(0x1968, a);
+            c.xor(W, 0, 0);
+            c.set_reg(AX, 0);
+            c.call(0x5e4f, 0x4247)?;
+            c.run(0x4247, 8)?;
+            c.set_reg(BX, 0x196d);
+            let ax = c.reg(AX);
+            let s = c.byte(0x196du16.wrapping_add(ax & 0xff));
+            let ax = ax & 0xff00 | s as u16;
+            c.set_reg(AX, ax);
+            c.set_word(0x196a, ax);
+            let s = c.pop();
+            c.set_reg(SI, s);
+            let x = c.pop();
+            c.set_reg(CX, x);
+            c.set_byte(0x196c, 6);
+            c.set_flag(CF, true);
+            true
+        };
+        if found {
+            return c.ret();
+        }
+        if !next(&mut c, cx)? {
+            return c.ret();
+        }
+        cx -= 1;
+    }
+}
