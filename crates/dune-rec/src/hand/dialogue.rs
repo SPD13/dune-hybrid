@@ -1522,3 +1522,213 @@ pub fn reset_dialogue(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     drop_dialogue_text(c.m, 0x9b8b)
 }
+
+/// `sub_30b9`: for a speaker record SI without bit 40h of byte 0Fh (the
+/// first becomes [47AAh]): [`speaker_entries`].
+pub fn add_speaker(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x30b9)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let f = c.byte(si.wrapping_add(0x0f));
+    if f & 0x40 != 0 {
+        c.run(start, 3)?;
+        c.test(B, f as u16, 0x40);
+        return c.ret();
+    }
+    let first = c.word(0x47aa);
+    let pre = 4 + (first == 0) as u32;
+    speaker_entries_at(&mut c, start, pre, |c| {
+        c.test(B, f as u16, 0x40);
+        c.cmp(W, first, 0);
+        if first == 0 {
+            let si = c.reg(SI);
+            c.set_word(0x47aa, si);
+        }
+    })
+}
+
+/// `sub_3120`: [`speaker_entries`] for a speaker SI with bit 40h of byte
+/// 0Fh.
+pub fn add_speaker_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x3120)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let f = c.byte(si.wrapping_add(0x0f));
+    if f & 0x40 == 0 {
+        c.run(start, 3)?;
+        c.test(B, f as u16, 0x40);
+        return c.ret();
+    }
+    speaker_entries_at(&mut c, start, 2, |c| c.test(B, f as u16, 0x40))
+}
+
+/// From `loc_030ca`: the speaker SI's entries stored at ES:DI (its
+/// phrase 78h + byte 0Eh and its place, word 4; its bit in [12h]); for
+/// speaker 0Fh also [476Ah] - 1 more (phrases 88h on, same place), and
+/// from phase 5 the entry [476Bh] - 1 - [476Ah] (in 4 bytes) later made
+/// phrase 8Fh.
+fn speaker_entries_at(
+    c: &mut Ctx,
+    at: u16,
+    pre: u32,
+    head: impl FnOnce(&mut Ctx),
+) -> Result<(), Bail> {
+    let si = c.reg(SI);
+    let id = c.byte(si.wrapping_add(0x0e));
+    let place = c.word(si.wrapping_add(4));
+    let mut n = pre + 12;
+    let (k, more, ph, last) = (c.byte(0x476a), 0u16, c.byte(0x2a), c.byte(0x476b));
+    let mut extra = more;
+    if id != 0x0f {
+        n += 1;
+    } else {
+        n += 4;
+        let cnt = (k as u16).wrapping_sub(1);
+        if (cnt as i16) > 0 {
+            extra = cnt;
+            n += 3 + 6 * cnt as u32 + 1;
+        }
+        n += 2;
+        if ph < 5 {
+            n += 1;
+        } else {
+            n += 3;
+            n += if last == 0 { 1 } else { 10 };
+        }
+    }
+    c.run(at, n)?;
+    head(c);
+    c.set_reg8(r8::AL, id);
+    c.set_reg8(r8::CL, id);
+    c.xor(B, 0, 0);
+    let ax = c.add(W, id as u16, 0x78);
+    c.set_reg(AX, ax);
+    c.stos(W);
+    let bit = c.shl(W, 1, id);
+    let v = c.word(0x12);
+    let v = c.or(W, v, bit);
+    c.set_word(0x12, v);
+    c.set_reg(AX, place);
+    c.stos(W);
+    c.cmp(B, id as u16, 0x0f);
+    if id != 0x0f {
+        return c.ret();
+    }
+    c.set_reg8(r8::CL, k);
+    c.xor(B, 0, 0);
+    let cx = c.dec(W, k as u16);
+    c.set_reg(CX, cx);
+    if extra > 0 {
+        c.push(si);
+        c.set_reg(SI, place);
+        let mut ax = 0x87u16;
+        for i in 0..extra {
+            ax = c.inc(W, ax);
+            c.set_reg(AX, ax);
+            c.stos(W);
+            c.set_reg(AX, place);
+            c.stos(W);
+            c.set_reg(AX, ax);
+            c.set_reg(CX, extra - 1 - i);
+        }
+        let s = c.pop();
+        c.set_reg(SI, s);
+    }
+    c.cmp(B, ph as u16, 5);
+    if ph < 5 {
+        return c.ret();
+    }
+    c.set_reg8(r8::AL, last);
+    c.or(B, last as u16, last as u16);
+    if last == 0 {
+        return c.ret();
+    }
+    let di = c.reg(DI);
+    c.push(di);
+    let a = c.dec(B, last as u16);
+    let a = c.sub(B, a, k as u16);
+    let a = a as u8 as i8 as i16 as u16;
+    let a = c.shl1(W, a, 2);
+    c.set_reg(AX, a);
+    let p = c.add(W, di, a);
+    c.set_word(p, 0x8f);
+    let d = c.pop();
+    c.set_reg(DI, d);
+    c.ret()
+}
+
+/// `loc_09cc6`: the sprite entry at SI (sprite, x, y; at 1BF0h's place)
+/// added to the bounding rect at SS:D834h (its size from the sprite
+/// table [0DBB0h]: width 9 bits, height a byte). SI, DS kept.
+pub fn grow_dialogue_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9cc6)?;
+    let mut c = Ctx::new(m);
+    let (si, ds) = (c.reg(SI), c.sreg(DS));
+    let step = c.string_step(B);
+    let sp = c.byte(si);
+    let x = c.byte(si.wrapping_add(step)) as u16;
+    let y = c.byte(si.wrapping_add(step.wrapping_mul(2))) as u16;
+    let (ox, oy) = (c.word(0x1bf0), c.word(0x1bf2));
+    let (tab, seg) = (c.word(0xdbb0), c.word(0xdbb2));
+    let dx = x.wrapping_add(ox);
+    let bx = y.wrapping_add(oy);
+    let bp = ((sp as u16).wrapping_sub(1)).wrapping_shl(1);
+    let off = c.word_at(seg, bp.wrapping_add(tab));
+    let p = tab.wrapping_add(off);
+    let wstep = c.string_step(W);
+    let w = c.word_at(seg, p) & 0x1ff;
+    let h = c.word_at(seg, p.wrapping_add(wstep)) & 0xff;
+    let r = [c.word_in(SS, 0xd834), c.word_in(SS, 0xd836), c.word_in(SS, 0xd838), c.word_in(SS, 0xd83a)];
+    let x1 = dx.wrapping_add(w);
+    let y1 = bx.wrapping_add(h);
+    let n = 18 + (r[0] >= dx) as u32 + 2 + (r[1] >= bx) as u32 + 8 + (r[2] < x1) as u32 + 2 + (r[3] < y1) as u32 + 3;
+    c.run(start, n)?;
+    c.push(si);
+    c.push(ds);
+    c.xor(B, 0, 0);
+    c.set_reg8(r8::AH, 0);
+    c.lods(B, DS);
+    c.lods(B, DS);
+    let d = c.add(W, x, ox);
+    c.set_reg(DX, d);
+    c.lods(B, DS);
+    let b = c.add(W, y, oy);
+    c.set_reg(BX, b);
+    c.set_sreg(DS, seg);
+    c.set_reg(SI, tab);
+    let bp2 = c.shl1(W, (sp as u16).wrapping_sub(1), 1);
+    let _ = bp2;
+    let s = c.add(W, tab, off);
+    c.set_reg(SI, s);
+    c.set_reg(BP, 0xd834);
+    c.cmp(W, r[0], dx);
+    if r[0] >= dx {
+        c.set_word_in(SS, 0xd834, dx);
+    }
+    c.cmp(W, r[1], bx);
+    if r[1] >= bx {
+        c.set_word_in(SS, 0xd836, bx);
+    }
+    c.lods(W, DS);
+    let a = c.and(W, w, 0x1ff);
+    let d = c.add(W, dx, a);
+    c.set_reg(DX, d);
+    c.lods(W, DS);
+    c.xor(B, 0, 0);
+    c.set_reg(AX, h);
+    let b = c.add(W, bx, h);
+    c.set_reg(BX, b);
+    c.cmp(W, r[2], x1);
+    if r[2] < x1 {
+        c.set_word_in(SS, 0xd838, x1);
+    }
+    c.cmp(W, r[3], y1);
+    if r[3] < y1 {
+        c.set_word_in(SS, 0xd83a, y1);
+    }
+    let d = c.pop();
+    c.set_sreg(DS, d);
+    let s = c.pop();
+    c.set_reg(SI, s);
+    c.ret()
+}

@@ -3298,3 +3298,68 @@ pub fn place_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, k as u16);
     c.ret()
 }
+
+/// `loc_05e6d`: DI = the nearest (|dx| + |dy| from (DX, BX)) of the
+/// map's shown locations (the list at A5C0h, 6 bytes each: location,
+/// x, y with the map mode in the high byte) whose byte 8 is below AL and
+/// whose mode is [46EBh]; AX its distance (FFFFh, DI 0 for none). BX,
+/// DX, SI kept; the four locals stay below the stack.
+pub fn nearest_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5e6d)?;
+    let mut c = Ctx::new(m);
+    let (al, dx0, bx0, si0) = (c.reg8(r8::AL), c.reg(DX), c.reg(BX), c.reg(SI));
+    let mode = c.byte(0x46eb);
+    let mut best = 0xffffu16;
+    let mut best_di = 0u16;
+    let mut n = 8;
+    let mut p = 0xa5bau16;
+    loop {
+        p = p.wrapping_add(6);
+        let di = c.word(p);
+        n += 4;
+        if di == 0 {
+            break;
+        }
+        n += 2;
+        if c.byte(di.wrapping_add(8)) >= al {
+            continue;
+        }
+        let bx = c.word(p.wrapping_add(4));
+        n += 3;
+        if (bx >> 8) as u8 != mode {
+            continue;
+        }
+        let d1 = c.word(p.wrapping_add(2)).wrapping_sub(dx0);
+        n += 4 + (d1 & 0x8000 != 0) as u32;
+        let d1 = if d1 & 0x8000 != 0 { d1.wrapping_neg() } else { d1 };
+        let d2 = (bx & 0xff).wrapping_sub(bx0);
+        n += 2 + (d2 & 0x8000 != 0) as u32;
+        let d2 = if d2 & 0x8000 != 0 { d2.wrapping_neg() } else { d2 };
+        let d = d1.wrapping_add(d2);
+        n += 3;
+        if d < best {
+            best = d;
+            best_di = di;
+            n += 3;
+        }
+    }
+    n += 7;
+    c.run(start, n)?;
+    c.push(si0);
+    let bp = c.reg(SP);
+    c.set_reg(BP, bp);
+    let low = bp.wrapping_sub(8);
+    for (off, v) in [(8u16, best), (6, dx0), (4, bx0), (2, best_di)] {
+        c.set_word_in(SS, bp.wrapping_sub(off), v);
+    }
+    c.set_reg(SI, p);
+    c.set_reg(DI, best_di);
+    c.set_reg(AX, best);
+    c.set_reg(DX, dx0);
+    c.set_reg(BX, bx0);
+    let sp = c.add(W, low, 8);
+    c.set_reg(SP, sp);
+    let s = c.pop();
+    c.set_reg(SI, s);
+    c.ret()
+}

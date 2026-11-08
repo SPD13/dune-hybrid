@@ -962,3 +962,160 @@ pub fn globe_turn_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
 }
+
+/// `globe_increment_tilt_by_ax`: the tilt [2460h] moved by AX (within
+/// -62h..62h), then the row table at 8B77h (C4h words, ES = DS) rebuilt
+/// for it.
+pub fn globe_increment_tilt(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xba15)?;
+    let mut c = Ctx::new(m);
+    // A first pass counts (its flags undone), the second one writes.
+    let saved = c.m.cpu.flags();
+    let n = tilt_walk(&mut c, false);
+    c.m.cpu.set_flags(saved);
+    c.run(start, n?)?;
+    tilt_walk(&mut c, true)?;
+    c.ret()
+}
+
+/// The code of `globe_increment_tilt_by_ax` after its entry; with
+/// `write`, the memory and registers too. Its instruction count.
+fn tilt_walk(c: &mut Ctx, write: bool) -> Result<u32, Bail> {
+    let ax0 = c.reg(AX);
+    let t = c.word(0x2460);
+    let mut ax = c.add(W, ax0, t);
+    let mut cx = 0x62u16;
+    c.cmp(W, ax, cx);
+    let mut n = 4;
+    if (ax as i16) >= 0x62 {
+        ax = cx;
+        n += 1;
+    }
+    cx = c.neg(W, cx);
+    c.cmp(W, ax, cx);
+    n += 3;
+    if (ax as i16) <= (cx as i16) {
+        ax = cx;
+        n += 1;
+    }
+    if write {
+        c.set_word(0x2460, ax);
+        let ds = c.sreg(DS);
+        c.push(ds);
+        let es = c.pop();
+        c.set_sreg(ES, es);
+    }
+    let step = c.string_step(W);
+    let mut di = 0x8b77u16;
+    let mut bx = 0x62u16;
+    cx = 0xc4;
+    ax = c.add(W, ax, bx);
+    c.cmp(W, ax, bx);
+    n += 10;
+    let lo = |ax: u16, v: u16| ax & 0xff00 | v & 0xff;
+    let mut l = if (ax as i16) <= (bx as i16) { 0xba55u16 } else { 0xba41 };
+    loop {
+        if n > 400_000 {
+            return Err(Bail);
+        }
+        let mut store = |c: &mut Ctx, ax: u16| {
+            if write {
+                c.set_word_in(ES, di, ax);
+            }
+            di = di.wrapping_add(step);
+        };
+        match l {
+            0xba41 => {
+                bx = c.neg(W, bx);
+                let a = c.add(B, ax & 0xff, bx & 0xff);
+                let a = c.add(B, a, bx & 0xff);
+                ax = lo(ax, a);
+                n += 3;
+                l = 0xba47;
+            }
+            0xba47 => {
+                let a = c.dec(B, ax & 0xff);
+                ax = lo(ax, a);
+                store(c, ax);
+                c.cmp(B, a, bx & 0xff);
+                n += 4;
+                if (a as u8 as i8) <= (bx as u8 as i8) {
+                    l = 0xba50;
+                } else {
+                    n += 1;
+                    cx = cx.wrapping_sub(1);
+                    l = if cx != 0 { 0xba47 } else { 0xba50 };
+                }
+            }
+            0xba50 => {
+                bx = c.neg(W, bx);
+                ax = bx;
+                cx = c.dec(W, cx);
+                n += 3;
+                l = 0xba55;
+            }
+            0xba55 => {
+                store(c, ax);
+                let a = c.dec(B, ax & 0xff);
+                ax = lo(ax, a);
+                n += 3;
+                if a & 0x80 != 0 {
+                    l = 0xba5c;
+                } else {
+                    n += 1;
+                    cx = cx.wrapping_sub(1);
+                    l = if cx != 0 { 0xba55 } else { 0xba5c };
+                }
+            }
+            0xba5c | 0xba6a => {
+                cx = c.dec(W, cx);
+                n += 2;
+                if (cx as i16) <= 0 {
+                    n += 1;
+                    break;
+                }
+                n += 1;
+                if l == 0xba5c {
+                    ax = c.neg(W, ax);
+                    l = 0xba61;
+                } else {
+                    let a = c.neg(B, ax & 0xff);
+                    ax = lo(ax, a);
+                    l = 0xba6f;
+                }
+            }
+            0xba61 => {
+                store(c, ax);
+                let a = c.inc(B, ax & 0xff);
+                ax = lo(ax, a);
+                c.cmp(B, a, bx & 0xff);
+                n += 4;
+                if (a as u8 as i8) > (bx as u8 as i8) {
+                    l = 0xba6a;
+                } else {
+                    n += 1;
+                    cx = cx.wrapping_sub(1);
+                    l = if cx != 0 { 0xba61 } else { 0xba6a };
+                }
+            }
+            _ => {
+                let a = c.inc(B, ax & 0xff);
+                ax = lo(ax, a);
+                store(c, ax);
+                n += 3;
+                cx = cx.wrapping_sub(1);
+                if cx == 0 {
+                    n += 1;
+                    break;
+                }
+            }
+        }
+    }
+    if write {
+        c.set_reg(AX, ax);
+        c.set_reg(BX, bx);
+        c.set_reg(CX, cx);
+        c.set_reg(DI, di);
+    }
+    Ok(n)
+}

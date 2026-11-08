@@ -724,3 +724,34 @@ pub fn grown_rect_c0d5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.ret()
 }
+
+/// `loc_0bf26`: the stats panel's numbers: phrase 0C4h fetched
+/// (`get_phrase_or_command_string_si`), then [0A4h], [0A2h] with
+/// [`stat_3_digits`] and [0A8h], [0A6h], [0ACh], [0AAh] with
+/// [`stat_5_digits`] (the old values at 115Eh, the change marks at
+/// 116Ah).
+pub fn stats_numbers(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xbf26)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    c.set_reg(DI, 0x115e);
+    c.set_reg(BP, 0x116a);
+    c.set_reg(SI, 0xc4);
+    c.call(0xcf70, 0xbf32)?;
+    for (at, src, to) in [
+        (0xbf32u16, 0xa4u16, 0xbf73u16),
+        (0xbf38, 0xa2, 0xbf73),
+        (0xbf3e, 0xa8, 0xbf61),
+        (0xbf44, 0xa6, 0xbf61),
+        (0xbf4a, 0xac, 0xbf61),
+    ] {
+        c.run(at, 2)?;
+        let v = c.word(src);
+        c.set_reg(AX, v);
+        c.call(to, at + 6)?;
+    }
+    c.run(0xbf50, 2)?;
+    let v = c.word(0xaa);
+    c.set_reg(AX, v);
+    stat_5_digits(c.m, 0xbf61)
+}

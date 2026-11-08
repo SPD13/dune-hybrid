@@ -729,3 +729,40 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, s);
     }
 }
+
+/// `transfer_sd_block_qq`: the sound block at [0DBDEh]:[0DC1Ch] (its
+/// first word the size with the header) copied to ES:DI; the header SI
+/// gets its length (word 4) and bytes 6, 7 = 1, 41h.
+pub fn transfer_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xaa70)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 9)?;
+    let (si0, ds0) = (c.reg(SI), c.sreg(DS));
+    c.push(si0);
+    c.push(ds0);
+    let p = c.word(0xdc1c);
+    let seg = c.word(0xdbde);
+    c.set_reg(SI, p);
+    c.set_sreg(DS, seg);
+    let len = c.lods(W, DS);
+    let ax = c.sub(W, len, 4);
+    c.set_reg(AX, ax);
+    let cx = c.shr1(W, ax, 1);
+    c.set_reg(CX, cx);
+    c.rep(0xa5);
+    c.run(0xaa84, 2)?;
+    let cl = c.reg8(r8::CL);
+    let cl = c.adc(B, cl as u16, cl as u16);
+    c.set_reg8(r8::CL, cl as u8);
+    c.rep(0xa4);
+    c.run(0xaa88, 6)?;
+    let ds = c.pop();
+    c.set_sreg(DS, ds);
+    let si = c.pop();
+    c.set_reg(SI, si);
+    let ax = c.reg(AX);
+    c.set_word(si.wrapping_add(4), ax);
+    c.set_byte(si.wrapping_add(6), 1);
+    c.set_byte(si.wrapping_add(7), 0x41);
+    c.ret()
+}

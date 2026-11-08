@@ -1005,3 +1005,35 @@ pub fn redraw_2886(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x2886);
     super::draw::draw_head_if_needed_and_update_screen_rect_at_si(c.m, 0xc4f0)
 }
+
+/// `loc_017be`: the head panel 1E6Eh redrawn: front buffer active; the
+/// rect to the screen (`loc_0c446`), or with [0CE66h] the picture
+/// 0CD9Eh by the driver (far [391Dh], BP 1E76h, ES the front buffer);
+/// `loc_01797`, then [`draw_head_if_needed_and_update_screen_rect_at_si`].
+pub fn redraw_head_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x17be)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xc07c, 0x17c1)?;
+    let k = c.byte(0xce66);
+    c.run(0x17c1, 4 + if k == 0 { 1 } else { 3 })?;
+    c.set_reg(SI, 0x1e6e);
+    c.push(0x1e6e);
+    c.cmp(B, k as u16, 0);
+    if k == 0 {
+        c.call(0xc446, 0x17cf)?;
+        c.run(0x17cf, 2)?;
+    } else {
+        c.set_reg(BP, 0x1e76);
+        c.set_reg(SI, 0xcd9e);
+        let es = c.word(0xdbd6);
+        c.set_sreg(ES, es);
+        c.interp(0x17db, 0x17df)?;
+        c.run(0x17df, 1)?;
+    }
+    c.call(0x1797, 0x17e2)?;
+    c.run(0x17e2, 2)?;
+    let s = c.pop();
+    c.set_reg(SI, s);
+    super::draw::draw_head_if_needed_and_update_screen_rect_at_si(c.m, 0xc4f0)
+}

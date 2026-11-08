@@ -873,6 +873,19 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x714c, troops::troop_event_roll, "loc_0714c"),
     (0x98e6, dialogue::reset_dialogue, "loc_098e6"),
     (0x4e12, map::place_scene, "loc_04e12"),
+    (0x331e, story::select_location, "loc_0331e"),
+    (0x342d, troops::troop_yield, "loc_0342d"),
+    (0x30b9, dialogue::add_speaker, "sub_30b9"),
+    (0x3120, dialogue::add_speaker_40, "sub_3120"),
+    (0x2017, story::ui_comm, "ui_comm"),
+    (0x17be, ui::redraw_head_panel, "loc_017be"),
+    (0xbf26, scenes::stats_numbers, "loc_0bf26"),
+    (0xaa70, voice::transfer_sd_block, "transfer_sd_block_qq"),
+    (0x5e6d, map::nearest_shown_location, "loc_05e6d"),
+    (0xba15, globe::globe_increment_tilt, "globe_increment_tilt_by_ax"),
+    (0x9cc6, dialogue::grow_dialogue_rect, "loc_09cc6"),
+    (0xd7b7, screens::blink_gauges, "loc_0d7b7"),
+    (0x3d83, story::sal_read_position_markers, "sal_read_position_markers"),
 ];
 
 /// 8-bit register numbers (the CPU's encoding).

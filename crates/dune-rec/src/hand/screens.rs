@@ -894,3 +894,92 @@ pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.ret()
 }
+
+/// `loc_0d7b7`: every 64 ticks of [0CE7Ah] (a new [0DCF1h]): the gauges'
+/// blink ([2222h], a counter per side) stepped: on odd steps a side's
+/// gauge [1152h]/[1153h] shows FFh for the redraw (`draw_gauges` between
+/// `loc_0c137`, `loc_0dbb2`, `loc_0dbec`, the resource [2784h] reopened)
+/// unless [1AFEh]; the real values come back.
+pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd7b7)?;
+    let mut c = Ctx::new(m);
+    let t = c.word(0xce7a);
+    let ah = ((t << 2) >> 8) as u8;
+    let last = c.byte(0xdcf1);
+    if ah == last {
+        c.run(start, 6)?;
+        let a = c.shl1(W, t, 2);
+        c.set_reg(AX, a);
+        c.cmp(B, a >> 8, last as u16);
+        return c.ret();
+    }
+    let ax = c.word(0x2222);
+    if ax == 0 {
+        c.run(start, 10)?;
+        let a = c.shl1(W, t, 2);
+        c.cmp(B, a >> 8, last as u16);
+        c.set_byte(0xdcf1, ah);
+        c.set_reg(AX, 0);
+        c.or(W, 0, 0);
+        return c.ret();
+    }
+    let (al, ah2) = (ax as u8, (ax >> 8) as u8);
+    let g = c.word(0x1152);
+    let a1 = al != 0;
+    let odd1 = a1 && al.wrapping_sub(1) & 1 != 0;
+    let a2 = ah2 != 0;
+    let odd2 = a2 && ah2.wrapping_sub(1) & 1 != 0;
+    let k = c.word(0x1afe);
+    let n = 9 + 4 + if a1 { 3 + odd1 as u32 } else { 0 } + 2 + if a2 { 3 + odd2 as u32 } else { 0 } + 4 + 2;
+    c.run(start, n)?;
+    let a = c.shl1(W, t, 2);
+    c.cmp(B, a >> 8, last as u16);
+    c.set_byte(0xdcf1, ah);
+    c.or(W, ax, ax);
+    c.set_reg(BX, g);
+    c.push(g);
+    let mut l = al;
+    let mut h = ah2;
+    let mut bx = g;
+    c.or(B, al as u16, al as u16);
+    if a1 {
+        l = c.dec(B, al as u16) as u8;
+        c.test(B, l as u16, 1);
+        if odd1 {
+            bx = bx & 0xff00 | 0xff;
+        }
+    }
+    c.or(B, ah2 as u16, ah2 as u16);
+    if a2 {
+        h = c.dec(B, ah2 as u16) as u8;
+        c.test(B, h as u16, 1);
+        if odd2 {
+            bx = bx & 0x00ff | 0xff00;
+        }
+    }
+    let ax2 = (h as u16) << 8 | l as u16;
+    c.set_reg(AX, ax2);
+    c.set_reg(BX, bx);
+    c.set_word(0x2222, ax2);
+    c.set_word(0x1152, bx);
+    c.cmp(W, k, 0);
+    if k == 0 {
+        let r = c.word(0x2784);
+        c.push(r);
+        c.call(0xc137, 0xd803)?;
+        c.run(0xd803, 1)?;
+        c.call(0xdbb2, 0xd806)?;
+        c.run(0xd806, 1)?;
+        c.call(0xd763, 0xd809)?;
+        c.run(0xd809, 1)?;
+        c.call(0xdbec, 0xd80c)?;
+        c.run(0xd80c, 2)?;
+        let a = c.pop();
+        c.set_reg(AX, a);
+        c.call(0xc13e, 0xd810)?;
+        c.run(0xd810, 2)?;
+    }
+    let v = c.pop();
+    c.set_word(0x1152, v);
+    c.ret()
+}

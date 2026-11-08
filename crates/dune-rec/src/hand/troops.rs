@@ -3749,3 +3749,89 @@ pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
 }
+
+/// `loc_0342d`: AX = the troop SI's yield: (2·motivation + byte 17h,
+/// at most FFh) × its size / 16, plus that ×2, ×4, ×8, ×16 for bits 5,
+/// 4, 3, 2 of byte 19h (FFFFh on overflow), /256; 1 instead of 0 for a
+/// troop of size 1 or more.
+pub fn troop_yield(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x342d)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x6efd, 0x3430)?;
+    let si = c.reg(SI);
+    let al0 = c.reg8(r8::AL);
+    let b17 = c.byte(si.wrapping_add(0x17));
+    let size = c.byte(si.wrapping_add(0x1a));
+    let b19 = c.byte(si.wrapping_add(0x19));
+    let a2 = al0.wrapping_add(al0);
+    let (s, cf) = a2.overflowing_add(b17);
+    let a = if cf { 0xff } else { s };
+    let base = (a as u16 * size as u16) >> 4;
+    let mut n = 4 + cf as u32 + 12;
+    let mut ax = base;
+    let mut dx = base.wrapping_shl(1);
+    let mut sat = false;
+    for k in 0..4 {
+        if k > 0 {
+            dx = dx.wrapping_shl(1);
+            n += 3;
+        }
+        if b19 & (0x20 >> k) != 0 {
+            let (v, carry) = ax.overflowing_add(dx);
+            ax = v;
+            n += 2;
+            if carry {
+                sat = true;
+                break;
+            }
+        }
+    }
+    if sat {
+        ax = 0xffff;
+        n += 1;
+    }
+    let hi = ax >> 8;
+    n += 4 + if hi != 0 { 1 } else { 4 };
+    c.run(0x3430, n)?;
+    c.xor(B, 0, 0);
+    let x = c.add(B, al0 as u16, al0 as u16);
+    let x = c.add(B, x, b17 as u16);
+    c.set_reg(AX, if cf { 0xff } else { x });
+    c.mul8(size);
+    let v = c.reg(AX);
+    let v = c.shr1(W, v, 4);
+    let mut ax = v;
+    let mut dx = v;
+    let mut bl = b19 as u16;
+    bl = c.shl1(B, bl, 2);
+    dx = c.shl1(W, dx, 1);
+    for k in 0..4 {
+        if k > 0 {
+            dx = c.shl1(W, dx, 1);
+        }
+        bl = c.shl1(B, bl, 1);
+        if c.flag(CF) {
+            ax = c.add(W, ax, dx);
+            if c.flag(CF) {
+                ax = 0xffff;
+                break;
+            }
+        }
+    }
+    c.set_reg(DX, dx);
+    c.set_reg8(r8::BL, bl as u8);
+    let a = ax >> 8;
+    c.xor(B, 0, 0);
+    c.set_reg(AX, a);
+    c.or(W, a, a);
+    if a != 0 {
+        return c.ret();
+    }
+    c.cmp(B, size as u16, 1);
+    let cf = c.flag(CF);
+    c.set_flag(CF, !cf);
+    let al = c.adc(B, 0, 0);
+    c.set_reg(AX, al);
+    c.ret()
+}

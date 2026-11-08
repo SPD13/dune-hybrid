@@ -197,7 +197,7 @@ the instruction count (virtual time). `Ctx` holds the bookkeeping:
   `interp` (`INT` and far calls into the drivers), and tail jumps call the
   target port directly.
 
-Ported: 757 routines (the small ones first: flags and setters, game time,
+Ported: 770 routines (the small ones first: flags and setters, game time,
 location kinds, frame tasks, condition operators, the intro's steps,
 framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
 decompression, voice and music start/stop, DUNE.DAT access, the memory
@@ -240,6 +240,13 @@ Open: under `--call-each` on seed 21, two generated routines differ
 (`hnm_render_timer_callback` and `parse_command_line`, which it interrupts,
 both with the harness's artificial state); they differ the same way with
 `REC_NO_HAND=1`, so it is not a port. Not seen in normal play.
+Since a port added a routine the generated table lacked (`loc_05d44`, now
+1,116 routines), the harness's random registers fall differently, and
+`format_interpolated_string` and `hnm_decode_typed_chunk_video_to_bp` each
+get one call whose garbage state makes the original rewrite its own code
+("the call wrote into the code segment"); Rust keeps the code as it was.
+Without that batch's ports (back to 1,115 routines) they pass; the
+circle ports alone (which do write code) are not the cause.
 
 ## Next steps
 
