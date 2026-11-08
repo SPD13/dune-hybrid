@@ -1380,3 +1380,130 @@ pub fn map_mode_2_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.test(B, b as u16, 0x10);
     close_box_at(&mut c)
 }
+
+/// `loc_08e9e`: the words DL, then (unless DL is 0) BX / (DL - 1) + 6 and
+/// its remainder (BX and 0 for DL 1), else 0, 0, stored at ES:DI; DL
+/// added to [478Ch]; DH counted, DL 0, BX = [478Fh].
+pub fn store_spacing(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8e9e)?;
+    let mut c = Ctx::new(m);
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    let dl = dx & 0xff;
+    if dl == 0 {
+        c.run(start, 11)?;
+        c.set_reg(AX, dx);
+        c.xor(B, dx >> 8, dx >> 8);
+        c.set_reg(AX, 0);
+        c.stos(W);
+        let v = c.byte(0x478c);
+        let v = c.add(B, v as u16, 0);
+        c.set_byte(0x478c, v as u8);
+        c.or(W, 0, 0);
+        c.stos(W);
+        c.stos(W);
+        let dh = c.inc(B, dx >> 8);
+        c.set_reg(DX, dh << 8 | dl);
+        let b = c.word(0x478f);
+        c.set_reg(BX, b);
+        return c.ret();
+    }
+    let d = dl - 1;
+    c.run(start, 6 + 7 + (d != 0) as u32 + 9)?;
+    c.set_reg(AX, dx);
+    c.xor(B, dx >> 8, dx >> 8);
+    c.set_reg(AX, dl);
+    c.stos(W);
+    let v = c.byte(0x478c);
+    let v = c.add(B, v as u16, dl);
+    c.set_byte(0x478c, v as u8);
+    c.or(W, dl, dl);
+    c.push(dx);
+    c.set_reg(AX, bx);
+    c.set_reg(BX, dx);
+    c.xor(B, dx >> 8, dx >> 8);
+    c.set_reg(BX, dl);
+    c.xor(W, 0, 0);
+    c.set_reg(DX, 0);
+    let b = c.dec(W, dl);
+    c.set_reg(BX, b);
+    if d != 0 {
+        c.m.cpu.mul_div(&mut c.m.hw, W, 6, b as u32);
+    }
+    let ax = c.reg(AX);
+    let ax = c.add(W, ax, 6);
+    c.set_reg(AX, ax);
+    c.stos(W);
+    let r = c.reg(DX);
+    c.set_reg(AX, r);
+    c.stos(W);
+    let dx = c.pop();
+    let dh = c.inc(B, dx >> 8);
+    c.xor(B, 0, 0);
+    c.set_reg(DX, dh << 8);
+    let b = c.word(0x478f);
+    c.set_reg(BX, b);
+    c.ret()
+}
+
+/// `loc_09b8b`: the dialogue text dropped: `loc_0a7a5`, [47C3h], [47CEh]
+/// 0, bit 80h of [47D1h] cleared, [47C6h] taken (cleared); when there
+/// was one the frame task 99BEh removed.
+pub fn drop_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9b8b)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xa7a5, 0x9b8e)?;
+    let old = c.word(0x47c6);
+    c.run(0x9b8e, if old != 0 { 9 } else { 8 })?;
+    c.xor(W, 0, 0);
+    c.set_byte(0x47c3, 0);
+    c.set_word(0x47ce, 0);
+    let v = c.byte(0x47d1);
+    let v = c.and(B, v as u16, 0x7f);
+    c.set_byte(0x47d1, v as u8);
+    c.set_word(0x47c6, 0);
+    c.set_reg(AX, old);
+    c.or(W, old, old);
+    if old == 0 {
+        return c.ret();
+    }
+    c.set_reg(SI, 0x99be);
+    super::tasks::remove_frame_task(c.m, 0xda5f)
+}
+
+/// `loc_09655`: the speaker byte 0Eh of SI taken off the gauges at
+/// 1152h/1153h (1153h becomes FFh; from 1152h the other moves down),
+/// its marker at +10D0h cleared, the gauges redrawn ([`draw_gauges`]).
+pub fn drop_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9655)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let cl = c.byte(si.wrapping_add(0x0e));
+    let (g1, g2) = (c.byte(0x1152), c.byte(0x1153));
+    if g2 != cl && g1 != cl {
+        c.run(start, 9)?;
+        c.set_reg8(r8::CL, cl);
+        c.set_reg(DI, 0x1152);
+        c.set_reg8(r8::AL, 0xff);
+        c.cmp(B, g2 as u16, cl as u16);
+        c.cmp(B, g1 as u16, cl as u16);
+        return c.ret();
+    }
+    let first = g2 == cl;
+    c.run(start, if first { 8 } else { 12 })?;
+    c.set_reg8(r8::CL, cl);
+    c.set_reg8(r8::AL, 0xff);
+    c.cmp(B, g2 as u16, cl as u16);
+    let (di, al) = if first {
+        (0x1153u16, 0xffu8)
+    } else {
+        c.cmp(B, g1 as u16, cl as u16);
+        c.set_byte(0x1153, 0xff);
+        (0x1152, g2)
+    };
+    c.set_reg(DI, di);
+    c.set_reg8(r8::AL, al);
+    c.set_byte(di, al);
+    c.set_byte(di.wrapping_add(0x10d0), 0);
+    super::screens::draw_gauges(c.m, 0xd763)
+}

@@ -3419,3 +3419,133 @@ pub fn set_current_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0x114e, ax);
     super::ui::open_sal_resource(c.m, 0x2d74)
 }
+
+/// `sub_110f`: record FD8h's byte 10h set to 0Ah (word 12h 180h) unless
+/// it is 8; then event 280Ah ([`note_event`]).
+pub fn event_280a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x110f)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0xfe8);
+    c.run(start, if k == 8 { 4 } else { 6 })?;
+    c.cmp(B, k as u16, 8);
+    if k != 8 {
+        c.set_byte(0xfe8, 0x0a);
+        c.set_word(0xfea, 0x180);
+    }
+    c.set_reg(AX, 0x280a);
+    note_event_at(&mut c)
+}
+
+/// `loc_029ee`: [`note_pair`] with DI 0.
+pub fn note_pair_0(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x29ee)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    let di = c.reg(DI);
+    c.xor(W, di, di);
+    c.set_reg(DI, 0);
+    note_pair(c.m, 0x29f0)
+}
+
+/// `sub_1166`: [1141h] counted, record FD8h's byte 10h 2 (word 12h
+/// 180h), then pair 105h ([`note_pair_0`]).
+pub fn event_105(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1166)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 5)?;
+    let v = c.byte(0x1141);
+    let v = c.inc(B, v as u16);
+    c.set_byte(0x1141, v as u8);
+    c.set_byte(0xfe8, 2);
+    c.set_word(0xfea, 0x180);
+    c.set_reg(AX, 0x105);
+    note_pair_0(c.m, 0x29ee)
+}
+
+/// `loc_022b1`: the bands of AX against [0BCh] into SS:B4h (four words)
+/// and bits 6 of [0BFh]: below it (AX, 3/4·AX, AX/2, 1/4·AX); else
+/// ([0BCh], AX) then by 3/2 and 2 times it.
+pub fn bands_b4(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x22b1)?;
+    let mut c = Ctx::new(m);
+    let ax = c.reg(AX);
+    let bx = c.word(0xbc);
+    let cx = (bx >> 1).wrapping_add(bx);
+    let dx = bx.wrapping_add(bx);
+    let si = ax >> 1;
+    let di = (ax >> 2).wrapping_add(si);
+    let n = 16 + if ax < bx {
+        6
+    } else if ax < cx {
+        4 + 4
+    } else if ax < dx {
+        4 + 2 + 4
+    } else {
+        4 + 2 + 4
+    };
+    c.run(start, n)?;
+    c.set_reg(BP, 0xb4);
+    let f = c.byte(0xbf);
+    let f = c.and(B, f as u16, 0xf9);
+    c.set_byte(0xbf, f as u8);
+    c.set_reg(BX, bx);
+    let x = c.shr1(W, bx, 1);
+    let x = c.add(W, x, bx);
+    c.set_reg(CX, x);
+    let d = c.add(W, bx, bx);
+    c.set_reg(DX, d);
+    let s = c.shr1(W, ax, 1);
+    c.set_reg(SI, s);
+    let t = c.shr1(W, ax, 2);
+    let t = c.add(W, t, s);
+    c.set_reg(DI, t);
+    c.cmp(W, ax, bx);
+    let put = |c: &mut Ctx, i: u16, v: u16| c.set_word_in(SS, 0xb4 + 2 * i, v);
+    if ax < bx {
+        put(&mut c, 0, ax);
+        put(&mut c, 1, di);
+        put(&mut c, 2, si);
+        let d2 = c.sub(W, di, si);
+        c.set_reg(DI, d2);
+        put(&mut c, 3, d2);
+        return c.ret();
+    }
+    put(&mut c, 0, bx);
+    put(&mut c, 1, ax);
+    c.cmp(W, ax, cx);
+    let bits = if ax < cx {
+        put(&mut c, 2, di);
+        put(&mut c, 3, si);
+        2
+    } else {
+        c.cmp(W, ax, dx);
+        if ax < dx {
+            put(&mut c, 2, di);
+            put(&mut c, 3, cx);
+            4
+        } else {
+            put(&mut c, 2, cx);
+            put(&mut c, 3, dx);
+            6
+        }
+    };
+    let v = c.or(B, f, bits);
+    c.set_byte(0xbf, v as u8);
+    c.ret()
+}
+
+/// `sub_102f`: bit 80h of [124Ah] and [1247h] cleared, [121Dh] = FFFFh,
+/// then [`start_task_176b`] with AX 1321h.
+pub fn start_1321(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x102f)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 5)?;
+    for p in [0x124au16, 0x1247] {
+        let v = c.byte(p);
+        let v = c.and(B, v as u16, 0x7f);
+        c.set_byte(p, v as u8);
+    }
+    c.set_word(0x121d, 0xffff);
+    c.set_reg(AX, 0x1321);
+    start_task_176b(c.m, 0x1771)
+}

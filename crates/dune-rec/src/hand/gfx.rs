@@ -758,3 +758,23 @@ pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x42d0, 1)?;
     c.ret()
 }
+
+/// `loc_07b1b`: the driver's panel fill (far [38DDh], AL the colour byte
+/// 9 of SI) on the screen [0DBDAh], then the rect SI outlined
+/// ([`draw_rect_outline_at_si`]).
+pub fn fill_and_outline(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7b1b)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    let es = c.word(0xdbda);
+    c.set_sreg(ES, es);
+    let si = c.reg(SI);
+    let al = c.byte(si.wrapping_add(9));
+    c.m.cpu.set_reg8(super::r8::AL, al);
+    c.push(si);
+    c.interp(0x7b23, 0x7b27)?;
+    c.run(0x7b27, 2)?;
+    let s = c.pop();
+    c.set_reg(SI, s);
+    draw_rect_outline_at_si(c.m, 0xc551)
+}

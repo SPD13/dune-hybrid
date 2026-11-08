@@ -798,3 +798,99 @@ pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd27f, 1)?;
     c.ret()
 }
+
+/// `loc_0bdbb`: with [0DD0Fh] set, on the back buffer: `loc_0dbb2`,
+/// `loc_0bdfa`, `loc_0bed7`, [115Ch] = the time [2] to 16, `loc_0d075`,
+/// the text 2494h (`loc_0d1a6`); then each of the 6 bytes at 0DD17h equal
+/// to its pair at 0DD11h counted down, and when the last pair matched
+/// `loc_0dbec`.
+pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xbdbb)?;
+    let mut c = Ctx::new(m);
+    let k = c.word(0xdd0f);
+    if k == 0 {
+        c.run(start, 3)?;
+        c.cmp(W, 0, 0);
+        return c.ret();
+    }
+    c.run(start, 3)?;
+    c.cmp(W, k, 0);
+    for (at, to, back) in [(0xbdc2u16, 0xc08eu16, 0xbdc5u16), (0xbdc5, 0xdbb2, 0xbdc8), (0xbdc8, 0xbdfa, 0xbdcb), (0xbdcb, 0xbed7, 0xbdce)] {
+        if at != 0xbdc2 {
+            c.run(at, 1)?;
+        }
+        c.call(to, back)?;
+    }
+    c.run(0xbdce, 4)?;
+    let t = c.word(2);
+    let t = c.and(W, t, 0xfff0);
+    c.set_reg(AX, t);
+    c.set_word(0x115c, t);
+    c.call(0xd075, 0xbdda)?;
+    c.run(0xbdda, 2)?;
+    c.set_reg(SI, 0x2494);
+    c.call(0xd1a6, 0xbde0)?;
+    let step = c.string_step(B);
+    let (mut si, mut di, mut cx) = (0xdd11u16, 0xdd17u16, 6u16);
+    let mut n = 5;
+    let mut ops: Vec<(u16, u16, bool)> = Vec::new();
+    let mut call = false;
+    let mut dec_at: Vec<u16> = Vec::new();
+    loop {
+        let a = c.byte(si);
+        let mut b = c.byte(di);
+        if dec_at.contains(&di) {
+            b = b.wrapping_sub(dec_at.iter().filter(|&&p| p == di).count() as u8);
+        }
+        si = si.wrapping_add(step);
+        di = di.wrapping_add(step);
+        cx -= 1;
+        n += 2;
+        ops.push((a as u16, b as u16, a == b));
+        if a != b && cx != 0 {
+            continue;
+        }
+        n += 1;
+        if a != b {
+            n += 1;
+            break;
+        }
+        n += 3;
+        dec_at.push(di.wrapping_sub(1));
+        if cx != 0 {
+            continue;
+        }
+        n += 2;
+        call = true;
+        break;
+    }
+    c.run(0xbde0, if call { n - 1 } else { n })?;
+    c.set_reg(SI, 0xdd11);
+    c.set_reg(DI, 0xdd17);
+    let ds = c.sreg(pc::cpu::DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    let mut cx = 6u16;
+    for &(a, b, eq) in &ops {
+        c.cmp(B, a, b);
+        let (s, d) = (c.reg(SI), c.reg(DI));
+        c.set_reg(SI, s.wrapping_add(step));
+        c.set_reg(DI, d.wrapping_add(step));
+        cx -= 1;
+        c.set_reg(CX, cx);
+        if eq {
+            let d = c.reg(DI).wrapping_sub(1);
+            let v = c.byte(d);
+            let v = c.dec(B, v as u16);
+            c.set_byte(d, v as u8);
+            let x = c.inc(W, cx);
+            c.set_reg(CX, x.wrapping_sub(1));
+        }
+    }
+    if call {
+        c.call(0xdbec, 0xbdf9)?;
+        c.run(0xbdf9, 1)?;
+    }
+    c.ret()
+}

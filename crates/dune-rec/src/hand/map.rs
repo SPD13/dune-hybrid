@@ -2281,3 +2281,387 @@ pub fn unmark_pending_regions(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x55bf, 1)?;
     c.ret()
 }
+
+/// `loc_04a5a`: `loc_0c137`, then on the back buffer (`loc_0c085`; the
+/// front pointer [0DBDAh] kept) the ring of map points at CS:[149Ah]
+/// (E40Ch..E85Ch, 4 bytes each): each with a mark (AH 0) inside the view
+/// (`loc_062d6`) and the map frame (CCh..139h, 4..39h, after -1) gets
+/// sprite 2Fh (`loc_0c22f`).
+pub fn draw_map_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4a5a)?;
+    let mut c = Ctx::new(m);
+    draw_map_points_at(&mut c)
+}
+
+fn draw_map_points_at(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x4a5a, 1)?;
+    c.call(0xc137, 0x4a5d)?;
+    c.run(0x4a5d, 2)?;
+    let fb = c.word(0xdbda);
+    c.push(fb);
+    c.call(0xc085, 0x4a64)?;
+    c.run(0x4a64, 1)?;
+    let head = c.word(0x149a);
+    c.set_reg(SI, head);
+    loop {
+        let si = c.reg(SI);
+        let step = c.string_step(W);
+        let w1 = c.code_word(si.wrapping_add(step));
+        let mark = (w1 >> 8) as u8 == 0 || (w1 >> 8) as u8 >= 0x81;
+        let _ = mark;
+        let neg = ((w1 >> 8) as u8).wrapping_sub(1) & 0x80 != 0;
+        c.run(0x4a68, 6 + if neg { 2 } else { 0 })?;
+        let dx = c.lods(W, CS);
+        c.set_reg(DX, dx);
+        let bx = c.lods(W, CS);
+        c.set_reg(BX, bx);
+        let ah = c.dec(B, bx >> 8);
+        c.set_reg(AX, ah << 8 | bx & 0xff);
+        if neg {
+            let si = c.reg(SI);
+            c.push(si);
+            c.call(0x62d6, 0x4a78)?;
+            if c.flag(CF) {
+                c.run(0x4a78, 2)?;
+            } else {
+                let (bx, dx) = (c.reg(BX), c.reg(DX));
+                let (x, y) = (dx.wrapping_sub(1), bx.wrapping_sub(1));
+                let (x, y) = (x as i16, y as i16);
+                let n = if x < 0xcc {
+                    4
+                } else if y < 4 {
+                    6
+                } else if x >= 0x13a {
+                    8
+                } else if y >= 0x3a {
+                    10
+                } else {
+                    0
+                };
+                if n != 0 {
+                    c.run(0x4a78, 1 + n + 1)?;
+                } else {
+                    c.run(0x4a78, 1 + 10 + 2)?;
+                }
+                let y = c.dec(W, bx);
+                c.set_reg(BX, y);
+                let x = c.dec(W, dx);
+                c.set_reg(DX, x);
+                c.cmp(W, x, 0xcc);
+                if n == 0 || n > 4 {
+                    c.cmp(W, y, 4);
+                    if n == 0 || n > 6 {
+                        c.cmp(W, x, 0x13a);
+                        if n == 0 || n > 8 {
+                            c.cmp(W, y, 0x3a);
+                        }
+                    }
+                }
+                if n == 0 {
+                    c.set_reg(AX, 0x2f);
+                    c.call(0xc22f, 0x4a98)?;
+                    c.run(0x4a98, 1)?;
+                }
+            }
+            let s = c.pop();
+            c.set_reg(SI, s);
+        }
+        let si = c.reg(SI);
+        let wrap = si >= 0xe85c;
+        let si2 = if wrap { 0xe40c } else { si };
+        let more = si2 != head;
+        c.run(0x4a99, 2 + wrap as u32 + 2 + if more { 0 } else { 2 })?;
+        c.cmp(W, si, 0xe85c);
+        c.set_reg(SI, si2);
+        c.cmp(W, si2, head);
+        if !more {
+            break;
+        }
+    }
+    let fb = c.pop();
+    c.set_word(0xdbda, fb);
+    c.ret()
+}
+
+/// `loc_049d4`: `loc_04988`, then [`draw_map_points`].
+pub fn map_points_after_4988(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x49d4)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x4988, 0x49d7)?;
+    c.run(0x49d7, 2)?;
+    draw_map_points_at(&mut c)
+}
+
+/// `sub_599f`: with [4723h] set (taken, cleared): the point 4710h
+/// (`get_point_4710`); at (DX, BX) = [11C1h], [11C3h] still,
+/// [`gfx_call_3961`], else [0DBE0h] 0 and [`after_8850`].
+pub fn map_point_moved(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x599f)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x4723);
+    if k == 0 {
+        c.run(start, 5)?;
+        c.xor(B, 0, 0);
+        c.set_reg8(r8::AL, 0);
+        c.or(B, 0, 0);
+        return c.ret();
+    }
+    c.run(start, 5)?;
+    c.xor(B, 0, 0);
+    c.set_byte(0x4723, 0);
+    c.set_reg8(r8::AL, k);
+    c.or(B, k as u16, k as u16);
+    c.call(0x557b, 0x59ac)?;
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    let (x, y) = (c.word(0x11c1), c.word(0x11c3));
+    if dx == x && bx == y {
+        c.run(0x59ac, 4)?;
+        c.cmp(W, dx, x);
+        c.cmp(W, bx, y);
+        return gfx_call_3961(c.m, 0x5982);
+    }
+    c.run(0x59ac, if dx != x { 4 } else { 6 })?;
+    c.cmp(W, dx, x);
+    if dx == x {
+        c.cmp(W, bx, y);
+    }
+    c.set_word(0xdbe0, 0);
+    after_8850(c.m, 0x5b10)
+}
+
+/// `loc_060f8`: AL = the balance of the troops of the location DI
+/// (`each_troop` with `loc_06155` summing into BX, DX, CX, [0D81Ch]):
+/// each side's ratio ·256, their difference over the larger, /2 + 80h.
+/// Bails before a division that would fault.
+pub fn location_balance(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x60f8)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 6)?;
+    c.xor(W, 0, 0);
+    c.set_reg(BX, 0);
+    c.set_reg(CX, 0);
+    c.set_reg(DX, 0);
+    c.set_word(0xd81c, 0);
+    c.set_reg(BP, 0x6155);
+    c.call(0x6603, 0x6108)?;
+    let (bx, cx, dx) = (c.reg(BX), c.reg(CX), c.reg(DX));
+    let e = c.word(0xd81c);
+    let s1 = bx.wrapping_add(dx);
+    let q1 = if s1 != 0 { ((dx as u32) << 8) / s1 as u32 } else { 0 };
+    let s2 = cx.wrapping_add(e);
+    let q2 = if s2 != 0 { ((e as u32) << 8) / s2 as u32 } else { 0 };
+    if q1 > 0xffff {
+        c.m.cpu.ip = 0x6108;
+        return Err(Bail);
+    }
+    let q1 = q1 as u16;
+    if q2 > 0xffff {
+        c.m.cpu.ip = 0x6108;
+        return Err(Bail);
+    }
+    let q2 = q2 as u16;
+    let si = if q1 >= q2 { q1 } else { q2 };
+    let diff = q1.wrapping_sub(q2);
+    if si != 0 {
+        let num = (diff as i16 as i32) * 256 + if diff & 0x8000 != 0 { 255 } else { 0 };
+        let q = num / si as i16 as i32;
+        if si as i16 == 0 || !(-32768..=32767).contains(&q) {
+            c.m.cpu.ip = 0x6108;
+            return Err(Bail);
+        }
+    }
+    let n = 3 + 3 * (s1 != 0) as u32 + 5 + 3 * (s2 != 0) as u32 + 4 + (q1 < q2) as u32 + 4 + 4 * (si != 0) as u32 + 3;
+    c.run(0x6108, n)?;
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    let b = c.add(W, bx, dx);
+    c.set_reg(BX, b);
+    if s1 != 0 {
+        c.set_reg(AX, (dx & 0xff) << 8);
+        c.set_reg(DX, dx >> 8);
+        c.m.cpu.mul_div(&mut c.m.hw, W, 6, s1 as u32);
+    }
+    let ax = c.reg(AX);
+    c.set_reg(BX, ax);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.set_reg(DX, e);
+    let s = c.add(W, cx, e);
+    c.set_reg(CX, s);
+    if s2 != 0 {
+        c.set_reg(AX, (e & 0xff) << 8);
+        c.set_reg(DX, e >> 8);
+        c.m.cpu.mul_div(&mut c.m.hw, W, 6, s2 as u32);
+    }
+    let ax = c.reg(AX);
+    c.set_reg(CX, ax);
+    c.set_reg(SI, q1);
+    c.cmp(W, q1, q2);
+    c.set_reg(SI, si);
+    c.set_reg(AX, q1);
+    let d = c.sub(W, q1, q2);
+    c.set_reg(AX, d);
+    c.or(W, si, si);
+    if si != 0 {
+        let dxs = if d & 0x8000 != 0 { 0xffff } else { 0 };
+        let a = d.swap_bytes();
+        let (a, dl) = ((a & 0xff00) | (dxs & 0xff), a as u8);
+        c.set_reg(AX, a);
+        c.set_reg(DX, (dxs & 0xff00) | dl as u16);
+        c.m.cpu.mul_div(&mut c.m.hw, W, 7, si as u32);
+    }
+    let ax = c.reg(AX);
+    let ax = c.m.cpu.shift(7, W, ax as u32, 1) as u16;
+    let al = c.add(B, ax & 0xff, 0x80);
+    c.set_reg(AX, ax & 0xff00 | al);
+    c.ret()
+}
+
+/// `loc_0605c`: the location DI's line of the caption: the label 6Ch
+/// (colour 90h) at ([1668h] + 4, BX + 0Ah), then for a location with bit
+/// 20h of byte 0Ah its count (byte 1Bh, `draw_number_al` with the phrase
+/// 75h) and `loc_0617a` (BP [166Ch]), else the phrase 6Dh. BX moves
+/// down 7.
+pub fn caption_count_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x605c)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xd075, 0x605f)?;
+    c.run(0x605f, 6)?;
+    c.set_reg8(r8::CL, 0x90);
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 0x0a);
+    c.set_reg(BX, bx);
+    let x = c.word(0x1668);
+    let dx = c.add(W, x, 4);
+    c.set_reg(DX, dx);
+    c.set_reg(AX, 0x6c);
+    c.call(0xd194, 0x6071)?;
+    let di = c.reg(DI);
+    let al = c.byte(di.wrapping_add(0x1b));
+    let f = c.byte(di.wrapping_add(0x0a));
+    c.run(0x6071, 5)?;
+    c.set_reg8(r8::AL, al);
+    c.set_reg(SI, 0x75);
+    c.set_reg(BP, 0x6d);
+    c.test(B, f as u16, 0x20);
+    if f & 0x20 == 0 {
+        c.run(0x609d, 5)?;
+        c.set_reg(AX, 0x6d);
+        let bx = c.reg(BX);
+        let bx = c.add(W, bx, 7);
+        c.set_reg(BX, bx);
+        let x = c.word(0x1668);
+        let dx = c.add(W, x, 0x0a);
+        c.set_reg(DX, dx);
+        return super::text::font_draw_string_with_color_at_pos(c.m, 0xd194);
+    }
+    c.run(0x6080, 4)?;
+    let (cx, ax) = (c.reg(CX), c.reg(AX));
+    c.push(cx);
+    c.push(ax);
+    c.push(0x75);
+    c.call(0xe295, 0x6086)?;
+    c.run(0x6086, 8)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    let x = c.pop();
+    c.set_reg(CX, x);
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 7);
+    c.set_reg(BX, bx);
+    let x = c.word(0x1668);
+    let dx = c.add(W, x, 4);
+    c.set_reg(DX, dx);
+    let bp = c.word(0x166c);
+    c.set_reg(BP, bp);
+    c.push(bx);
+    c.call(0x617a, 0x609a)?;
+    c.run(0x609a, 3)?;
+    let b = c.pop();
+    c.set_reg(BX, b);
+    let x = c.pop();
+    c.set_reg(CX, x);
+    c.ret()
+}
+
+/// `loc_04bdf`: the scrolling scene: resource [485Eh] opened, the 8.8
+/// positions [4878h]/[4876h] stepped by [4874h]/[4872h] into [4870h]/
+/// [486Eh], the view clamped there (`clamp_view_rect`), then the
+/// script at [486Ah] (in the segment [0DBB2h]; restarted from [4868h] at
+/// an FFh) up to its 0: each entry ([`draw_sprite_list`], 1 takes the
+/// next byte as AL, AH 1); [486Ah] after the 0.
+pub fn draw_scroll_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4bdf)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let r = c.word(0x485e);
+    c.set_reg(AX, r);
+    c.call(0xc13e, 0x4be5)?;
+    c.run(0x4be5, 17)?;
+    for (pos, step, out) in [(0x4878u16, 0x4874u16, 0x4870u16), (0x4876, 0x4872, 0x486e)] {
+        let a = c.word(pos);
+        c.xor(B, 0, 0);
+        let s = c.word(step);
+        let a = c.add(W, a & 0xff, s);
+        c.set_word(pos, a);
+        let v = (a >> 8) as u8 as i8 as i16 as u16;
+        c.set_reg(AX, v);
+        let o = c.word(out);
+        let o = c.add(W, o, v);
+        c.set_word(out, o);
+    }
+    let dx = c.word(0x486e);
+    let bx = c.word(0x4870);
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    c.call(0x4b5f, 0x4c16)?;
+    let si = c.word(0x486a);
+    let seg = c.word_in(SS, 0xdbb2);
+    let b = c.byte_at_seg(seg, si);
+    c.run(0x4c16, if b == 0xff { 5 } else { 4 })?;
+    c.set_reg(SI, si);
+    c.set_sreg(DS, seg);
+    c.cmp(B, b as u16, 0xff);
+    if b == 0xff {
+        let s = c.word_in(SS, 0x4868);
+        c.set_reg(SI, s);
+    }
+    loop {
+        let p = c.reg(SI);
+        let al = c.byte(p);
+        if al == 0 {
+            c.run(0x4c29, 8)?;
+            c.lods(B, DS);
+            let ah = c.reg8(r8::AH);
+            c.xor(B, ah as u16, ah as u16);
+            c.set_reg8(r8::AH, 0);
+            c.or(B, 0, 0);
+            let ss = c.sreg(SS);
+            c.push(ss);
+            let v = c.pop();
+            c.set_sreg(DS, v);
+            let si = c.reg(SI);
+            c.set_word(0x486a, si);
+            return c.ret();
+        }
+        c.run(0x4c29, 8 + if al == 1 { 2 } else { 0 })?;
+        c.lods(B, DS);
+        let ah = c.reg8(r8::AH);
+        c.xor(B, ah as u16, ah as u16);
+        c.set_reg8(r8::AH, 0);
+        c.or(B, al as u16, al as u16);
+        c.cmp(B, al as u16, 1);
+        if al == 1 {
+            c.set_reg8(r8::AH, 1);
+            c.lods(B, DS);
+        }
+        let si = c.reg(SI);
+        c.push(si);
+        c.call(0x4c45, 0x4c3b)?;
+        c.run(0x4c3b, 2)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+    }
+}
