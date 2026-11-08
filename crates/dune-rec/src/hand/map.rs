@@ -4423,3 +4423,145 @@ fn map_marker(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -> Res
     c.set_reg(AX, a);
     super::resources::open_resource_by_index(c.m, 0xc13e)
 }
+
+/// `loc_057e5`: the map's region colours into the 100h bytes at BP
+/// (70h for none; resource 3Ah opened; registers kept): for each
+/// location from 100h (no bit 80h of byte 0Ah), its region (byte 10h)
+/// gets 75h (78h with bit 2 of [2942h]), or 50h + its byte 12h / 16
+/// for a sietch with bit 40h; with [4722h] instead the troops' strength
+/// there (`loc_06639` with `loc_05728`, then `loc_0586e`, BH).
+pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x57e5)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xe270, 0x57e8)?;
+    c.run(0x57e8, 3)?;
+    let es = c.sreg(ES);
+    c.push(es);
+    c.set_reg(AX, 0x3a);
+    c.call(0xc13e, 0x57ef)?;
+    c.run(0x57ef, 6)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let e = c.pop();
+    c.set_sreg(ES, e);
+    let bp = c.reg(BP);
+    c.set_reg(DI, bp);
+    c.set_reg8(r8::AL, 0x70);
+    c.set_reg(CX, 0x100);
+    c.rep(0xaa);
+    let k = c.byte(0x4722);
+    if k == 0 {
+        let alt = c.byte(0x2942) & 2 != 0;
+        let mut n = 2 + 3;
+        let mut p = 0x100u16;
+        loop {
+            let f = c.byte(p.wrapping_add(0x0a));
+            n += 3;
+            if f & 0x80 == 0 {
+                n += 6 + alt as u32 + 2 + if f & 0x40 != 0 { 6 } else { 0 } + 1;
+            }
+            p = p.wrapping_add(0x1c);
+            n += 3;
+            if c.byte(p) == 0xff {
+                break;
+            }
+        }
+        c.run(0x57fa, n + 2)?;
+        c.cmp(B, 0, 0);
+        c.set_reg(SI, 0x100);
+        c.set_reg(DI, bp);
+        c.xor(W, 0, 0);
+        let mut bx = 0u16;
+        let mut p = 0x100u16;
+        loop {
+            let f = c.byte(p.wrapping_add(0x0a));
+            c.set_reg8(r8::AL, f);
+            c.test(B, f as u16, 0x80);
+            if f & 0x80 == 0 {
+                bx = c.byte(p.wrapping_add(0x10)) as u16;
+                c.test(B, f as u16, 0x40);
+                let fl = c.m.cpu.flags();
+                c.push(fl);
+                let w = c.byte(0x2942);
+                c.test(B, w as u16, 2);
+                let mut al = if alt { 0x78u16 } else { 0x75 };
+                let fl = c.pop();
+                c.m.cpu.set_flags(fl);
+                if f & 0x40 != 0 {
+                    let b = c.byte(p.wrapping_add(0x12)) as u16;
+                    let b = c.shr1(B, b, 4);
+                    al = c.add(B, b, 0x50);
+                }
+                c.set_reg8(r8::AL, al as u8);
+                c.set_byte(bx.wrapping_add(bp), al as u8);
+            }
+            let np = c.add(W, p, 0x1c);
+            let b = c.byte(np);
+            c.cmp(B, b as u16, 0xff);
+            p = np;
+            if b == 0xff {
+                break;
+            }
+        }
+        c.set_reg(SI, p);
+        c.set_reg(BX, bx);
+        let e = c.pop();
+        c.set_sreg(ES, e);
+        c.call(code::RESTORE_REGS, 0x583e)?;
+        c.run(0x583e, 1)?;
+        return c.ret();
+    }
+    c.run(0x57fa, 3)?;
+    c.cmp(B, k as u16, 0);
+    c.set_reg(DI, 0x100);
+    let mut di = 0x100u16;
+    loop {
+        let f = c.byte(di.wrapping_add(0x0a));
+        if f & 0x80 != 0 {
+            c.run(0x5842, 3)?;
+            c.set_reg8(r8::AL, f);
+            c.test(B, f as u16, 0x80);
+        } else {
+            c.run(0x5842, 8)?;
+            c.set_reg8(r8::AL, f);
+            c.test(B, f as u16, 0x80);
+            let bp = c.reg(BP);
+            c.push(bp);
+            c.xor(W, 0, 0);
+            c.set_reg(BX, 0);
+            c.set_reg(CX, 0);
+            c.set_reg(BP, 0x5728);
+            c.call(0x6639, 0x5854)?;
+            c.run(0x5854, 2)?;
+            let b = c.pop();
+            c.set_reg(BP, b);
+            c.call(0x586e, 0x5858)?;
+            c.run(0x5858, 4)?;
+            let d = c.reg(DI);
+            let r = c.byte(d.wrapping_add(0x10));
+            c.xor(B, 0, 0);
+            c.set_reg(AX, r as u16);
+            c.set_reg(SI, r as u16);
+            let bp = c.reg(BP);
+            let bh = c.reg8(r8::BH);
+            c.m.cpu.write8(&mut c.m.hw, SS, bp.wrapping_add(r as u16), bh);
+            di = d;
+        }
+        let nd = di.wrapping_add(0x1c);
+        let nb = c.byte(nd);
+        c.run(0x5861, 3 + if nb == 0xff { 2 } else { 0 })?;
+        let d = c.add(W, di, 0x1c);
+        c.set_reg(DI, d);
+        c.cmp(B, nb as u16, 0xff);
+        di = d;
+        if nb == 0xff {
+            break;
+        }
+    }
+    let e = c.pop();
+    c.set_sreg(ES, e);
+    c.call(code::RESTORE_REGS, 0x586d)?;
+    c.run(0x586d, 1)?;
+    c.ret()
+}

@@ -1373,3 +1373,155 @@ pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x43e2, 1)?;
     c.ret()
 }
+
+/// `loc_01948`: the people panel: counts in a table of 24h bytes on the
+/// stack: each of the 10h records from FD8h at the current place ([7]
+/// against byte 3) and known (`loc_0127c` with byte 0Eh) counts at its
+/// slot (byte 0 - 1, +0Ch with bit 40h of byte 0Fh), the place [4] up to
+/// 0Ch at 17h + it; then for the 0Bh slots of the list 1426h (offsets
+/// from (([120Dh], [120Fh])) both counts drawn (`loc_019df`) and the
+/// third as sprite 1.
+pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1948)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 7)?;
+    let sp = c.reg(SP);
+    let sp = c.sub(W, sp, 0x24);
+    c.set_reg(SP, sp);
+    c.set_reg(DI, sp);
+    let ss = c.sreg(SS);
+    c.push(ss);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.set_reg(CX, 0x24);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.rep(0xaa);
+    c.run(0x1956, 4)?;
+    let tab = sp;
+    c.set_reg(SI, 0xfd8);
+    c.set_reg(DI, tab);
+    c.set_reg(CX, 0x10);
+    let place = c.byte(7);
+    c.set_reg8(r8::DH, place);
+    for i in 0..0x10u16 {
+        let si = 0xfd8 + 0x10 * i;
+        c.set_reg(SI, si);
+        let b3 = c.byte(si.wrapping_add(3));
+        'one: {
+            if b3 != place {
+                c.run(0x1962, 2)?;
+                c.cmp(B, place as u16, b3 as u16);
+                break 'one;
+            }
+            c.run(0x1962, 4)?;
+            c.cmp(B, place as u16, b3 as u16);
+            let al = c.byte(si.wrapping_add(0x0e));
+            c.set_reg8(r8::AL, al);
+            c.call(0x127c, 0x196d)?;
+            if c.flag(CF) {
+                c.run(0x196d, 1)?;
+                break 'one;
+            }
+            let si = c.reg(SI);
+            let w = c.word(si);
+            let f = c.byte(si.wrapping_add(0x0f));
+            let hi = f & 0x40 != 0;
+            c.run(0x196d, 6 + hi as u32 + 1)?;
+            let bl = c.dec(B, w & 0xff);
+            c.xor(B, 0, 0);
+            c.test(B, f as u16, 0x40);
+            let mut bx = bl;
+            if hi {
+                bx = c.add(W, bx, 0x0c);
+            }
+            c.set_reg(BX, bx);
+            let di = c.reg(DI);
+            let v = c.byte(bx.wrapping_add(di));
+            let v = c.inc(B, v as u16);
+            c.set_byte(bx.wrapping_add(di), v as u8);
+        }
+        let si = c.reg(SI);
+        let more = i != 0x0f;
+        c.run(0x1980, 2)?;
+        let s = c.add(W, si, 0x10);
+        c.set_reg(SI, s);
+        c.set_reg(CX, 0x0f - i);
+        let _ = more;
+    }
+    let p4 = c.byte(4);
+    let low = p4 <= 0x0c;
+    c.run(0x1985, 4 + if low { 2 } else { 0 } + 3)?;
+    let w4 = c.word(4);
+    c.xor(B, 0, 0);
+    let mut bx = w4 & 0xff;
+    c.cmp(B, bx, 0x0c);
+    let di = c.reg(DI);
+    if low {
+        bx = c.add(B, bx, 0x17);
+        let v = c.byte(bx.wrapping_add(di));
+        let v = c.inc(B, v as u16);
+        c.set_byte(bx.wrapping_add(di), v as u8);
+    }
+    c.set_reg(BX, bx);
+    c.set_reg(CX, 0x0b);
+    let di = c.inc(W, di);
+    c.set_reg(DI, di);
+    c.set_reg(SI, 0x1426);
+    for i in 0..0x0bu16 {
+        c.run(0x199c, 14)?;
+        let (x0, y0) = (c.word(0x120d), c.word(0x120f));
+        let ox = c.lods(B, DS);
+        c.xor(B, 0, 0);
+        let dx = c.add(W, x0, ox);
+        let oy = c.lods(B, DS);
+        let bx = c.add(W, y0, oy);
+        c.set_reg(AX, oy);
+        let (cx, si, di) = (c.reg(CX), c.reg(SI), c.reg(DI));
+        c.push(cx);
+        c.push(si);
+        c.push(di);
+        let bx = c.add(W, bx, 2);
+        c.set_reg(BX, bx);
+        let dx = c.add(W, dx, 3);
+        c.set_reg(DX, dx);
+        let n = c.byte(di);
+        c.set_reg8(r8::CL, n);
+        c.call(0x19df, 0x19ba)?;
+        c.run(0x19ba, 3)?;
+        let bx = c.reg(BX);
+        let bx = c.add(W, bx, 7);
+        c.set_reg(BX, bx);
+        let di = c.reg(DI);
+        let n = c.byte(di.wrapping_add(0x0c));
+        c.set_reg8(r8::CL, n);
+        c.call(0x19df, 0x19c3)?;
+        let di = c.reg(DI);
+        let third = c.byte(di.wrapping_add(0x18));
+        c.run(0x19c3, 4 + if third != 0 { 2 } else { 0 })?;
+        let bx = c.reg(BX);
+        let bx = c.sub(W, bx, 4);
+        c.set_reg(BX, bx);
+        let dx = c.reg(DX);
+        let dx = c.add(W, dx, 9);
+        c.set_reg(DX, dx);
+        c.cmp(B, third as u16, 0);
+        if third != 0 {
+            c.set_reg(AX, 1);
+            c.call(0xc22f, 0x19d5)?;
+        }
+        let last = i == 0x0a;
+        c.run(0x19d5, 5 + if last { 2 } else { 0 })?;
+        let d = c.pop();
+        let s = c.pop();
+        c.set_reg(SI, s);
+        let x = c.pop();
+        let d = c.inc(W, d);
+        c.set_reg(DI, d);
+        c.set_reg(CX, x.wrapping_sub(1));
+    }
+    let sp = c.reg(SP);
+    let sp = c.add(W, sp, 0x24);
+    c.set_reg(SP, sp);
+    c.ret()
+}
