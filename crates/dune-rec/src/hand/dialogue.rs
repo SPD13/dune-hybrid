@@ -2462,3 +2462,60 @@ pub fn show_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.cmp(B, b as u16, 0xfe);
     c.ret()
 }
+
+/// `loc_09efd`: the voice for the text: [47DDh] = [47DCh]; when
+/// `load_voc_and_lipsync_data` (AX [4780h], BX [47C4h]) starts one (CF),
+/// `loc_09f1c` for a speaker below 10h, `loc_09197`, the lip-sync task
+/// A7C2h (`add_frame_task`, BP 0), [0DC2Bh] 1, the driver's voice start
+/// (far [3991h] with 3811h), [0DC2Ch] the time, [0DC2Eh] 8000h, and
+/// `loc_0a82e` when `loc_0a814` says so.
+pub fn start_text_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9efd)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 5)?;
+    let al = c.byte(0x47dc);
+    c.set_reg8(r8::AL, al);
+    c.set_byte(0x47dd, al);
+    let ax = c.word(0x4780);
+    c.set_reg(AX, ax);
+    let bx = c.word(0x47c4);
+    c.set_reg(BX, bx);
+    c.call(0xa6cc, 0x9f0d)?;
+    if !c.flag(pc::cpu::CF) {
+        c.run(0x9f0d, 2)?;
+        return c.ret();
+    }
+    let who = c.word(0x47c4);
+    if who < 0x10 {
+        c.run(0x9f0d, 4)?;
+        c.cmp(W, who, 0x10);
+        c.call(0x9f1c, 0x9f19)?;
+        c.run(0x9f19, 2)?;
+    } else {
+        c.run(0x9f0d, 5)?;
+        c.cmp(W, who, 0x10);
+    }
+    c.call(0x9197, 0xa75f)?;
+    c.run(0xa75f, 3)?;
+    c.set_reg(BP, 0);
+    c.set_reg(SI, 0xa7c2);
+    c.call(code::ADD_FRAME_TASK, 0xa768)?;
+    c.run(0xa768, 2)?;
+    c.set_byte(0xdc2b, 1);
+    c.set_reg(SI, 0x3811);
+    c.interp(0xa770, 0xa774)?;
+    c.run(0xa774, 4)?;
+    let t = c.word(0xce7a);
+    c.set_reg(AX, t);
+    c.set_word(0xdc2c, t);
+    c.set_word(0xdc2e, 0x8000);
+    c.call(0xa814, 0xa783)?;
+    if !c.flag(pc::cpu::CF) {
+        c.run(0xa783, 2)?;
+        return c.ret();
+    }
+    c.run(0xa783, 2)?;
+    c.call(0xa82e, 0xa788)?;
+    c.run(0xa788, 1)?;
+    c.ret()
+}

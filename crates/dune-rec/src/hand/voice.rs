@@ -766,3 +766,85 @@ pub fn transfer_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(si.wrapping_add(7), 0x41);
     c.ret()
 }
+
+/// `loc_0ab45`: when `loc_0ae2f` finds a voice (not ZF), `loc_0ade0`
+/// (AX kept), then [`play_voice_19`].
+pub fn play_voice_after_ade0(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xab45)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xae2f, 0xab48)?;
+    if c.flag(ZF) {
+        c.run(0xab48, 2)?;
+        return c.ret();
+    }
+    c.run(0xab48, 3)?;
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.call(0xade0, 0xab4e)?;
+    c.run(0xab4e, 1)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    play_voice_19_at(&mut c)
+}
+
+/// `loc_0ab4f`: the voice AX (block 19h, `loc_0a8bc`) played unless one
+/// is playing (`is_voc_pcm_playing`) or none is found (`loc_0ae2f`):
+/// `loc_0ac14`, then unless `loc_0a90b` fails, its data (`loc_0a9b9`,
+/// [3811h] + 1Ah), the frame task AB92h (BP 1) and the driver's start
+/// (far [3991h]); registers and ES kept.
+pub fn play_voice_19(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xab4f)?;
+    let mut c = Ctx::new(m);
+    play_voice_19_at(&mut c)
+}
+
+fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0xab4f, 3)?;
+    c.set_byte(0x47e0, 0);
+    c.set_reg(BX, 0x19);
+    c.call(0xa8bc, 0xab5a)?;
+    c.run(0xab5a, 2)?;
+    c.set_byte(0x37e2, 0x49);
+    c.call(0xabcc, 0xab62)?;
+    if !c.flag(ZF) {
+        c.run(0xab62, 2)?;
+        return c.ret();
+    }
+    c.run(0xab62, 2)?;
+    c.call(0xae2f, 0xab67)?;
+    if c.flag(ZF) {
+        c.run(0xab67, 2)?;
+        return c.ret();
+    }
+    c.run(0xab67, 3)?;
+    let es = c.sreg(ES);
+    c.push(es);
+    c.call(0xe270, 0xab6d)?;
+    c.run(0xab6d, 1)?;
+    c.call(0xac14, 0xab70)?;
+    c.run(0xab70, 1)?;
+    c.call(0xa90b, 0xab73)?;
+    if !c.flag(CF) {
+        c.run(0xab73, 3)?;
+        let v = c.word(0x3811);
+        let v = c.add(W, v, 0x1a);
+        c.set_word(0x3811, v);
+        c.call(0xa9b9, 0xab7d)?;
+        c.run(0xab7d, 3)?;
+        c.set_reg(SI, 0xab92);
+        c.set_reg(BP, 1);
+        c.call(0xda25, 0xab86)?;
+        c.run(0xab86, 1)?;
+        c.set_reg(SI, 0x3811);
+        c.interp(0xab89, 0xab8d)?;
+        c.run(0xab8d, 1)?;
+    } else {
+        c.run(0xab73, 2)?;
+    }
+    c.call(0xe283, 0xab90)?;
+    c.run(0xab90, 2)?;
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.ret()
+}

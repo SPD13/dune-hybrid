@@ -853,7 +853,12 @@ pub fn globe_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(0xb977, 0xb98e)?;
-    c.run(0xb98e, 1)?;
+    globe_frame_from_b98e(&mut c, 0xb98e, 0)
+}
+
+/// [`globe_frame`] from B98Eh, after `pre` instructions from `at`.
+fn globe_frame_from_b98e(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
+    c.run(at, pre + 1)?;
     c.call(0xbaf2, 0xb991)?;
     c.run(0xb991, 4)?;
     let (bx, dx) = (c.reg(BX), c.reg(DX));
@@ -1202,4 +1207,20 @@ pub fn set_globe_tilt_and_rotation(m: &mut Machine, start: u16) -> Result<(), Ba
     c.run(0xba9c, 1 + n?)?;
     tilt_walk(&mut c, true, false)?;
     c.ret()
+}
+
+/// `sub_b9ae`: the driver's globe drag (far [3915h], ES the front
+/// buffer); when it moved (CF), a [`globe_frame`] without its first step.
+pub fn globe_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb9ae)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    let es = c.word(0xdbd6);
+    c.set_sreg(ES, es);
+    c.interp(0xb9b2, 0xb9b6)?;
+    if !c.flag(CF) {
+        c.run(0xb9b6, 2)?;
+        return c.ret();
+    }
+    globe_frame_from_b98e(&mut c, 0xb9b6, 1)
 }
