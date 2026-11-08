@@ -942,6 +942,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x1027, story::buttons_after_122e, "sub_1027"),
     (0x10a4, story::buttons_after_1245, "sub_10a4"),
     (0x1188, story::buttons_after_1259, "loc_01188"),
+    (0x0083, ui::draw_head_panel_0083, "loc_00083"),
+    (0x2090, story::next_demand, "loc_02090"),
 ];
 
 /// 8-bit register numbers (the CPU's encoding).

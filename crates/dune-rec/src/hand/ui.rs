@@ -1525,3 +1525,12 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SP, sp);
     c.ret()
 }
+
+/// `loc_00083`: `loc_0cfa0`, then [`draw_head_panel_0086`].
+pub fn draw_head_panel_0083(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0083)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xcfa0, 0x0086)?;
+    draw_head_panel_0086(c.m, 0x0086)
+}

@@ -4300,3 +4300,122 @@ pub fn buttons_after_1259(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word(0x1211, 0xffff);
     })
 }
+
+/// `loc_02090`: the next spice demand: [118Dh] = the day; [0BCh] =
+/// ([0C3h], counted, ·96h + 64h) · (E0h + a random 0..3Fh) / 256, for
+/// [0BEh] below 80h scaled by (100h + ~(2·[0BEh]))/256; FFFFh on any
+/// overflow. [0CFh] 0, [0BFh] |= 90h, then event 20Bh (30Bh for [0BEh]
+/// below 80h) ([`note_event`]).
+pub fn next_demand(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2090)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x1ac5, 0x2093)?;
+    let ax0 = c.reg(AX);
+    let k = c.byte(0xc3);
+    let be = c.byte(0xbe);
+    let pos = be & 0x80 == 0;
+    let tail_n = |out: bool| out as u32 + 7 + pos as u32;
+    let p = ((ax0 & 0xff00) | k as u16) as u32 * 0x96;
+    let over1 = p >> 16 != 0;
+    let (s, carry) = (p as u16).overflowing_add(0x64);
+    let head = |c: &mut Ctx| {
+        c.set_word(0x118d, ax0);
+        c.set_reg8(r8::AL, k);
+        let v = c.inc(B, k as u16);
+        c.set_byte(0xc3, v as u8);
+        c.set_reg(BX, 0x96);
+        c.mul16(0x96);
+        let dx = c.reg(DX);
+        c.or(W, dx, dx);
+    };
+    if over1 {
+        c.run(0x2093, 8 + tail_n(true))?;
+        head(&mut c);
+        return demand_tail(&mut c, true);
+    }
+    if carry {
+        c.run(0x2093, 10 + tail_n(true))?;
+        head(&mut c);
+        let ax = c.reg(AX);
+        let a = c.add(W, ax, 0x64);
+        c.set_reg(AX, a);
+        return demand_tail(&mut c, true);
+    }
+    c.run(0x2093, 13)?;
+    head(&mut c);
+    let ax = c.reg(AX);
+    let a = c.add(W, ax, 0x64);
+    c.set_reg(AX, a);
+    c.set_reg(CX, s);
+    c.set_reg(BX, 0x3f);
+    c.call(0xe3b7, 0x20ef)?;
+    let r = c.reg(AX).wrapping_add(0xe0);
+    let q = r as u32 * s as u32;
+    let (dxq, axq) = ((q >> 16) as u16, q as u16);
+    let d = (dxq & 0xff) << 8 | axq >> 8;
+    let mut out;
+    let n;
+    if dxq >> 8 != 0 {
+        out = true;
+        n = 4;
+    } else if !pos {
+        out = false;
+        n = 9;
+    } else {
+        let a2 = 0x100u16 | (!(be << 1)) as u16;
+        let m2 = a2 as u32 * d as u32;
+        let dx2 = ((m2 >> 16) as u16).swap_bytes();
+        let ah2 = dx2 & 0xff;
+        out = ah2 != 0;
+        n = 16;
+    }
+    c.run(0x20ef, n + tail_n(out))?;
+    let ax = c.reg(AX);
+    let a = c.add(W, ax, 0xe0);
+    c.set_reg(AX, a);
+    c.mul16(s);
+    let dx = c.reg(DX);
+    c.or(B, dx >> 8, dx >> 8);
+    if dx >> 8 == 0 {
+        let ax = c.reg(AX);
+        let d = (dx & 0xff) << 8 | ax >> 8;
+        c.set_reg(DX, d);
+        let sh = c.shl1(B, be as u16, 1);
+        c.set_reg(AX, ax & 0xff00 | sh);
+        if pos {
+            let al = !(sh as u8);
+            c.set_reg(AX, 0x100 | al as u16);
+            c.mul16(d);
+            let (dxr, axr) = (c.reg(DX), c.reg(AX));
+            let dxs = dxr.swap_bytes();
+            let new_dx = dxs & 0xff00 | axr >> 8;
+            let new_ax = (dxs & 0xff) << 8 | axr & 0xff;
+            c.set_reg(DX, new_dx);
+            c.set_reg(AX, new_ax);
+            c.or(B, new_ax >> 8, new_ax >> 8);
+            out = new_ax >> 8 != 0;
+        }
+    }
+    demand_tail(&mut c, out)
+}
+
+fn demand_tail(c: &mut Ctx, out: bool) -> Result<(), Bail> {
+    if out {
+        c.set_reg(DX, 0xffff);
+    }
+    let dx = c.reg(DX);
+    c.set_word(0xbc, dx);
+    c.set_byte(0xcf, 0);
+    let v = c.byte(0xbf);
+    let v = c.or(B, v as u16, 0x90);
+    c.set_byte(0xbf, v as u8);
+    c.set_reg(AX, 0x20b);
+    let be = c.byte(0xbe);
+    c.cmp(B, be as u16, 0);
+    if be & 0x80 == 0 {
+        let ah = c.inc(B, 2);
+        c.set_reg(AX, ah << 8 | 0x0b);
+    }
+    note_event_at(c)
+}
