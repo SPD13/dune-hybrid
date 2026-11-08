@@ -312,6 +312,12 @@ pub fn unpack_0cf2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0cf2)?;
     let mut c = Ctx::new(m);
     c.run(start, 10)?;
+    unpack(&mut c);
+    c.ret()
+}
+
+/// [`unpack_0cf2`]'s instructions (counted by the caller).
+fn unpack(c: &mut Ctx) {
     let (ax, bx, dx) = (c.reg(AX), c.reg(BX), c.reg(DX));
     let al = c.add(Width::B, ax & 0xff, bx & 0xff);
     let ax = c.m.cpu.shift(1, Width::W, (ax & 0xff00 | al) as u32, 5) as u16; // ror ax, 5
@@ -321,5 +327,30 @@ pub fn unpack_0cf2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::CL, 3);
     c.set_reg(BX, ah << 8 | bx >> 8);
     c.set_reg(DX, (ax & 0xff) << 8 | dx >> 8);
+}
+
+/// `loc_00cea`: [`unpack_0cf2`] of DL (signed: of -DL, DH negated after)
+/// with AH = 0.
+pub fn unpack_signed(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0cea)?;
+    let mut c = Ctx::new(m);
+    let dl = c.reg8(r8::DL);
+    let neg = dl & 0x80 != 0;
+    c.run(start, if neg { 6 } else { 14 })?;
+    c.set_reg(AX, 0);
+    c.xor(W, 0, 0);
+    c.set_reg8(r8::AL, dl);
+    c.or(Width::B, dl as u16, dl as u16);
+    if !neg {
+        unpack(&mut c);
+        return c.ret();
+    }
+    let al = c.neg(Width::B, dl as u16);
+    c.set_reg8(r8::AL, al as u8);
+    c.call(0x0cf2, 0x0d0a)?;
+    c.run(0x0d0a, 2)?;
+    let dh = c.reg8(r8::DH);
+    let dh = c.neg(Width::B, dh as u16);
+    c.set_reg8(r8::DH, dh as u8);
     c.ret()
 }

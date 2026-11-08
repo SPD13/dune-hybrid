@@ -1047,3 +1047,177 @@ pub fn settings_music_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.ret()
 }
+
+/// `loc_019df`: up to 5 sprites 2 in a row from (DX, BX), 4 apart, for
+/// CL (DX, DI kept).
+pub fn draw_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x19df)?;
+    let mut c = Ctx::new(m);
+    let cl = c.reg8(r8::CL);
+    if cl == 0 {
+        c.run(start, 3)?;
+        c.set_reg8(r8::CH, 0);
+        c.xor(B, 0, 0);
+        return c.ret();
+    }
+    c.run(start, 6 + (cl > 5) as u32 + 3)?;
+    c.set_reg8(r8::CH, 0);
+    c.xor(B, 0, 0);
+    let (dx, di) = (c.reg(DX), c.reg(DI));
+    c.push(dx);
+    c.push(di);
+    c.cmp(B, cl as u16, 5);
+    let n = cl.min(5) as u16;
+    c.set_reg(CX, n);
+    c.push(n);
+    c.set_reg(AX, 2);
+    c.call(code::DRAW_SPRITE, 0x19f3)?;
+    loop {
+        let sp = c.reg(SP);
+        let left = c.word_in(SS, sp).wrapping_sub(1);
+        c.run(0x19f3, 3 + if left == 0 { 3 } else { 3 })?;
+        let cx = c.pop();
+        let _ = cx;
+        let dx = c.reg(DX);
+        let dx = c.add(W, dx, 4);
+        c.set_reg(DX, dx);
+        c.set_reg(CX, left);
+        if left == 0 {
+            let di = c.pop();
+            c.set_reg(DI, di);
+            let dx = c.pop();
+            c.set_reg(DX, dx);
+            return c.ret();
+        }
+        c.push(left);
+        c.set_reg(AX, 2);
+        c.call(code::DRAW_SPRITE, 0x19f3)?;
+    }
+}
+
+/// `loc_01a0f`: unless [1AFEh] is set, the date panel's frame (UI element
+/// 1AF4h) and the date drawn and copied to the screen (rect 1F06h), the
+/// cursor restored first; the sprite sheet [2784h] opened again.
+pub fn redraw_date_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1a0f)?;
+    let mut c = Ctx::new(m);
+    let v = c.word(0x1afe);
+    c.run(start, 3)?;
+    c.cmp(W, v, 0);
+    if v != 0 {
+        return c.ret();
+    }
+    c.call(0xdbb2, 0x1a19)?;
+    c.run(0x1a19, 2)?;
+    let sheet = c.word(0x2784);
+    c.push(sheet);
+    c.call(0xc137, 0x1a20)?;
+    c.run(0x1a20, 2)?;
+    c.set_reg(SI, 0x1af4);
+    c.call(0xd200, 0x1a26)?;
+    c.run(0x1a26, 1)?;
+    c.call(0x1a34, 0x1a29)?;
+    c.run(0x1a29, 2)?;
+    c.set_reg(SI, 0x1f06);
+    c.call(0xc4aa, 0x1a2f)?;
+    c.run(0x1a2f, 2)?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x1a33)?;
+    c.run(0x1a33, 1)?;
+    c.ret()
+}
+
+/// `loc_015a8`: [11EBh]'s phrase drawn at (0Ah, 9Dh) with the glyphs of
+/// `font_draw_glyph_func`, in colour CX.
+pub fn draw_phrase_11eb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x15a8)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xd08f, 0x15ab)?;
+    c.run(0x15ab, 4)?;
+    let p = c.word(0x11eb);
+    c.set_reg(AX, p);
+    c.set_reg(DX, 0x0a);
+    c.set_reg(BX, 0x9d);
+    super::text::font_draw_string_with_color_at_pos(c.m, 0xd194)
+}
+
+/// `loc_018ba`: leaving a place: three UI elements' words cleared, the
+/// room's frame task removed, the voice stopped (PCM function 5), and
+/// more (`loc_04d00`, the screens left, [11CAh] set, `loc_098e6`);
+/// `loc_00b21` when [2Bh] is set.
+pub fn leave_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x18ba)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    for at in [0x1c06, 0x1c14, 0x1c22] {
+        c.set_word(at, 0);
+    }
+    c.call(0x39e6, 0x18cf)?;
+    let mut at = 0x18cf;
+    for target in [0xac30, 0x4d00, 0xd2bd, 0x4aca, 0x98e6] {
+        c.run(at, 1)?;
+        c.call(target, at + 3)?;
+        at += 3;
+    }
+    let v = c.byte(0x2b);
+    c.run(0x18de, if v == 0 { 4 } else { 4 })?;
+    c.set_byte(0x46df, 0);
+    c.cmp(B, v as u16, 0);
+    if v == 0 {
+        return c.ret();
+    }
+    c.call(0x0b21, 0x18ed)?;
+    c.run(0x18ed, 1)?;
+    c.ret()
+}
+
+/// `loc_00d0d`: with ZF (from the caller) or BL = 0Ah, sprite 37h (36h for
+/// BL = 0Ah) of the scene's resource (`open_onmap_resource`) and sprite
+/// 35h, their palettes to the driver (functions at 38BDh and 394Dh);
+/// else the driver's function at 3951h. BX = 180h, CX = 54h.
+pub fn scene_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0d0d)?;
+    let mut c = Ctx::new(m);
+    let zf = c.flag(pc::cpu::ZF);
+    let bl = c.reg8(r8::BL);
+    let picture = zf || bl == 0x0a;
+    c.run(start, if zf { 6 } else if picture { 9 } else { 8 })?;
+    c.set_reg8(r8::AL, bl);
+    c.set_reg(BX, 0x180);
+    c.set_reg(CX, 0x54);
+    c.set_reg8(r8::DL, 0x37);
+    if !zf {
+        let dx = c.reg(DX);
+        let dx = c.dec(W, dx);
+        c.set_reg(DX, dx);
+        c.cmp(B, bl as u16, 0x0a);
+    }
+    if !picture {
+        c.interp(0x0d1e, 0x0d22)?;
+        c.run(0x0d22, 1)?;
+        return c.ret();
+    }
+    c.call(0xc13b, 0x0d26)?;
+    c.run(0x0d26, 3)?;
+    let dl = c.reg8(r8::DL);
+    c.set_reg(AX, dl as u16);
+    c.xor(B, 0, 0);
+    c.call(0xc1f4, 0x0d2d)?;
+    c.run(0x0d2d, 1)?;
+    let si = c.reg(SI);
+    c.set_reg(DX, si.wrapping_add(6));
+    c.interp(0x0d30, 0x0d34)?;
+    c.run(0x0d34, 1)?;
+    c.call(0xc0f4, 0x0d37)?;
+    c.run(0x0d37, 2)?;
+    c.set_reg(AX, 0x35);
+    c.call(0xc1f4, 0x0d3d)?;
+    c.run(0x0d3d, 1)?;
+    let si = c.reg(SI);
+    c.set_reg(DX, si.wrapping_add(6));
+    c.interp(0x0d40, 0x0d44)?;
+    c.run(0x0d44, 1)?;
+    c.ret()
+}

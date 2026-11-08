@@ -490,9 +490,16 @@ pub fn open_sal_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// from row DBh, or for the night sky F0h from 180h; then, outside the
 /// palace's map view, 30h from 2D0h. DX moves on by the first count.
 fn sky_palette_rows(c: &mut Ctx) -> Result<(), Bail> {
+    sky_rows_at(c, 0x39b9)
+}
+
+/// [`sky_palette_rows`] at `base` (39B9h, or 398Ch for its twin through
+/// the driver's function at 38BDh).
+fn sky_rows_at(c: &mut Ctx, base: u16) -> Result<(), Bail> {
+    let at = |off: u16| base + (off - 0x39b9);
     let variant = c.byte(g::SKY_VARIANT);
     let night = variant == 0;
-    c.run(0x39b9, if night { 7 } else { 5 })?;
+    c.run(base, if night { 7 } else { 5 })?;
     let (mut cx, mut bx) = (0x1c5, 0xdb);
     c.set_reg(CX, cx);
     c.set_reg(BX, bx);
@@ -503,9 +510,9 @@ fn sky_palette_rows(c: &mut Ctx) -> Result<(), Bail> {
         c.set_reg(BX, bx);
     }
     c.push(cx);
-    c.interp(0x39cd, 0x39d1)?;
+    c.interp(at(0x39cd), at(0x39d1))?;
     let flag = c.byte(g::MAP_VIEW_FLAG);
-    c.run(0x39d1, if flag != 0 { 5 } else { 6 })?;
+    c.run(at(0x39d1), if flag != 0 { 5 } else { 6 })?;
     let cx = c.pop();
     c.set_reg(CX, cx);
     let dx = c.reg(DX);
@@ -517,9 +524,28 @@ fn sky_palette_rows(c: &mut Ctx) -> Result<(), Bail> {
     }
     c.set_reg(CX, 0x30);
     c.set_reg(BX, 0x2d0);
-    c.interp(0x39e1, 0x39e5)?;
-    c.run(0x39e5, 1)?;
+    c.interp(at(0x39e1), at(0x39e5))?;
+    c.run(at(0x39e5), 1)?;
     c.ret()
+}
+
+/// `loc_0398c`: [`sky_palette_rows`]' twin (the driver's function at
+/// 38BDh).
+pub fn sky_palette_rows_38bd(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x398c)?;
+    sky_rows_at(&mut Ctx::new(m), 0x398c)
+}
+
+/// `loc_038a2`: frame tasks to 30h, the sky palette (`open_sky_or_skydn_
+/// palette_al_sub_bl`) and its rows.
+pub fn sky_palette_with_tasks(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x38a2)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_byte(0x46d7, 0x30);
+    c.call(0x3971, 0x38aa)?;
+    c.run(0x38aa, 1)?;
+    sky_palette_rows(&mut c)
 }
 
 /// `loc_039b9`.

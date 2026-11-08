@@ -5,7 +5,7 @@
 use super::{B, Ctx, W, entered, globals as g};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, SP, SS},
+    cpu::{AX, BP, BX, CF, CS, CX, DI, DS, DX, ES, SI, SP, SS},
     rec::Bail,
 };
 
@@ -13,6 +13,7 @@ mod code {
     pub const SET_FB1_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc07c;
     pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
     pub const DRAW_LINE: u16 = 0xc53e;
+    pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     pub const LOAD_ICONES_SPRITES: u16 = 0xc137;
     pub const APPLY_PALETTE: u16 = 0xc1ba;
     pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
@@ -588,5 +589,172 @@ pub fn add_point_to_ring(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let next = if wrap { POINTS_RING } else { end };
     c.set_reg(DI, next);
     c.set_word(POINTS_NEXT, next);
+    c.ret()
+}
+
+/// `loc_0157e`: a CX-byte block of zeros on the stack handed to the
+/// driver (palette function at 38BDh, or 394Dh with BP set) at DX; AL
+/// noted at [46D7h], CX, BX at D81Ah, D818h.
+pub fn gfx_zero_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x157e)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 10)?;
+    let al = c.reg8(super::r8::AL);
+    c.set_byte(0x46d7, al);
+    let (cx, bx) = (c.reg(CX), c.reg(BX));
+    c.set_word(0xd81a, cx);
+    c.set_word(0xd818, bx);
+    let sp = c.reg(SP);
+    let sp = c.sub(W, sp, cx);
+    c.set_reg(SP, sp);
+    let ss = c.sreg(SS);
+    c.push(ss);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.set_reg(DI, sp);
+    let ax = c.reg(AX);
+    c.xor(W, ax, ax);
+    c.set_reg(AX, 0);
+    c.push(cx);
+    c.m.cpu.string_op(&mut c.m.hw, 0xaa, None, 0xf3); // rep stosb
+    c.run(0x1594, 4)?;
+    let cx = c.pop();
+    c.set_reg(CX, cx);
+    let sp = c.reg(SP);
+    c.set_reg(DX, sp);
+    let bp = c.reg(BP);
+    c.or(W, bp, bp);
+    if bp == 0 {
+        c.interp(0x159b, 0x159f)?;
+        c.run(0x159f, 3)?;
+    } else {
+        c.interp(0x15a1, 0x15a5)?;
+        c.run(0x15a5, 2)?;
+    }
+    let cx = c.reg(CX);
+    let sp = c.reg(SP);
+    let sp = c.add(W, sp, cx);
+    c.set_reg(SP, sp);
+    c.ret()
+}
+
+/// `loc_037ad`: resource 22h opened, its sprite 0 at (0, 0).
+pub fn draw_resource_22(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x37ad)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_reg8(super::r8::AL, 0x22);
+    open_resource_and_draw_sprite_0(c.m, 0xc2f2)
+}
+
+/// `loc_04a1a`: the last point of the ring (unless [4728h] is negative,
+/// the cursor kept off the rect 148Ah): when on the map (row below 100h,
+/// in the view by `loc_062d6`), sprite 2Fh drawn there, one up and left,
+/// into the back buffer.
+pub fn draw_last_ring_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4a1a)?;
+    let mut c = Ctx::new(m);
+    let f = c.byte(0x4728);
+    c.run(start, if f & 0x80 != 0 { 3 } else { 4 })?;
+    c.cmp(B, f as u16, 0);
+    if f & 0x80 != 0 {
+        return c.ret();
+    }
+    c.set_reg(SI, 0x148a);
+    c.call(0xdb74, 0x4a27)?;
+    let p = c.word(POINTS_NEXT);
+    let wrap = p == POINTS_RING;
+    let at = (if wrap { POINTS_RING_END } else { p }).wrapping_sub(4);
+    let y = c.code_word(at.wrapping_add(2));
+    let off_map = (y >> 8).wrapping_sub(1) & 0x80 == 0;
+    c.run(0x4a27, 3 + wrap as u32 + 7 + if off_map { 1 } else { 1 })?;
+    c.set_reg(SI, p);
+    c.cmp(W, p, POINTS_RING);
+    let si = c.sub(W, if wrap { POINTS_RING_END } else { p }, 4);
+    c.set_reg(SI, si);
+    let x = c.lods(W, CS);
+    c.set_reg(DX, x);
+    let y = c.lods(W, CS);
+    c.set_reg(BX, y);
+    let ah = c.dec(B, y >> 8);
+    c.set_reg(AX, ah << 8 | y & 0xff);
+    if off_map {
+        return c.ret();
+    }
+    c.call(0x62d6, 0x4a46)?;
+    if c.flag(CF) {
+        c.run(0x4a46, 2)?;
+        return c.ret();
+    }
+    c.run(0x4a46, 4)?;
+    let bx = c.reg(BX);
+    let bx = c.dec(W, bx);
+    c.set_reg(BX, bx);
+    let dx = c.reg(DX);
+    let dx = c.dec(W, dx);
+    c.set_reg(DX, dx);
+    c.call(code::LOAD_ICONES_SPRITES, 0x4a4d)?;
+    c.run(0x4a4d, 2)?;
+    c.set_reg(AX, 0x2f);
+    c.call(0xc085, 0x4a53)?;
+    c.run(0x4a53, 1)?;
+    c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0x4a56)?;
+    c.run(0x4a56, 1)?;
+    c.call(code::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0x4a59)?;
+    c.run(0x4a59, 1)?;
+    c.ret()
+}
+
+/// `loc_04285`: the intro's script loaded once (resource BEh into the code
+/// segment at 15Fh, its first 8 bytes to AA66h, the pointer moved on by
+/// 167h), [487Eh] = 1, [473Eh] = 0, the screen kind 8, [AA6Eh] = the
+/// script's start; resource 39h opened and the driver's function at
+/// 3935h.
+pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4285)?;
+    let mut c = Ctx::new(m);
+    let loaded = c.code_word(0x15f + 2) != 0;
+    if loaded {
+        c.run(start, 3 + 8)?;
+        c.set_reg(DI, 0x15f);
+        let v = c.code_word(0x161);
+        c.cmp(W, v, 0);
+    } else {
+        c.run(start, 7)?;
+        c.set_reg(DI, 0x15f);
+        c.cmp(W, 0, 0);
+        let cs = c.sreg(CS);
+        c.push(cs);
+        let es = c.pop();
+        c.set_sreg(ES, es);
+        c.set_reg(SI, 0xbe);
+        c.call(code::LOAD_RESOURCE_TO, 0x4297)?;
+        c.run(0x4297, 6)?;
+        c.set_reg(SI, 0x15f);
+        c.set_reg(DI, 0xaa66);
+        let ds = c.sreg(DS);
+        c.push(ds);
+        let es = c.pop();
+        c.set_sreg(ES, es);
+        c.set_reg(CX, 4);
+        c.m.cpu.string_op(&mut c.m.hw, 0xa5, Some(CS), 0xf3); // rep movsw cs:
+        c.run(0x42a5, 1 + 8)?;
+        let si = c.reg(SI);
+        let v = c.word_in(CS, si);
+        let v = c.add(W, v, 0x167);
+        c.set_word_in(CS, si, v);
+    }
+    c.set_word(0x487e, 1);
+    c.set_byte(0x473e, 0);
+    c.set_byte(0x11c9, 8);
+    let p = c.code_word(0x167);
+    let q = c.code_word(p);
+    let si = c.add(W, p, q);
+    c.set_reg(SI, si);
+    c.set_word(0xaa6e, si);
+    c.set_reg(AX, 0x39);
+    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x42cc)?;
+    c.interp(0x42cc, 0x42d0)?;
+    c.run(0x42d0, 1)?;
     c.ret()
 }

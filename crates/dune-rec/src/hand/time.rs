@@ -3,7 +3,7 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BX},
+    cpu::{AX, BX, CX},
     rec::Bail,
 };
 
@@ -103,4 +103,59 @@ pub fn start_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 2)?;
     c.set_byte(CLOCK_STOPPED, 0);
     c.ret()
+}
+
+/// Set while [`run_clock_ticks`] runs.
+const TICKING: u16 = 0x46da;
+
+/// `loc_00fd9`: the game clock run CX ticks at once (the clock started;
+/// each tick the countdown reset from [146Eh], the game time up one, and
+/// `loc_01b23` once or twice with [46DDh]).
+pub fn run_clock_ticks(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0fd9)?;
+    let mut c = Ctx::new(m);
+    loop {
+        c.run(0x0fd9, 2)?;
+        c.set_byte(TICKING, 1);
+        c.call(0xb2be, 0x0fe1)?;
+        let cx = c.reg(CX);
+        if cx as i16 <= 0 {
+            c.run(0x0fe1, 4)?;
+            c.or(W, cx, cx);
+            c.set_byte(TICKING, 0);
+            return c.ret();
+        }
+        let pending = c.byte(0x46dd) != 0;
+        c.run(0x0fe1, 7 + pending as u32)?;
+        c.or(W, cx, cx);
+        c.push(cx);
+        let reset = c.word(0x146e);
+        c.set_reg(AX, reset);
+        c.set_word(0x46db, reset);
+        let v = c.byte(0x46dd);
+        c.cmp(B, v as u16, 0);
+        if pending {
+            c.call(0x1b23, 0x0ff6)?;
+            c.run(0x0ff6, 3)?;
+        } else {
+            c.run(0x0ff6, 3)?;
+        }
+        let t = c.word(g::GAME_TIME);
+        let t = c.inc(W, t);
+        c.set_word(g::GAME_TIME, t);
+        c.set_byte(0x46dd, 1);
+        c.call(0x1b23, 0x1002)?;
+        let sp = c.reg(pc::cpu::SP);
+        let cx = c.word_in(pc::cpu::SS, sp).wrapping_sub(1);
+        if cx == 0 {
+            c.run(0x1002, 4)?;
+            c.pop();
+            c.set_reg(CX, 0);
+            c.set_byte(TICKING, 0);
+            return c.ret();
+        }
+        c.run(0x1002, 2)?;
+        c.pop();
+        c.set_reg(CX, cx);
+    }
 }

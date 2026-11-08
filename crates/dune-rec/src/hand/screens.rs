@@ -610,3 +610,59 @@ pub fn element_under_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
 }
+
+/// `loc_0301a`: the buttons from 1D1Eh (see [`set_buttons`]).
+pub fn set_buttons_1d1e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x301a)?;
+    set_buttons(&mut Ctx::new(m), start, 2, |c| c.set_reg(SI, 0x1d1e))
+}
+
+/// `loc_03901`: the frame task `loc_03916` every 10h ticks.
+pub fn add_task_3916(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x3901)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    c.set_reg(SI, 0x3916);
+    c.set_reg(BP, 0x10);
+    super::tasks::add_frame_task(c.m, 0xda25)
+}
+
+/// `loc_04b2b`: the rect 1492h copied from the back buffer (unless
+/// [4728h] is negative); then the cursor: hidden below row 88h..97h
+/// (`call_restore_cursor` there), [DC46h] one down at the top (to 80h
+/// when it stays shown).
+pub fn cursor_over_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4b2b)?;
+    let mut c = Ctx::new(m);
+    let f = c.byte(0x4728);
+    if f & 0x80 != 0 {
+        c.run(start, 3)?;
+        c.cmp(B, f as u16, 0);
+    } else {
+        c.run(start, 4)?;
+        c.cmp(B, f as u16, 0);
+        c.set_reg(SI, 0x1492);
+        c.call(0xc46f, 0x4b38)?;
+        c.run(0x4b38, 1)?;
+    }
+    let y = c.word(g::CURSOR_Y);
+    let shown = c.byte(g::CURSOR_SHOWN);
+    let after = shown.wrapping_sub(1);
+    let n = if y >= 0x98 { 4 } else if y >= 0x88 { 5 } else if after & 0x80 != 0 { 8 } else { 9 };
+    c.run(0xdbca, n)?;
+    c.set_reg(AX, y);
+    c.cmp(W, y, 0x98);
+    if y >= 0x98 {
+        return c.ret();
+    }
+    c.cmp(W, y, 0x88);
+    if y >= 0x88 {
+        return super::mouse::call_restore_cursor(c.m, 0xdbb2);
+    }
+    let v = c.dec(B, shown as u16) as u8;
+    c.set_byte(g::CURSOR_SHOWN, v);
+    if v & 0x80 == 0 {
+        c.set_byte(g::CURSOR_SHOWN, 0x80);
+    }
+    c.ret()
+}
