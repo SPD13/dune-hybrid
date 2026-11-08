@@ -4467,3 +4467,167 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
 }
+
+/// `loc_08604`: the troop SI's step toward its location: DX the x step
+/// (± the scale [4880h + 2·|y|]) and BX the y step (±1), along the larger
+/// of the scaled x distance and the y distance; 0 near (below 7) and on
+/// alternate ticks of the seed [0] (rotated) for the smaller axis. SI
+/// kept. Bails at entry for a zero scale.
+pub fn troop_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8604)?;
+    let mut c = Ctx::new(m);
+    let si0 = c.reg(SI);
+    let loc = c.word(si0.wrapping_add(4));
+    let lx = c.word(loc.wrapping_add(2));
+    let ly = c.word(loc.wrapping_add(4));
+    let ty = c.word(si0.wrapping_add(8));
+    let tx = c.word(si0.wrapping_add(6));
+    let b2 = ty.wrapping_shl(1);
+    let n1 = b2 & 0x8000 != 0;
+    let idx = if n1 { b2.wrapping_neg() } else { b2 };
+    let scale = c.word_in(SS, idx.wrapping_add(0x4880));
+    if scale == 0 {
+        return Err(Bail);
+    }
+    let by = ty.wrapping_sub(ly).wrapping_neg();
+    let n2 = by & 0x8000 != 0;
+    let ay = if n2 { by.wrapping_neg() } else { by };
+    let dxv = lx.wrapping_sub(tx);
+    let n3 = dxv & 0x8000 != 0;
+    let ax0 = if n3 { dxv.wrapping_neg() } else { dxv };
+    let q = ax0 / scale;
+    let seed = c.word(0);
+    let roll_cf = seed & 0x8000 != 0;
+    let mut n = 7 + n1 as u32 + 5 + 2 * n2 as u32 + 3 + n3 as u32 + 3 + 4;
+    // Paths: A (q >= |dy|) or B; see the listing at 863Dh.
+    if q >= ay {
+        n += 2;
+        if q < 7 {
+            n += 4;
+        } else {
+            n += 2 + (ay == 0) as u32 + 2 + n3 as u32 + 2;
+            if q >> 1 == 0 {
+                n += 2;
+            } else {
+                n += 3 + (!roll_cf) as u32 + 2;
+            }
+        }
+    } else {
+        n += 2;
+        if ay < 7 {
+            n += 4;
+        } else {
+            n += 2;
+            if q == 0 {
+                n += 2;
+            } else {
+                n += 2 + n3 as u32 + 2;
+                if ay >> 1 == 0 {
+                    n += 2;
+                } else {
+                    n += 3;
+                    if roll_cf {
+                        n += 2;
+                    } else {
+                        n += 3;
+                    }
+                }
+            }
+        }
+    }
+    c.run(start, n)?;
+    c.push(si0);
+    c.set_reg(DI, loc);
+    let bp = c.shl1(W, ty, 1);
+    let bp = if n1 { c.neg(W, bp) } else { bp };
+    let _ = bp;
+    let mut bp = scale;
+    let bx = c.sub(W, ty, ly);
+    let bx = c.neg(W, bx);
+    let mut bx = bx;
+    let mut di = 1u16;
+    if n2 {
+        di = c.neg(W, 1);
+        bx = c.neg(W, bx);
+    }
+    let d = c.sub(W, lx, tx);
+    let mut ax = d;
+    if n3 {
+        ax = c.neg(W, d);
+    }
+    c.set_reg(AX, ax);
+    c.set_reg(DX, 0);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 6, scale as u32);
+    let ax = c.reg(AX);
+    let mut dx = d;
+    // xchg di, bx
+    let (d2, b2) = (bx, di);
+    let mut bxr = b2;
+    let dir = d2;
+    c.cmp(W, ax, dir);
+    let mut ax = ax;
+    if ax >= dir {
+        c.cmp(W, ax, 7);
+        if ax < 7 {
+            c.xor(W, 0, 0);
+            bxr = 0;
+            dx = 0;
+        } else {
+            c.or(W, dir, dir);
+            if dir == 0 {
+                c.xor(W, 0, 0);
+                bxr = 0;
+            }
+            c.or(W, dx, dx);
+            if n3 {
+                bp = c.neg(W, bp);
+            }
+            ax = c.shr1(W, ax, 1);
+            if ax != 0 {
+                dx = bp;
+                let s = c.rol1(W, seed);
+                c.set_word(0, s);
+                if !roll_cf {
+                    c.xor(W, 0, 0);
+                    bxr = 0;
+                }
+            }
+        }
+    } else {
+        c.cmp(W, dir, 7);
+        if dir < 7 {
+            c.xor(W, 0, 0);
+            bxr = 0;
+            dx = 0;
+        } else {
+            c.or(W, ax, ax);
+            if ax != 0 {
+                c.or(W, dx, dx);
+                if n3 {
+                    bp = c.neg(W, bp);
+                }
+                let d3 = c.shr1(W, dir, 1);
+                c.set_reg(DI, d3);
+                if d3 != 0 {
+                    dx = bp;
+                    let s = c.rol1(W, seed);
+                    c.set_word(0, s);
+                    if !roll_cf {
+                        c.xor(W, 0, 0);
+                        dx = 0;
+                    }
+                }
+            }
+        }
+    }
+    if !(ax < dir && dir >= 7 && ax != 0) {
+        c.set_reg(DI, dir);
+    }
+    c.set_reg(AX, ax);
+    c.set_reg(BX, bxr);
+    c.set_reg(DX, dx);
+    c.set_reg(BP, bp);
+    let s = c.pop();
+    c.set_reg(SI, s);
+    c.ret()
+}
