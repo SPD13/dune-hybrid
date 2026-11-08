@@ -4419,3 +4419,157 @@ fn demand_tail(c: &mut Ctx, out: bool) -> Result<(), Bail> {
     }
     note_event_at(c)
 }
+
+/// `loc_02170`: the 9 people records from FD8h updated (registers
+/// kept), those without bit 40h of byte 0Fh: record 1008h at its home
+/// (180h) gets state 4; one away from a place (byte 2 not 80h) moves on
+/// (`loc_0221d`); at a place in state 1 (below 21h, not the current [9],
+/// at a location without bit 2 of byte 0Ah) the state counted up, and at
+/// place 1 its next state from 144Dh by byte 0Eh (6 becomes 0Ah before
+/// phase 24h; bit 4 of byte 0Fh cleared); others from 1028h at place 1
+/// get `loc_021fa`'s.
+pub fn update_people(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2170)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xe270, 0x2173)?;
+    c.run(0x2173, 2)?;
+    c.set_reg(SI, 0xfd8);
+    c.set_reg(CX, 9);
+    for i in 0..9u16 {
+        let si = 0xfd8 + 0x10 * i;
+        let f = c.byte(si.wrapping_add(0x0f));
+        'one: {
+            if f & 0x40 != 0 {
+                c.run(0x2179, 2)?;
+                c.test(B, f as u16, 0x40);
+                break 'one;
+            }
+            let mut dx = c.word(si);
+            let bx = c.word(si.wrapping_add(2));
+            let home = si == 0x1008 && bx == 0x180;
+            let n0 = 2 + 4 + if si == 0x1008 { 2 + if home { 2 } else { 0 } } else { 0 } + 2;
+            if home {
+                dx = dx & 0xff00 | 4;
+            }
+            let ops0 = |c: &mut Ctx| {
+                c.test(B, f as u16, 0x40);
+                c.set_reg(DX, dx);
+                c.set_reg(BX, bx);
+                c.cmp(W, si, 0x1008);
+                if si == 0x1008 {
+                    c.cmp(W, bx, 0x180);
+                    if home {
+                        c.set_word(si, dx);
+                    }
+                }
+                c.cmp(B, bx & 0xff, 0x80);
+            };
+            if bx & 0xff != 0x80 {
+                c.run(0x2179, n0 + 1)?;
+                ops0(&mut c);
+                c.call(0x221d, 0x21f1)?;
+                break 'one;
+            }
+            let dl = dx as u8;
+            let (dh, bh) = ((dx >> 8) as u8, (bx >> 8) as u8);
+            if dl != 1 {
+                let fewer = si < 0x1028;
+                if fewer || bh != 1 {
+                    c.run(0x2179, n0 + 2 + 2 + if fewer { 0 } else { 2 })?;
+                    ops0(&mut c);
+                    c.cmp(B, dl as u16, 1);
+                    c.cmp(W, si, 0x1028);
+                    if !fewer {
+                        c.cmp(B, bh as u16, 1);
+                    }
+                    break 'one;
+                }
+                c.run(0x2179, n0 + 2 + 5)?;
+                ops0(&mut c);
+                c.cmp(B, dl as u16, 1);
+                c.cmp(W, si, 0x1028);
+                c.cmp(B, 1, 1);
+                c.call(0x21fa, 0x21ea)?;
+                c.run(0x21ea, 2)?;
+                let al = c.reg8(r8::AL);
+                c.set_byte(si, al);
+                break 'one;
+            }
+            let cur = c.byte(9);
+            let loc = (0x1cu16 * bh as u16).wrapping_add(0xe4);
+            let lf = c.byte(loc.wrapping_add(0x0a));
+            let mut n = n0 + 2 + 2;
+            let stage = if dh >= 0x21 {
+                0
+            } else if bh == cur {
+                n += 2;
+                1
+            } else if lf & 2 != 0 {
+                n += 2 + 6;
+                2
+            } else if bh != 1 {
+                n += 2 + 6 + 3;
+                3
+            } else {
+                n += 2 + 6 + 3 + 7;
+                4
+            };
+            let e = c.byte(si.wrapping_add(0x0e));
+            let nx = c.byte(0x144du16.wrapping_add(e as u16));
+            let ph = c.byte(0x2a);
+            if stage == 4 && nx == 6 {
+                n += 2 + if ph < 0x24 { 2 } else { 0 };
+            }
+            c.run(0x2179, n)?;
+            ops0(&mut c);
+            c.cmp(B, 1, 1);
+            c.cmp(B, dh as u16, 0x21);
+            if stage == 0 {
+                break 'one;
+            }
+            c.cmp(B, bh as u16, cur as u16);
+            if stage == 1 {
+                break 'one;
+            }
+            c.set_reg8(r8::AL, 0x1c);
+            c.mul8(bh);
+            let a = c.reg(AX);
+            let a = c.add(W, a, 0xe4);
+            c.set_reg(AX, a);
+            c.set_reg(DI, a);
+            c.test(B, lf as u16, 2);
+            if stage == 2 {
+                break 'one;
+            }
+            let v = c.byte(si);
+            let v = c.inc(B, v as u16);
+            c.set_byte(si, v as u8);
+            c.cmp(B, bh as u16, 1);
+            if stage == 3 {
+                break 'one;
+            }
+            c.set_reg(BX, 0x144d);
+            c.set_reg8(r8::AL, nx);
+            c.set_byte(si, nx);
+            let g = c.byte(si.wrapping_add(0x0f));
+            let g = c.and(B, g as u16, 0xfb);
+            c.set_byte(si.wrapping_add(0x0f), g as u8);
+            c.cmp(B, nx as u16, 6);
+            if nx == 6 {
+                c.cmp(B, ph as u16, 0x24);
+                if ph < 0x24 {
+                    c.set_byte(si, 0x0a);
+                }
+            }
+        }
+        let last = i == 8;
+        c.run(0x21f1, 2 + if last { 1 } else { 0 })?;
+        let s = c.add(W, si, 0x10);
+        c.set_reg(SI, s);
+        c.set_reg(CX, 8 - i);
+    }
+    c.call(0xe283, 0x21f9)?;
+    c.run(0x21f9, 1)?;
+    c.ret()
+}
