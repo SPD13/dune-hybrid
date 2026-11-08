@@ -3,7 +3,7 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BX, DX, SI},
+    cpu::{AX, BX, CX, DX, SI},
     rec::Bail,
 };
 
@@ -135,5 +135,65 @@ pub fn joystick_as_keys(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(a, res as u8);
         c.set_byte(b, (res >> 8) as u8);
     }
+    c.ret()
+}
+
+/// `loc_0daaf`: the cursor moved by (DX, BX), clamped (signed) to the
+/// bounds at 0DC3Ah, into [0DC36h], [0DC38h]; unless bit 40h of [2942h],
+/// the mouse driver told (INT 33h function 4, scaled by the shifts in
+/// [2580h]).
+pub fn move_cursor_by(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xdaaf)?;
+    let mut c = Ctx::new(m);
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    let b = [c.word(0xdc3a), c.word(0xdc3c), c.word(0xdc3e), c.word(0xdc40)];
+    let (x0, y0) = (c.word(0xdc36), c.word(0xdc38));
+    let f = c.byte(0x2942);
+    let mut n = 3;
+    let mut clamp = |v: u16, lo: u16, hi: u16| -> u16 {
+        let mut v = v;
+        n += 2;
+        if (v as i16) < lo as i16 {
+            v = lo;
+            n += 1;
+        }
+        n += 3;
+        if (v as i16) > hi as i16 {
+            v = hi;
+            n += 1;
+        }
+        v
+    };
+    let x = clamp(x0.wrapping_add(dx), b[0], b[1]);
+    let y = clamp(y0.wrapping_add(bx), b[2], b[3]);
+    n += 7;
+    let tell = f & 0x40 == 0;
+    c.run(start, n + if tell { 8 } else { 1 })?;
+    let replay = |c: &mut Ctx, v: u16, lo: u16, hi: u16| -> u16 {
+        c.cmp(W, v, lo);
+        let v = if (v as i16) < lo as i16 { lo } else { v };
+        c.cmp(W, v, hi);
+        if (v as i16) > hi as i16 { hi } else { v }
+    };
+    let a = c.add(W, x0, dx);
+    let v = replay(&mut c, a, b[0], b[1]);
+    c.set_word(0xdc36, v);
+    let a = c.add(W, y0, bx);
+    let v = replay(&mut c, a, b[2], b[3]);
+    c.set_word(0xdc38, v);
+    c.set_reg(SI, 0xdc40);
+    c.set_reg(AX, v);
+    c.test(B, f as u16, 0x40);
+    if !tell {
+        return c.ret();
+    }
+    let sh = c.word(0x2580);
+    let ax = c.shl(W, x, sh as u8);
+    let d = c.shl(W, y, (sh >> 8) as u8);
+    c.set_reg(DX, d);
+    c.set_reg(CX, ax);
+    c.set_reg(AX, 4);
+    c.interp(0xdb00, 0xdb02)?;
+    c.run(0xdb02, 1)?;
     c.ret()
 }

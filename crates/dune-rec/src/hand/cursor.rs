@@ -358,3 +358,41 @@ pub fn accelerated_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     c.ret()
 }
+
+/// `loc_092c9`: CF set when (DX, BX) is in the rect 1C0Ch (with [1152h]
+/// not FFh) or 1C1Ah (with [1153h] not FFh), by [`point_in_rect`]; CX
+/// the byte.
+pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x92c9)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x1152);
+    if k == 0xff {
+        c.run(start, 5)?;
+        c.xor(W, 0, 0);
+        c.set_reg(CX, 0xff);
+        c.cmp(B, 0xff, 0xff);
+        return c.ret();
+    }
+    c.run(start, 6)?;
+    c.xor(W, 0, 0);
+    c.set_reg(CX, k as u16);
+    c.cmp(B, k as u16, 0xff);
+    c.set_reg(DI, 0x1c0c);
+    c.call(0xd6fe, 0x92da)?;
+    if c.flag(CF) {
+        c.run(0x92da, 2)?;
+        return c.ret();
+    }
+    let k = c.byte(0x1153);
+    if k == 0xff {
+        c.run(0x92da, 5)?;
+        c.set_reg8(r8::CL, k);
+        c.cmp(B, 0xff, 0xff);
+        return c.ret();
+    }
+    c.run(0x92da, 6)?;
+    c.set_reg8(r8::CL, k);
+    c.cmp(B, k as u16, 0xff);
+    c.set_reg(DI, 0x1c1a);
+    point_in_rect(c.m, 0xd6fe)
+}

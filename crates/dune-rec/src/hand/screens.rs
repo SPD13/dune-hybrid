@@ -6,7 +6,7 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CS, CX, DI, ES, SI},
+    cpu::{AX, BP, BX, CF, CS, CX, DI, ES, SI, SP, SS},
     rec::Bail,
 };
 
@@ -664,5 +664,137 @@ pub fn cursor_over_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if v & 0x80 == 0 {
         c.set_byte(g::CURSOR_SHOWN, 0x80);
     }
+    c.ret()
+}
+
+/// `loc_0d280`: with [0DCE6h] above 0 (cleared), registers kept:
+/// `loc_0d239`, then 11h steps of the transition `loc_0c0d5` (SI
+/// [0DBDEh], AL 18h), each held 6 ticks of [0CE7Ah] by `loc_0a7c2`
+/// calls; `loc_0d23d`.
+pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd280)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0xdce6);
+    if (k as i8) <= 0 {
+        c.run(start, 3)?;
+        c.cmp(B, k as u16, 0);
+        return c.ret();
+    }
+    c.run(start, 3)?;
+    c.cmp(B, k as u16, 0);
+    c.call(0xe270, 0xd28a)?;
+    c.run(0xd28a, 2)?;
+    c.set_byte(0xdce6, 0);
+    c.call(0xd239, 0xd292)?;
+    c.run(0xd292, 1)?;
+    c.set_reg(CX, 0x11);
+    loop {
+        c.run(0xd295, 5)?;
+        let cx = c.reg(CX);
+        c.push(cx);
+        let t = c.word(0xce7a);
+        c.push(t);
+        let si = c.word(0xdbde);
+        c.set_reg(SI, si);
+        c.set_reg8(r8::AL, 0x18);
+        c.call(0xc0d5, 0xd2a3)?;
+        c.run(0xd2a3, 1)?;
+        let bx = c.pop();
+        c.set_reg(BX, bx);
+        loop {
+            c.run(0xd2a4, 2)?;
+            let bx = c.reg(BX);
+            c.push(bx);
+            c.call(0xa7c2, 0xd2a8)?;
+            let t = c.word(0xce7a);
+            let d = t.wrapping_sub(c.word_in(SS, c.reg(SP)));
+            let more = d < 6;
+            c.run(0xd2a8, 5)?;
+            let bx = c.pop();
+            c.set_reg(BX, bx);
+            c.set_reg(AX, t);
+            let d2 = c.sub(W, t, bx);
+            c.set_reg(AX, d2);
+            c.cmp(W, d2, 6);
+            if !more {
+                break;
+            }
+        }
+        c.run(0xd2b3, 2)?;
+        let cx = c.pop().wrapping_sub(1);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    c.run(0xd2b6, 1)?;
+    c.call(0xd23d, 0xd2b9)?;
+    c.run(0xd2b9, 1)?;
+    c.call(0xe283, 0xd2bc)?;
+    c.run(0xd2bc, 1)?;
+    c.ret()
+}
+
+/// `loc_0d23d`: the panel 1AF4h nudged one step toward a multiple of 3
+/// (its word 0Ah; words 0Ah, 18h moved by 1 or -1), drawn
+/// (`draw_ui_elements_list_at_ds_si` CX 2, `loc_01a34`), a pause of 0Ah,
+/// moved again and drawn. Bails at entry where the division would fault.
+pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd23d)?;
+    let mut c = Ctx::new(m);
+    let a = c.word(0x1afe);
+    if a / 3 > 0xff {
+        return Err(Bail);
+    }
+    let r = (a % 3) as u8;
+    if r == 0 {
+        c.run(start, 9)?;
+    } else {
+        c.run(start, 8 + 3 + 6)?;
+    }
+    let cx = c.reg(CX);
+    c.xor(W, cx, cx);
+    c.set_reg(SI, 0x1af4);
+    let ax = c.sub(W, a, 0);
+    c.set_reg(AX, ax);
+    c.set_reg(CX, 3);
+    c.m.cpu.mul_div(&mut c.m.hw, B, 6, 3);
+    c.cmp(B, 0, r as u16);
+    if r == 0 {
+        return c.ret();
+    }
+    let step = 0xffffu16;
+    c.set_reg(AX, 1);
+    let step = { let _ = step; c.neg(W, 1) };
+    c.set_reg(AX, step);
+    c.push(step);
+    c.push(0x1af4);
+    for off in [0x0au16, 0x18] {
+        let v = c.word(0x1af4 + off);
+        let v = c.add(W, v, step);
+        c.set_word(0x1af4 + off, v);
+    }
+    c.set_reg(CX, 2);
+    c.call(0xd1f2, 0xd265)?;
+    c.run(0xd265, 1)?;
+    c.call(0x1a34, 0xd268)?;
+    c.run(0xd268, 2)?;
+    c.set_reg(AX, 0x0a);
+    c.call(0xe387, 0xd26e)?;
+    c.run(0xd26e, 6)?;
+    let si = c.pop();
+    c.set_reg(SI, si);
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    for off in [0x0au16, 0x18] {
+        let v = c.word(si.wrapping_add(off));
+        let v = c.add(W, v, ax);
+        c.set_word(si.wrapping_add(off), v);
+    }
+    c.set_reg(CX, 2);
+    c.call(0xd1f2, 0xd27c)?;
+    c.run(0xd27c, 1)?;
+    c.call(0x1a34, 0xd27f)?;
+    c.run(0xd27f, 1)?;
     c.ret()
 }

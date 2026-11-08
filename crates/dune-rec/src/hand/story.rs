@@ -3,7 +3,7 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CX, DI, DX, SI, SP, SS, Width},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, SI, SP, SS, Width},
     rec::Bail,
 };
 
@@ -2265,4 +2265,1157 @@ pub fn message_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
     }
+}
+
+/// `loc_08347`: the 3 words at 11D5h moved down to 11D3h. SI, DI kept; ES
+/// = DS.
+pub fn shift_11d3(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8347)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 12)?;
+    let (si, di) = (c.reg(SI), c.reg(DI));
+    c.push(si);
+    c.push(di);
+    c.set_reg(DI, 0x11d3);
+    c.set_reg(SI, 0x11d5);
+    let ds = c.sreg(pc::cpu::DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(pc::cpu::ES, es);
+    for _ in 0..3 {
+        c.movs(W);
+    }
+    let d = c.pop();
+    c.set_reg(DI, d);
+    let s = c.pop();
+    c.set_reg(SI, s);
+    c.ret()
+}
+
+/// `loc_0998e`: the saved game state swapped with the copy at 4C60h
+/// (`swap_byte_arrays`: 4 words from 1BF0h, 1 from 22A6h, C9h from 4540h,
+/// 7 from 47C4h).
+pub fn swap_game_state(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x998e)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    c.set_reg(DI, 0x4c60);
+    c.set_reg(SI, 0x1bf0);
+    c.set_reg(CX, 4);
+    c.call(0x99b2, 0x999a)?;
+    c.run(0x999a, 3)?;
+    c.set_reg(SI, 0x22a6);
+    c.set_reg(CX, 1);
+    c.call(0x99b2, 0x99a3)?;
+    c.run(0x99a3, 3)?;
+    c.set_reg(SI, 0x4540);
+    c.set_reg(CX, 0xc9);
+    c.call(0x99b2, 0x99ac)?;
+    c.run(0x99ac, 2)?;
+    c.set_reg(SI, 0x47c4);
+    c.set_reg(CX, 7);
+    super::video::swap_byte_arrays(c.m, 0x99b2)
+}
+
+/// `loc_04d6c`: the script at CS:[0AA6Eh] (restarted from CS:[167h] +
+/// its first word at an FFh) run up to its 0: each byte (1 takes the next
+/// as AL, AH 1) to `loc_04da0` with DS = CS; [0AA6Eh] after the 0.
+pub fn run_cs_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4d6c)?;
+    let mut c = Ctx::new(m);
+    let si = c.word(0xaa6e);
+    let b = c.byte_in(pc::cpu::CS, si);
+    if b == 0xff {
+        c.run(start, 8)?;
+        c.set_reg(SI, si);
+        c.cmp(B, b as u16, 0xff);
+        let s = c.code_word(0x167);
+        let v = c.code_word(s);
+        let s = c.add(W, s, v);
+        c.set_reg(SI, s);
+        c.set_word(0xaa6e, s);
+    } else {
+        c.run(start, 5)?;
+        c.set_reg(SI, si);
+        c.cmp(B, b as u16, 0xff);
+    }
+    let cs = c.sreg(pc::cpu::CS);
+    c.push(cs);
+    let v = c.pop();
+    c.set_sreg(pc::cpu::DS, v);
+    loop {
+        let p = c.reg(SI);
+        let al = c.byte_in(pc::cpu::DS, p);
+        if al == 0 {
+            c.run(0x4d84, 8)?;
+            c.lods(B, pc::cpu::DS);
+            let ah = c.reg8(r8::AH);
+            c.xor(B, ah as u16, ah as u16);
+            c.set_reg8(r8::AH, 0);
+            c.or(B, 0, 0);
+            let ss = c.sreg(SS);
+            c.push(ss);
+            let v = c.pop();
+            c.set_sreg(pc::cpu::DS, v);
+            let si = c.reg(SI);
+            c.set_word(0xaa6e, si);
+            return c.ret();
+        }
+        c.run(0x4d84, 8 + if al == 1 { 2 } else { 0 })?;
+        c.lods(B, pc::cpu::DS);
+        let ah = c.reg8(r8::AH);
+        c.xor(B, ah as u16, ah as u16);
+        c.set_reg8(r8::AH, 0);
+        c.or(B, al as u16, al as u16);
+        c.cmp(B, al as u16, 1);
+        if al == 1 {
+            c.set_reg8(r8::AH, 1);
+            c.lods(B, pc::cpu::DS);
+        }
+        let si = c.reg(SI);
+        c.push(si);
+        c.call(0x4da0, 0x4d96)?;
+        c.run(0x4d96, 2)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+    }
+}
+
+/// `loc_026ac`: the driver's picture call (far [391Dh]: BP 15AAh, SI
+/// 4C60h, ES the front buffer); then, from the words at SI, unless the
+/// first is negative, `loc_0c22f` (BX, DX, AX); the area (7Eh, 4Ch) to
+/// (C2h, 4Ch) copied to the screen unless the click handler is 1AD6h.
+/// SI past the words read.
+pub fn draw_scene_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x26ac)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    let si = c.reg(SI);
+    c.push(si);
+    c.set_reg(BP, 0x15aa);
+    c.set_reg(SI, 0x4c60);
+    let es = c.word(0xdbd6);
+    c.set_sreg(pc::cpu::ES, es);
+    c.interp(0x26b7, 0x26bb)?;
+    let step = c.string_step(W);
+    let si = c.word_in(SS, c.reg(SP));
+    let a = c.word(si);
+    if a & 0x8000 == 0 {
+        c.run(0x26bb, 10)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+        let ax = c.lods(W, pc::cpu::DS);
+        c.or(W, ax, ax);
+        c.set_reg(BX, ax);
+        let dx = c.lods(W, pc::cpu::DS);
+        c.set_reg(DX, dx);
+        let ax = c.lods(W, pc::cpu::DS);
+        let bx = c.reg(BX);
+        c.set_reg(BX, ax);
+        c.set_reg(AX, bx);
+        c.call(0xc22f, 0x26cb)?;
+        c.run(0x26cb, 5)?;
+    } else {
+        let _ = step;
+        c.run(0x26bb, 9)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+        let ax = c.lods(W, pc::cpu::DS);
+        c.or(W, ax, ax);
+    }
+    c.set_reg(DX, 0x7e);
+    c.set_reg(BX, 0x4c);
+    c.set_reg(BP, 0xc2);
+    c.set_reg(AX, 0x4c);
+    let h = c.word(g::MAP_CLICK_HANDLER);
+    if h == 0x1ad6 {
+        c.run(0xc526, 3)?;
+        c.cmp(W, h, 0x1ad6);
+        return c.ret();
+    }
+    c.run(0xc526, 5)?;
+    c.cmp(W, h, 0x1ad6);
+    let ds = c.sreg(pc::cpu::DS);
+    c.push(ds);
+    let es = c.word(0xdbd8);
+    let nds = c.word(0xdbd6);
+    c.set_sreg(pc::cpu::ES, es);
+    c.set_sreg(pc::cpu::DS, nds);
+    c.interp(0xc537, 0xc53c)?;
+    c.run(0xc53c, 2)?;
+    let ds = c.pop();
+    c.set_sreg(pc::cpu::DS, ds);
+    c.ret()
+}
+
+/// `loc_0e851`: AX = [39B9h] + 2F13h compared with [0CE68h] (flags).
+pub fn compare_39b9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xe851)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    let a = c.word(0x39b9);
+    let a = c.add(W, a, 0x2f13);
+    c.set_reg(AX, a);
+    let b = c.word(0xce68);
+    c.cmp(W, a, b);
+    c.ret()
+}
+
+/// `loc_00d45`: the sky by the time of day redrawn, then three times
+/// darkened by 28h with a wait for [46D7h] to run from 20h below 10h;
+/// then a wait for it to reach 0. [227Dh] counted up meanwhile.
+pub fn sky_flash(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0d45)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x395c, 0x0d48)?;
+    c.run(0x0d48, 1)?;
+    c.call(0x3971, 0x0d4b)?;
+    c.run(0x0d4b, 1)?;
+    c.call(0x39b9, 0x0d4e)?;
+    c.run(0x0d4e, 2)?;
+    let v = c.byte(0x227d);
+    let v = c.inc(B, v as u16);
+    c.set_byte(0x227d, v as u8);
+    c.set_reg(CX, 3);
+    loop {
+        c.run(0x0d55, 3)?;
+        let cx = c.reg(CX);
+        c.push(cx);
+        c.set_reg8(r8::BL, 0x28);
+        c.call(0x3971, 0x0d5b)?;
+        c.run(0x0d5b, 1)?;
+        c.call(0x398c, 0x0d5e)?;
+        c.run(0x0d5e, 1)?;
+        c.call(0xc0f4, 0x0d61)?;
+        c.run(0x0d61, 4)?;
+        c.set_byte(0x46d7, 0x20);
+        loop {
+            c.set_reg(BP, 0x391d);
+            c.set_reg(AX, 3);
+            c.call(0xe353, 0x0d6f)?;
+            let k = c.byte(0x46d7);
+            if k >= 0x10 {
+                c.run(0x0d6f, 5)?;
+                c.cmp(B, k as u16, 0x10);
+                continue;
+            }
+            c.run(0x0d6f, 4)?;
+            c.cmp(B, k as u16, 0x10);
+            break;
+        }
+        let cx = c.pop().wrapping_sub(1);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    c.run(0x0d79, 3)?;
+    loop {
+        c.set_reg(BP, 0x391d);
+        c.set_reg(AX, 3);
+        c.call(0xe353, 0x0d82)?;
+        let k = c.byte(0x46d7);
+        if k != 0 {
+            c.run(0x0d82, 5)?;
+            c.cmp(B, k as u16, 0);
+            continue;
+        }
+        c.run(0x0d82, 4)?;
+        c.cmp(B, k as u16, 0);
+        break;
+    }
+    let v = c.byte(0x227d);
+    let v = c.dec(B, v as u16);
+    c.set_byte(0x227d, v as u8);
+    c.ret()
+}
+
+/// `loc_04ec6`: [0DC02h] = a mode from [487Eh] (below 2 itself), the
+/// low nibble of AL and [0DC00h] (AX): nibble 8 or more gives 3 (4 for
+/// AX past 2 but not 5); below, AX up to 2 keeps [487Eh], up to 4 gives
+/// 5, past 4 gives 2 (also into [487Eh]). BX kept.
+pub fn pick_mode_dc02(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4ec6)?;
+    let mut c = Ctx::new(m);
+    let bx0 = c.reg(BX);
+    let b = c.word(0x487e);
+    let al = c.reg8(r8::AL);
+    let ax = c.word(0xdc00);
+    if b < 2 {
+        c.run(start, 4 + 3)?;
+        c.push(bx0);
+        c.cmp(W, b, 2);
+        c.set_word(0xdc02, b);
+    } else if al & 0x0f < 8 {
+        let n = if ax <= 2 { 2 } else if ax <= 4 { 5 } else { 7 };
+        c.run(start, 8 + n + 3)?;
+        c.push(bx0);
+        c.cmp(W, b, 2);
+        let a = c.and(B, al as u16, 0x0f);
+        c.cmp(B, a, 8);
+        c.set_reg(AX, ax);
+        c.cmp(W, ax, 2);
+        let mut v = b;
+        if ax > 2 {
+            v = 5;
+            c.cmp(W, ax, 4);
+            if ax > 4 {
+                v = 2;
+                c.set_word(0x487e, 2);
+            }
+        }
+        c.set_word(0xdc02, v);
+    } else {
+        let n = if ax <= 2 { 3 } else if ax == 5 { 5 } else { 6 };
+        c.run(start, 8 + n + 3)?;
+        c.push(bx0);
+        c.cmp(W, b, 2);
+        let a = c.and(B, al as u16, 0x0f);
+        c.cmp(B, a, 8);
+        c.set_reg(AX, ax);
+        c.cmp(W, ax, 2);
+        let mut v = 3;
+        if ax > 2 {
+            c.cmp(W, ax, 5);
+            if ax != 5 {
+                v = 4;
+            }
+        }
+        c.set_word(0xdc02, v);
+    }
+    let bx = c.pop();
+    c.set_reg(BX, bx);
+    c.ret()
+}
+
+/// `loc_06c46`: in phases 2Dh..2Fh, without bit 10h of [10h], with a
+/// location [473Ch] that `loc_0331e` leaves [66h] set for: the game phase
+/// to 30h.
+pub fn phase_30_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6c46)?;
+    let mut c = Ctx::new(m);
+    let ph = c.byte(0x2a);
+    let al = ph.wrapping_sub(0x2d);
+    let w = c.word(0x10);
+    let di = c.word(0x473c);
+    let n = if al >= 3 { 5 } else if w & 0x10 != 0 { 7 } else if di == 0 { 10 } else { 0 };
+    if n != 0 {
+        c.run(start, n)?;
+        c.set_reg8(r8::AL, ph);
+        let al = c.sub(B, ph as u16, 0x2d);
+        c.set_reg8(r8::AL, al as u8);
+        c.cmp(B, al, 3);
+        if al >= 3 {
+            return c.ret();
+        }
+        c.test(W, w, 0x10);
+        if w & 0x10 != 0 {
+            return c.ret();
+        }
+        c.set_reg(DI, di);
+        c.or(W, di, di);
+        return c.ret();
+    }
+    c.run(start, 10)?;
+    c.set_reg8(r8::AL, ph);
+    let al = c.sub(B, ph as u16, 0x2d);
+    c.set_reg8(r8::AL, al as u8);
+    c.cmp(B, al, 3);
+    c.test(W, w, 0x10);
+    c.set_reg(DI, di);
+    c.or(W, di, di);
+    c.call(0x331e, 0x6c62)?;
+    let k = c.byte(0x66);
+    if k == 0 {
+        c.run(0x6c62, 3)?;
+        c.cmp(B, 0, 0);
+        return c.ret();
+    }
+    c.run(0x6c62, 4)?;
+    c.cmp(B, k as u16, 0);
+    c.set_reg8(r8::AL, 0x30);
+    set_game_phase(c.m, 0x121f)
+}
+
+/// `loc_040d5`: [23h] = 7, `loc_036d3`, `loc_04ac4`, then `loc_040e6`
+/// for the records here ([`for_records_here_bp`]).
+pub fn records_here_40e6(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x40d5)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_byte(0x23, 7);
+    c.call(0x36d3, 0x40dd)?;
+    c.run(0x40dd, 1)?;
+    c.call(0x4ac4, 0x40e0)?;
+    c.run(0x40e0, 2)?;
+    c.set_reg(BP, 0x40e6);
+    for_records_here_bp(c.m, 0x36ee)
+}
+
+/// `loc_04182`: in mode 1 of [11C9h]: unless [11CBh] is clear with the
+/// location [11C5h] past `location_kind_check` (CF), at a map place
+/// (`get_map_position`, `loc_0b532`) with bits 30h, `note_21fd_al` 40h
+/// ([23h] 4 the first time), and after the [4726h] countdown by 20h
+/// [46D9h] = 2; else [4726h] cleared and [`clear_21fd`].
+pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4182)?;
+    let mut c = Ctx::new(m);
+    let mode = c.byte(0x11c9);
+    let al = (mode & 3).wrapping_sub(1);
+    if al != 0 {
+        c.run(start, 5)?;
+        c.set_reg8(r8::AL, mode);
+        let a = c.and(B, mode as u16, 3);
+        let a = c.dec(B, a);
+        c.set_reg8(r8::AL, a as u8);
+        return c.ret();
+    }
+    let k = c.byte(0x11cb);
+    c.run(start, if k == 0 { 8 } else { 7 })?;
+    c.set_reg8(r8::AL, mode);
+    let a = c.and(B, mode as u16, 3);
+    let a = c.dec(B, a);
+    c.set_reg8(r8::AL, a as u8);
+    c.cmp(B, k as u16, 0);
+    let drop_it = |c: &mut Ctx, at: u16, n: u32| -> Result<(), Bail> {
+        c.run(at, n)?;
+        c.set_byte(0x4726, 0);
+        c.xor(B, 0, 0);
+        c.set_reg8(r8::AL, 0);
+        note_21fd_al(c.m, 0x41cc)
+    };
+    if k == 0 {
+        let di = c.word(0x11c5);
+        c.set_reg(DI, di);
+        c.call(0x5d36, 0x4199)?;
+        if c.flag(pc::cpu::CF) {
+            return drop_it(&mut c, 0x4199, 3);
+        }
+        c.run(0x4199, 2)?;
+    }
+    c.call(0x407e, 0x419e)?;
+    c.run(0x419e, 1)?;
+    c.call(0xb532, 0x41a1)?;
+    let al = c.reg8(r8::AL);
+    let a = al & 0x30;
+    if a < 0x30 {
+        c.run(0x41a1, 3)?;
+        let a = c.and(B, al as u16, 0x30);
+        c.set_reg8(r8::AL, a as u8);
+        c.cmp(B, a, 0x30);
+        return drop_it(&mut c, 0x41c5, 2);
+    }
+    let t = c.byte(0x4726);
+    c.run(0x41a1, 5 + (t == 0) as u32 + 2)?;
+    let a = c.and(B, al as u16, 0x30);
+    c.set_reg8(r8::AL, a as u8);
+    c.cmp(B, a, 0x30);
+    c.cmp(B, t as u16, 0);
+    if t == 0 {
+        c.set_byte(0x23, 4);
+    }
+    c.set_reg8(r8::AL, 0x40);
+    c.call(0x41cc, 0x41b8)?;
+    let t = c.byte(0x4726);
+    let r = t.wrapping_sub(0x20);
+    c.run(0x41b8, if r != 0 { 3 } else { 4 })?;
+    let r = c.sub(B, t as u16, 0x20);
+    c.set_byte(0x4726, r as u8);
+    if r != 0 {
+        return c.ret();
+    }
+    c.set_byte(0x46d9, 2);
+    c.ret()
+}
+
+/// `loc_026da`: the event AX added to the list of [0C8h] words at 1179h
+/// unless there (registers kept): with 10 already, the oldest dropped
+/// (`loc_0272f`) first; [0C8h], [0C9h] counted; from phase 38h, out of
+/// room 8 ([0Bh]), `loc_029ee` with AX 201h.
+pub fn note_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x26da)?;
+    let mut c = Ctx::new(m);
+    note_event_at(&mut c)
+}
+
+fn note_event_at(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x26da, 1)?;
+    c.call(0xe270, 0x26dd)?;
+    let ax = c.reg(AX);
+    let n0 = c.byte(0xc8) as u16;
+    let mut found = false;
+    let mut k = 0u16;
+    while k < n0 {
+        if c.word(0x1179 + 2 * k) == ax {
+            found = true;
+            break;
+        }
+        k += 1;
+    }
+    if n0 == 0 {
+        c.run(0x26dd, 3)?;
+    } else if found {
+        c.run(0x26dd, 4 + 4 * k as u32 + 3)?;
+    } else {
+        c.run(0x26dd, 4 + 4 * n0 as u32)?;
+    }
+    c.set_reg(CX, n0);
+    c.xor(B, 0, 0);
+    if n0 != 0 {
+        c.set_reg(SI, 0x1179);
+        for i in 0..=k.min(n0.saturating_sub(1)) {
+            let p = 0x1179 + 2 * i;
+            let w = c.word(p);
+            c.cmp(W, ax, w);
+            if found && i == k {
+                c.set_reg(SI, p);
+                c.set_reg(CX, n0 - k);
+                c.call(0xe283, 0x272e)?;
+                c.run(0x272e, 1)?;
+                return c.ret();
+            }
+            c.add(W, p, 2);
+            c.set_reg(SI, p + 2);
+        }
+        c.set_reg(CX, 0);
+    }
+    let cl = c.byte(0xc8);
+    let full = cl >= 0x0a;
+    c.run(0x26f1, 4 + if full { 2 } else { 0 })?;
+    c.set_reg8(r8::CL, cl);
+    c.set_reg(SI, 0x1179);
+    c.cmp(B, cl as u16, 0x0a);
+    let mut cl = cl;
+    if full {
+        c.push(ax);
+        c.call(0x272f, 0x2701)?;
+        c.run(0x2701, 3)?;
+        cl = 9;
+        c.set_reg8(r8::CL, 9);
+        c.set_reg(SI, 0x1179);
+        let a = c.pop();
+        c.set_reg(AX, a);
+    }
+    let ph = c.byte(0x2a);
+    let room = c.byte(0x0b);
+    let call = ph >= 0x38 && room != 8;
+    c.run(0x2707, 8 + if ph >= 0x38 { 2 + if call { 2 } else { 0 } } else { 0 } + if call { 0 } else { 1 })?;
+    let d = c.add(B, cl as u16, cl as u16);
+    c.xor(B, 0, 0);
+    c.set_reg(CX, d);
+    let si = c.add(W, 0x1179, d);
+    c.set_reg(SI, si);
+    let ax = c.reg(AX);
+    c.set_word(si, ax);
+    let v = c.byte(0xc8);
+    let v = c.inc(B, v as u16);
+    c.set_byte(0xc8, v as u8);
+    let v = c.byte(0xc9);
+    let v = c.inc(B, v as u16);
+    c.set_byte(0xc9, v as u8);
+    c.cmp(B, ph as u16, 0x38);
+    if ph >= 0x38 {
+        c.cmp(B, room as u16, 8);
+    }
+    if call {
+        c.set_reg(AX, 0x201);
+        c.call(0x29ee, 0x272b)?;
+        c.run(0x272b, 1)?;
+    }
+    c.call(0xe283, 0x272e)?;
+    c.run(0x272e, 1)?;
+    c.ret()
+}
+
+/// `sub_1045`: record FD8h's byte 0 = 5, `loc_0101b`, then event 10Bh
+/// ([`note_event`]).
+pub fn event_10b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1045)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_byte(0xfd8, 5);
+    c.call(0x101b, 0x104d)?;
+    c.run(0x104d, 2)?;
+    c.set_reg(AX, 0x10b);
+    note_event_at(&mut c)
+}
+
+/// `sub_1103`: `loc_029ee` with AX 4, then event 1409h ([`note_event`]).
+pub fn event_1409(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1103)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_reg(AX, 4);
+    c.call(0x29ee, 0x1109)?;
+    c.run(0x1109, 2)?;
+    c.set_reg(AX, 0x1409);
+    note_event_at(&mut c)
+}
+
+/// `loc_03950`: [46D7h] = 0 and the frame task 3916h removed.
+pub fn stop_task_3916(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x3950)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    c.set_byte(0x46d7, 0);
+    c.set_reg(SI, 0x3916);
+    super::tasks::remove_frame_task(c.m, 0xda5f)
+}
+
+/// `loc_029f0`: with bit 1 of [0Ah], the pair (AX, DI) added to the list
+/// at 1190h (count byte, then 4-byte entries) unless there; with 10
+/// already, the oldest dropped (`shift_list_1191`) first.
+pub fn note_pair(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x29f0)?;
+    let mut c = Ctx::new(m);
+    let f = c.byte(0x0a);
+    if f & 1 == 0 {
+        c.run(start, 3)?;
+        c.test(B, f as u16, 1);
+        return c.ret();
+    }
+    let (ax, di) = (c.reg(AX), c.reg(DI));
+    let n0 = c.byte(0x1190) as u16;
+    let mut n = 2 + 4;
+    let mut found = None;
+    if n0 != 0 {
+        n += 1;
+        for i in 0..n0 {
+            let p = 0x1191 + 4 * i;
+            let w = c.word(p);
+            n += 2;
+            if w == ax {
+                n += 2;
+                if c.word(p + 2) == di {
+                    found = Some(i);
+                    n += 1;
+                    break;
+                }
+            }
+            n += 2;
+        }
+        if found.is_none() {
+            n += 2;
+        }
+    }
+    if found.is_none() {
+        n += 2;
+    }
+    let full = n0 >= 0x0a;
+    if found.is_none() {
+        n += if full { 4 } else { 0 };
+    }
+    c.run(start, n)?;
+    c.test(B, f as u16, 1);
+    c.set_reg(SI, 0x1190);
+    c.set_reg(CX, n0);
+    c.xor(B, 0, 0);
+    if n0 != 0 {
+        c.set_reg(SI, 0x1191);
+        let mut p = 0x1191u16;
+        for i in 0..n0 {
+            let w = c.word(p);
+            c.cmp(W, ax, w);
+            if w == ax {
+                let w2 = c.word(p + 2);
+                c.cmp(W, di, w2);
+                if found == Some(i) {
+                    c.set_reg(SI, p);
+                    c.set_reg(CX, n0 - i);
+                    return c.ret();
+                }
+            }
+            p = c.add(W, p, 4);
+            c.set_reg(SI, p);
+        }
+        c.set_reg(SI, 0x1190);
+        c.set_reg(CX, n0);
+    }
+    c.cmp(W, n0, 0x0a);
+    let mut cx = n0;
+    if full {
+        c.push(ax);
+        c.push(0x1190);
+        c.push(di);
+        c.call(0x2a34, 0x2a1f)?;
+        c.run(0x2a1f, 4)?;
+        let d = c.pop();
+        c.set_reg(DI, d);
+        let s = c.pop();
+        c.set_reg(SI, s);
+        let a = c.pop();
+        c.set_reg(AX, a);
+        cx = 9;
+        c.set_reg(CX, 9);
+    }
+    c.run(0x2a25, 8)?;
+    let si = c.reg(SI);
+    let v = c.byte(si);
+    let v = c.inc(B, v as u16);
+    c.set_byte(si, v as u8);
+    let si = c.inc(W, si);
+    let cx = c.add(W, cx, cx);
+    let cx = c.add(W, cx, cx);
+    c.set_reg(CX, cx);
+    let si = c.add(W, si, cx);
+    c.set_reg(SI, si);
+    let (ax, di) = (c.reg(AX), c.reg(DI));
+    c.set_word(si, ax);
+    c.set_word(si.wrapping_add(2), di);
+    c.ret()
+}
+
+/// `loc_02ad8`: the pending event [1191h] (AH a bit of [12h], DI its
+/// place [1193h]): when that bit is set (and, for bit 0Fh, it is the
+/// current location) it is told: `loc_0dbb2`, `loc_0331e` for its place
+/// ([11CEh] kept), the sentence AH by `loc_096d8`, `loc_09945`, `loc_09ef1`
+/// with AL 1 ([0EAh] AL meanwhile, then FFh); CF set. Else CF clear.
+pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2ad8)?;
+    let mut c = Ctx::new(m);
+    let ev = c.word(0x1191);
+    let w12 = c.word(0x12);
+    let cl = (ev >> 8) as u8;
+    let sh = (cl & 0x1f) as u32;
+    let bit = sh < 16 && (w12 >> sh) & 1 != 0;
+    let di = c.word(0x1193);
+    let here = c.word(0x114e);
+    let tell = bit && (cl != 0x0f || di == here);
+    let n = 7 + if bit { 3 + if cl == 0x0f { 2 } else { 0 } } else { 0 };
+    c.run(start, n + if tell { 2 } else { 3 })?;
+    let ax0 = c.reg(AX);
+    c.push(ax0);
+    c.set_reg(AX, ev);
+    c.set_reg8(r8::CL, cl);
+    let b = c.m.cpu.shift(5, W, w12 as u32, (cl & 0x1f) as u32) as u16;
+    let b = c.shr1(W, b, 1);
+    c.set_reg(BX, b);
+    if bit {
+        c.set_reg(DI, di);
+        c.cmp(B, cl as u16, 0x0f);
+        if cl == 0x0f {
+            c.cmp(W, di, here);
+        }
+    }
+    if !tell {
+        let a = c.pop();
+        c.set_reg(AX, a);
+        c.set_flag(CF, false);
+        return c.ret();
+    }
+    let sp = c.reg(SP);
+    let sp = c.add(W, sp, 2);
+    c.set_reg(SP, sp);
+    c.call(0xdbb2, 0x2b00)?;
+    let di = c.reg(DI);
+    let keep = c.word(0x11ce);
+    c.run(0x2b00, 3 + if di != 0 { 2 } else { 0 })?;
+    c.push(keep);
+    c.or(W, di, di);
+    if di != 0 {
+        let ax = c.reg(AX);
+        c.push(ax);
+        c.call(0x331e, 0x2b0c)?;
+        c.run(0x2b0c, 1)?;
+        let a = c.pop();
+        c.set_reg(AX, a);
+    }
+    c.run(0x2b0d, 4)?;
+    let ax = c.reg(AX);
+    c.set_byte(0xea, ax as u8);
+    c.xor(B, 0, 0);
+    c.set_reg(AX, ax >> 8);
+    c.call(0x96d8, 0x2b17)?;
+    c.run(0x2b17, 1)?;
+    c.call(0x9945, 0x2b1a)?;
+    c.run(0x2b1a, 3)?;
+    c.set_byte(0xea, 0xff);
+    c.set_reg8(r8::AL, 1);
+    c.call(0x9ef1, 0x2b24)?;
+    c.run(0x2b24, 2)?;
+    let d = c.pop();
+    c.set_reg(DI, d);
+    c.call(0x331e, 0x2b28)?;
+    c.run(0x2b28, 2)?;
+    c.set_flag(CF, true);
+    c.ret()
+}
+
+/// `loc_02a51`: the pending events at 1190h for the bit AL (for 0Fh only
+/// those at the place DI) dropped, the rest moved down; when any went,
+/// the list's end gets an empty entry. BP the count kept. Bails at entry
+/// with DF set.
+pub fn drop_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2a51)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    let dl = c.reg8(r8::AL);
+    let bx = c.reg(DI);
+    let cnt = c.byte(0x1190);
+    if cnt == 0 {
+        c.run(start, 9)?;
+        c.set_reg(SI, 0x1191);
+        c.set_reg8(r8::DL, dl);
+        c.set_reg(BX, bx);
+        c.xor(W, 0, 0);
+        c.set_reg(CX, 0);
+        c.set_reg(BP, 0);
+        c.set_reg8(r8::AL, 0);
+        return c.ret();
+    }
+    let mut n = 8 + 3;
+    let mut kept = 0u16;
+    for i in 0..cnt as u16 {
+        let p = 0x1191 + 4 * i;
+        let ev = c.word(p);
+        let place = c.word(p + 2);
+        n += 3;
+        let drop = if (ev >> 8) as u8 == dl {
+            n += 2;
+            if dl == 0x0f {
+                n += 2;
+                bx == place
+            } else {
+                true
+            }
+        } else {
+            false
+        };
+        n += if drop { 2 } else { 3 };
+        n += 1;
+        if !drop {
+            kept += 1;
+        }
+    }
+    let changed = (kept as u8) != cnt;
+    n += 1 + 5 + if changed { 4 } else { 1 };
+    c.run(start, n)?;
+    c.set_reg(SI, 0x1190);
+    c.set_reg8(r8::DL, dl);
+    c.set_reg(BX, bx);
+    c.xor(W, 0, 0);
+    c.set_reg(CX, 0);
+    c.set_reg(BP, 0);
+    c.lods(B, DS);
+    c.set_reg(CX, cnt as u16);
+    let si = c.reg(SI);
+    c.set_reg(DI, si);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(pc::cpu::ES, es);
+    let mut bp = 0u16;
+    for i in 0..cnt as u16 {
+        let ev = c.lods(W, DS);
+        let ah = ev >> 8;
+        c.cmp(B, ah, dl as u16);
+        let mut drop = false;
+        if ah as u8 == dl {
+            c.cmp(B, dl as u16, 0x0f);
+            if dl == 0x0f {
+                let si = c.reg(SI);
+                let place = c.word(si);
+                c.cmp(W, bx, place);
+                drop = bx == place;
+            } else {
+                drop = true;
+            }
+        }
+        if drop {
+            let si = c.reg(SI);
+            let si = c.add(W, si, 2);
+            c.set_reg(SI, si);
+        } else {
+            c.stos(W);
+            c.movs(W);
+            bp = c.inc(W, bp);
+            c.set_reg(BP, bp);
+        }
+        c.set_reg(CX, cnt as u16 - 1 - i);
+    }
+    let cl = bp as u8;
+    c.set_byte(0x1190, cl);
+    c.set_reg(CX, (cl as u16) << 8 | cnt as u16);
+    c.cmp(B, cnt as u16, cl as u16);
+    if !changed {
+        return c.ret();
+    }
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.stos(W);
+    c.stos(W);
+    c.ret()
+}
+
+/// `loc_032c7`: the age of the record SI ([2] - its word 0Ah) into [42h]
+/// ([41h] its /16); [11F5h] = phrase 74h for bit 10h of its byte 3, else
+/// 70h..73h by the age (3, 10h, 20h); for 73h the phrase is fetched
+/// (`get_phrase_or_command_string_si`, `loc_0d03c`) and the age/16
+/// written into it (`string_replace_number_ending_at_es_si`).
+pub fn record_age_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x32c7)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let t = c.word(2);
+    let a = c.word(si.wrapping_add(0x0a));
+    let age = t.wrapping_sub(a);
+    let b3 = c.byte(si.wrapping_add(3));
+    let (phrase, n) = if b3 & 0x10 != 0 {
+        (0x74u16, 10)
+    } else if age < 3 {
+        (0x70, 13)
+    } else if age < 0x10 {
+        (0x71, 16)
+    } else if age < 0x20 {
+        (0x72, 19)
+    } else {
+        (0x73, 24)
+    };
+    let full = phrase == 0x73;
+    c.run(start, if full { n } else { n + 2 })?;
+    let ax = c.sub(W, t, a);
+    c.set_word(0x42, ax);
+    c.set_reg(DX, ax);
+    c.set_reg8(r8::CL, 4);
+    let q = c.m.cpu.shift(5, W, ax as u32, 4) as u16;
+    c.set_byte(0x41, q as u8);
+    c.test(B, b3 as u16, 0x10);
+    let mut ax = 0x74u16;
+    if b3 & 0x10 == 0 {
+        ax = 0x70;
+        for lim in [3u16, 0x10, 0x20] {
+            c.cmp(W, age, lim);
+            if age < lim {
+                break;
+            }
+            ax = c.inc(W, ax);
+        }
+    }
+    c.set_reg(AX, ax);
+    if full {
+        c.push(ax);
+        c.push(si);
+        c.set_reg(SI, ax);
+        c.call(0xcf70, 0x32fe)?;
+        c.run(0x32fe, 1)?;
+        c.call(0xd03c, 0x3301)?;
+        c.run(0x3301, 4)?;
+        let dx = c.reg(DX);
+        c.set_reg(AX, dx);
+        c.set_reg8(r8::CL, 4);
+        let q = c.m.cpu.shift(5, W, dx as u32, 4) as u16;
+        c.set_reg(AX, q);
+        c.call(0xe2e3, 0x330a)?;
+        c.run(0x330a, 4)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+        let a = c.pop();
+        c.set_reg(AX, a);
+        ax = a;
+    }
+    c.set_word(0x11f5, ax);
+    c.ret()
+}
+
+/// `loc_01771`: [477Ah] = AX, [4778h] = 0, [4774h] counted, `loc_0b2b9`,
+/// `loc_0ad5e`, [4776h] = ([46E0h], [4]); then the frame task 176Bh every
+/// 64h ticks.
+pub fn start_task_176b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1771)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    let ax = c.reg(AX);
+    c.set_word(0x477a, ax);
+    c.set_word(0x4778, 0);
+    let v = c.byte(0x4774);
+    let v = c.inc(B, v as u16);
+    c.set_byte(0x4774, v as u8);
+    c.call(0xb2b9, 0x1781)?;
+    c.run(0x1781, 1)?;
+    c.call(0xad5e, 0x1784)?;
+    c.run(0x1784, 6)?;
+    let lo = c.byte(4);
+    let hi = c.byte(0x46e0);
+    let ax = (hi as u16) << 8 | lo as u16;
+    c.set_reg(AX, ax);
+    c.set_word(0x4776, ax);
+    c.set_reg(BP, 0x64);
+    c.set_reg(SI, 0x176b);
+    super::tasks::add_frame_task(c.m, 0xda25)
+}
+
+/// `loc_04da0`: the sprite list AX - 2 of the table CS:169h: each entry
+/// (sprite, x, y; to a 0) drawn by the driver's blit (far [38CDh]) at (x
+/// + [0AA66h], y + [0AA68h]) from the sprite table [0DBB0h] to the screen
+/// [0DBDAh], clipped by 0AA66h.
+pub fn draw_cs_sprite_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4da0)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 5)?;
+    let ax = c.reg(AX);
+    let ax = c.sub(W, ax, 2);
+    let ax = c.shl1(W, ax, 1);
+    c.set_reg(AX, ax);
+    c.set_reg(BP, ax);
+    let off = c.code_word(ax.wrapping_add(0x169));
+    let si = c.add(W, 0x169, off);
+    c.set_reg(SI, si);
+    sprite_list_loop(&mut c, 0x4dad, 24, &[0xaa66, 0xaa68], &[], 0xaa66, 0x4de3, true)
+}
+
+/// The loop shared by `loc_04da0` and `loc_09d94`: from `at`, entries of
+/// (sprite, x, y) at SI to a 0, x and y offset by the SS words `add`
+/// and less `sub`, each blitted (far SS:[38CDh] at `blit`) from the
+/// sprite table SS:[0DBB0h] (DS kept), BP `clip`. `n` counts an entry up
+/// to the blit; `set_es` loads ES from SS:[0DBDAh] first.
+#[allow(clippy::too_many_arguments)]
+fn sprite_list_loop(
+    c: &mut Ctx,
+    at: u16,
+    n: u32,
+    add: &[u16],
+    sub: &[u16],
+    clip: u16,
+    blit: u16,
+    set_es: bool,
+) -> Result<(), Bail> {
+    loop {
+        let si = c.reg(SI);
+        let al = c.byte(si);
+        if al == 0 {
+            c.run(at, 4)?;
+            c.lods(B, DS);
+            if set_es {
+                c.or(B, 0, 0);
+            } else {
+                c.and(W, 0, 0xff);
+                c.set_reg(AX, 0);
+            }
+            return c.ret();
+        }
+        c.run(at, n)?;
+        c.lods(B, DS);
+        if set_es {
+            c.or(B, al as u16, al as u16);
+        } else {
+            let ax = c.reg(AX);
+            let v = c.and(W, ax, 0xff);
+            c.set_reg(AX, v);
+        }
+        c.xor(B, 0, 0);
+        c.set_reg(AX, al as u16);
+        let x = c.lods(B, DS);
+        let y = c.lods(B, DS);
+        let (mut dx, mut bx) = (x, y);
+        for (i, &a) in add.iter().enumerate() {
+            let v = c.word_in(SS, a);
+            if i % 2 == 0 {
+                dx = c.add(W, dx, v);
+            } else {
+                bx = c.add(W, bx, v);
+            }
+        }
+        for (i, &a) in sub.iter().enumerate() {
+            let v = c.word_in(SS, a);
+            if i % 2 == 0 {
+                dx = c.sub(W, dx, v);
+            } else {
+                bx = c.sub(W, bx, v);
+            }
+        }
+        c.set_reg(DX, dx);
+        c.set_reg(BX, bx);
+        let si = c.reg(SI);
+        c.push(si);
+        let ds = c.sreg(DS);
+        c.push(ds);
+        let bp = c.dec(W, al as u16);
+        if set_es {
+            let es = c.word_in(SS, 0xdbda);
+            c.set_sreg(pc::cpu::ES, es);
+        }
+        let (tab, seg) = (c.word_in(SS, 0xdbb0), c.word_in(SS, 0xdbb2));
+        c.set_sreg(DS, seg);
+        let bp = c.shl1(W, bp, 1);
+        let off = c.word_in(DS, bp.wrapping_add(tab));
+        let s = c.add(W, tab, off);
+        c.set_reg(SI, s);
+        let w = c.lods(W, DS);
+        c.set_reg(DI, w);
+        let h = c.lods(W, DS);
+        c.xor(B, 0, 0);
+        let h = h & 0xff;
+        c.set_reg(AX, h);
+        c.set_reg(CX, h);
+        c.set_reg(BP, clip);
+        c.interp(blit, blit + 5)?;
+        c.run(blit + 5, 3)?;
+        let ds = c.pop();
+        c.set_sreg(DS, ds);
+        let s = c.pop();
+        c.set_reg(SI, s);
+    }
+}
+
+/// `loc_09d94`: the sprite list at SI drawn as [`draw_cs_sprite_list`]
+/// does, at (x, y) + 1BF0h - 46D2h + 47D4h (SS words), clipped by 47D4h,
+/// to ES.
+pub fn draw_dialogue_sprites(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9d94)?;
+    let mut c = Ctx::new(m);
+    sprite_list_loop(
+        &mut c,
+        0x9d94,
+        27,
+        &[0x1bf0, 0x1bf2, 0x47d4, 0x47d6],
+        &[0x46d2, 0x46d4],
+        0x47d4,
+        0x9dda,
+        false,
+    )
+}
+
+/// `loc_00a3e`: the frame task 0A16h removed.
+pub fn stop_task_0a16(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0a3e)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_reg(SI, 0x0a16);
+    super::tasks::remove_frame_task(c.m, 0xda5f)
+}
+
+/// `loc_04d00`: the frame task 4BB9h removed.
+pub fn stop_task_4bb9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4d00)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_reg(SI, 0x4bb9);
+    super::tasks::remove_frame_task(c.m, 0xda5f)
+}
+
+/// `loc_008f0`: the place (DX, BX) made current ([4], [6], [8] its DH;
+/// [47A4h], [46DFh] cleared; [114Eh] the location BH, E4h + 1Ch·BH),
+/// then its SAL resource (`open_SAL_resource`).
+pub fn set_current_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x08f0)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 11)?;
+    c.xor(B, 0, 0);
+    c.set_reg8(r8::AL, 0);
+    c.set_byte(0x47a4, 0);
+    c.set_byte(0x46df, 0);
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    c.set_word(4, dx);
+    c.set_word(6, bx);
+    c.set_byte(8, (dx >> 8) as u8);
+    c.set_reg8(r8::AL, 0x1c);
+    c.mul8((bx >> 8) as u8);
+    let ax = c.reg(AX);
+    let ax = c.add(W, ax, 0xe4);
+    c.set_reg(AX, ax);
+    c.set_word(0x114e, ax);
+    super::ui::open_sal_resource(c.m, 0x2d74)
 }

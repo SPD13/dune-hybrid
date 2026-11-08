@@ -4,7 +4,7 @@
 use super::{Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CX, DI, DS, DX, ES, SI, SS},
+    cpu::{AX, BP, BX, CX, DI, DS, DX, ES, SI, SP, SS},
     rec::Bail,
 };
 
@@ -453,5 +453,218 @@ pub fn call_memory_func_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, si);
     let flags = c.pop();
     c.m.cpu.set_flags(flags);
+    c.ret()
+}
+
+/// `loc_0eb74`: of the B9h words at ES:[BP] (SI) with a value, the one
+/// whose age (CS:[0EA75h] - its word 172h further) is the largest goes
+/// to `loc_0ebaa` (SI = DI = it). BX the age, 0 for none. DX, SI kept.
+pub fn evict_oldest(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xeb74)?;
+    let mut c = Ctx::new(m);
+    let bp = c.reg(BP);
+    let si0 = c.word_in(SS, bp);
+    let now = c.code_word(0xea75);
+    let mut n = 6;
+    let (mut ax, mut bx, mut di) = (c.reg(AX), 0u16, c.reg(DI));
+    let mut p = si0;
+    for _ in 0..0xb9 {
+        ax = c.word_in(ES, p);
+        n += 3;
+        if ax != 0 {
+            let t = c.word_in(ES, p.wrapping_add(0x172));
+            ax = now.wrapping_sub(t);
+            n += 4;
+            if ax >= bx {
+                di = p;
+                bx = ax;
+                n += 2;
+            }
+        }
+        p = p.wrapping_add(2);
+        n += 2;
+    }
+    n += 2;
+    let (dx, si) = (c.reg(DX), c.reg(SI));
+    if bx != 0 {
+        c.run(start, n + 2)?;
+    } else {
+        c.run(start, n + 3)?;
+    }
+    c.push(dx);
+    c.push(si);
+    c.set_reg(SI, p);
+    c.set_reg(CX, 0);
+    c.set_reg(DX, now);
+    c.set_reg(AX, ax);
+    c.set_reg(BX, bx);
+    c.set_reg(DI, di);
+    c.or(W, bx, bx);
+    if bx != 0 {
+        c.set_reg(SI, di);
+        c.call(0xebaa, 0xeba7)?;
+        c.run(0xeba7, 3)?;
+    }
+    let s = c.pop();
+    c.set_reg(SI, s);
+    let d = c.pop();
+    c.set_reg(DX, d);
+    c.ret()
+}
+
+/// `loc_0ebaa`: the chain of words at ES:SI freed: each taken (zeroed),
+/// the next at 2·it - 2, until one with bit 15 set. Bails at entry for a
+/// chain that runs into itself (the original would loop forever).
+pub fn free_chain(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xebaa)?;
+    let mut c = Ctx::new(m);
+    // The walk zeroes what it takes: replayed on a copy of those bytes.
+    let mut zeroed = std::collections::HashSet::new();
+    let mut p = c.reg(SI);
+    let mut n = 0;
+    loop {
+        if n > 7 * 0x10000 {
+            return Err(Bail);
+        }
+        let lo = if zeroed.contains(&p) { 0 } else { c.byte_in(ES, p) };
+        let q = p.wrapping_add(1);
+        let hi = if zeroed.contains(&q) { 0 } else { c.byte_in(ES, q) };
+        zeroed.insert(p);
+        zeroed.insert(q);
+        let v = lo as u16 | (hi as u16) << 8;
+        n += 7;
+        if v & 0x8000 != 0 {
+            break;
+        }
+        p = v.wrapping_shl(1).wrapping_sub(2);
+    }
+    c.run(start, n + 1)?;
+    loop {
+        let si = c.reg(SI);
+        let bx = c.reg(BX);
+        c.xor(W, bx, bx);
+        let v = c.word_in(ES, si);
+        c.set_word_in(ES, si, 0);
+        let b = c.m.cpu.shift(4, W, v as u32, 1) as u16;
+        c.set_reg(BX, b);
+        let cf = c.flag(pc::cpu::CF);
+        let s = c.dec(W, b);
+        let s = c.dec(W, s);
+        c.set_reg(SI, s);
+        if cf {
+            return c.ret();
+        }
+    }
+}
+
+/// `loc_0f204`: the file DS:DX opened for reading (`loc_0f2fc` first,
+/// DX kept); CF set when that fails, else BX the handle and CX:BP its
+/// size (seek to the end and back).
+pub fn open_file_size(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xf204)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let dx = c.reg(DX);
+    c.push(dx);
+    c.call(0xf2fc, 0xf208)?;
+    c.run(0xf208, 1)?;
+    c.set_reg(AX, 0x3d00);
+    c.interp(0xf20b, 0xf20d)?;
+    let failed = c.flag(pc::cpu::CF);
+    c.run(0xf20d, if failed { 3 } else { 6 })?;
+    let dx = c.pop();
+    c.set_reg(DX, dx);
+    if failed {
+        return c.ret();
+    }
+    let ax = c.reg(AX);
+    c.set_reg(BX, ax);
+    let cx = c.reg(CX);
+    c.xor(W, cx, cx);
+    c.set_reg(CX, 0);
+    c.set_reg(DX, 0);
+    c.set_reg(AX, 0x4202);
+    c.interp(0xf219, 0xf21b)?;
+    c.run(0xf21b, 5)?;
+    let (ax, dx) = (c.reg(AX), c.reg(DX));
+    c.push(ax);
+    c.push(dx);
+    let cx = c.reg(CX);
+    c.xor(W, cx, cx);
+    c.set_reg(CX, 0);
+    c.set_reg(DX, 0);
+    c.set_reg(AX, 0x4200);
+    c.interp(0xf224, 0xf226)?;
+    c.run(0xf226, 3)?;
+    let bp = c.pop();
+    c.set_reg(BP, bp);
+    let cx = c.pop();
+    c.set_reg(CX, cx);
+    c.ret()
+}
+
+/// `loc_0e826`: with [0DBBAh] set, the DUNE.DAT table (`read_dune_dat_toc`)
+/// walked from ES:DI + 2 (FAh entries of 19h bytes, DS = ES): each that
+/// `loc_0f314` keeps (CF clear) and `loc_0f3a7` matches (ZF) goes to
+/// `loc_0e75b`. DS kept.
+pub fn scan_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xe826)?;
+    let mut c = Ctx::new(m);
+    let k = c.word(0xdbba);
+    if k == 0 {
+        c.run(start, 3)?;
+        c.cmp(W, 0, 0);
+        return c.ret();
+    }
+    c.run(start, 3)?;
+    c.cmp(W, k, 0);
+    c.call(0xe741, 0xe830)?;
+    c.run(0xe830, 6)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let di = c.reg(DI);
+    c.set_reg(SI, di);
+    let es = c.sreg(ES);
+    c.push(es);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.lods(W, DS);
+    c.set_reg(CX, 0xfa);
+    loop {
+        c.run(0xe839, 3)?;
+        let (cx, si) = (c.reg(CX), c.reg(SI));
+        c.push(cx);
+        c.push(si);
+        c.call(0xf314, 0xe83e)?;
+        let cf = c.flag(pc::cpu::CF);
+        if cf {
+            c.run(0xe83e, 2)?;
+            let s = c.pop();
+            c.set_reg(SI, s);
+        } else {
+            c.run(0xe83e, 3)?;
+            let s = c.pop();
+            c.set_reg(SI, s);
+            c.call(0xf3a7, 0xe844)?;
+            if c.flag(pc::cpu::ZF) {
+                c.run(0xe844, 2)?;
+                c.call(0xe75b, 0xe849)?;
+            } else {
+                c.run(0xe844, 1)?;
+            }
+        }
+        let si = c.reg(SI);
+        let cx = c.word_in(SS, c.reg(SP)).wrapping_sub(1);
+        c.run(0xe849, if cx != 0 { 3 } else { 5 })?;
+        let si = c.add(W, si, 0x19);
+        c.set_reg(SI, si);
+        c.pop();
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    let ds = c.pop();
+    c.set_sreg(DS, ds);
     c.ret()
 }

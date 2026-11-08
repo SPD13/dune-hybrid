@@ -849,3 +849,117 @@ pub fn decrease_troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_reg(AX, ax);
     c.ret()
 }
+
+/// `loc_0a49c`: the counter at SI on the back buffer (the front buffer
+/// pointer [0DBDAh] kept): resource 55h opened, then sprite 3 + the tens
+/// of its byte at the place in the words after it (`loc_0a45c`), drawn
+/// by `loc_0c22f`; the byte becomes 1. SI past it.
+pub fn draw_counter(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa49c)?;
+    let mut c = Ctx::new(m);
+    draw_counter_at(&mut c)
+}
+
+fn draw_counter_at(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0xa49c, 2)?;
+    let fb = c.word(0xdbda);
+    c.push(fb);
+    c.call(0xc08e, 0xa4a3)?;
+    c.run(0xa4a3, 2)?;
+    c.set_reg(AX, 0x55);
+    c.call(0xc13e, 0xa4a9)?;
+    c.run(0xa4a9, 10)?;
+    c.lods(B, DS);
+    c.aam(10);
+    let ah = c.reg8(r8::AH);
+    c.xor(B, 0, 0);
+    let al = c.add(B, ah as u16, 3);
+    c.set_reg(AX, al);
+    let si = c.reg(SI);
+    c.set_byte(si, 1);
+    let si = c.inc(W, si);
+    c.set_reg(SI, si);
+    let dx = c.word(si);
+    let bx = c.word(si.wrapping_add(2));
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    c.call(0xa45c, 0xa4be)?;
+    c.run(0xa4be, 1)?;
+    c.call(0xc22f, 0xa4c1)?;
+    c.run(0xa4c1, 2)?;
+    let fb = c.pop();
+    c.set_word(0xdbda, fb);
+    c.ret()
+}
+
+/// `loc_0a47d`: the counters by the bits of [0DBC8h]: 8 the one at
+/// 28A6h, 800h those at 28AEh and 28B6h ([`draw_counter`]).
+pub fn draw_counters(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa47d)?;
+    let mut c = Ctx::new(m);
+    let f = c.word(0xdbc8);
+    if f & 8 != 0 {
+        c.run(start, 4)?;
+        c.test(W, f, 8);
+        c.set_reg(SI, 0x28a6);
+        c.call(0xa49c, 0xa48b)?;
+    } else {
+        c.run(start, 2)?;
+        c.test(W, f, 8);
+    }
+    let f = c.word(0xdbc8);
+    if f & 0x800 == 0 {
+        c.run(0xa48b, 3)?;
+        c.test(W, f, 0x800);
+        return c.ret();
+    }
+    c.run(0xa48b, 4)?;
+    c.test(W, f, 0x800);
+    c.set_reg(SI, 0x28ae);
+    c.call(0xa49c, 0xa499)?;
+    c.run(0xa499, 1)?;
+    c.set_reg(SI, 0x28b6);
+    draw_counter_at(&mut c)
+}
+
+/// `loc_00fb2`: `table_2280`, the sky palette (`loc_03971`), then the sky
+/// rows: [`sub_39b9`] while [46D7h] runs, else [`sky_palette_rows_38bd`].
+pub fn sky_refresh(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0fb2)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x395f, 0x0fb5)?;
+    c.run(0x0fb5, 1)?;
+    c.call(0x3971, 0x0fb8)?;
+    let k = c.byte(0x46d7);
+    c.run(0x0fb8, 3)?;
+    c.cmp(B, k as u16, 0);
+    if k != 0 {
+        sub_39b9(c.m, 0x39b9)
+    } else {
+        sky_palette_rows_38bd(c.m, 0x398c)
+    }
+}
+
+/// `loc_038f1`: the sky palette and rows redrawn (`loc_03971`,
+/// [`sub_39b9`]); unless [46D7h] already ran (it becomes 40h), the frame
+/// task 3916h every 10h ticks.
+pub fn start_sky_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x38f1)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x3971, 0x38f4)?;
+    c.run(0x38f4, 1)?;
+    c.call(0x39b9, 0x38f7)?;
+    let old = c.byte(0x46d7);
+    c.run(0x38f7, if old != 0 { 5 } else { 7 })?;
+    c.set_byte(0x46d7, 0x40);
+    c.set_reg8(r8::AL, old);
+    c.or(B, old as u16, old as u16);
+    if old != 0 {
+        return c.ret();
+    }
+    c.set_reg(SI, 0x3916);
+    c.set_reg(BP, 0x10);
+    super::tasks::add_frame_task(c.m, 0xda25)
+}
