@@ -3549,3 +3549,27 @@ pub fn start_1321(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x1321);
     start_task_176b(c.m, 0x1771)
 }
+
+/// `loc_01071`: the game set to phase 15h with record FD8h's state
+/// ([0FFh] 0, [0FDBh] 1, [1018h] 200Bh, [101Ah] 180h, [0FE8h] 0Ah,
+/// [0D5h] FFh), `loc_02090`, bit 1 of [0Ah], then pair 1
+/// ([`note_pair_0`]).
+pub fn start_phase_15(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1071)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 8)?;
+    c.set_byte(0xff, 0);
+    c.set_byte(0x2a, 0x15);
+    c.set_byte(0xfdb, 1);
+    c.set_word(0x1018, 0x200b);
+    c.set_word(0x101a, 0x180);
+    c.set_byte(0xfe8, 0x0a);
+    c.set_byte(0xd5, 0xff);
+    c.call(0x2090, 0x1099)?;
+    c.run(0x1099, 3)?;
+    let v = c.byte(0x0a);
+    let v = c.or(B, v as u16, 1);
+    c.set_byte(0x0a, v as u8);
+    c.set_reg(AX, 1);
+    note_pair_0(c.m, 0x29ee)
+}

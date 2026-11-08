@@ -1507,3 +1507,18 @@ pub fn drop_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(di.wrapping_add(0x10d0), 0);
     super::screens::draw_gauges(c.m, 0xd763)
 }
+
+/// `loc_098e6`: AX from `loc_098f5` into [47C8h], [47AAh], [479Eh], then
+/// [`drop_dialogue_text`].
+pub fn reset_dialogue(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x98e6)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x98f5, 0x98e9)?;
+    c.run(0x98e9, 4)?;
+    let ax = c.reg(AX);
+    for p in [0x47c8u16, 0x47aa, 0x479e] {
+        c.set_word(p, ax);
+    }
+    drop_dialogue_text(c.m, 0x9b8b)
+}
