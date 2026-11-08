@@ -902,6 +902,11 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x7f90, troops::nearest_needing_location, "loc_07f90"),
     (0x851f, troops::link_troop, "loc_0851f"),
     (0xbc99, screens::open_box, "loc_0bc99"),
+    (0x61d3, map::sprite_column, "loc_061d3"),
+    (0x8250, map::map_click_and_resource, "loc_08250"),
+    (0x7e1e, map::skill_bars_4705, "loc_07e1e"),
+    (0x7e3d, map::skill_bars, "loc_07e3d"),
+    (0x5dce, map::list_shown_locations, "loc_05dce"),
 ];
 
 /// 8-bit register numbers (the CPU's encoding).

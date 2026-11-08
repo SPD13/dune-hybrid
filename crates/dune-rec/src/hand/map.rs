@@ -3595,3 +3595,388 @@ fn scroll_scene_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.set_sreg(DS, ds);
     c.ret()
 }
+
+/// `loc_061d3`: [`sprite_row`] down a column: CL copies of the sprite AX
+/// from (DX, BX) to BP, spaced its height + 2 or squeezed; DX then right
+/// of it (its width + 1).
+pub fn sprite_column(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x61d3)?;
+    let mut c = Ctx::new(m);
+    let cx = c.reg(CX) & 0xff;
+    if cx == 0 {
+        c.run(start, 3)?;
+        c.and(W, 0, 0xff);
+        c.set_reg(CX, 0);
+        return c.ret();
+    }
+    c.run(start, 7)?;
+    c.and(W, cx, 0xff);
+    c.set_reg(CX, cx);
+    let (bx, di, ax, dx) = (c.reg(BX), c.reg(DI), c.reg(AX), c.reg(DX));
+    for v in [bx, di, ax, dx] {
+        c.push(v);
+    }
+    c.call(0xc1f4, 0x61e0)?;
+    let (bp0, bx1, si) = (c.reg(BP), c.reg(BX), c.reg(SI));
+    let span = bp0.wrapping_sub(bx1);
+    let h = (c.word_in(ES, si.wrapping_add(2)) & 0xff).wrapping_add(2);
+    let q = span / cx;
+    let (cnt, n) = if q >= h {
+        (cx, 10)
+    } else {
+        let d = span.wrapping_sub(h);
+        if d / cx >= 2 { (cx, 17) } else { (d >> 1, 20) }
+    };
+    if cnt == 0 {
+        c.m.cpu.ip = 0x61e0;
+        return Err(Bail);
+    }
+    c.run(0x61e0, n + 2 + 6)?;
+    let di1 = c.sub(W, bp0, bx1);
+    c.set_reg(DI, di1);
+    let b = c.word_in(ES, si.wrapping_add(2));
+    let b = c.and(W, b, 0xff);
+    let b = c.add(W, b, 2);
+    c.set_reg(BP, b);
+    c.set_reg(AX, di1);
+    c.xor(W, 0, 0);
+    c.set_reg(DX, 0);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 6, cx as u32);
+    let a = c.reg(AX);
+    c.cmp(W, a, b);
+    if n > 10 {
+        let d = c.sub(W, di1, b);
+        c.set_reg(DI, d);
+        c.set_reg(AX, d);
+        c.xor(W, 0, 0);
+        c.set_reg(DX, 0);
+        c.m.cpu.mul_div(&mut c.m.hw, W, 6, cx as u32);
+        let a = c.reg(AX);
+        c.set_reg(BP, a);
+        c.cmp(W, a, 2);
+        if n > 17 {
+            c.set_reg(BP, 2);
+            let k = c.shr1(W, d, 1);
+            c.set_reg(CX, k);
+        }
+    }
+    let d = c.pop();
+    c.set_reg(DX, d);
+    let a = c.pop();
+    c.set_reg(AX, a);
+    let _ = (ax, dx);
+    let mut first = true;
+    loop {
+        if !first {
+            c.run(0x6211, 6)?;
+        }
+        first = false;
+        for r in [AX, BX, CX, DX, BP] {
+            let v = c.reg(r);
+            c.push(v);
+        }
+        c.call(0xc22f, 0x6219)?;
+        let cx = c.word_in(SS, c.reg(SP).wrapping_add(4)).wrapping_sub(1);
+        c.run(0x6219, 7 + if cx == 0 { 3 } else { 0 })?;
+        for r in [BP, DX, CX, BX, AX] {
+            let v = c.pop();
+            c.set_reg(r, v);
+        }
+        let (bx, bp) = (c.reg(BX), c.reg(BP));
+        let bx = c.add(W, bx, bp);
+        c.set_reg(BX, bx);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    let d = c.pop();
+    c.set_reg(DI, d);
+    let b = c.pop();
+    c.set_reg(BX, b);
+    c.call(0xc1f4, 0x6227)?;
+    c.run(0x6227, 5)?;
+    let si = c.reg(SI);
+    let w = c.word_in(ES, si);
+    let hi = c.and(B, w >> 8, 0x0f);
+    let ax = hi << 8 | w & 0xff;
+    c.set_reg(AX, ax);
+    let dx = c.reg(DX);
+    let dx = c.add(W, dx, ax);
+    let dx = c.inc(W, dx);
+    c.set_reg(DX, dx);
+    c.ret()
+}
+
+/// `loc_08250`: [`map_click_handler_and_rect`], then the on-map
+/// resource opened (`open_onmap_resource`).
+pub fn map_click_and_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8250)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x5ad3, 0x8253)?;
+    c.run(0x8253, 1)?;
+    super::resources::open_onmap_resource(c.m, 0xc13b)
+}
+
+/// `loc_07e1e`: [`skill_bars`] for the needs at 4705h in the panel
+/// 18E9h (from (x + 80h, y + 2Dh) to its bottom), tall font, colour F0h.
+pub fn skill_bars_4705(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7e1e)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xd068, 0x7e21)?;
+    c.run(0x7e21, 7)?;
+    c.set_reg(SI, 0x4705);
+    let (x, y) = (c.word(0x18e9), c.word(0x18eb));
+    let dx = c.add(W, x, 0x80);
+    c.set_reg(DX, dx);
+    let bx = c.add(W, y, 0x2d);
+    c.set_reg(BX, bx);
+    let bp = c.word(0x18ef);
+    c.set_reg(BP, bp);
+    c.set_word(0xdbe4, 0xf0);
+    skill_bars_at(&mut c)
+}
+
+/// `loc_07e3d`: the 7 skill needs at SI drawn as bars of the sprites at
+/// 192Fh (`sprite_column` from (DX, BX) to BP), their columns' x
+/// ranges at 4C60h; when none is needed, the phrase 69h instead. DI kept.
+pub fn skill_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7e3d)?;
+    let mut c = Ctx::new(m);
+    skill_bars_at(&mut c)
+}
+
+fn skill_bars_at(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x7e3d, 1)?;
+    c.call(0xc13b, 0x7e40)?;
+    c.run(0x7e40, 7)?;
+    let di0 = c.reg(DI);
+    c.push(di0);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.set_reg(DI, 0x4c60);
+    c.set_reg(CX, 0x0e);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.rep(0xab);
+    c.run(0x7e4d, 4)?;
+    let si = c.reg(SI);
+    c.set_reg(DI, si);
+    c.set_reg(CX, 7);
+    c.xor(B, 0, 0);
+    c.m.cpu.string_op(&mut c.m.hw, 0xae, None, 0xf3); // repe scasb
+    if c.flag(pc::cpu::ZF) {
+        c.run(0x7e56, 4)?;
+        let bx = c.reg(BX);
+        let bx = c.add(W, bx, 5);
+        c.set_reg(BX, bx);
+        let dx = c.reg(DX);
+        let dx = c.add(W, dx, 0x0c);
+        c.set_reg(DX, dx);
+        c.call(0xd04e, 0x7e61)?;
+        c.run(0x7e61, 2)?;
+        c.set_reg(AX, 0x69);
+        c.call(0xd19b, 0x7e67)?;
+        c.run(0x7e67, 2)?;
+        let d = c.pop();
+        c.set_reg(DI, d);
+        return c.ret();
+    }
+    c.run(0x7e56, 2)?;
+    c.xor(W, 0, 0);
+    c.set_reg(DI, 0);
+    for i in 0..7u16 {
+        let si = c.reg(SI);
+        let n = c.byte(si);
+        if n != 0 {
+            c.run(0x7e6b, 3 + 10)?;
+            c.set_reg8(r8::AL, n);
+            c.or(B, n as u16, n as u16);
+            c.set_reg8(r8::CL, n);
+            let bp = c.reg(BP);
+            c.push(si);
+            c.push(i);
+            c.push(bp);
+            let sp = c.byte(0x192f + i);
+            c.xor(B, 0, 0);
+            c.set_reg(AX, sp as u16);
+            let d = c.shl1(W, i, 2);
+            c.set_reg(DI, d);
+            let dx = c.reg(DX);
+            c.set_word(d.wrapping_add(0x4c60), dx);
+            c.call(0x61d3, 0x7e87)?;
+            c.run(0x7e87, 4)?;
+            let (dx, d) = (c.reg(DX), c.reg(DI));
+            c.set_word(d.wrapping_add(0x4c62), dx);
+            for r in [BP, DI, SI] {
+                let v = c.pop();
+                c.set_reg(r, v);
+            }
+        } else {
+            c.run(0x7e6b, 3)?;
+            c.set_reg8(r8::AL, 0);
+            c.or(B, 0, 0);
+        }
+        c.run(0x7e8e, 4 + if i == 6 { 2 } else { 0 })?;
+        let si = c.reg(SI);
+        let s = c.inc(W, si);
+        c.set_reg(SI, s);
+        let d = c.inc(W, i);
+        c.set_reg(DI, d);
+        c.cmp(W, d, 7);
+    }
+    let d = c.pop();
+    c.set_reg(DI, d);
+    c.ret()
+}
+
+/// `loc_05dce`: the map's shown locations listed at A5C0h (after those
+/// of the other mode when [46EBh] has bit 40h; `loc_0633b` first when it
+/// has bit 80h): each visible one (`loc_062c9`, no bit 80h of byte 0Ah)
+/// gets an entry (location, screen x, y with the mode) and its icon
+/// (`location_icon`, 5 on for one farther than [1176h] by
+/// `record_map_distance` with its kind below 20h) drawn
+/// (`draw_sprite_centred`). A 0 ends the list.
+pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5dce)?;
+    let mut c = Ctx::new(m);
+    let mode = c.byte(0x46eb);
+    let neg = mode & 0x80 != 0;
+    c.run(start, 3 + if neg { 2 } else { 0 })?;
+    c.set_reg8(r8::AL, mode);
+    c.or(B, mode as u16, mode as u16);
+    if neg {
+        let ax = c.reg(AX);
+        c.push(ax);
+        c.call(0x633b, 0x5dd9)?;
+        c.run(0x5dd9, 1)?;
+        let a = c.pop();
+        c.set_reg(AX, a);
+    }
+    let al = c.reg8(r8::AL);
+    let bit = al & 0x40;
+    let mut di = 0xa5c0u16;
+    if bit == 0 {
+        c.run(0x5dda, 3 + 1)?;
+        c.set_reg(DI, di);
+        let a = c.and(B, al as u16, 0x40);
+        c.set_reg8(r8::AL, a as u8);
+    } else {
+        let mut n = 3 + 1;
+        di = di.wrapping_sub(6);
+        loop {
+            di = di.wrapping_add(6);
+            n += 3;
+            if c.word(di) == 0 {
+                break;
+            }
+            n += 2;
+            if c.byte(di.wrapping_add(5)) & bit != 0 {
+                break;
+            }
+        }
+        c.run(0x5dda, n + 1)?;
+        let a = c.and(B, al as u16, 0x40);
+        c.set_reg8(r8::AL, a as u8);
+        let mut d = c.sub(W, 0xa5c0, 6);
+        loop {
+            d = c.add(W, d, 6);
+            let w = c.word(d);
+            c.cmp(W, w, 0);
+            if w == 0 {
+                break;
+            }
+            let b = c.byte(d.wrapping_add(5));
+            c.test(B, b as u16, bit as u16);
+            if b & bit != 0 {
+                break;
+            }
+        }
+        c.set_reg(DI, d);
+    }
+    c.set_reg(SI, 0x100);
+    let mut si = 0x100u16;
+    loop {
+        let w = c.word(si);
+        if w == 0xffff {
+            c.run(0x5df4, 4)?;
+            c.cmp(W, w, 0xffff);
+            let di = c.reg(DI);
+            c.set_word(di, 0);
+            return c.ret();
+        }
+        let f = c.byte(si.wrapping_add(0x0a));
+        'one: {
+            if f & 0x80 != 0 {
+                c.run(0x5df4, 4)?;
+                c.cmp(W, w, 0xffff);
+                c.test(B, f as u16, 0x80);
+                break 'one;
+            }
+            c.run(0x5df4, 5)?;
+            c.cmp(W, w, 0xffff);
+            c.test(B, f as u16, 0x80);
+            c.call(0x62c9, 0x5e02)?;
+            if c.flag(CF) {
+                c.run(0x5e02, 1)?;
+                break 'one;
+            }
+            c.run(0x5e02, 7)?;
+            let (di, s, dx, bx) = (c.reg(DI), c.reg(SI), c.reg(DX), c.reg(BX));
+            c.set_word(di, s);
+            c.set_word(di.wrapping_add(2), dx);
+            let m2 = c.byte(0x46eb);
+            let bx = (m2 as u16) << 8 | bx & 0xff;
+            c.set_word(di.wrapping_add(4), bx);
+            c.xor(B, 0, 0);
+            c.set_reg(BX, bx & 0xff);
+            c.call(0x5e42, 0x5e15)?;
+            let cl = c.reg8(r8::CL);
+            if cl < 0x20 {
+                c.run(0x5e15, 7)?;
+                c.cmp(B, cl as u16, 0x20);
+                for r in [AX, BX, DX, SI] {
+                    let v = c.reg(r);
+                    c.push(v);
+                }
+                c.call(0x7c8f, 0x5e21)?;
+                let d = c.reg(AX);
+                let lim = c.word(0x1176);
+                let far = d > lim;
+                c.run(0x5e21, 6 + far as u32 + 3)?;
+                c.cmp(W, d, lim);
+                for r in [SI, DX, BX, AX] {
+                    let v = c.pop();
+                    c.set_reg(r, v);
+                }
+                if far {
+                    let a = c.reg(AX);
+                    let a = c.add(W, a, 5);
+                    c.set_reg(AX, a);
+                }
+            } else {
+                c.run(0x5e15, 2 + 3)?;
+                c.cmp(B, cl as u16, 0x20);
+            }
+            let (s, d) = (c.reg(SI), c.reg(DI));
+            c.push(s);
+            c.push(d);
+            c.call(0xc343, 0x5e33)?;
+            c.run(0x5e33, 3)?;
+            let d = c.pop();
+            c.set_reg(DI, d);
+            let s = c.pop();
+            c.set_reg(SI, s);
+            let d = c.add(W, d, 6);
+            c.set_reg(DI, d);
+        }
+        si = c.reg(SI);
+        c.run(0x5e38, 2)?;
+        si = c.add(W, si, 0x1c);
+        c.set_reg(SI, si);
+    }
+}
