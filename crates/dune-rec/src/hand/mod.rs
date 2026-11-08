@@ -34,9 +34,11 @@ mod hnm;
 mod hsq;
 mod input;
 mod intro;
+mod panels;
 mod phases;
 mod math;
 mod records;
+mod resources;
 mod screen;
 mod script;
 mod sound;
@@ -45,7 +47,9 @@ mod story;
 mod tasks;
 mod text;
 mod time;
+mod ui;
 mod video;
+mod voice;
 
 /// The ports, by entry offset, with the listing's names.
 pub static ROUTINES: &[(u16, Routine, &str)] = &[
@@ -257,6 +261,63 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xf260, files::read_ffff_to_esdi_and_close, "read_ffff_to_esdi_and_close"),
     (0xf2a7, files::seek_dune_dat_to_res_dsdx, "seek_dune_dat_to_res_dsdx"),
     (0xf2ea, files::read_dune_dat_cx_to_esdi, "read_dune_dat_cx_to_esdi"),
+    // The game screen's UI.
+    (0x0098, ui::adjust_sub_resource_pointers, "adjust_sub_resource_pointers"),
+    (0x093f, ui::intro_script_load_word, "intro_script_load_word"),
+    (0x17e6, ui::ui_head_animate_up, "ui_head_animate_up"),
+    (0x19fc, ui::sub_19fc, "sub_19fc"),
+    (0x1a9b, ui::draw_moon_and_sun, "draw_moon_and_sun"),
+    (0x1ae7, ui::sub_1ae7, "sub_1ae7"),
+    (0x1dda, ui::sub_1dda, "sub_1dda"),
+    (0x1dfe, ui::sub_1dfe, "sub_1dfe"),
+    (0x274e, ui::comm_draw_panels, "comm_draw_panels"),
+    (0x275f, ui::comm_draw_glow, "comm_draw_glow"),
+    // Unverified (never called to completion in the checking runs):
+    // (0x2795, ui::comm_fade_in_glow, "comm_fade_in_glow"),
+    // Unverified (never called to completion in the checking runs):
+    // (0x281c, ui::comm_animate_incoming_call, "comm_animate_incoming_call"),
+    (0x2d74, ui::open_sal_resource, "open_SAL_resource"),
+    (0x388d, ui::set_sky_palette, "set_sky_palette"),
+    (0x38b4, ui::draw_sky, "draw_sky"),
+    (0x39b9, ui::sub_39b9, "loc_039b9"),
+    (0x3e13, ui::draw_gradient_section, "draw_gradient_section"),
+    (0x4ad7, ui::sub_4ad7, "sub_4ad7"),
+    (0x5a3d, ui::ui_transition_to_map_interface, "ui_transition_to_map_interface"),
+    (0x629d, ui::draw_string_location_type, "draw_string_location_type"),
+    (0x62a6, ui::draw_location_name, "draw_location_name"),
+    (0x6f93, ui::decrease_troop_motivation, "decrease_troop_motivation"),
+    (0xae04, ui::sub_ae04, "loc_0ae04"),
+    (0xd95b, ui::sub_d95b, "loc_0d95b"),
+    // Resources, conditions.
+    (0xa396, resources::evaluate_condition_ax, "evaluate_condition_ax"),
+    (0xc13b, resources::open_onmap_resource, "open_onmap_resource"),
+    (0xc13e, resources::open_resource_by_index, "open_resource_by_index"),
+    // More of the game screen.
+    (0x0b21, panels::sub_0b21, "loc_00b21"),
+    (0x1a34, panels::ui_draw_date_and_time_indicator, "ui_draw_date_and_time_indicator"),
+    (0x2773, panels::comm_fade_out_glow, "comm_fade_out_glow"),
+    (0x27b6, panels::comm_draw_glow_index, "comm_draw_glow_index"),
+    (0x27c9, panels::comm_draw_flicker, "comm_draw_flicker"),
+    (0x3aa9, panels::draw_orni, "draw_orni"),
+    (0x8865, panels::font_draw_interpolated_string, "font_draw_interpolated_string_w_color_at_pos"),
+    (0x9bee, panels::setup_non_lip_sync_data_structure, "setup_non_lip_sync_data_structure"),
+    (0x9d2d, panels::draw_talking_head_at_si, "draw_talking_head_at_si"),
+    (0xa42c, panels::settings_ui_draw_language_buttons, "settings_ui_draw_language_buttons"),
+    (0xa4c6, panels::settings_ui_draw_volume_sliders, "settings_ui_draw_volume_sliders"),
+    (0xa502, panels::settings_ui_draw_slider, "settings_ui_draw_slider"),
+    (0xa7a5, panels::lip_sync_stop, "lip_sync_stop"),
+    (0xa83f, panels::voc_get_lipsync_data, "voc_get_lipsync_data"),
+    (0xaded, panels::sub_aded, "loc_0aded"),
+    (0xc0d5, panels::sub_c0d5, "loc_0c0d5"),
+    (0xc85b, panels::sub_c85b, "loc_0c85b"),
+    // Voice files, music loading.
+    (0xa8bc, voice::create_voc_file_name_from_bx, "create_voc_file_name_from_bx"),
+    (0xa90b, voice::open_pcm_voice_file, "open_pcm_voice_file"),
+    (0xa93f, voice::read_audio_file, "read_audio_file"),
+    (0xa9b9, voice::refill_voice_buffer, "loc_0a9b9"),
+    (0xae28, voice::music_enabled, "loc_0ae28"),
+    (0xae62, voice::load_music, "load_music"),
+    (0xaec6, voice::sound_off, "loc_0aec6"),
     // Input.
     (0xdaa3, input::clear_some_mouse_rect, "clear_some_mouse_rect"),
     (0xdaaa, input::set_some_mouse_rect, "set_some_mouse_rect"),

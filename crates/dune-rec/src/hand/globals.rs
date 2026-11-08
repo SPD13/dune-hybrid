@@ -244,3 +244,69 @@ pub const HNM_FILE_HANDLE: u16 = 0x35a6;
 /// `hnmFileOffset`, `hnmFileRemain`).
 pub const HNM_FILE_OFFSET: u16 = 0xdc04;
 pub const HNM_FILE_REMAIN: u16 = 0xdc08;
+
+// --- The game screen ----------------------------------------------------------
+
+pub const BYTE_00FB: u16 = 0x00fb;
+/// Set: the talking head does not animate up.
+pub const HEAD_ANIMATION_BLOCKED: u16 = 0x11c9;
+pub const BYTE_11C8: u16 = 0x11c8;
+/// The scene layout (SAL) loaded, and its buffer; bit 0 of [`SAL_FLAGS`]
+/// keeps kinds 0 and 1 from loading one (Cryogenic: `loadedSalIndex`).
+pub const LOADED_SAL_INDEX: u16 = 0x144c;
+pub const SAL_FLAGS: u16 = 0x4732;
+pub const SAL_BUFFER: u16 = 0xbc6e;
+/// The clip rectangle of the sun and moon.
+pub const SKY_CLIP_RECT: u16 = 0x1efe;
+/// Set when the map view is up (no lower palette rows).
+pub const MAP_VIEW_FLAG: u16 = 0x227d;
+/// Set by `set_sky_palette`.
+pub const SKY_PALETTE_SET: u16 = 0x46df;
+/// The talking head's zooms: the tick last seen, the start, the interval
+/// (Cryogenic: `TimeBetweenFaceZooms`).
+pub const HEAD_ZOOM_START: u16 = 0x476e;
+pub const HEAD_ZOOM_SEEN: u16 = 0x4770;
+pub const TIME_BETWEEN_FACE_ZOOMS: u16 = 0x4772;
+/// A gradient section's start.
+pub const GRADIENT_X: u16 = 0x47e8;
+pub const GRADIENT_Y: u16 = 0x47ea;
+/// The communication device's animation step.
+pub const COMM_STEP: u16 = 0xd816;
+pub const WORD_3CBE: u16 = 0x3cbe;
+/// Set: no date and time panel.
+pub const WORD_1AFE: u16 = 0x1afe;
+/// The sun's and moon's positions per time-of-day slot, 8 bytes each.
+pub const SUN_MOON_POSITIONS: u16 = 0x1e7e;
+/// The communication device's panel icons (a list for
+/// `draw_icons_list_at_si`).
+pub const COMM_PANEL_ICONS: u16 = 0x14ce;
+/// The ornithopter's rotor speed.
+pub const ORNI_SPEED: u16 = 0x4731;
+/// Where `format_interpolated_string` writes.
+pub const FORMATTED_STRING: u16 = 0xa6b0;
+/// Talking heads without lip sync: the frame entries built, their count,
+/// the frame table; the head's origin.
+pub const HEAD_FRAMES: u16 = 0x460a;
+pub const HEAD_FRAME_COUNT: u16 = 0x4608;
+pub const HEAD_FRAME_TABLE: u16 = 0x47cc;
+pub const HEAD_ORIGIN_X: u16 = 0x1bf0;
+pub const HEAD_ORIGIN_Y: u16 = 0x1bf2;
+/// The settings sliders (a value byte, a drawn flag, the x...): voice and
+/// the two music ones.
+pub const SLIDER_VOICE: u16 = 0x288e;
+pub const SLIDER_MUSIC: u16 = 0x2896;
+pub const SLIDER_MUSIC_2: u16 = 0x289e;
+pub const BYTE_28AE: u16 = 0x28ae;
+/// The CONDIT script, far pointer (Cryogenic: `resConditOffset`).
+pub const CONDITIONS: u16 = 0xaa72;
+/// The resource open as the sprite sheet (Cryogenic: `resourceId`).
+pub const RESOURCE_ID: u16 = 0x2784;
+pub const BYTE_00EA: u16 = 0x00ea;
+/// The voice file: its name (DOS form at 37DAh), the position and the
+/// bytes left (32 bits each), the parts read; the music loaded.
+pub const VOICE_FILE_NAME: u16 = 0x37da;
+pub const VOICE_FILE_POS: u16 = 0xdbc0;
+pub const VOICE_FILE_LEFT: u16 = 0xdbc4;
+pub const VOICE_PART: u16 = 0x3823;
+pub const VOICE_LANGUAGE_PART: u16 = 0x47e0;
+pub const MUSIC_LOADED: u16 = 0xdbca;

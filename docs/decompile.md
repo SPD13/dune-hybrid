@@ -171,7 +171,9 @@ generated routine of the same entry, and checked by shadow mode the same way
 a difference comes from one). Modules by area: `story`, `phases`, `intro`,
 `time`, `records`, `script` (condition operands and operators), `tasks`
 (frame tasks), `video`, `gfx`, `screen`, `sprites`, `text`, `hnm`, `hsq`
-(the decompressor), `sound`, `audio`, `input`, `dos`, `files`; data-segment
+(the decompressor), `sound`, `audio`, `voice`, `input`, `dos`, `files`,
+`resources` (opening sprite sheets, the condition evaluator), `ui`,
+`panels`; data-segment
 globals are named in `globals.rs` (from the routines that use them and
 Cryogenic's `GlobalsOnDs.cs`; unknown ones keep their offset).
 
@@ -191,14 +193,17 @@ the instruction count (virtual time). `Ctx` holds the bookkeeping:
   `interp` (`INT` and far calls into the drivers), and tail jumps call the
   target port directly.
 
-Ported: 192 routines (the small ones first: flags and setters, game time,
+Ported: 241 routines (the small ones first: flags and setters, game time,
 location kinds, frame tasks, condition operators, the intro's steps,
 framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
 decompression, voice and music start/stop, DUNE.DAT access, the memory
-driver calls), all equal to the original in every checked call (two
+driver calls; then the condition evaluator, resource opening, the sky,
+the date panel, the communication device, settings sliders, voice-file
+streaming, music loading), all equal to the original in every checked call (two
 10-minute games with `--call-each 4`, 0 differences), and `--rec on`
-screenshots unchanged. A port no run has called yet stays out of the table
-(`copy_pal_and_transition`).
+screenshots unchanged. A port no run has checked to completion stays out of the table
+(`copy_pal_and_transition`, `comm_fade_in_glow`,
+`comm_animate_incoming_call`: longer than the harness's 300 ms).
 
 Open: under `--call-each` on seed 21, two generated routines differ
 (`hnm_render_timer_callback` and `parse_command_line`, which it interrupts,

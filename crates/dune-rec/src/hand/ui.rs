@@ -1,0 +1,825 @@
+//! The game screen's UI: the talking head's animation, the
+//! communication device, the sky, the sun and moon, location names, and
+//! smaller game-logic steps they trigger.
+
+use super::{B, Ctx, W, entered, globals as g, r8};
+use pc::{
+    Machine,
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, SP, SS},
+    rec::Bail,
+};
+
+mod code {
+    pub const SET_SCREEN_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc08e;
+    pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
+    pub const DRAW_ICONS_LIST_AT_SI: u16 = 0xc21b;
+    pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
+    pub const DRAW_SPRITE: u16 = 0xc2fd;
+    pub const GET_SUBRESOURCE_POINTER: u16 = 0xc1f4;
+    pub const HEAD_STEP: u16 = 0x17be;
+    pub const WAIT_A_BIT: u16 = 0xe387;
+    pub const WAIT_INTERRUPTIBLE: u16 = 0xe353;
+    pub const WAIT_PROCESSING_FRAME_TASKS: u16 = 0xe3a0;
+    pub const COMM_DRAW_FLICKER: u16 = 0x27c9;
+    pub const COMM_DRAW_GLOW_INDEX: u16 = 0x27b6;
+    pub const CALC_SAL_INDEX: u16 = 0x5e4f;
+    pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
+    pub const ADJUST_SUB_RESOURCE_POINTERS: u16 = 0x0098;
+    pub const SKY_PALETTE_FOR_GAME_TIME: u16 = 0x395c;
+    pub const OPEN_SKY_OR_SKYDN_PALETTE: u16 = 0x3971;
+    pub const SUB_398C: u16 = 0x398c;
+    pub const SET_SKY_PALETTE: u16 = 0x388d;
+    pub const SUB_3E80: u16 = 0x3e80;
+    pub const SAVE_REGS: u16 = 0xe270;
+    pub const RESTORE_REGS: u16 = 0xe283;
+    pub const SOUND_OFF: u16 = 0xaec6;
+    pub const SUB_AD43: u16 = 0xad43;
+    pub const GET_LOCATION_TYPE_STRING_OFFSET: u16 = 0x6231;
+    pub const SUB_7085: u16 = 0x7085;
+}
+
+/// `adjust_sub_resource_pointers` (0098): turns the offset table at the
+/// start of the resource at ES:DI (its first word: the table's size) into
+/// pointers, by adding DI. Exit: DI past the table, CX = 0, AX the last;
+/// BX = the resource; flags from the last `add`.
+pub fn adjust_sub_resource_pointers(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0098)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    let di = c.reg(DI);
+    let size = c.word_in(ES, di);
+    let n = c.shr1(W, size, 1);
+    c.set_reg(CX, n);
+    c.set_reg(BX, di);
+    loop {
+        let left = c.reg(CX).wrapping_sub(1);
+        c.run(0x009f, if left == 0 { 5 } else { 4 })?;
+        let at = c.reg(DI);
+        let offset = c.word_in(ES, at);
+        let base = c.reg(BX);
+        let p = c.add(W, offset, base);
+        c.set_reg(AX, p);
+        c.stos(W);
+        c.set_reg(CX, left);
+        if left == 0 {
+            return c.ret();
+        }
+    }
+}
+
+/// `intro_script_load_word` (093F): AX = the intro script's next word (in
+/// the code segment), the script moved past it.
+pub fn intro_script_load_word(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x093f)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    let at = c.word(g::SCENE_SEQUENCE_OFFSET);
+    c.set_reg(SI, at);
+    c.lods(W, pc::cpu::CS);
+    let si = c.reg(SI);
+    c.set_word(g::SCENE_SEQUENCE_OFFSET, si);
+    c.ret()
+}
+
+/// `ui_head_animate_up` (17E6): steps the talking head's animation up to
+/// 0Ah, one step every 8 ticks, unless [11C9h] is set. Flags from the last
+/// `cmp`.
+pub fn ui_head_animate_up(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x17e6)?;
+    let mut c = Ctx::new(m);
+    loop {
+        let blocked = c.byte(g::HEAD_ANIMATION_BLOCKED);
+        if blocked != 0 {
+            c.run(0x17e6, 3)?;
+            c.cmp(B, blocked as u16, 0);
+            return c.ret();
+        }
+        let step = c.byte(g::HEAD_ANIMATION_STEP);
+        if step == 0x0a {
+            c.run(0x17e6, 5)?;
+            c.cmp(B, 0, 0);
+            c.cmp(B, step as u16, 0x0a);
+            return c.ret();
+        }
+        c.run(0x17e6, 6)?;
+        c.cmp(B, 0, 0);
+        c.cmp(B, step as u16, 0x0a);
+        let step = c.inc(B, step as u16) as u8;
+        c.set_byte(g::HEAD_ANIMATION_STEP, step);
+        c.call(code::HEAD_STEP, 0x17fb)?;
+        c.run(0x17fb, 2)?;
+        c.set_reg(AX, 8);
+        c.call(code::WAIT_A_BIT, 0x1801)?;
+        c.run(0x1801, 1)?;
+    }
+}
+
+/// `sub_d95b`: the map's click handler to 2572h. AX = it.
+pub fn sub_d95b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd95b)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    set_click_handler(&mut c)
+}
+
+fn set_click_handler(c: &mut Ctx) -> Result<(), Bail> {
+    c.set_reg(AX, 0x2572);
+    c.set_word(g::MAP_CLICK_HANDLER, 0x2572);
+    c.ret()
+}
+
+/// `sub_19fc`: no mouse rectangle; the rectangle at 143Ch from the second
+/// framebuffer; `sub_c0d5` with 12h; the click handler to 2572h.
+pub fn sub_19fc(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x19fc)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xdaa3, 0x19ff)?;
+    c.run(0x19ff, 3)?;
+    c.set_reg(SI, 0x143c);
+    c.push(0x143c);
+    c.call(0xc446, 0x1a06)?;
+    c.run(0x1a06, 3)?;
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.set_reg8(r8::AL, 0x12);
+    c.call(0xc0d5, 0x1a0c)?;
+    c.run(0x1a0c, 4)?; // jmp D95Bh; mov ax; mov; ret
+    set_click_handler(&mut c)
+}
+
+/// `draw_moon_and_sun` (1A9B): sprite AX of the loaded sheet at the
+/// position at SI (two words; none if x is 0) on the screen buffer,
+/// clipped to the rectangle at 1EFEh (driver function 6). Exit: SI past
+/// the position; AX kept; flags from `or dx, dx` when nothing is drawn.
+pub fn draw_moon_and_sun(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1a9b)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let x = c.word_in(DS, si);
+    c.run(start, if x == 0 { 9 } else { 10 })?;
+    let ax = c.reg(AX);
+    c.push(ax);
+    let x = c.lods(W, DS);
+    c.set_reg(DX, x);
+    let y = c.lods(W, DS);
+    c.set_reg(BX, y);
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.or(W, x, x);
+    if x == 0 {
+        return c.ret();
+    }
+    let si = c.reg(SI);
+    c.push(si);
+    c.call(code::GET_SUBRESOURCE_POINTER, 0x1aab)?;
+    c.run(0x1aab, 10)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.sreg(ES);
+    c.push(es);
+    let screen = c.word(g::SCREEN_BUFFER);
+    c.set_sreg(ES, screen);
+    let sheet = c.pop();
+    c.set_sreg(DS, sheet);
+    let size = c.lods(W, DS);
+    c.set_reg(DI, size);
+    let lines = c.lods(W, DS);
+    c.set_reg(CX, lines);
+    let ch = c.reg8(r8::CH);
+    c.xor(B, ch as u16, ch as u16);
+    c.set_reg8(r8::CH, 0);
+    c.set_reg(BP, g::SKY_CLIP_RECT);
+    c.interp(0x1abd, 0x1ac2)?;
+    c.run(0x1ac2, 3)?;
+    let ds = c.pop();
+    c.set_sreg(DS, ds);
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.ret()
+}
+
+/// `sub_1ae7`: after `sub_d41b`, when BP is 1F7Eh: once per timer tick,
+/// and once [4772h] ticks have passed since [476Eh], the talking head's
+/// next zoom (`sub_c85b`, `sub_c868`).
+pub fn sub_1ae7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1ae7)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xd41b, 0x1aea)?;
+    let bp = c.reg(BP);
+    if bp != 0x1f7e {
+        c.run(0x1aea, 3)?;
+        c.cmp(W, bp, 0x1f7e);
+        return c.ret();
+    }
+    let now = c.word(g::TIMER);
+    let seen = c.word(g::HEAD_ZOOM_SEEN);
+    if now == seen {
+        c.run(0x1aea, 6)?;
+        c.cmp(W, bp, 0x1f7e);
+        c.set_reg(AX, now);
+        c.cmp(W, now, seen);
+        return c.ret();
+    }
+    let since = c.word(g::HEAD_ZOOM_START);
+    let every = c.word(g::TIME_BETWEEN_FACE_ZOOMS);
+    let due = now.wrapping_sub(since) >= every;
+    c.run(0x1aea, 10)?; // the same count either way: ret, or call
+    c.cmp(W, bp, 0x1f7e);
+    c.cmp(W, now, seen);
+    c.set_word(g::HEAD_ZOOM_SEEN, now);
+    let passed = c.sub(W, now, since);
+    c.set_reg(AX, passed);
+    c.cmp(W, passed, every);
+    if !due {
+        return c.ret();
+    }
+    c.call(0xc85b, 0x1b09)?;
+    c.run(0x1b09, 1)?;
+    c.call(0xc868, 0x1b0c)?;
+    c.run(0x1b0c, 1)?;
+    c.ret()
+}
+
+/// `sub_1dda`: `sub_29ee` with 30Bh when bit 10h of [BFh] is set, bit 8 of
+/// [10h] clear, [0Bh] not 8 and [C2h] 0. Flags from the check that ended
+/// it.
+pub fn sub_1dda(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1dda)?;
+    let mut c = Ctx::new(m);
+    let (a, b, d, e) = (c.byte(0x00bf), c.word(0x0010), c.byte(0x000b), c.byte(0x00c2));
+    let checks = [a & 0x10 == 0, b & 8 != 0, d == 8, e != 0];
+    let failed = checks.iter().position(|&f| f);
+    c.run(start, match failed {
+        Some(i) => 2 * i as u32 + 3,
+        None => 10,
+    })?;
+    for i in 0..=failed.unwrap_or(3) {
+        match i {
+            0 => c.test(B, a as u16, 0x10),
+            1 => c.test(W, b, 8),
+            2 => c.cmp(B, d as u16, 8),
+            _ => c.cmp(B, e as u16, 0),
+        }
+    }
+    if failed.is_some() {
+        return c.ret();
+    }
+    c.set_reg(AX, 0x030b);
+    c.call(0x29ee, 0x1dfd)?;
+    c.run(0x1dfd, 1)?;
+    c.ret()
+}
+
+/// `sub_1dfe` (jumps to 1D10): every 2nd call (bit 15 of [0] rotated
+/// out), troops with bit 80h of +10h grow their +1Ah by 1 (up to C8h).
+/// Flags from the last check.
+pub fn sub_1dfe(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1dfe)?;
+    let mut c = Ctx::new(m);
+    let bits = c.word(0x0000);
+    let due = bits & 0x8000 != 0;
+    c.run(start, 4)?; // jmp; rol; jae; then mov si, or ret
+    let bits = c.m.cpu.shift(0, W, bits as u32, 1) as u16; // rol
+    c.set_word(0x0000, bits);
+    if !due {
+        return c.ret();
+    }
+    let mut t = g::TROOPS;
+    c.set_reg(SI, t);
+    loop {
+        let flags = c.byte(t + 0x10);
+        let grows = flags & 0x80 != 0;
+        let v = c.byte(t + 0x1a);
+        let room = v.wrapping_sub(1) < 0xc7;
+        c.run(0x1d19, 2 + if grows { 4 + room as u32 } else { 0 } + 3)?;
+        c.test(B, flags as u16, 0x80);
+        if grows {
+            c.set_reg8(r8::AL, v);
+            let al = c.dec(B, v as u16);
+            c.set_reg8(r8::AL, al as u8);
+            c.cmp(B, al, 0xc7);
+            if room {
+                let v = c.inc(B, v as u16) as u8;
+                c.set_byte(t + 0x1a, v);
+            }
+        }
+        t = c.add(W, t, 0x1b);
+        c.set_reg(SI, t);
+        c.cmp(W, t, 0x0fa0);
+        if t >= 0x0fa0 {
+            break;
+        }
+    }
+    c.run(0x1d34, 1)?;
+    c.ret()
+}
+
+/// From 275F: draws the communication device's glow AL (sprite 0Bh + AL
+/// & 7, at (64h, 56h)) to the screen, then back to the front buffer.
+fn glow(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x275f, 1)?;
+    c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x2762)?;
+    c.run(0x2762, 5)?;
+    let ax = c.reg(AX);
+    let ax = c.and(W, ax, 7);
+    let sprite = c.add(B, ax, 0x0b);
+    c.set_reg(AX, sprite);
+    c.set_reg(BX, 0x56);
+    c.set_reg(DX, 0x64);
+    c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0x2770)?;
+    c.run(0x2770, 1)?; // jmp C07Ch
+    super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
+}
+
+/// `comm_draw_glow` (275F).
+pub fn comm_draw_glow(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x275f)?;
+    glow(&mut Ctx::new(m))
+}
+
+/// `comm_draw_panels` (274E): the communication device's panels (icons
+/// of resource 15h listed at 14C8h), then glow 1.
+pub fn comm_draw_panels(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x274e)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x2751)?;
+    c.run(0x2751, 2)?;
+    c.set_reg(AX, 0x15);
+    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x2757)?;
+    c.run(0x2757, 2)?;
+    c.set_reg(SI, 0x14c8);
+    c.call(code::DRAW_ICONS_LIST_AT_SI, 0x275d)?;
+    c.run(0x275d, 1)?;
+    c.set_reg8(r8::AL, 1);
+    glow(&mut c)
+}
+
+/// `comm_fade_in_glow` (2795): glow steps 0 to 0Ch ([D816h]), each for 9
+/// ticks (interruptible wait, drawing step `comm_draw_glow_index`).
+#[allow(dead_code)]
+pub fn comm_fade_in_glow(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2795)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_reg(AX, 0x15);
+    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x279b)?;
+    c.run(0x279b, 4)?;
+    c.set_word(g::COMM_STEP, 0);
+    loop {
+        c.set_reg(BP, code::COMM_DRAW_GLOW_INDEX);
+        c.set_reg(AX, 9);
+        c.call(code::WAIT_INTERRUPTIBLE, 0x27aa)?;
+        let step = c.word(g::COMM_STEP).wrapping_add(1);
+        let more = step < 0x0d;
+        c.run(0x27aa, if more { 3 + 3 } else { 4 })?;
+        let step = c.inc(W, step.wrapping_sub(1));
+        c.set_word(g::COMM_STEP, step);
+        c.cmp(W, step, 0x0d);
+        if !more {
+            return c.ret();
+        }
+    }
+}
+
+/// `comm_animate_incoming_call` (281C): CX flicker steps of the
+/// communication device ([D816h] counting), 9 ticks each.
+#[allow(dead_code)]
+pub fn comm_animate_incoming_call(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x281c)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_reg(AX, 0x15);
+    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x2822)?;
+    c.run(0x2822, 3)?;
+    c.set_word(g::COMM_STEP, 0);
+    loop {
+        let cx = c.reg(CX);
+        c.push(cx);
+        c.call(code::COMM_DRAW_FLICKER, 0x282c)?;
+        c.run(0x282c, 2)?;
+        c.set_reg(AX, 9);
+        c.call(code::WAIT_PROCESSING_FRAME_TASKS, 0x2832)?;
+        let sp = c.reg(SP);
+        let left = c.word_in(SS, sp).wrapping_sub(1);
+        c.run(0x2832, if left == 0 { 4 } else { 3 + 2 })?;
+        let step = c.word(g::COMM_STEP);
+        let step = c.inc(W, step);
+        c.set_word(g::COMM_STEP, step);
+        c.pop();
+        c.set_reg(CX, left);
+        if left == 0 {
+            return c.ret();
+        }
+    }
+}
+
+/// `open_SAL_resource` (2D74): loads the SAL (the place's scene layout)
+/// for the location at [114Eh], unless it is loaded: by its kind
+/// (`calc_SAL_index`), kinds 0 and 1 only with bit 1 of [4732h] clear,
+/// 4 as 3, none above 4.
+pub fn open_sal_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2d74)?;
+    let mut c = Ctx::new(m);
+    let si = c.word(g::MAP_POSITION_RECORD);
+    if si < 0x100 {
+        c.run(start, 4)?;
+        c.set_reg(SI, si);
+        c.cmp(W, si, 0x100);
+        return c.ret();
+    }
+    c.run(start, 5)?;
+    c.set_reg(SI, si);
+    c.cmp(W, si, 0x100);
+    let ax = c.reg(AX);
+    let zero = c.xor(W, ax, ax);
+    c.set_reg(AX, zero);
+    c.call(code::CALC_SAL_INDEX, 0x2d83)?;
+    c.check(0x2d83, 20)?;
+    let mut n = 2;
+    let mut sal = c.reg(AX);
+    c.cmp(W, sal, 2);
+    if sal < 2 {
+        let bits = c.byte(g::SAL_FLAGS);
+        c.test(B, bits as u16, 1);
+        n += 2;
+        if bits & 1 != 0 {
+            c.count(n + 1);
+            return c.ret();
+        }
+    }
+    c.cmp(W, sal, 4);
+    n += 2;
+    if sal > 4 {
+        c.count(n + 1);
+        return c.ret();
+    }
+    n += 1; // jne
+    if sal == 4 {
+        sal = c.dec(W, sal);
+        c.set_reg(AX, sal);
+        n += 1;
+    }
+    let loaded = c.byte(g::LOADED_SAL_INDEX);
+    c.cmp(B, loaded as u16, sal & 0xff);
+    n += 2;
+    if loaded as u16 == sal & 0xff {
+        c.count(n + 1);
+        return c.ret();
+    }
+    c.count(n + 7);
+    c.set_byte(g::LOADED_SAL_INDEX, sal as u8);
+    let resource = c.add(W, sal, 0xa1);
+    c.set_reg(AX, resource);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.set_reg(DI, g::SAL_BUFFER);
+    c.set_reg(SI, resource);
+    c.call(code::LOAD_RESOURCE_TO, 0x2dad)?;
+    c.run(0x2dad, 1)?;
+    c.call(code::ADJUST_SUB_RESOURCE_POINTERS, 0x2db0)?;
+    c.run(0x2db0, 1)?;
+    c.ret()
+}
+
+/// From 39B9: the sky's palette rows (driver function 37): 1C5h colours
+/// from row DBh, or for the night sky F0h from 180h; then, outside the
+/// palace's map view, 30h from 2D0h. DX moves on by the first count.
+fn sky_palette_rows(c: &mut Ctx) -> Result<(), Bail> {
+    let variant = c.byte(g::SKY_VARIANT);
+    let night = variant == 0;
+    c.run(0x39b9, if night { 7 } else { 5 })?;
+    let (mut cx, mut bx) = (0x1c5, 0xdb);
+    c.set_reg(CX, cx);
+    c.set_reg(BX, bx);
+    c.cmp(B, variant as u16, 0);
+    if night {
+        (cx, bx) = (0xf0, 0x180);
+        c.set_reg(CX, cx);
+        c.set_reg(BX, bx);
+    }
+    c.push(cx);
+    c.interp(0x39cd, 0x39d1)?;
+    let flag = c.byte(g::MAP_VIEW_FLAG);
+    c.run(0x39d1, if flag != 0 { 5 } else { 6 })?;
+    let cx = c.pop();
+    c.set_reg(CX, cx);
+    let dx = c.reg(DX);
+    let dx = c.add(W, dx, cx);
+    c.set_reg(DX, dx);
+    c.cmp(B, flag as u16, 0);
+    if flag != 0 {
+        return c.ret();
+    }
+    c.set_reg(CX, 0x30);
+    c.set_reg(BX, 0x2d0);
+    c.interp(0x39e1, 0x39e5)?;
+    c.run(0x39e5, 1)?;
+    c.ret()
+}
+
+/// `loc_039b9`.
+pub fn sub_39b9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x39b9)?;
+    sky_palette_rows(&mut Ctx::new(m))
+}
+
+/// `set_sky_palette` (388D): the sky's palette for the game time. With
+/// frame tasks running, only when it changed (then frame tasks to 30h and
+/// the rows set); without, the palette and `sub_398c`.
+pub fn set_sky_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x388d)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_byte(g::SKY_PALETTE_SET, 1);
+    c.call(code::SKY_PALETTE_FOR_GAME_TIME, 0x3895)?;
+    let tasks = c.byte(g::FRAME_TASKS_ACTIVE);
+    if tasks == 0 {
+        c.run(0x3895, 3)?;
+        c.cmp(B, 0, 0);
+        c.call(code::OPEN_SKY_OR_SKYDN_PALETTE, 0x38b0)?;
+        c.run(0x38b0, 1)?;
+        c.call(code::SUB_398C, 0x38b3)?;
+        c.run(0x38b3, 1)?;
+        return c.ret();
+    }
+    let current = c.byte(g::PALETTE_SUB);
+    let id = c.reg8(r8::BL);
+    if current == id {
+        c.run(0x3895, 5)?;
+        c.cmp(B, tasks as u16, 0);
+        c.cmp(B, current as u16, id as u16);
+        return c.ret();
+    }
+    c.run(0x3895, 6)?;
+    c.cmp(B, tasks as u16, 0);
+    c.cmp(B, current as u16, id as u16);
+    c.set_byte(g::FRAME_TASKS_ACTIVE, 0x30);
+    c.call(code::OPEN_SKY_OR_SKYDN_PALETTE, 0x38aa)?;
+    c.run(0x38aa, 1)?; // jmp 39B9h
+    sky_palette_rows(&mut c)
+}
+
+/// `draw_sky` (38B4): the sky's palette, then its 4 rows of 8 tiles
+/// (sprites 0..3 of resource 28h, 28h wide, rows 14h apart).
+pub fn draw_sky(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x38b4)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(code::SET_SKY_PALETTE, 0x38b7)?;
+    c.run(0x38b7, 2)?;
+    c.set_reg(AX, 0x28);
+    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x38bd)?;
+    c.run(0x38bd, 4)?;
+    for (r, v) in [(AX, 0), (BP, 0x14), (BX, 0)] {
+        if v == 0 {
+            let x = c.reg(r);
+            c.xor(W, x, x);
+        }
+        c.set_reg(r, v);
+    }
+    c.set_reg(CX, 4);
+    c.run(0x38c7, 5)?;
+    loop {
+        // A row: CX and BP kept on the stack.
+        let dx = c.reg(DX);
+        let zero = c.xor(W, dx, dx);
+        c.set_reg(DX, zero);
+        let (cx, bp) = (c.reg(CX), c.reg(BP));
+        c.push(cx);
+        c.push(bp);
+        loop {
+            let ax = c.reg(AX);
+            c.push(ax);
+            c.call(code::DRAW_SPRITE, 0x38cf)?;
+            let x = c.reg(DX).wrapping_add(0x28);
+            let more = x < 0x140;
+            let sp = c.reg(SP);
+            let left = c.word_in(SS, sp.wrapping_add(4)).wrapping_sub(1);
+            c.run(0x38cf, if more { 4 + 2 } else { 4 + 5 + if left == 0 { 1 } else { 5 } })?;
+            let ax = c.pop();
+            c.set_reg(AX, ax);
+            let dx = c.reg(DX);
+            let dx = c.add(W, dx, 0x28);
+            c.set_reg(DX, dx);
+            c.cmp(W, dx, 0x140);
+            if !more {
+                break;
+            }
+        }
+        let bp = c.pop();
+        c.set_reg(BP, bp);
+        let cx = c.pop();
+        let ax = c.reg(AX);
+        let ax = c.inc(W, ax);
+        c.set_reg(AX, ax);
+        let bx = c.reg(BX);
+        let bx = c.add(W, bx, bp);
+        c.set_reg(BX, bx);
+        let left = cx.wrapping_sub(1);
+        c.set_reg(CX, left);
+        if left == 0 {
+            return c.ret();
+        }
+    }
+}
+
+/// `draw_gradient_section` (3E13): `sub_3e80` for the section from (DX,
+/// BX) to (DI, CX), with the start noted at [47E8h] and the extent
+/// (DI - DX, CX - BX) in DX, BX. Registers kept.
+pub fn draw_gradient_section(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x3e13)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 11)?;
+    let (bx, cx, dx, di) = (c.reg(BX), c.reg(CX), c.reg(DX), c.reg(DI));
+    for v in [bx, cx, dx, di] {
+        c.push(v);
+    }
+    c.set_word(g::GRADIENT_X, dx);
+    c.set_word(g::GRADIENT_Y, bx);
+    let b = c.sub(W, bx, cx);
+    let d = c.sub(W, dx, di);
+    let b = c.neg(W, b);
+    let d = c.neg(W, d);
+    c.set_reg(BX, b);
+    c.set_reg(DX, d);
+    c.call(code::SUB_3E80, 0x3e2a)?;
+    c.run(0x3e2a, 5)?;
+    for r in [DI, DX, CX, BX] {
+        let v = c.pop();
+        c.set_reg(r, v);
+    }
+    c.ret()
+}
+
+/// `sub_4ad7`: `sub_4e8d`; if it returned bit 0 of AL, [11C8h] = 1 and
+/// `sub_5119` with AL = 4.
+pub fn sub_4ad7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4ad7)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x4e8d, 0x4ada)?;
+    let al = c.reg8(r8::AL);
+    let set = al & 1 != 0;
+    c.run(0x4ada, if set { 6 } else { 4 })?;
+    c.set_reg8(r8::AH, 4);
+    let al = c.shr1(B, al as u16, 1) as u8;
+    c.set_reg8(r8::AL, al);
+    if !set {
+        return c.ret();
+    }
+    c.set_byte(g::BYTE_11C8, 1);
+    c.set_reg8(r8::AL, 4);
+    c.call(0x5119, 0x4aea)?;
+    c.run(0x4aea, 1)?;
+    c.ret()
+}
+
+/// From AE04: with sound on, music not off in the settings, and the
+/// driver ready (sign of [DBCDh] clear, or bit 40h set), `sub_ad43`
+/// (registers kept).
+fn music_step(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0xae04, 1)?;
+    c.call(code::SOUND_OFF, 0xae07)?;
+    if c.flag(CF) {
+        c.run(0xae07, 2)?;
+        return c.ret();
+    }
+    let settings = c.byte(g::MUSIC_SETTINGS);
+    if settings & 1 != 0 {
+        c.run(0xae07, 4)?;
+        c.test(B, settings as u16, 1);
+        return c.ret();
+    }
+    let state = c.byte(g::IS_SOUND_PRESENT);
+    let ready = state & 0x80 == 0 || state & 0x40 != 0;
+    c.run(0xae07, if state & 0x80 == 0 { 6 } else { 8 })?;
+    c.test(B, settings as u16, 1);
+    c.cmp(B, state as u16, 0);
+    if state & 0x80 != 0 {
+        c.test(B, state as u16, 0x40);
+    }
+    if !ready {
+        return c.ret();
+    }
+    c.call(code::SAVE_REGS, 0xae21)?;
+    c.run(0xae21, 1)?;
+    c.call(code::SUB_AD43, 0xae24)?;
+    c.run(0xae24, 1)?;
+    c.call(code::RESTORE_REGS, 0xae27)?;
+    c.run(0xae27, 1)?;
+    c.ret()
+}
+
+/// `loc_0ae04`.
+pub fn sub_ae04(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xae04)?;
+    music_step(&mut Ctx::new(m))
+}
+
+/// `ui_transition_to_map_interface` (5A3D): the map's resources, the
+/// palette, the map drawn by 5A56h with transition 2, then the music step.
+pub fn ui_transition_to_map_interface(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5a3d)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_byte(g::BYTE_00FB, 0xff);
+    c.call(0xc13b, 0x5a45)?;
+    c.interp(0x5a45, 0x5a49)?;
+    c.run(0x5a49, 4)?;
+    c.set_reg(BP, 0x5a56);
+    c.set_reg8(r8::AL, 2);
+    let dx = c.reg(DX);
+    let zero = c.xor(W, dx, dx);
+    c.set_reg(DX, zero);
+    c.call(0xc108, 0x5a53)?;
+    c.run(0x5a53, 1)?; // jmp AE04h
+    music_step(&mut c)
+}
+
+/// `draw_string_location_type` (629D): the kind of the location at DI
+/// (string 44h + its kind index) at (DX, BX) in colour CX.
+pub fn draw_string_location_type(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x629d)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(code::GET_LOCATION_TYPE_STRING_OFFSET, 0x62a0)?;
+    c.run(0x62a0, 2)?;
+    let ax = c.reg(AX);
+    let string = c.add(W, ax, 0x44);
+    c.set_reg(AX, string);
+    super::text::font_draw_string_with_color_at_pos(c.m, 0xd194)
+}
+
+/// `draw_location_name` (62A6): the name of the location at DI (string
+/// [DI], then ' ' or '-' when [DI+1] is 3 or more, then string 0Ch +
+/// [DI+1]) at (DX, BX) in colour CX.
+pub fn draw_location_name(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x62a6)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    let di = c.reg(DI);
+    let first = c.byte(di) as u16;
+    let ah = c.reg8(r8::AH);
+    c.xor(B, ah as u16, ah as u16);
+    let s = c.add(W, first, 0);
+    c.set_reg(AX, s);
+    c.call(0xd194, 0x62b0)?;
+    let di = c.reg(DI);
+    let second = c.byte(di.wrapping_add(1));
+    let dash = second >= 3;
+    c.run(0x62b0, if dash { 5 } else { 4 })?;
+    c.cmp(B, second as u16, 3);
+    c.set_reg8(r8::AL, if dash { b'-' } else { b' ' });
+    let draw = c.word(g::FONT_DRAW);
+    c.call(draw, 0x62be)?;
+    c.run(0x62be, 4)?;
+    let di = c.reg(DI);
+    let second = c.byte(di.wrapping_add(1)) as u16;
+    let ah = c.reg8(r8::AH);
+    c.xor(B, ah as u16, ah as u16);
+    let s = c.add(W, second, 0x0c);
+    c.set_reg(AX, s);
+    super::gfx::font_draw_phrase_or_command_string(c.m, 0xd19b)
+}
+
+/// `decrease_troop_motivation` (6F93): the troop at SI loses AL motivation
+/// (not below 0); below 5 it is set to 4, `sub_7085` runs and the troop
+/// gets bit 20h of +12h. AX kept.
+pub fn decrease_troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6f93)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let at = si.wrapping_add(0x15);
+    let old = c.byte(at);
+    let al = c.reg8(r8::AL);
+    let under = al > old;
+    let v = if under { 0 } else { old - al };
+    let low = v < 5;
+    c.run(start, 2 + under as u32 + 2 + if low { 3 } else { 1 })?;
+    let r = c.sub(B, old as u16, al as u16) as u8;
+    c.set_byte(at, r);
+    if under {
+        c.set_byte(at, 0);
+    }
+    c.cmp(B, v as u16, 5);
+    if !low {
+        return c.ret();
+    }
+    c.set_byte(at, 4);
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.call(code::SUB_7085, 0x6faa)?;
+    c.run(0x6faa, 3)?;
+    let si = c.reg(SI);
+    let f = c.word(si.wrapping_add(0x12));
+    let f = c.or(W, f, 0x20);
+    c.set_word(si.wrapping_add(0x12), f);
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.ret()
+}
