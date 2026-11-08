@@ -1198,3 +1198,80 @@ pub fn chankiss(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1471, 1)?;
     super::draw::sub_c4dd(c.m, 0xc4dd)
 }
+
+/// `loc_03af9`: the speaker's portrait brought in: outside a dialogue
+/// ([2Bh]) just the game area to the screen; else once ([47A4h] gets bit
+/// 80h) for the speaker [47C4h] (0Fh + [476Ch] for 0Fh) with a place in
+/// 47F8h (x, y; clamped to F0h, 71h): `loc_037b5`, the driver's copy
+/// (far [3949h], mode 6) from the front buffer to [0DBDEh], then the
+/// game area to the screen ([`copy_game_area_to_screen_fb2_to_fb1`]).
+pub fn bring_portrait(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x3af9)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x2b);
+    if k != 0 {
+        c.run(start, 3)?;
+        c.cmp(B, k as u16, 0);
+        return super::screen::copy_game_area_to_screen_fb2_to_fb1(c.m, 0xc43e);
+    }
+    let st = c.byte(0x47a4);
+    if st & 0x80 != 0 {
+        c.run(start, 5)?;
+        c.cmp(B, 0, 0);
+        c.cmp(B, st as u16, 0);
+        return c.ret();
+    }
+    let ax0 = c.word(0x47c4);
+    let f = ax0 & 0xff == 0x0f;
+    let add = c.byte(0x476c);
+    let ax = if f { ax0 & 0xff00 | (0x0fu8.wrapping_add(add)) as u16 } else { ax0 };
+    let di = ax.wrapping_shl(2);
+    let dx = c.word(di.wrapping_add(0x47f8));
+    let neg = dx & 0x8000 != 0;
+    c.run(start, 4 + 3 + f as u32 + 6 + if neg { 1 } else { 4 })?;
+    c.cmp(B, 0, 0);
+    c.cmp(B, st as u16, 0);
+    c.set_reg(AX, ax0);
+    c.cmp(B, ax0 & 0xff, 0x0f);
+    if f {
+        let a = c.add(B, 0x0f, add as u16);
+        c.set_reg(AX, ax0 & 0xff00 | a);
+    }
+    let d = c.shl1(W, ax, 2);
+    c.set_reg(DI, d);
+    c.set_reg(DX, dx);
+    c.or(W, dx, dx);
+    if neg {
+        return c.ret();
+    }
+    let y = c.word(di.wrapping_add(0x47fa));
+    c.push(y);
+    c.push(dx);
+    let v = c.or(B, st as u16, 0x80);
+    c.set_byte(0x47a4, v as u8);
+    c.call(0x37b5, 0x3b30)?;
+    let dx = c.word_in(SS, c.reg(SP));
+    let bx = c.word_in(SS, c.reg(SP).wrapping_add(2));
+    let (cx1, cx2) = (dx >= 0xf0, bx >= 0x71);
+    c.run(0x3b30, 4 + cx1 as u32 + 2 + cx2 as u32 + 4)?;
+    let dx = c.pop();
+    let bx = c.pop();
+    c.cmp(W, dx, 0xf0);
+    let dx = if cx1 { 0xf0 } else { dx };
+    c.cmp(W, bx, 0x71);
+    let bx = if cx2 { 0x71 } else { bx };
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    let es = c.word(0xdbde);
+    c.set_sreg(ES, es);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let nds = c.word(0xdbda);
+    c.set_sreg(DS, nds);
+    c.set_reg(BP, 6);
+    c.interp(0x3b4f, 0x3b54)?;
+    c.run(0x3b54, 2)?;
+    let ds = c.pop();
+    c.set_sreg(DS, ds);
+    super::screen::copy_game_area_to_screen_fb2_to_fb1(c.m, 0xc43e)
+}

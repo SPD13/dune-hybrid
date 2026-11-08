@@ -913,6 +913,10 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x9673, dialogue::add_speaker_gauge, "loc_09673"),
     (0x1843, ui::head_blink, "loc_01843"),
     (0x1442, ui::chankiss, "chankiss"),
+    (0x3af9, ui::bring_portrait, "loc_03af9"),
+    (0x6c6f, troops::troops_tick, "loc_06c6f"),
+    (0x8e16, dialogue::break_lines, "loc_08e16"),
+    (0x5f79, map::drop_caption, "loc_05f79"),
 ];
 
 /// 8-bit register numbers (the CPU's encoding).

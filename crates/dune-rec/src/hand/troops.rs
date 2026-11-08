@@ -4175,3 +4175,166 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(si.wrapping_add(2), cx as u8);
     c.ret()
 }
+
+/// `loc_06c6f`: the troops' tick: [473Ch] the location of record 1018h
+/// (when its byte 2 is 80h), `phase_30_check`; then for each troop from
+/// 8AAh: one with bits 430h of word 12h waits (bits 30h of byte 12h
+/// cleared while [0FAh] is set, then looked at again unless 400h);
+/// small ones (size below 14h) may merge (`merge_troop`); one with bits
+/// A0h of byte 3 is skipped; one with 40h (at its own location) and not
+/// shown ([1954h]) gets `loc_08308`; else its activity's handler (the
+/// table at CS:6C26h, DI its location) and `troop_skills_decay`.
+/// [0FAh] = [4737h] at the end.
+pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6c6f)?;
+    let mut c = Ctx::new(m);
+    let v = c.word(0x101a);
+    let is80 = v & 0xff == 0x80;
+    c.run(start, 4 + if is80 { 5 } else { 0 } + 2)?;
+    c.xor(W, 0, 0);
+    let mut si = 0u16;
+    c.set_reg(AX, v);
+    c.cmp(B, v & 0xff, 0x80);
+    if is80 {
+        let ah = c.dec(B, v >> 8);
+        c.set_reg(AX, ah << 8 | 0x1c);
+        c.mul8(ah as u8);
+        let a = c.reg(AX);
+        si = c.add(W, a, 0x100);
+        c.set_reg(AX, si);
+    }
+    c.set_reg(SI, si);
+    c.set_word(0x473c, si);
+    c.call(0x6c46, 0x6c8a)?;
+    c.run(0x6c8a, 2)?;
+    c.set_byte(0x4737, 0);
+    c.set_reg(SI, 0x8aa);
+    let mut label = 0x6c92u16;
+    loop {
+        let si = c.reg(SI);
+        match label {
+            0x6c92 => {
+                let w = c.word(si.wrapping_add(0x12));
+                if w & 0x430 != 0 {
+                    c.run(0x6c92, 2)?;
+                    c.test(W, w, 0x430);
+                    label = 0x6cd3;
+                    continue;
+                }
+                let b = c.byte(si.wrapping_add(0x1a));
+                if b >= 0x14 {
+                    c.run(0x6c92, 4)?;
+                    c.test(W, w, 0x430);
+                    c.cmp(B, b as u16, 0x14);
+                    label = 0x6ca4;
+                } else {
+                    c.run(0x6c92, 5)?;
+                    c.test(W, w, 0x430);
+                    c.cmp(B, b as u16, 0x14);
+                    c.call(0x6d19, 0x6ca2)?;
+                    let cf = c.flag(CF);
+                    c.run(0x6ca2, 1)?;
+                    label = if cf { 0x6cc3 } else { 0x6ca4 };
+                }
+            }
+            0x6ca4 => {
+                let al = c.byte(si.wrapping_add(3));
+                if al & 0xa0 != 0 {
+                    c.run(0x6ca4, 3)?;
+                    c.set_reg8(r8::AL, al);
+                    c.test(B, al as u16, 0xa0);
+                    label = 0x6cc3;
+                } else if al & 0x40 != 0 {
+                    c.run(0x6ca4, 5)?;
+                    c.set_reg8(r8::AL, al);
+                    c.test(B, al as u16, 0xa0);
+                    c.test(B, al as u16, 0x40);
+                    label = 0x6ced;
+                } else {
+                    c.run(0x6ca4, 11)?;
+                    c.set_reg8(r8::AL, al);
+                    c.test(B, al as u16, 0xa0);
+                    c.test(B, al as u16, 0x40);
+                    let ax = c.reg(AX);
+                    let a = c.and(W, ax, 0x0f);
+                    c.set_reg(AX, a);
+                    let bx = c.shl1(W, a, 1);
+                    c.set_reg(BX, bx);
+                    c.push(si);
+                    let di = c.word(si.wrapping_add(4));
+                    c.set_reg(DI, di);
+                    let t = c.code_word(bx.wrapping_add(0x6c26));
+                    c.call(t, 0x6cbf)?;
+                    c.run(0x6cbf, 2)?;
+                    let s = c.pop();
+                    c.set_reg(SI, s);
+                    c.call(0x6d7b, 0x6cc3)?;
+                    label = 0x6cc3;
+                }
+            }
+            0x6cc3 => {
+                let s2 = si.wrapping_add(0x1b);
+                let more = s2 < 0xfbb;
+                c.run(0x6cc3, 3 + if more { 0 } else { 3 })?;
+                let s2 = c.add(W, si, 0x1b);
+                c.cmp(W, s2, 0xfbb);
+                c.set_reg(SI, s2);
+                if more {
+                    label = 0x6c92;
+                    continue;
+                }
+                let al = c.byte(0x4737);
+                c.set_reg8(r8::AL, al);
+                c.set_byte(0xfa, al);
+                return c.ret();
+            }
+            0x6cd3 => {
+                let b3 = c.byte(si.wrapping_add(3));
+                if b3 & 0x40 != 0 {
+                    c.run(0x6cd3, 2)?;
+                    c.test(B, b3 as u16, 0x40);
+                    label = 0x6ced;
+                    continue;
+                }
+                let fa = c.byte(0xfa);
+                if fa == 0 {
+                    c.run(0x6cd3, 4)?;
+                    c.test(B, b3 as u16, 0x40);
+                    c.cmp(B, 0, 0);
+                    label = 0x6cc3;
+                    continue;
+                }
+                let w = c.word(si.wrapping_add(0x12));
+                let lo = (w & 0xff) & 0xcf;
+                let w2 = w & 0xff00 | lo;
+                let wait = w2 & 0x400 != 0;
+                c.run(0x6cd3, if wait { 7 } else { 8 })?;
+                c.test(B, b3 as u16, 0x40);
+                c.cmp(B, fa as u16, 0);
+                c.and(B, w & 0xff, 0xcf);
+                c.set_byte(si.wrapping_add(0x12), lo as u8);
+                c.test(W, w2, 0x400);
+                label = if wait { 0x6cc3 } else { 0x6c92 };
+            }
+            _ => {
+                let id = c.byte(si);
+                let shown = c.byte(0x1954);
+                if id == shown {
+                    c.run(0x6ced, 3)?;
+                    c.set_reg8(r8::AL, id);
+                    c.cmp(B, id as u16, shown as u16);
+                } else {
+                    c.run(0x6ced, 5)?;
+                    c.set_reg8(r8::AL, id);
+                    c.cmp(B, id as u16, shown as u16);
+                    c.push(si);
+                    c.call(0x8308, 0x6cf9)?;
+                    c.run(0x6cf9, 2)?;
+                    let s = c.pop();
+                    c.set_reg(SI, s);
+                }
+                label = 0x6cc3;
+            }
+        }
+    }
+}

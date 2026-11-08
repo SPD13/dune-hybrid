@@ -1818,3 +1818,149 @@ pub fn add_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(di.wrapping_add(0x10d0), 0x10);
     super::screens::draw_gauges(c.m, 0xd763)
 }
+
+/// `loc_08e16`: the text at SI broken into lines of width [478Fh]: per
+/// line its word count and spacing (`store_spacing`) from A9D2h on (CR
+/// ends a line, words measured by `word_width` + 6); at the end (a byte
+/// with bit 7) an empty entry and [0A9D0h] = the line count; C8h there
+/// for a word that fits no line.
+pub fn break_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8e16)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 7)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.set_byte(0x478c, 0);
+    c.set_reg(DI, 0xa9d2);
+    let dx = c.reg(DX);
+    c.xor(B, 0, 0);
+    let w = c.word(0x478f);
+    c.set_reg(BX, w);
+    c.set_reg(DX, dx & 0xff & 0);
+    let mut label = 0x8e28u16;
+    loop {
+        match label {
+            0x8e28 => {
+                let si = c.reg(SI);
+                let al = c.byte(si);
+                if al & 0x80 != 0 {
+                    c.run(0x8e28, 3)?;
+                    c.set_reg8(r8::AL, al);
+                    c.or(B, al as u16, al as u16);
+                    label = 0x8e74;
+                } else if al == 0x0d {
+                    c.run(0x8e28, 6)?;
+                    c.set_reg8(r8::AL, al);
+                    c.or(B, al as u16, al as u16);
+                    c.cmp(B, al as u16, 0x0d);
+                    c.call(0x8e9e, 0x8e3c)?;
+                    c.run(0x8e3c, 5)?;
+                    let di = c.reg(DI);
+                    c.set_word(di.wrapping_sub(4), 6);
+                    c.set_word(di.wrapping_sub(2), 0);
+                    let dx = c.reg(DX);
+                    c.xor(B, 0, 0);
+                    c.set_reg(DX, dx & 0xff00);
+                    let s = c.reg(SI);
+                    let s = c.inc(W, s);
+                    c.set_reg(SI, s);
+                } else if al == 0x20 {
+                    c.run(0x8e28, 9)?;
+                    c.set_reg8(r8::AL, al);
+                    c.or(B, al as u16, al as u16);
+                    c.cmp(B, al as u16, 0x0d);
+                    c.cmp(B, al as u16, 0x20);
+                    let s = c.inc(W, si);
+                    c.set_reg(SI, s);
+                } else {
+                    c.run(0x8e28, 8)?;
+                    c.set_reg8(r8::AL, al);
+                    c.or(B, al as u16, al as u16);
+                    c.cmp(B, al as u16, 0x0d);
+                    c.cmp(B, al as u16, 0x20);
+                    c.call(0x8ed3, 0x8e4e)?;
+                    let cx = c.reg(CX);
+                    if cx == 0 {
+                        c.run(0x8e4e, 2)?;
+                        c.or(W, 0, 0);
+                    } else {
+                        c.run(0x8e4e, 3)?;
+                        c.or(W, cx, cx);
+                        let x = c.add(W, cx, 6);
+                        c.set_reg(CX, x);
+                        label = 0x8e55;
+                    }
+                }
+            }
+            0x8e55 => {
+                let (bx, cx) = (c.reg(BX), c.reg(CX));
+                let fits = bx >= cx;
+                if fits {
+                    c.run(0x8e55, 4)?;
+                    let b = c.sub(W, bx, cx);
+                    c.set_reg(BX, b);
+                    let dx = c.reg(DX);
+                    let dl = c.inc(B, dx & 0xff);
+                    c.set_reg(DX, dx & 0xff00 | dl);
+                    label = 0x8e28;
+                    continue;
+                }
+                let b = bx.wrapping_sub(cx).wrapping_add(6);
+                if b & 0x8000 == 0 {
+                    c.run(0x8e55, 6)?;
+                    let b = c.sub(W, bx, cx);
+                    let b = c.add(W, b, 6);
+                    c.set_reg(BX, b);
+                    let dx = c.reg(DX);
+                    let dl = c.inc(B, dx & 0xff);
+                    c.set_reg(DX, dx & 0xff00 | dl);
+                    c.call(0x8e9e, 0x8e67)?;
+                    c.run(0x8e67, 1)?;
+                    label = 0x8e28;
+                    continue;
+                }
+                let dl = c.reg(DX) & 0xff;
+                if dl == 0 {
+                    c.run(0x8e55, 8)?;
+                    let b = c.sub(W, bx, cx);
+                    let b = c.add(W, b, 6);
+                    c.set_reg(BX, b);
+                    c.or(B, 0, 0);
+                    c.set_word(0xa9d0, 0xc8);
+                    return c.ret();
+                }
+                c.run(0x8e55, 8)?;
+                let b = c.sub(W, bx, cx);
+                let b = c.add(W, b, 6);
+                c.or(B, dl, dl);
+                let b = c.add(W, b, cx);
+                c.set_reg(BX, b);
+                c.call(0x8e9e, 0x8e72)?;
+                c.run(0x8e72, 1)?;
+                label = 0x8e55;
+            }
+            _ => {
+                let dl = c.reg(DX) & 0xff;
+                c.run(0x8e74, 2 + (dl != 0) as u32)?;
+                c.or(B, dl, dl);
+                if dl != 0 {
+                    c.call(0x8e9e, 0x8e7b)?;
+                }
+                c.run(0x8e7b, 8)?;
+                let di = c.reg(DI);
+                c.set_word(di.wrapping_sub(4), 6);
+                c.set_word(di.wrapping_sub(2), 0);
+                c.set_word(di, 0);
+                c.set_word(di.wrapping_add(2), 0);
+                c.xor(B, 0, 0);
+                let dx = c.reg(DX);
+                let v = dx >> 8;
+                c.set_reg(DX, v);
+                c.set_word(0xa9d0, v);
+                return c.ret();
+            }
+        }
+    }
+}

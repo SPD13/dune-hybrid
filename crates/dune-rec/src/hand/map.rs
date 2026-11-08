@@ -4130,3 +4130,54 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
 }
+
+/// `loc_05f79`: with a caption up ([46F8h], taken): under the cursor's
+/// hotspot (`loc_0d41b`, BP) another element: `loc_0d316`, `loc_0d2ea`
+/// and [`fade_panel`]; on none (its first byte FFh) the caption cleared
+/// ([46F7h] 0, the frame 1668h redrawn on the front buffer, `loc_07b2b`
+/// with AL 8).
+pub fn drop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5f79)?;
+    let mut c = Ctx::new(m);
+    let old = c.word(0x46f8);
+    if old == 0 {
+        c.run(start, 5)?;
+        c.xor(W, 0, 0);
+        c.set_reg(AX, 0);
+        c.or(W, 0, 0);
+        return c.ret();
+    }
+    c.run(start, 5)?;
+    c.xor(W, 0, 0);
+    c.set_word(0x46f8, 0);
+    c.set_reg(AX, old);
+    c.or(W, old, old);
+    c.call(0xd41b, 0x5f86)?;
+    let bp = c.reg(BP);
+    let b = c.byte_in(SS, bp);
+    let a = c.reg(AX);
+    if b != 0xff {
+        c.run(0x5f86, 4 + 1)?;
+        c.set_reg(AX, a & 0xff00 | b as u16);
+        let v = c.inc(B, b as u16);
+        c.set_reg8(r8::AL, v as u8);
+        c.call(0xd316, 0xd2e5)?;
+        c.run(0xd2e5, 1)?;
+        c.call(0xd2ea, 0xd2e8)?;
+        c.run(0xd2e8, 1)?;
+        return super::screens::fade_panel(c.m, 0xd280);
+    }
+    c.run(0x5f86, 3 + 4)?;
+    c.set_reg8(r8::AL, 0);
+    c.inc(B, 0xff);
+    c.set_word(0x46f8, 0);
+    c.set_byte(0x46f7, 0);
+    c.set_reg(SI, 0x1668);
+    c.call(0xc07c, 0x5fa2)?;
+    c.run(0x5fa2, 2)?;
+    c.set_word(0xdbe0, 0);
+    c.call(0xc6ad, 0x5fab)?;
+    c.run(0x5fab, 2)?;
+    c.set_reg8(r8::AL, 8);
+    super::troops::gfx_call_30_unless_redrawing(c.m, 0x7b2b)
+}
