@@ -44,6 +44,7 @@ mod phases;
 mod math;
 mod records;
 mod resources;
+mod saves;
 mod scenes;
 mod screen;
 mod script;
@@ -396,6 +397,14 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xd096, scenes::tall_font_glyph, "sub_d096"),
     (0xd12f, scenes::small_font_glyph, "font_draw_glyph_func_small"),
     (0xde7b, scenes::pause_if_p_key_pressed, "pause_if_p_key_pressed"),
+    // Saves, particles, numbers, reading resources.
+    (0xb473, saves::restore_from_save_memory, "restore_from_save_memory"),
+    (0xb4bb, saves::decompress_sav, "decompress_sav"),
+    (0xc58a, saves::particles_remove_particle, "particles_remove_particle"),
+    (0xc60b, saves::particles_spawn_particle, "particles_spawn_particle"),
+    (0xe2db, saves::find_string_and_replace_digits, "find_string_and_replace_digits"),
+    (0xe2e3, saves::string_replace_number_ending_at_es_si, "string_replace_number_ending_at_es_si"),
+    (0xf244, saves::read_resource_to_esdi, "read_resource_to_esdi"),
     // Input.
     (0xdaa3, input::clear_some_mouse_rect, "clear_some_mouse_rect"),
     (0xdaaa, input::set_some_mouse_rect, "set_some_mouse_rect"),
@@ -650,6 +659,25 @@ impl Ctx<'_> {
     }
     fn rcl1(&mut self, w: Width, a: u16) -> u16 {
         self.m.cpu.shift(2, w, a as u32, 1) as u16
+    }
+    /// `aam base`: AH = AL / base, AL = AL % base; SF, ZF, PF from AL
+    /// (as the CPU; `base` is not 0).
+    fn aam(&mut self, base: u8) {
+        let al = self.reg8(r8::AL);
+        self.set_reg8(r8::AH, al / base);
+        self.set_reg8(r8::AL, al % base);
+        self.m.cpu.set_szp(B, (al % base) as u32);
+    }
+    /// `rol x, 1` / `ror x, 1`.
+    fn rol1(&mut self, w: Width, a: u16) -> u16 {
+        self.m.cpu.shift(0, w, a as u32, 1) as u16
+    }
+    fn ror1(&mut self, w: Width, a: u16) -> u16 {
+        self.m.cpu.shift(1, w, a as u32, 1) as u16
+    }
+    /// `mul r8`: AX = AL × v.
+    fn mul8(&mut self, v: u8) {
+        self.m.cpu.mul_div(&mut self.m.hw, B, 4, v as u32);
     }
     /// `mul r16`: DX:AX = AX × v.
     fn mul16(&mut self, v: u16) {

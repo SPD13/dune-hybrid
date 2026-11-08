@@ -272,7 +272,9 @@ pub const GRADIENT_X: u16 = 0x47e8;
 pub const GRADIENT_Y: u16 = 0x47ea;
 /// The communication device's animation step.
 pub const COMM_STEP: u16 = 0xd816;
-pub const WORD_3CBE: u16 = 0x3cbe;
+/// The particles: a count, then 11h-byte records.
+pub const PARTICLES: u16 = 0x3cbe;
+pub const WORD_3CBE: u16 = PARTICLES;
 /// Set: no date and time panel.
 pub const WORD_1AFE: u16 = 0x1afe;
 /// The sun's and moon's positions per time-of-day slot, 8 bytes each.
