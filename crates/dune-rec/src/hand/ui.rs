@@ -1635,3 +1635,47 @@ pub fn scene_2a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, x);
     c.ret()
 }
+
+/// `sub_af26`: `loc_0d7ad`, the buttons 1E1Ah, `loc_0af00`, [2406h] 0,
+/// `loc_0d33a` (BP 2032h, BX D917h, CX 0), then [`panel_with_head`].
+pub fn open_panel_af26(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xaf26)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xd7ad, 0xaf29)?;
+    c.run(0xaf29, 2)?;
+    c.set_reg(SI, 0x1e1a);
+    c.call(0xd72b, 0xaf2f)?;
+    c.run(0xaf2f, 1)?;
+    c.call(0xaf00, 0xaf32)?;
+    c.run(0xaf32, 5)?;
+    c.set_word(0x2406, 0);
+    c.set_reg(BP, 0x2032);
+    c.set_reg(BX, 0xd917);
+    c.xor(W, 0, 0);
+    c.set_reg(CX, 0);
+    c.call(0xd33a, 0xaf43)?;
+    panel_with_head_at(&mut c, 0xaf43)
+}
+
+/// `sub_af43`: bit 2 of [0C6h] set, `loc_0c432`, `loc_0c2f2` with AL
+/// 32h, [1C30h] 0, then the head and shoulders.
+pub fn panel_with_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xaf43)?;
+    let mut c = Ctx::new(m);
+    panel_with_head_at(&mut c, start)
+}
+
+fn panel_with_head_at(c: &mut Ctx, at: u16) -> Result<(), Bail> {
+    c.run(at, 2)?;
+    let v = c.byte(0xc6);
+    let v = c.or(B, v as u16, 2);
+    c.set_byte(0xc6, v as u8);
+    c.call(0xc432, 0xaf4b)?;
+    c.run(0xaf4b, 2)?;
+    c.set_reg8(r8::AL, 0x32);
+    c.call(0xc2f2, 0xaf50)?;
+    c.run(0xaf50, 2)?;
+    c.set_byte(0x1c30, 0);
+    ui_draw_head_and_shoulders(c.m, 0x1797)
+}

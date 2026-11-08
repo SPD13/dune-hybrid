@@ -413,7 +413,7 @@ pub fn draw_1b48_and_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// From D72B (the stretch from `at`, `prefix` instructions before, done by
 /// `ops`): the 6 UI elements at SI copied to 1B8Eh, the rect at 2458h
 /// (`loc_0d741`), and the copies drawn.
-fn set_buttons(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+pub(super) fn set_buttons(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
     c.run(at, prefix + 5)?;
     ops(c);
     let ds = c.sreg(pc::cpu::DS);

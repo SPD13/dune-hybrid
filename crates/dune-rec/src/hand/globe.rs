@@ -1224,3 +1224,24 @@ pub fn globe_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     globe_frame_from_b98e(&mut c, 0xb9b6, 1)
 }
+
+/// `draw_globe_cursor_at_dx_bx`: on the screen, the icon sprites loaded,
+/// the cursor sprite 36h drawn at (DX, BX less its height byte).
+pub fn draw_globe_cursor_at_dx_bx(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xbc0c)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xc08e, 0xbc0f)?;
+    c.run(0xbc0f, 1)?;
+    c.call(0xc137, 0xbc12)?;
+    c.run(0xbc12, 2)?;
+    c.set_reg(AX, 0x36);
+    c.call(0xc1f4, 0xbc18)?;
+    c.run(0xbc18, 2)?;
+    let si = c.reg(SI);
+    let h = c.byte_in(ES, si.wrapping_add(2));
+    let bl = c.reg8(r8::BL);
+    let v = c.sub(B, bl as u16, h as u16);
+    c.set_reg8(r8::BL, v as u8);
+    super::draw::draw_sprite_clobbering_bx_dx(c.m, 0xc22f)
+}

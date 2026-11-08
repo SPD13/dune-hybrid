@@ -5198,3 +5198,97 @@ pub fn heading_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, nd);
     c.ret()
 }
+
+/// `sub_5a56`: into the map view. Already in it ([46EBh] bit 7): its
+/// redraw (`map_view_redraw`). Else the screen set up (`loc_0d2bd`,
+/// `loc_04aca`, `loc_0b930`, palette 6B34h, 1482h to 46E3h, `loc_05b69`,
+/// the portrait), [46EBh] 80h, the music, the redraw installed as the
+/// frame handler [46EDh] and run, `loc_0d792` and the buttons 1CCAh.
+pub fn enter_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5a56)?;
+    let mut c = Ctx::new(m);
+    let v = c.byte(0x46eb);
+    if v & 0x80 != 0 {
+        return map_view_redraw(&mut c, start, 2, |c| c.cmp(B, v as u16, 0));
+    }
+    c.run(start, 3)?;
+    c.cmp(B, v as u16, 0);
+    c.call(0xd2bd, 0x5a60)?;
+    c.run(0x5a60, 1)?;
+    c.call(0x4aca, 0x5a63)?;
+    c.run(0x5a63, 1)?;
+    c.call(0xb930, 0x5a66)?;
+    c.run(0x5a66, 3)?;
+    c.set_reg(SI, 0x6b34);
+    c.set_reg(BP, 0x0f);
+    c.call(0xda25, 0x5a6f)?;
+    c.run(0x5a6f, 3)?;
+    c.set_reg(SI, 0x1482);
+    c.set_reg(DI, 0x46e3);
+    c.call(0x5b99, 0x5a78)?;
+    c.run(0x5a78, 1)?;
+    c.call(0x5b69, 0x5a7b)?;
+    c.run(0x5a7b, 1)?;
+    c.call(0x1797, 0x5a7e)?;
+    c.run(0x5a7e, 2)?;
+    c.set_byte(0x46eb, 0x80);
+    c.call(0xad5e, 0x5a86)?;
+    c.run(0x5a86, 4)?;
+    c.set_word(0x2786, 0xc835);
+    c.set_reg(AX, 0x5a9a);
+    c.set_word(0x46ed, 0x5a9a);
+    c.call(0x5a9a, 0x5a94)?;
+    c.run(0x5a94, 1)?;
+    c.call(0xd792, 0x5a97)?;
+    super::screens::set_buttons(&mut c, 0x5a97, 3, |c| c.set_reg(SI, 0x1cca))
+}
+
+/// From `loc_05a9a` (after `pre` instructions from `at` with `ops`): the
+/// map view redrawn with [46EBh] 80h meanwhile (`loc_05b8d`, `loc_0b6c3`,
+/// the shown locations, the troop marker, [3CBEh] 0, `loc_06715`, the
+/// place 46E3h, `loc_0878c`; `loc_05406` for its bit 40h), the click
+/// handler 1A9Eh, [0DC58h] = 46E3h.
+fn map_view_redraw(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    c.run(at, pre + 1)?;
+    ops(c);
+    c.call(0xc07c, 0x5a9d)?;
+    c.run(0x5a9d, 1)?;
+    c.call(0x5b8d, 0x5aa0)?;
+    c.run(0x5aa0, 4)?;
+    let old = c.byte(0x46eb);
+    c.set_byte(0x46eb, 0x80);
+    let ax = c.reg(AX) & 0xff00 | old as u16;
+    c.set_reg(AX, ax);
+    c.push(ax);
+    c.call(0xb6c3, 0x5aaa)?;
+    for (to, ret) in [(0xc13bu16, 0x5aadu16), (0x5dce, 0x5ab0), (0x6314, 0x5ab3), (0xc412, 0x5ab6)] {
+        c.run(ret - 3, 1)?;
+        c.call(to, ret)?;
+    }
+    c.run(0x5ab6, 2)?;
+    c.set_word(0x3cbe, 0);
+    c.call(0x6715, 0x5abf)?;
+    c.run(0x5abf, 2)?;
+    c.set_reg(SI, 0x46e3);
+    c.call(0xc6ad, 0x5ac5)?;
+    c.run(0x5ac5, 1)?;
+    c.call(0x878c, 0x5ac8)?;
+    let ax = c.word_in(pc::cpu::SS, c.reg(pc::cpu::SP));
+    let bit = ax & 0x40 != 0;
+    c.run(0x5ac8, if bit { 5 } else { 6 })?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.set_byte(0x46eb, ax as u8);
+    let a = c.and(B, ax & 0xff, 0x40);
+    c.set_reg(AX, ax & 0xff00 | a);
+    if bit {
+        c.call(0x5406, 0x5ad3)?;
+        c.run(0x5ad3, 2)?;
+    }
+    c.set_reg(AX, 0x1a9e);
+    c.call(0xd95e, 0x5ad9)?;
+    c.run(0x5ad9, 4)?;
+    c.set_reg(SI, 0x46e3);
+    c.set_word(0xdc58, 0x46e3);
+    c.ret()
+}
