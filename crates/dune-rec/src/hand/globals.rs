@@ -361,3 +361,28 @@ pub const WORD_479E: u16 = 0x479e;
 /// The end of the table `handle_ctrl_v_once` appends to (in the code
 /// segment).
 pub const CTRL_V_TABLE_END: u16 = 0x11bd;
+/// The video opened (twice), its body's offset in the file and its size
+/// (32 bits each).
+pub const HNM_VIDEO: u16 = 0xdc00;
+pub const HNM_VIDEO_2: u16 = 0xdc02;
+pub const HNM_BODY_OFFSET: u16 = 0xdbf6;
+pub const HNM_BODY_SIZE: u16 = 0xdbfa;
+
+// --- Scenes ----------------------------------------------------------------------
+
+/// The pause: P pressed (Cryogenic: `keyPstatus`), and whether it may
+/// pause now.
+pub const KEY_P_STATUS: u16 = 0xce9a;
+pub const PAUSE_ALLOWED: u16 = 0xce80;
+/// The chapter's video.
+pub const CHAPTER_VIDEO: u16 = 0x243e;
+/// The result bars: 6 targets, then 6 heights.
+pub const RESULT_BARS: u16 = 0xdd11;
+/// The map's statistics (`map_func`).
+pub const MAP_SHARE_A: u16 = 0x00a2;
+pub const MAP_SHARE_B: u16 = 0x00a4;
+/// The next IRUL subtitle (its frame, then its text).
+pub const SUBTITLE_NEXT: u16 = 0x3622;
+/// The bitmap fonts' rows.
+pub const TALL_FONT_ROWS: u16 = 0x2514;
+pub const SMALL_FONT_ROWS: u16 = 0x2516;

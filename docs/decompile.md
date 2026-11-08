@@ -173,7 +173,7 @@ a difference comes from one). Modules by area: `story`, `phases`, `intro`,
 (frame tasks), `video`, `gfx`, `screen`, `sprites`, `text`, `hnm`, `hsq`
 (the decompressor), `sound`, `audio`, `voice`, `input`, `dos`, `files`,
 `resources` (opening sprite sheets, the condition evaluator), `ui`,
-`panels`, `globe`, `mouse`, `draw`, `frame` (the frame-task runner, input
+`panels`, `globe`, `mouse`, `draw`, `hnmload`, `scenes`, `frame` (the frame-task runner, input
 checks, HNM frame steps); data-segment
 globals are named in `globals.rs` (from the routines that use them and
 Cryogenic's `GlobalsOnDs.cs`; unknown ones keep their offset).
@@ -194,7 +194,7 @@ the instruction count (virtual time). `Ctx` holds the bookkeeping:
   `interp` (`INT` and far calls into the drivers), and tail jumps call the
   target port directly.
 
-Ported: 284 routines (the small ones first: flags and setters, game time,
+Ported: 305 routines (the small ones first: flags and setters, game time,
 location kinds, frame tasks, condition operators, the intro's steps,
 framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
 decompression, voice and music start/stop, DUNE.DAT access, the memory
@@ -202,11 +202,16 @@ driver calls; then the condition evaluator, resource opening, the sky,
 the date panel, the communication device, settings sliders, voice-file
 streaming, music loading; the globe and the frieze, the mouse cursor,
 the frame-task runner, the input check, HNM frame stepping; sprite
-drawing, plain and scaled, and UI elements), all equal to the original in every checked call (two
-10-minute games with `--call-each 4`, 0 differences), and `--rec on`
+drawing, plain and scaled, and UI elements; opening videos and the
+intro's video loaders, the IRUL videos with subtitles, the result bars,
+the font glyphs, map statistics), all equal to the original in every
+checked call (two 10-minute games with `--call-each 4`, 0 differences), and `--rec on`
 screenshots unchanged. A port no run has checked to completion stays out of the table
 (`copy_pal_and_transition`, `comm_fade_in_glow`,
-`comm_animate_incoming_call`: longer than the harness's 300 ms).
+`comm_animate_incoming_call`, `sub_b1ee`: longer than the harness's
+300 ms). A port may also cover only a routine's common path and bail at
+its entry for the rest (`pause_if_p_key_pressed`: the pause screen
+itself stays generated).
 
 The check catches a port's mistakes where they matter: an instruction
 count one short in `apply_sprite_sheet_palette` showed as differences in

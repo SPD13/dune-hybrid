@@ -34,6 +34,7 @@ mod gfx;
 mod globals;
 mod globe;
 mod hnm;
+mod hnmload;
 mod hsq;
 mod input;
 mod intro;
@@ -43,6 +44,7 @@ mod phases;
 mod math;
 mod records;
 mod resources;
+mod scenes;
 mod screen;
 mod script;
 mod sound;
@@ -369,6 +371,31 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xc4fb, draw::draw_head_if_needed_and_update_screen_rect, "draw_head_if_needed_and_update_screen_rect"),
     (0xd200, draw::draw_ui_element, "draw_ui_element"),
     (0xe75b, draw::res_store_in_lookup_table, "res_store_in_lookup_table"),
+    // Opening videos.
+    (0x061c, hnmload::load_virgin_hnm, "load_VIRGIN_HNM"),
+    (0x064d, hnmload::load_cryo_hnm, "load_CRYO_HNM"),
+    (0x0658, hnmload::load_cryo2_hnm, "load_CRYO2_HNM"),
+    (0x0678, hnmload::load_present_hnm, "load_PRESENT_HNM"),
+    (0x069e, hnmload::load_intro_hnm, "load_INTRO_HNM"),
+    (0x09ef, hnmload::play_credits_hnm, "play_CREDITS_HNM"),
+    (0x0911, hnmload::remove_all_frame_tasks, "remove_all_frame_tasks"),
+    (0xc92b, hnmload::hnm_open_and_load_palette, "hnm_open_and_load_palette"),
+    (0xca1b, hnmload::hnm_load_first_frame, "hnm_load_first_frame"),
+    (0xcda0, hnmload::hnm_open_at_body_start, "hnm_open_at_body_start"),
+    // Scenes and screens.
+    (0xb1af, scenes::ui_draw_book_turning_page, "ui_draw_book_turning_page"),
+    // Unverified (never called to completion in the checking runs):
+    // (0xb1ee, scenes::sub_b1ee, "sub_b1ee"),
+    (0xb236, scenes::sub_b236, "sub_b236"),
+    (0xbdfa, scenes::ui_stats_draw_ingame_day_and_charisma, "ui_stats_draw_ingame_day_and_charisma"),
+    (0xbe57, scenes::sub_be57, "sub_be57"),
+    (0xbfe3, scenes::map_func, "map_func"),
+    (0xc0b6, scenes::room_frame_task, "room_frame_task"),
+    (0xcefc, scenes::load_irul_hsq, "load_IRULn_HSQ"),
+    (0xcf1b, scenes::play_irul_hsq, "play_IRULx_HSQ"),
+    (0xd096, scenes::tall_font_glyph, "sub_d096"),
+    (0xd12f, scenes::small_font_glyph, "font_draw_glyph_func_small"),
+    (0xde7b, scenes::pause_if_p_key_pressed, "pause_if_p_key_pressed"),
     // Input.
     (0xdaa3, input::clear_some_mouse_rect, "clear_some_mouse_rect"),
     (0xdaaa, input::set_some_mouse_rect, "set_some_mouse_rect"),
