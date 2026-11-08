@@ -1057,3 +1057,65 @@ pub fn open_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
 }
+
+/// `sub_44ab`: one blink of the map pointer: [4751h] counted; on the back
+/// buffer (the front pointer kept) `loc_05b93`, `loc_0c137`, the rect
+/// 4749h (`loc_0db74`) clipped to D834h and shown
+/// (`draw_head_if_needed_and_update_screen_rect`), on odd counts the
+/// sprite 4Ch at its corner (`draw_sprite_clipped_clobbering_bx_dx`);
+/// then [`draw_mouse_cursor_if_needed`].
+pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x44ab)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    let v = c.byte(0x4751);
+    let v = c.inc(B, v as u16);
+    c.set_byte(0x4751, v as u8);
+    let fb = c.word(0xdbda);
+    c.push(fb);
+    c.call(0xc08e, 0x44b6)?;
+    c.run(0x44b6, 1)?;
+    c.call(0x5b93, 0x44b9)?;
+    c.run(0x44b9, 1)?;
+    c.call(0xc137, 0x44bc)?;
+    c.run(0x44bc, 2)?;
+    c.set_reg(SI, 0x4749);
+    c.call(0xdb74, 0x44c2)?;
+    let si = c.reg(SI);
+    let r = [c.word(si), c.word(si.wrapping_add(2)), c.word(si.wrapping_add(4)), c.word(si.wrapping_add(6))];
+    let b = [c.word(0xd834), c.word(0xd836), c.word(0xd838), c.word(0xd83a)];
+    let (c2, c3, c0, c1) = (r[2] >= b[2], r[3] >= b[3], r[0] < b[0], r[1] < b[1]);
+    c.run(0x44c2, 7 + c2 as u32 + 2 + c3 as u32 + 2 + c0 as u32 + 2 + c1 as u32 + 1)?;
+    c.set_reg(SI, 0xd834);
+    c.cmp(W, r[2], b[2]);
+    let bp = if c2 { b[2] } else { r[2] };
+    c.cmp(W, r[3], b[3]);
+    let ax = if c3 { b[3] } else { r[3] };
+    c.cmp(W, r[0], b[0]);
+    let dx = if c0 { b[0] } else { r[0] };
+    c.cmp(W, r[1], b[1]);
+    let bx = if c1 { b[1] } else { r[1] };
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    c.set_reg(BP, bp);
+    c.set_reg(AX, ax);
+    c.call(0xc4fb, 0x44f1)?;
+    let k = c.byte(0x4751);
+    let odd = k & 1 != 0;
+    c.run(0x44f1, 3 + if odd { 4 } else { 0 })?;
+    let bx = c.reg(BX);
+    c.set_reg(BX, bx & 0xff00 | k as u16);
+    let bl = c.shr1(B, k as u16, 1);
+    c.set_reg(BX, bx & 0xff00 | bl);
+    if odd {
+        c.set_reg(AX, 0x4c);
+        let (x, y) = (c.word(0x4749), c.word(0x474b));
+        c.set_reg(DX, x);
+        c.set_reg(BX, y);
+        c.call(0xc30d, 0x4507)?;
+    }
+    c.run(0x4507, 2)?;
+    let fb = c.pop();
+    c.set_word(0xdbda, fb);
+    super::mouse::draw_mouse_cursor_if_needed(c.m, 0xdb67)
+}

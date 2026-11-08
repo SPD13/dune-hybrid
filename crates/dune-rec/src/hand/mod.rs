@@ -935,6 +935,9 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x9285, cursor::dialogue_hit, "loc_09285"),
     (0x978e, dialogue::redraw_dialogue_scene, "loc_0978e"),
     (0x8604, troops::troop_step, "loc_08604"),
+    (0x0c3b, story::creature_step, "loc_00c3b"),
+    (0x31f6, story::describe_troop, "loc_031f6"),
+    (0x44ab, screens::blink_map_pointer, "sub_44ab"),
 ];
 
 /// 8-bit register numbers (the CPU's encoding).

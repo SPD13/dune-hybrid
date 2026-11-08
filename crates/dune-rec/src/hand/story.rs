@@ -4001,3 +4001,264 @@ pub fn video_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0a3b, 1)?;
     super::mouse::draw_mouse(c.m, 0xdbec)
 }
+
+/// `loc_00c3b`: one step of the creature SI (a bird or a worm sign):
+/// when its timer (byte 1) runs out, a new random move (its byte 7 by
+/// the seed, the wait 0..7 from `rand_masked`, flags in word 2); then its
+/// sprite: for kind bit 10h clear from the table 15A2h, else turning by
+/// 0Ah (at random, within 0..3Fh, flipping at the ends) with `loc_05198`;
+/// drawn by `loc_0c60b` from the place table 1592h (by its bits 0Ch).
+pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0c3b)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let t = c.byte(si.wrapping_add(1));
+    let t1 = t.wrapping_sub(1);
+    if t1 & 0x80 != 0 {
+        let seed = c.word(0);
+        let a = seed & 3 == 0;
+        let b = a && seed & 0xc == 0;
+        c.run(start, 2 + 2 + if a { 3 + b as u32 } else { 0 } + 1)?;
+        let v = c.dec(B, t as u16);
+        c.set_byte(si.wrapping_add(1), v as u8);
+        c.test(W, seed, 3);
+        if a {
+            c.set_byte(si.wrapping_add(7), 0x0b);
+            c.test(W, seed, 0x0c);
+            if b {
+                c.set_byte(si.wrapping_add(7), 0x11);
+            }
+        }
+        c.call(0xe3cc, 0x0c5b)?;
+        let k = c.byte(0x473a);
+        c.run(0x0c5b, 2 + (k != 0) as u32 + 3)?;
+        c.cmp(B, k as u16, 0);
+        let mut ax = c.reg(AX);
+        if k != 0 {
+            let al = c.and(B, ax & 0xff, 0xef);
+            ax = ax & 0xff00 | al;
+            c.set_reg(AX, ax);
+        }
+        c.set_reg(CX, ax);
+        c.set_reg(BX, 7);
+        c.call(0xe3b7, 0x0c6c)?;
+        let al = c.reg8(r8::AL);
+        let hi = al >= 4;
+        c.run(0x0c6c, 3 + hi as u32 + 1)?;
+        let si = c.reg(SI);
+        c.set_byte(si.wrapping_add(1), al);
+        c.cmp(B, al as u16, 4);
+        let mut cx = c.reg(CX);
+        if hi {
+            let ch = c.or(B, cx >> 8, 0x40);
+            cx = ch << 8 | cx & 0xff;
+            c.set_reg(CX, cx);
+        }
+        c.set_word(si.wrapping_add(2), cx);
+    } else {
+        c.run(start, 2)?;
+        let v = c.dec(B, t as u16);
+        c.set_byte(si.wrapping_add(1), v as u8);
+    }
+    let si = c.reg(SI);
+    let al = c.byte(si.wrapping_add(2));
+    let ax = c.reg(AX) & 0xff00 | al as u16;
+    let b3 = c.byte(si.wrapping_add(3));
+    if al & 0x10 == 0 {
+        c.run(0x0c79, 12)?;
+        c.set_byte(si, 8);
+        c.set_reg(AX, ax);
+        c.set_reg(DI, ax);
+        let bx = c.reg(BX) & 0xff00 | b3 as u16;
+        let a = c.and(W, ax, 0x10);
+        let bx = c.and(W, bx, 6);
+        let s = c.word(bx.wrapping_add(0x15a2));
+        c.set_reg(SI, s);
+        let bx = c.add(W, bx, bx);
+        c.set_reg(BX, bx);
+        let a = c.add(W, a, bx);
+        let l = c.add(B, a & 0xff, 4);
+        c.set_reg(AX, a & 0xff00 | l);
+    } else {
+        let mut n = 6 + 5;
+        let ah0 = b3 & 0xc0;
+        let turn = ah0 & 0x40 != 0;
+        let seed = c.word(0);
+        let mut roll = false;
+        if turn {
+            n += 2;
+            roll = seed & 0x8000 != 0;
+            if roll {
+                let neg = ah0 & 0x80 != 0;
+                n += 3 + neg as u32 + 2;
+                let cl: u8 = if neg { 0xf6 } else { 0x0a };
+                let v = (b3 & 0x3f).wrapping_add(cl);
+                let mut a = v;
+                if v & 0x80 != 0 {
+                    n += 2;
+                    a = 0;
+                }
+                n += 2 + if a >= 0x40 { 2 } else { 0 } + 2;
+            }
+        }
+        n += 2;
+        c.run(0x0c79, n)?;
+        c.set_byte(si, 8);
+        c.set_reg(DI, ax);
+        let bx = c.reg(BX) & 0xff00 | b3 as u16;
+        c.set_reg(BX, bx);
+        c.and(W, ax, 0x10);
+        let mut ah = c.and(B, b3 as u16, 0xc0);
+        let mut al = c.and(B, b3 as u16, 0x3f);
+        c.test(B, ah, 0x40);
+        if turn {
+            let s = c.rol1(W, seed);
+            c.set_word(0, s);
+            if roll {
+                let mut cl = 0x0au16;
+                c.or(B, ah, ah);
+                if ah & 0x80 != 0 {
+                    cl = c.neg(B, cl);
+                }
+                c.set_reg8(r8::CL, cl as u8);
+                al = c.add(B, al, cl);
+                if al & 0x80 != 0 {
+                    ah = c.xor(B, ah, 0x80);
+                    al = c.xor(B, 0, 0);
+                }
+                c.cmp(B, al, 0x40);
+                if al >= 0x40 {
+                    al = 0x3f;
+                    ah = c.xor(B, ah, 0x80);
+                }
+                let v = c.or(B, ah, al);
+                ah = v;
+                c.set_byte(si.wrapping_add(3), v as u8);
+            }
+        }
+        let a = c.add(B, al, 0xe0);
+        c.set_reg(AX, ah << 8 | a);
+        c.call(0x5198, 0x0ccf)?;
+        c.run(0x0ccf, 3)?;
+        let (bx, dx) = (c.reg(BX), c.reg(DX));
+        let dx = (bx & 0xff) << 8 | dx & 0xff;
+        c.set_reg(DX, dx);
+        c.set_reg(SI, dx);
+        c.set_reg(AX, 0x14);
+    }
+    c.run(0x0cd6, 4)?;
+    let di = c.reg(DI);
+    let di = c.and(W, di, 0x0c);
+    c.set_reg(DI, di);
+    let (bx, dx) = (c.word(di.wrapping_add(0x1594)), c.word(di.wrapping_add(0x1592)));
+    c.set_reg(BX, bx);
+    c.set_reg(DX, dx);
+    c.call(0xc60b, 0x0ce4)?;
+    c.run(0x0ce4, 2)?;
+    let di = c.reg(DI);
+    c.set_word(di.wrapping_add(0x0d), 0);
+    c.ret()
+}
+
+/// `loc_031f6`: the troop SI described in the condition variables
+/// (registers kept): its location (2Ch), id, activity, the age phrase
+/// (`record_age_phrase`) and rate (`troop_rate_by_age`, [48h]), words
+/// 10h, 12h, motivation (`troop_motivation`), its three skills with
+/// their phrases (`al_sixteenth_plus_d1`), words 0Ch, 0Eh, the skill of
+/// its activity (`loc_0693b`), byte 19h, size, the days since byte 14h,
+/// and its location (`select_location`).
+pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x31f6)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xe270, 0x31f9)?;
+    c.run(0x31f9, 11)?;
+    let si = c.reg(SI);
+    let di = c.word(si.wrapping_add(4));
+    c.set_reg(DI, di);
+    c.set_word(0x2c, di);
+    let id = c.byte(si);
+    c.set_byte(0x2e, id);
+    let b3 = c.byte(si.wrapping_add(3));
+    c.set_byte(0x30, b3);
+    let ax = c.reg(AX) & 0xff00 | b3 as u16;
+    let a = c.and(W, ax, 0x0f);
+    c.set_byte(0x2f, a as u8);
+    let a = c.add(W, a, 0x18);
+    c.set_reg(AX, a);
+    c.set_word(0x11f3, a);
+    c.call(0x32c7, 0x321a)?;
+    c.run(0x321a, 1)?;
+    c.call(0x329d, 0x321d)?;
+    c.run(0x321d, 10)?;
+    let si = c.reg(SI);
+    let ax = c.reg(AX);
+    c.set_word(0x48, ax);
+    let w = c.word(si.wrapping_add(0x10));
+    c.set_word(0x32, w);
+    let w = c.word(si.wrapping_add(0x12));
+    c.set_word(0x34, w);
+    let a = c.and(W, w, 0x0f);
+    c.set_byte(0x31, a as u8);
+    let a = c.add(W, a, 0);
+    c.set_reg(AX, a);
+    c.set_word(0x11ff, a);
+    c.call(0x6efd, 0x323b)?;
+    for (at, src, dst, word, ret) in [
+        (0x323bu16, 0x16u16, 0x38u16, 0x11f7u16, 0x3247u16),
+        (0x3247, 0x17, 0x39, 0x11f9, 0x3253),
+        (0x3253, 0x18, 0x3a, 0x11fb, 0x325f),
+    ] {
+        c.run(at, 4)?;
+        let ax = c.reg(AX);
+        if at == 0x323b {
+            c.set_byte(0x36, ax as u8);
+        } else {
+            let prev = if at == 0x3247 { 0x11f7 } else { 0x11f9 };
+            c.set_word(prev, ax);
+        }
+        let si = c.reg(SI);
+        let b = c.byte(si.wrapping_add(src));
+        c.set_reg8(r8::AL, b);
+        c.set_byte(dst, b);
+        let _ = word;
+        c.call(0x3310, ret)?;
+    }
+    c.run(0x325f, 9)?;
+    let ax = c.reg(AX);
+    c.set_word(0x11fb, ax);
+    let si = c.reg(SI);
+    let w = c.word(si.wrapping_add(0x0c));
+    c.set_word(0x44, w);
+    let w = c.word(si.wrapping_add(0x0e));
+    c.set_word(0x46, w);
+    c.xor(B, 0, 0);
+    let a = c.add(W, w & 0xff, 0xe8);
+    c.set_reg(AX, a);
+    c.set_word(0x11f1, a);
+    c.call(0x693b, 0x3279)?;
+    c.run(0x3279, 8)?;
+    let ax = c.reg(AX);
+    c.set_reg(BP, ax);
+    let si = c.reg(SI);
+    let s = c.byte_in(SS, ax.wrapping_add(si).wrapping_add(0x16));
+    c.set_byte(0x37, s);
+    let b = c.byte(si.wrapping_add(0x19));
+    c.set_byte(0x3b, b);
+    let z = c.byte(si.wrapping_add(0x1a));
+    c.set_byte(0x3c, z);
+    c.set_reg(AX, ax & 0xff00 | z as u16);
+    c.call(0x1ac5, 0x3290)?;
+    c.run(0x3290, 3)?;
+    let al = c.reg8(r8::AL);
+    let si = c.reg(SI);
+    let d = c.byte(si.wrapping_add(0x14));
+    let v = c.sub(B, al as u16, d as u16);
+    c.set_reg8(r8::AL, v as u8);
+    c.set_byte(0x40, v as u8);
+    c.call(0x331e, 0x3299)?;
+    c.run(0x3299, 1)?;
+    c.call(0xe283, 0x329c)?;
+    c.run(0x329c, 1)?;
+    c.ret()
+}
