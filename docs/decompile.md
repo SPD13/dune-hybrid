@@ -21,7 +21,7 @@ coverage ────┘   (crates/lift)  generated.rs         └─ dune-run -
    ▲
    └── dune-run --coverage  (intro, --rooms, --phase-ladder, --monkey)
 
-crates/dune-rec/src/hand.rs: readable ports, replacing generated routines
+crates/dune-rec/src/hand/: readable ports, replacing generated routines
 ```
 
 ### 1. Coverage: what the game runs, without playing
@@ -163,19 +163,47 @@ Measured: three 5- and 10-minute random-input games (one with the phase
 ladder): every screenshot byte-identical to the same run without `--rec`
 (50 of 50), at 135 to 165 MIPS against 63 for the interpreter (2.2 to 2.6×).
 
-### 5. Readable ports: `crates/dune-rec/src/hand.rs`
+### 5. Readable ports: `crates/dune-rec/src/hand/`
 
 Hand-written Rust for single routines, from the listing, replacing the
 generated routine of the same entry, and checked by shadow mode the same way
-(`[hand]` in the report). A port must end in the original's exact state:
-the registers and flags it returns are spelled out in its doc comment (callers
-may rely on any of them), and it keeps the instruction count (virtual time).
-A small `Ctx` holds the bookkeeping: `run(at, n)` counts a straight stretch
-of original instructions and bails at `at` if an interrupt falls inside it;
-`call` and `ret` keep the original's stack.
+(`[hand]` in the report; `REC_NO_HAND=1` turns them all off, to tell whether
+a difference comes from one). Modules by area: `story`, `phases`, `intro`,
+`time`, `records`, `script` (condition operands and operators), `tasks`
+(frame tasks), `video`, `gfx`, `screen`, `sprites`, `text`, `hnm`, `hsq`
+(the decompressor), `sound`, `audio`, `input`, `dos`, `files`; data-segment
+globals are named in `globals.rs` (from the routines that use them and
+Cryogenic's `GlobalsOnDs.cs`; unknown ones keep their offset).
 
-Ported so far, all equal in every checked call: `set_game_phase`,
-`get_sky_palette_id_from_game_time_in_bl`, `tablat_lookup_from_bx_to_ax_bp`.
+A port must end in the original's exact state: the registers and flags it
+returns are spelled out in its doc comment (callers may rely on any of
+them), stack slots a push/pop left below SP are written too, and it keeps
+the instruction count (virtual time). `Ctx` holds the bookkeeping:
+- `run(at, n)` counts a straight stretch of original instructions and bails
+  at `at` before changing anything if an interrupt (or a check's end) falls
+  inside; `check(at, max)` + `count(n)` for data-dependent paths (checking
+  the longest is always safe);
+- the usual shape: work out the path from pure reads, `run`, then do the
+  work with flag-exact operations (`add`, `cmp`, `shr1`, `rcl1`, `lods`,
+  `movs`, `rep`, ...), so a bail leaves the machine exactly at a stretch's
+  first instruction;
+- `call` (near, with the original's return address on the stack),
+  `interp` (`INT` and far calls into the drivers), and tail jumps call the
+  target port directly.
+
+Ported: 192 routines (the small ones first: flags and setters, game time,
+location kinds, frame tasks, condition operators, the intro's steps,
+framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
+decompression, voice and music start/stop, DUNE.DAT access, the memory
+driver calls), all equal to the original in every checked call (two
+10-minute games with `--call-each 4`, 0 differences), and `--rec on`
+screenshots unchanged. A port no run has called yet stays out of the table
+(`copy_pal_and_transition`).
+
+Open: under `--call-each` on seed 21, two generated routines differ
+(`hnm_render_timer_callback` and `parse_command_line`, which it interrupts,
+both with the harness's artificial state); they differ the same way with
+`REC_NO_HAND=1`, so it is not a port. Not seen in normal play.
 
 ## Next steps
 

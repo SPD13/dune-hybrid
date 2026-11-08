@@ -1,0 +1,69 @@
+//! Game time: day, time of day, the sky's palette.
+
+use super::{B, Ctx, W, entered, globals as g, r8};
+use pc::{
+    Machine,
+    cpu::{AX, BX},
+    rec::Bail,
+};
+
+/// `get_ingame_time_of_day` (1AE0): AX = the time-of-day slot (0..15).
+/// Flags from `and ax, 0Fh`.
+pub fn get_ingame_time_of_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1ae0)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    let time = c.word(g::GAME_TIME);
+    let slot = c.and(W, time, 0x0f);
+    c.set_reg(AX, slot);
+    c.ret()
+}
+
+/// `get_ingame_day_q` (1AC5): AX = the game time / 16 (the day, counted
+/// from 0). Flags from the last of four `shr ax, 1`.
+pub fn get_ingame_day_q(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1ac5)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 6)?;
+    let time = c.word(g::GAME_TIME);
+    let day = c.shr1(W, time, 4);
+    c.set_reg(AX, day);
+    c.ret()
+}
+
+/// `get_ingame_day_in_ax` (1AD1): AX = (game time + 3) / 16, the day as the
+/// game shows it (a day turns 3 slots early). Flags from the last `shr`.
+pub fn get_ingame_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1ad1)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 7)?;
+    let time = c.word(g::GAME_TIME);
+    let t = c.add(W, time, 3);
+    let day = c.shr1(W, t, 4);
+    c.set_reg(AX, day);
+    c.ret()
+}
+
+/// `get_sky_palette_id_from_game_time_in_bl` (395C): the sky palette for
+/// the current game time: the time-of-day slot's base palette plus 4 × the
+/// palette group.
+///
+/// Exit: BL = AL = the palette id, AH = 4 × group, BH = 22h (the table's
+/// page). Flags from the final addition.
+pub fn sky_palette_for_game_time(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x395c)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 10)?;
+    let time = c.word(g::GAME_TIME);
+    // mov ah, al; shr ah, 1 (twice); and ax, 1C0Fh: the flags of the `and`
+    // only depend on its result.
+    let ah = (time as u8 >> 2) as u16;
+    let ax = c.and(W, ah << 8 | time & 0xff, 0x1c0f);
+    let (slot, group4) = (ax & 0xff, ax >> 8);
+    let base = c.byte(g::SKY_PALETTE_BY_SLOT + slot);
+    let id = c.add(B, base as u16, group4) as u8;
+    c.set_reg(AX, group4 << 8 | id as u16);
+    c.set_reg(BX, g::SKY_PALETTE_BY_SLOT & 0xff00);
+    c.set_reg8(r8::BL, id);
+    c.ret()
+}

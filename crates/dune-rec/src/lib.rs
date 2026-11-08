@@ -48,14 +48,21 @@ mod gen_tables {
     }
 }
 
+/// The hand-written ports in use: all of them, or none with `REC_NO_HAND=1`
+/// in the environment (to tell whether a difference comes from one).
+fn hand_ports() -> &'static [(u16, Routine, &'static str)] {
+    static OFF: OnceLock<bool> = OnceLock::new();
+    if *OFF.get_or_init(|| std::env::var_os("REC_NO_HAND").is_some_and(|v| v == "1")) { &[] } else { hand::ROUTINES }
+}
+
 /// Every routine by seg000 entry offset: the hand-written ports, and the
 /// generated routines for the rest.
 pub fn routines() -> &'static [(u16, Routine)] {
     static ALL: OnceLock<Vec<(u16, Routine)>> = OnceLock::new();
     ALL.get_or_init(|| {
         let mut all: Vec<(u16, Routine)> =
-            gen_tables::routines().iter().filter(|(e, _)| !hand::ROUTINES.iter().any(|h| h.0 == *e)).copied().collect();
-        all.extend(hand::ROUTINES.iter().map(|&(e, f, _)| (e, f)));
+            gen_tables::routines().iter().filter(|(e, _)| !hand_ports().iter().any(|h| h.0 == *e)).copied().collect();
+        all.extend(hand_ports().iter().map(|&(e, f, _)| (e, f)));
         all.sort_by_key(|r| r.0);
         all
     })
@@ -83,5 +90,5 @@ pub fn names() -> &'static [(u16, &'static str)] {
 
 /// Whether the routine at `entry` is a hand-written port.
 pub fn is_hand(entry: u16) -> bool {
-    hand::ROUTINES.iter().any(|h| h.0 == entry)
+    hand_ports().iter().any(|h| h.0 == entry)
 }
