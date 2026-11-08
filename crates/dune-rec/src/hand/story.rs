@@ -3970,3 +3970,34 @@ pub fn event_2b0a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x2b0a);
     note_event_at(&mut c)
 }
+
+/// `loc_00a23`: one step of the scene's video: at night to the back
+/// buffer and [`hnm_do_frame`]; else on the front buffer
+/// `hnm_do_frame_and_check_if_frame_advanced`, and on a new frame
+/// `sub_c4dd` and the mouse ([`draw_mouse`]); CF clear when none.
+pub fn video_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0a23)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x227d);
+    if k != 0 {
+        c.run(start, 3)?;
+        c.cmp(B, k as u16, 0);
+        c.call(0xc08e, 0x0a2d)?;
+        c.run(0x0a2d, 1)?;
+        return super::frame::hnm_do_frame(c.m, 0xca60);
+    }
+    c.run(start, 3)?;
+    c.cmp(B, 0, 0);
+    c.call(0xc07c, 0x0a33)?;
+    c.run(0x0a33, 1)?;
+    c.call(0xc9f4, 0x0a36)?;
+    if c.flag(pc::cpu::ZF) {
+        c.run(0x0a36, 3)?;
+        c.set_flag(CF, false);
+        return c.ret();
+    }
+    c.run(0x0a36, 2)?;
+    c.call(0xc4dd, 0x0a3b)?;
+    c.run(0x0a3b, 1)?;
+    super::mouse::draw_mouse(c.m, 0xdbec)
+}

@@ -925,6 +925,10 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x1797, ui::ui_draw_head_and_shoulders, "ui_draw_head_and_shoulders"),
     (0x0086, ui::draw_head_panel_0086, "loc_00086"),
     (0x439f, ui::scene_24, "loc_0439f"),
+    (0x62f2, map::troop_marker, "loc_062f2"),
+    (0x62fe, map::marker_at_record, "loc_062fe"),
+    (0x6314, map::marker_at_dx_bx, "loc_06314"),
+    (0x0a23, story::video_step, "loc_00a23"),
 ];
 
 /// 8-bit register numbers (the CPU's encoding).

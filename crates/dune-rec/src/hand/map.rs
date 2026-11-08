@@ -4331,3 +4331,95 @@ pub fn location_ahead(m: &mut Machine, start: u16) -> Result<(), Bail> {
         cx -= 1;
     }
 }
+
+/// `loc_062f2`: the troops redrawn (`loc_068eb`), then the marker 36h at
+/// the troop SI on the map: at its own place ([`marker_at_dx_bx`]'s view
+/// check `loc_062d6`) when it is at its location (bit 40h), else at its
+/// location's ([`marker_at_record`]).
+pub fn troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x62f2)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x68eb, 0x62f5)?;
+    let si = c.reg(SI);
+    let b3 = c.byte(si.wrapping_add(3));
+    if b3 & 0x40 != 0 {
+        c.run(0x62f5, 5)?;
+        c.test(B, b3 as u16, 0x40);
+        let (x, y) = (c.word(si.wrapping_add(6)), c.word(si.wrapping_add(8)));
+        c.set_reg(DX, x);
+        c.set_reg(BX, y);
+        c.call(0x62d6, 0x630f)?;
+        return map_marker(&mut c, 0x630f, 2, |c| c.set_reg(AX, 0x36));
+    }
+    c.run(0x62f5, 4)?;
+    c.test(B, b3 as u16, 0x40);
+    let l = c.word(si.wrapping_add(4));
+    c.set_reg(SI, l);
+    c.call(0x62c9, 0x6301)?;
+    map_marker(&mut c, 0x6301, 2, |c| c.set_reg(AX, 0x36))
+}
+
+/// `loc_062fe`: the marker 36h at the record SI's place on the map, when
+/// it is in view (`loc_062c9`).
+pub fn marker_at_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x62fe)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x62c9, 0x6301)?;
+    map_marker(&mut c, 0x6301, 2, |c| c.set_reg(AX, 0x36))
+}
+
+/// `loc_06314`: the marker 4Ch at the map position (`get_map_position`)
+/// when in view (`loc_062d6`), 0Dh higher.
+pub fn marker_at_dx_bx(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6314)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x407e, 0x6317)?;
+    c.run(0x6317, 1)?;
+    c.call(0x62d6, 0x631a)?;
+    map_marker(&mut c, 0x631a, 4, |c| {
+        c.set_reg(AX, 0x4c);
+        let f = c.m.cpu.flags();
+        c.push(f);
+        let dx = c.reg(DX);
+        let d = c.sub(W, dx, 0x0d);
+        c.set_reg(DX, d);
+        let f = c.pop();
+        c.m.cpu.set_flags(f);
+    })
+}
+
+/// From `loc_06322` (after `pre` instructions from `at`, whose effect
+/// `ops` has; CF from the view check): unless CF, the sprite AX drawn at
+/// (DX, BX - its height) clipped (`draw_sprite_clipped_clobbering_bx_dx`)
+/// with its resource opened meanwhile.
+fn map_marker(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    let out = c.flag(CF);
+    c.run(at, pre + if out { 2 } else { 4 })?;
+    ops(c);
+    if out {
+        return c.ret();
+    }
+    let r = c.word(0x2784);
+    c.push(r);
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.call(0xc137, 0x632c)?;
+    c.run(0x632c, 2)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    c.call(0xc1f4, 0x6330)?;
+    c.run(0x6330, 2)?;
+    let si = c.reg(SI);
+    let h = c.byte_in(ES, si.wrapping_add(2));
+    let bx = c.reg(BX);
+    let bl = c.sub(B, bx & 0xff, h as u16);
+    c.set_reg(BX, bx & 0xff00 | bl);
+    c.call(0xc30d, 0x6337)?;
+    c.run(0x6337, 2)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    super::resources::open_resource_by_index(c.m, 0xc13e)
+}
