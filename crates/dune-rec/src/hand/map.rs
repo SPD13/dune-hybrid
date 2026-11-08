@@ -5380,3 +5380,160 @@ pub fn ui_main_view_map_interface(m: &mut Machine, start: u16) -> Result<(), Bai
     let mut c = Ctx::new(m);
     map_view_redraw(&mut c, start, 0, |_| {})
 }
+
+/// `loc_08a3b`: with bit 10h of [47DEh], the phrase AX checked against
+/// the room [477Fh]: by its range for the room (8Bh: from 108h; 84h:
+/// 48h, 49h..4Bh, 18h..23h above it; 83h / 8Ch: E8h..EEh; 86h..88h with
+/// [47DEh] mode 1: D1h..D7h; 85h, mode 1: 74h as 1, else 0; 89h:
+/// DAh..E1h) rebased and noted by [`note_47e0`]. BX kept.
+pub fn check_room_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8a3b)?;
+    let mut c = Ctx::new(m);
+    let saved = c.m.cpu.flags();
+    let (n, _) = room_phrase_walk(&mut c, false);
+    c.m.cpu.set_flags(saved);
+    c.run(start, n)?;
+    let (_, call) = room_phrase_walk(&mut c, true);
+    match call {
+        None => c.ret(),
+        Some(false) => {
+            let b = c.pop();
+            c.set_reg(BX, b);
+            c.ret()
+        }
+        Some(true) => {
+            c.call(0x8ac3, 0x8ac1)?;
+            c.run(0x8ac1, 2)?;
+            let b = c.pop();
+            c.set_reg(BX, b);
+            c.ret()
+        }
+    }
+}
+
+/// The code of `loc_08a3b` up to its call (with `write`, its registers
+/// and push too): its count, and whether it pushed and calls.
+fn room_phrase_walk(c: &mut Ctx, write: bool) -> (u32, Option<bool>) {
+    let t = c.byte(0x47de);
+    c.test(B, t as u16, 0x10);
+    if t & 0x10 == 0 {
+        return (3, None);
+    }
+    let bx0 = c.reg(BX);
+    if write {
+        c.push(bx0);
+    }
+    let bh = c.byte(0x477f);
+    let mut bl = bx0 as u8;
+    let mut ax = c.reg(AX);
+    // test, jne, push, mov bh; cmp bh, 8Bh, jne.
+    let mut n = 6u32;
+    let mode = |c: &mut Ctx, bl: &mut u8| {
+        let m = c.byte(0x47de);
+        let v = c.and(B, m as u16, 0x0f);
+        *bl = v as u8;
+        c.cmp(B, v, 1);
+        v == 1
+    };
+    // `cmp al, k` / `cmp ax, k` then `jae` over the call.
+    let below = |c: &mut Ctx, ax: u16, wide: bool, k: u16| {
+        if wide {
+            c.cmp(W, ax, k);
+            ax < k
+        } else {
+            c.cmp(B, ax & 0xff, k);
+            ((ax & 0xff) as u16) < k
+        }
+    };
+    c.cmp(B, bh as u16, 0x8b);
+    let call = if bh == 0x8b {
+        n += 2;
+        ax = c.sub(W, ax, 0x108);
+        true
+    } else {
+        n += 2;
+        c.cmp(B, bh as u16, 0x84);
+        if bh == 0x84 {
+            n += 2;
+            ax = c.sub(W, ax, 0x48);
+            if ax == 0 {
+                true
+            } else {
+                n += 3;
+                ax = c.dec(W, ax);
+                c.cmp(B, ax & 0xff, 3);
+                if (ax as u8) < 3 {
+                    true
+                } else {
+                    n += 4;
+                    ax = c.sub(W, ax, 0xffcf);
+                    below(c, ax, true, 0xc)
+                }
+            }
+        } else {
+            n += 2;
+            c.cmp(B, bh as u16, 0x83);
+            let hit = if bh == 0x83 {
+                n += 1;
+                true
+            } else {
+                n += 2;
+                c.cmp(B, bh as u16, 0x8c);
+                bh == 0x8c
+            };
+            if hit {
+                n += 4;
+                ax = c.sub(W, ax, 0xe8);
+                below(c, ax, false, 7)
+            } else {
+                n += 4;
+                bl = c.sub(B, bh as u16, 0x86) as u8;
+                c.cmp(B, bl as u16, 3);
+                if bl < 3 {
+                    n += 4;
+                    if !mode(c, &mut bl) {
+                        false
+                    } else {
+                        n += 4;
+                        ax = c.sub(W, ax, 0xd1);
+                        below(c, ax, false, 7)
+                    }
+                } else {
+                    n += 2;
+                    c.cmp(B, bh as u16, 0x85);
+                    if bh == 0x85 {
+                        n += 4;
+                        if !mode(c, &mut bl) {
+                            false
+                        } else {
+                            n += 3;
+                            c.cmp(W, ax, 0x74);
+                            let eq = ax == 0x74;
+                            ax &= 0xff00;
+                            if eq {
+                                n += 2;
+                                ax = c.inc(W, ax);
+                            }
+                            true
+                        }
+                    } else {
+                        n += 2;
+                        c.cmp(B, bh as u16, 0x89);
+                        if bh != 0x89 {
+                            false
+                        } else {
+                            n += 3;
+                            ax = c.sub(W, ax, 0xda);
+                            below(c, ax, false, 8)
+                        }
+                    }
+                }
+            }
+        }
+    };
+    if write {
+        c.set_reg(AX, ax);
+        c.set_reg(BX, (bh as u16) << 8 | bl as u16);
+    }
+    (n + if call { 1 } else { 2 }, Some(call))
+}

@@ -2528,3 +2528,245 @@ pub fn close_dialogue(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x8c8a, 0x98b2)?;
     close_dialogue_text(c.m, 0x98b2)
 }
+
+/// `loc_09c2d`: the dialogue rect reset (13Fh, C7h, 0, 0) and grown by
+/// the 3-byte entries of the lists 4540h and 4608h each missing from the
+/// other ([`rects_missing`]), then clamped.
+pub fn diff_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9c2d)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    c.run(start, 10)?;
+    c.set_word(0xd834, 0x13f);
+    c.set_word(0xd836, 0xc7);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.set_word(0xd838, 0);
+    c.set_word(0xd83a, 0);
+    let ds = c.sreg(DS);
+    c.set_reg(AX, ds);
+    c.set_sreg(ES, ds);
+    c.set_reg(SI, 0x4540);
+    c.set_reg(DI, 0x4608);
+    c.call(0x9c54, 0x9c4e)?;
+    c.run(0x9c4e, 2)?;
+    c.set_reg(SI, 0x4608);
+    c.set_reg(DI, 0x4540);
+    rects_missing_at(&mut c, 0x9c54)
+}
+
+/// `loc_09c54`: each 3-byte entry of the list SI (a count word, then the
+/// entries) not in the list ES:DI grows the dialogue rect
+/// (`grow_dialogue_rect`); then the rect's bottom [0D83Ah] lowered to the
+/// voice's line (unless one plays, or [47E1h] 81h, or speaker 9 / 0Ch;
+/// to 4Ch for [47E1h] 80h), [0D834h] 13Fh when that is above its top.
+/// Bails on an empty list (the loop would run 65536 times) or with DF.
+pub fn rects_missing(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9c54)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    rects_missing_at(&mut c, start)
+}
+
+fn rects_missing_at(c: &mut Ctx, start: u16) -> Result<(), Bail> {
+    let mut at = start;
+    let mut resume = false;
+    loop {
+        // A first pass counts the stretch (registers, flags and the stack
+        // below SP undone), the second one does it.
+        let regs = c.m.cpu.regs;
+        let flags = c.m.cpu.flags();
+        let sp = c.reg(SP);
+        // The slots the stretch can push to or pop and push again.
+        let slots: Vec<(u16, u16)> = (0..8u16).map(|i| sp.wrapping_sub(8).wrapping_add(2 * i)).map(|a| (a, c.word_in(SS, a))).collect();
+        let r = rects_walk(c, resume);
+        c.m.cpu.regs = regs;
+        c.m.cpu.set_flags(flags);
+        for &(a, w) in &slots {
+            c.set_word_in(SS, a, w);
+        }
+        let (n, call) = r?;
+        c.run(at, n)?;
+        rects_walk(c, resume)?;
+        if !call {
+            break;
+        }
+        c.call(0x9cc6, 0x9c72)?;
+        at = 0x9c72;
+        resume = true;
+    }
+    rects_tail(c)
+}
+
+/// The loops of `loc_09c54` from the entry (or after the call at 9C6Fh)
+/// up to the next call (true) or their end: the count.
+fn rects_walk(c: &mut Ctx, resume: bool) -> Result<(u32, bool), Bail> {
+    let mut n = 0u32;
+    // 0: the outer loop's top, 1: the inner loop, 2: past an entry.
+    let mut at;
+    if resume {
+        let si = c.reg(SI);
+        let s = c.add(W, si, 3);
+        c.set_reg(SI, s);
+        n += 1;
+        at = 2;
+    } else {
+        let v = c.lods(W, DS);
+        c.set_reg(CX, v);
+        n += 2;
+        if v == 0 {
+            return Err(Bail);
+        }
+        at = 0;
+    }
+    loop {
+        if n > 400_000 {
+            return Err(Bail);
+        }
+        match at {
+            0 => {
+                let (cx, di) = (c.reg(CX), c.reg(DI));
+                c.push(cx);
+                c.push(di);
+                let k = c.word(di);
+                c.set_reg(CX, k);
+                let d = c.add(W, di, 2);
+                c.set_reg(DI, d);
+                n += 4;
+                if k == 0 {
+                    return Err(Bail);
+                }
+                at = 1;
+            }
+            1 => {
+                c.m.cpu.string_op(&mut c.m.hw, 0xa7, None, 0);
+                let f1 = c.m.cpu.flags() as u8;
+                c.m.cpu.string_op(&mut c.m.hw, 0xa6, None, 0);
+                let f2 = c.m.cpu.flags() as u8;
+                let al = c.and(B, f1 as u16, f2 as u16);
+                c.set_reg(AX, (f2 as u16) << 8 | al);
+                c.test(B, al, 0x40);
+                n += 8;
+                if al & 0x40 != 0 {
+                    at = 2;
+                    continue;
+                }
+                let si = c.reg(SI);
+                let s = c.sub(W, si, 3);
+                c.set_reg(SI, s);
+                let cx = c.reg(CX).wrapping_sub(1);
+                c.set_reg(CX, cx);
+                n += 2;
+                if cx == 0 {
+                    return Ok((n + 1, true));
+                }
+            }
+            _ => {
+                let d = c.pop();
+                c.set_reg(DI, d);
+                let cx = c.pop().wrapping_sub(1);
+                c.set_reg(CX, cx);
+                n += 3;
+                if cx == 0 {
+                    return Ok((n, false));
+                }
+                at = 0;
+            }
+        }
+    }
+}
+
+/// `loc_09c54` from 9C79h: the rect's bottom by the voice line.
+fn rects_tail(c: &mut Ctx) -> Result<(), Bail> {
+    let k = c.byte(0x47e1);
+    if k == 0x81 {
+        return rects_tail_9ca6(c, 0x9c79, 2, |c| c.cmp(B, 0x81, 0x81));
+    }
+    c.run(0x9c79, 3)?;
+    c.cmp(B, k as u16, 0x81);
+    c.call(0xabcc, 0x9c83)?;
+    if c.flag(ZF) {
+        return rects_tail_9ca6(c, 0x9c83, 1, |_| {});
+    }
+    let ax = c.word(0x47c4);
+    let al = ax as u8;
+    if al == 9 {
+        c.run(0x9c83, 5)?;
+        c.set_reg(AX, ax);
+        c.cmp(B, 9, 9);
+        return c.ret();
+    }
+    if al == 0x0c {
+        c.run(0x9c83, 7)?;
+        c.set_reg(AX, ax);
+        c.cmp(B, 0x0c, 9);
+        c.cmp(B, 0x0c, 0x0c);
+        return c.ret();
+    }
+    let si = c.word(0xdc28);
+    let v = c.word(si.wrapping_add(2));
+    let bottom = c.word(0xd83a);
+    let pre = |c: &mut Ctx| {
+        c.set_reg(AX, ax);
+        c.cmp(B, al as u16, 9);
+        c.cmp(B, al as u16, 0x0c);
+        c.set_reg(SI, si);
+        c.set_reg(AX, v);
+        c.cmp(W, v, bottom);
+    };
+    if v >= bottom {
+        return rects_tail_9ca6(c, 0x9c83, 10, pre);
+    }
+    let top = c.word(0xd836);
+    let le = (v as i16) <= (top as i16);
+    let ops = |c: &mut Ctx| {
+        pre(c);
+        c.set_word(0xd83a, v);
+        c.cmp(W, v, top);
+    };
+    if le {
+        c.run(0x9c83, 13 + 2)?;
+        ops(c);
+        c.set_word(0xd834, 0x13f);
+        return c.ret();
+    }
+    rects_tail_9ca6(c, 0x9c83, 13, ops)
+}
+
+/// From 9CA6h (after `pre` instructions from `at` with `ops`): for
+/// [47E1h] 80h the bottom up to 4Ch.
+fn rects_tail_9ca6(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    let k = c.byte(0x47e1);
+    if k != 0x80 {
+        c.run(at, pre + 3)?;
+        ops(c);
+        c.cmp(B, k as u16, 0x80);
+        return c.ret();
+    }
+    let bottom = c.word(0xd83a);
+    if 0x4c >= bottom {
+        c.run(at, pre + 2 + 3 + 1)?;
+        ops(c);
+        c.cmp(B, 0x80, 0x80);
+        c.set_reg(AX, 0x4c);
+        c.cmp(W, 0x4c, bottom);
+        return c.ret();
+    }
+    let top = c.word(0xd836);
+    let gt = 0x4c > (top as i16);
+    c.run(at, pre + 2 + 3 + 3 + if gt { 1 } else { 2 })?;
+    ops(c);
+    c.cmp(B, 0x80, 0x80);
+    c.set_reg(AX, 0x4c);
+    c.cmp(W, 0x4c, bottom);
+    c.set_word(0xd83a, 0x4c);
+    c.cmp(W, 0x4c, top);
+    if !gt {
+        c.set_word(0xd834, 0x13f);
+    }
+    c.ret()
+}

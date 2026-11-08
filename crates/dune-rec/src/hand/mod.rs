@@ -974,6 +974,9 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x5a9a, map::ui_main_view_map_interface, "ui_main_view_map_interface"),
     (0xbc64, globe::globe_click, "sub_bc64"),
     (0xb8c6, globe::enter_globe, "sub_b8c6"),
+    (0x8a3b, map::check_room_phrase, "loc_08a3b"),
+    (0x9c2d, dialogue::diff_rects, "loc_09c2d"),
+    (0x9c54, dialogue::rects_missing, "loc_09c54"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
