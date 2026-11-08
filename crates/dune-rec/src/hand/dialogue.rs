@@ -2770,3 +2770,31 @@ fn rects_tail_9ca6(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -
     }
     c.ret()
 }
+
+/// `loc_099be`: with [47C3h], the talking heads 7 and 2Dh opened, each
+/// in the other game state (`swap_game_state` around), a text step
+/// between; then the text step ([`dialogue_text_step`]).
+pub fn two_heads_text_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x99be)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x47c3);
+    if k == 0 {
+        c.run(start, 2)?;
+        c.cmp(B, 0, 0);
+        return dialogue_text_step(c.m, 0x99da);
+    }
+    c.run(start, 3)?;
+    c.cmp(B, k as u16, 0);
+    c.call(0x998e, 0x99c8)?;
+    c.run(0x99c8, 2)?;
+    c.set_reg(AX, 7);
+    c.call(0x920f, 0x99ce)?;
+    c.run(0x99ce, 1)?;
+    c.call(0x99da, 0x99d1)?;
+    c.run(0x99d1, 1)?;
+    c.call(0x998e, 0x99d4)?;
+    c.run(0x99d4, 2)?;
+    c.set_reg(AX, 0x2d);
+    c.call(0x920f, 0x99da)?;
+    dialogue_text_step(c.m, 0x99da)
+}

@@ -4573,3 +4573,100 @@ pub fn update_people(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x21f9, 1)?;
     c.ret()
 }
+
+/// `loc_045de`: on the screen (the front buffer kept), the message line
+/// redrawn (`loc_0dbb2`, `loc_0d075`; DX 55h, BX 22h or 26h with
+/// [473Eh]): no message (DI 0) `start_message_57` and the colour CX into
+/// [0DBE4h]; a place (DI below FFF0h) its type and name; else the
+/// string A4h and for the codes FFF0h..FFF7h the phrase DAh + code; then
+/// padded with spaces (the putter [2518h]) to EDh, and the mouse drawn.
+pub fn redraw_message_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x45de)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let fb = c.word(0xdbda);
+    c.push(fb);
+    c.call(0xc08e, 0x45e5)?;
+    c.run(0x45e5, 1)?;
+    c.call(0xdbb2, 0x45e8)?;
+    c.run(0x45e8, 1)?;
+    c.call(0xd075, 0x45eb)?;
+    let f = c.byte(0x473e);
+    let di = c.reg(DI);
+    c.run(0x45eb, 5 + if f != 0 { 2 } else { 0 } + 3)?;
+    c.set_reg(DX, 0x55);
+    c.set_reg(BX, 0x22);
+    c.set_reg(CX, 0xf5fe);
+    c.cmp(B, f as u16, 0);
+    if f != 0 {
+        let b = c.add(W, 0x22, 4);
+        c.set_reg(BX, b);
+        c.set_reg(CX, 0x20fe);
+    }
+    c.or(W, di, di);
+    if di == 0 {
+        c.call(0x4658, 0x462d)?;
+        c.run(0x462d, 2)?;
+        let cx = c.reg(CX);
+        c.set_word(0xdbe4, cx);
+        c.call(0xd04e, 0x4634)?;
+        c.run(0x4634, 1)?;
+    } else {
+        c.call(0x469b, 0x4607)?;
+        let di = c.reg(DI);
+        c.run(0x4607, 4)?;
+        c.cmp(W, di, 0xfff0);
+        if di < 0xfff0 {
+            let cx = c.reg(CX);
+            c.push(cx);
+            c.call(0x629d, 0x463a)?;
+            c.run(0x463a, 1)?;
+            c.call(0xd05f, 0x463d)?;
+            c.run(0x463d, 2)?;
+            let x = c.pop();
+            c.set_reg(CX, x);
+            c.call(0x62a6, 0x4641)?;
+        } else {
+            c.set_reg(AX, 0xa4);
+            c.call(0xd194, 0x4612)?;
+            let di = c.reg(DI);
+            let d = di.wrapping_sub(0xfff0);
+            c.run(0x4612, if d >= 8 { 3 } else { 5 })?;
+            let d = c.sub(W, di, 0xfff0);
+            c.set_reg(DI, d);
+            c.cmp(W, d, 8);
+            if d < 8 {
+                c.set_reg8(r8::AL, 0x20);
+                let to = c.word(0x2518);
+                c.call(to, 0x4620)?;
+                c.run(0x4620, 3)?;
+                let di = c.reg(DI);
+                let a = c.add(W, di, 0xda);
+                c.set_reg(AX, a);
+                c.call(0xd19b, 0x4628)?;
+                c.run(0x4628, 1)?;
+            }
+        }
+    }
+    let mut i = 0;
+    loop {
+        let v = c.word(0xd82c);
+        i += 1;
+        if i > 1000 {
+            c.m.cpu.ip = 0x4641;
+            return Err(Bail);
+        }
+        c.run(0x4641, 4)?;
+        c.cmp(W, v, 0xed);
+        if v > 0xed {
+            break;
+        }
+        c.set_reg8(r8::AL, 0x20);
+        let to = c.word(0x2518);
+        c.call(to, 0x464f)?;
+        c.run(0x464f, 1)?;
+    }
+    let fb = c.pop();
+    c.set_word(0xdbda, fb);
+    super::mouse::draw_mouse(c.m, 0xdbec)
+}

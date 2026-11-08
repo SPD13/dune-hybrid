@@ -5537,3 +5537,315 @@ fn room_phrase_walk(c: &mut Ctx, write: bool) -> (u32, Option<bool>) {
     }
     (n + if call { 1 } else { 2 }, Some(call))
 }
+
+/// `loc_05f25`: the caption box for a text CX wide around (DX, BL):
+/// at SI (left = DX + 0Fh, less 82h from D2h; top = BL - CX / 2 kept in
+/// 4..94h - CX; right + 6Ah; bottom + CX), [0DBE0h] = SI; its frame
+/// corner (DX, BL) - 0Ah at 0D816h; then drawn in colour 6
+/// ([`redraw_panel_box`]).
+pub fn caption_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5f25)?;
+    let mut c = Ctx::new(m);
+    let (bx0, dx0, cx, si) = (c.reg(BX) & 0xff, c.reg(DX), c.reg(CX), c.reg(SI));
+    let half = cx >> 1;
+    let b1 = bx0.wrapping_sub(half);
+    let lo = (b1 as i16) < 4;
+    let b2 = if lo { 4 } else { b1 };
+    let lim = 0x94u16.wrapping_sub(cx);
+    let hi = !((b2 as i16) < (lim as i16));
+    let b3 = if hi { lim } else { b2 };
+    let d1 = dx0.wrapping_add(0x0f);
+    let wrap = !((d1 as i16) < 0xd2);
+    c.run(start, 8 + lo as u32 + 4 + hi as u32 + 3 + wrap as u32 + 17)?;
+    c.set_reg(BX, bx0);
+    c.xor(B, 0, 0);
+    c.push(bx0);
+    c.push(dx0);
+    let a = c.shr1(W, cx, 1);
+    c.set_reg(AX, a);
+    let b = c.sub(W, bx0, a);
+    c.cmp(W, b, 4);
+    let a = c.sub(W, 0x94, cx);
+    c.set_reg(AX, a);
+    c.cmp(W, b2, a);
+    let mut d = c.add(W, dx0, 0x0f);
+    c.cmp(W, d, 0xd2);
+    if wrap {
+        d = c.sub(W, d, 0x82);
+    }
+    let _ = b;
+    c.set_word(si, d);
+    c.set_word(si.wrapping_add(2), b3);
+    let d2 = c.add(W, d, 0x6a);
+    c.set_word(si.wrapping_add(4), d2);
+    let b4 = c.add(W, b3, cx);
+    c.set_word(si.wrapping_add(6), b4);
+    c.set_word(0xdbe0, si);
+    let dx = c.pop();
+    let bx = c.pop();
+    c.set_reg(AX, 0x0a);
+    let dx = c.sub(W, dx, 0x0a);
+    let bx = c.sub(W, bx, 0x0a);
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    c.set_reg(DI, 0xd816);
+    c.set_word(0xd816, dx);
+    c.set_word(0xd818, bx);
+    c.set_reg8(r8::AL, 6);
+    super::gfx::redraw_panel_box(c.m, 0x7b0f)
+}
+
+/// `loc_05d6d`: [46ECh] 0; outside the map views ([46EBh] 0) nothing;
+/// in one (positive) `loc_0dbb2` and its frame handler [46EDh] (bails
+/// unless that is [`ui_main_view_map_interface`]); in the map view proper
+/// (bit 7) its redraw with [46EBh] 80h meanwhile (`loc_05b8d`,
+/// `loc_0b6c3`, the shown locations, the troop marker, [3CBEh] 0,
+/// `loc_06715`, the place 46E3h, the troop [46EFh]'s location marked,
+/// `loc_01c18`; `loc_0542f` for bit 40h), the map resource opened last.
+pub fn refresh_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5d6d)?;
+    let mut c = Ctx::new(m);
+    let v = c.byte(0x46eb);
+    if v == 0 {
+        c.run(start, 5)?;
+        c.set_byte(0x46ec, 0);
+        c.cmp(B, 0, 0);
+        return c.ret();
+    }
+    if v & 0x80 == 0 {
+        if c.word(0x46ed) != 0x5a9a {
+            return Err(Bail);
+        }
+        c.run(start, 5)?;
+        c.set_byte(0x46ec, 0);
+        c.cmp(B, v as u16, 0);
+        c.call(0xdbb2, 0x5d7e)?;
+        if c.word(0x46ed) != 0x5a9a {
+            c.m.cpu.ip = 0x5d7e;
+            return Err(Bail);
+        }
+        c.run(0x5d7e, 1)?;
+        return ui_main_view_map_interface(c.m, 0x5a9a);
+    }
+    c.run(start, 4)?;
+    c.set_byte(0x46ec, 0);
+    c.cmp(B, v as u16, 0);
+    c.call(0xc07c, 0x5d85)?;
+    c.run(0x5d85, 1)?;
+    c.call(0xdbb2, 0x5d88)?;
+    c.run(0x5d88, 1)?;
+    c.call(0x5b8d, 0x5d8b)?;
+    c.run(0x5d8b, 5)?;
+    let old = c.byte(0x46eb);
+    c.set_byte(0x46eb, 0x80);
+    let ax = c.reg(AX) & 0xff00 | old as u16;
+    c.set_reg(AX, ax);
+    c.push(ax);
+    let t = c.word(0x46ef);
+    c.push(t);
+    c.call(0xb6c3, 0x5d99)?;
+    for (to, ret) in [(0xc13bu16, 0x5d9cu16), (0x5dce, 0x5d9f), (0x6314, 0x5da2), (0xc412, 0x5da5)] {
+        c.run(ret - 3, 1)?;
+        c.call(to, ret)?;
+    }
+    c.run(0x5da5, 2)?;
+    c.set_word(0x3cbe, 0);
+    c.call(0x6715, 0x5dae)?;
+    c.run(0x5dae, 2)?;
+    c.set_reg(SI, 0x46e3);
+    c.call(0xc6ad, 0x5db4)?;
+    let si = c.word_in(SS, c.reg(SP));
+    c.run(0x5db4, 3 + if si != 0 { 1 } else { 1 })?;
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.or(W, si, si);
+    if si != 0 {
+        c.call(0x697c, 0x5dbc)?;
+        c.run(0x5dbc, 1)?;
+    }
+    c.call(0x1c18, 0x5dbf)?;
+    let ax = c.word_in(SS, c.reg(SP));
+    let bit = ax & 0x40 != 0;
+    c.run(0x5dbf, if bit { 5 } else { 5 })?;
+    let ax = c.pop();
+    c.set_byte(0x46eb, ax as u8);
+    let a = c.and(B, ax & 0xff, 0x40);
+    c.set_reg(AX, ax & 0xff00 | a);
+    if bit {
+        c.call(0x542f, 0x5dca)?;
+        c.run(0x5dca, 1)?;
+    }
+    super::resources::open_onmap_resource(c.m, 0xc13b)
+}
+
+/// `loc_0813e`: the route lines of the troop SI on the map: its points
+/// (`add_point_entry` into a list on the stack, after `shown_troop`):
+/// its own place (+6, +8), then its target location's (record +4), or
+/// for the troop 8E0h every location of the list 4718h; each pair joined
+/// by a line in colour 0Ch (far [3901h], clipped to 46E3h); across the
+/// map's seam (x apart by 50h or more, against the move's sign) drawn
+/// from the side's end, 190h past it. Bails unless SS = DS.
+pub fn route_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x813e)?;
+    let mut c = Ctx::new(m);
+    if c.sreg(SS) != c.sreg(DS) {
+        return Err(Bail);
+    }
+    c.run(start, 3)?;
+    let sp = c.reg(SP);
+    let sp = c.sub(W, sp, 0x30);
+    c.set_reg(SP, sp);
+    c.set_reg(DI, sp);
+    c.call(0x68eb, 0x8146)?;
+    c.run(0x8146, 3)?;
+    let si = c.reg(SI);
+    let (dx, bx) = (c.word(si.wrapping_add(6)), c.word(si.wrapping_add(8)));
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    c.call(0x81d7, 0x814f)?;
+    let si = c.reg(SI);
+    if si == 0x8e0 {
+        c.run(0x814f, 3)?;
+        c.cmp(W, si, 0x8e0);
+        c.set_reg(SI, 0x4718);
+        let mut at = 0x8158;
+        loop {
+            let si = c.reg(SI);
+            let p = c.word(si);
+            if p == 0 {
+                c.run(at, 3)?;
+                c.lods(W, DS);
+                c.or(W, 0, 0);
+                break;
+            }
+            c.run(at, 7)?;
+            c.lods(W, DS);
+            c.or(W, p, p);
+            let (dx, bx) = (c.word(p.wrapping_add(2)), c.word(p.wrapping_add(4)));
+            c.set_reg(DX, dx);
+            c.set_reg(BX, bx);
+            c.call(0x81d7, 0x8168)?;
+            at = 0x8168;
+            c.run(at, 1)?;
+            at = 0x8158;
+        }
+    } else {
+        c.run(0x814f, 6)?;
+        c.cmp(W, si, 0x8e0);
+        let p = c.word(si.wrapping_add(4));
+        let (dx, bx) = (c.word(p.wrapping_add(2)), c.word(p.wrapping_add(4)));
+        c.set_reg(DX, dx);
+        c.set_reg(BX, bx);
+        c.call(0x81d7, 0x8176)?;
+    }
+    c.run(0x8176, 1)?;
+    let sp = c.reg(SP);
+    c.set_reg(SI, sp);
+    loop {
+        let si = c.reg(SI);
+        let next = c.word(si.wrapping_add(6));
+        if next == 0x8000 {
+            c.run(0x8178, 10)?;
+            for r in [DX, BX, AX] {
+                let v = c.lods(W, DS);
+                if r != AX {
+                    c.set_reg(r, v);
+                }
+            }
+            c.set_reg(DI, next);
+            c.cmp(W, next, 0x8000);
+            let sp = c.reg(SP);
+            let sp = c.add(W, sp, 0x30);
+            c.set_reg(SP, sp);
+            return c.ret();
+        }
+        // The pair: from (x, y) (first seen as x0) to (di, cx) (w0).
+        let (x, y, x0) = (c.word(si), c.word(si.wrapping_add(2)), c.word(si.wrapping_add(4)));
+        let s1 = si.wrapping_add(6);
+        let (cy, w0) = (c.word(s1.wrapping_add(2)), c.word(s1.wrapping_add(4)));
+        let dax = x0.wrapping_sub(w0);
+        let dsi = x.wrapping_sub(next);
+        let same = (dax ^ dsi) & 0x8000 == 0;
+        let mut n = 8 + 7;
+        let (left, right) = (c.word(0x46e3), c.word(0x46e7));
+        let mut seam = None;
+        let mut chk = None;
+        if !same {
+            let neg = dsi & 0x8000 != 0;
+            let a = if neg { dsi.wrapping_neg() } else { dsi };
+            n += 5 + neg as u32;
+            chk = Some((a, neg));
+            if a >= 0x50 {
+                n += 2;
+                let inside = (x as i16) >= (left as i16) && {
+                    n += 2;
+                    (x as i16) < (right as i16)
+                };
+                if inside {
+                    n += 3;
+                }
+                let s = if inside { dsi.wrapping_neg() } else { dsi };
+                n += 4 + (s & 0x8000 == 0) as u32;
+                seam = Some((inside, s));
+            }
+        }
+        n += 4;
+        c.run(0x8178, n)?;
+        c.lods(W, DS);
+        c.set_reg(DX, x);
+        c.lods(W, DS);
+        c.set_reg(BX, y);
+        c.lods(W, DS);
+        c.set_reg(DI, next);
+        c.cmp(W, next, 0x8000);
+        c.push(s1);
+        c.set_reg(CX, cy);
+        let ax = c.sub(W, x0, w0);
+        let si2 = c.sub(W, x, next);
+        let ax = c.xor(W, ax, si2);
+        c.set_reg(AX, ax);
+        c.set_reg(SI, si2);
+        if let Some((a, neg)) = chk {
+            c.set_reg(AX, si2);
+            c.or(W, si2, si2);
+            if neg {
+                c.neg(W, si2);
+            }
+            c.set_reg(AX, a);
+            c.cmp(W, a, 0x50);
+        }
+        if let Some((inside, s)) = seam {
+            c.cmp(W, x, left);
+            if (x as i16) >= (left as i16) {
+                c.cmp(W, x, right);
+            }
+            let (mut dx, mut di, mut cx, mut bx) = (x, next, cy, y);
+            if inside {
+                std::mem::swap(&mut dx, &mut di);
+                std::mem::swap(&mut cx, &mut bx);
+                c.neg(W, si2);
+            }
+            c.set_reg(SI, s);
+            let mut ax = 0x190u16;
+            c.or(W, s, s);
+            if s & 0x8000 == 0 {
+                ax = c.neg(W, ax);
+            }
+            let dx = c.add(W, dx, ax);
+            c.set_reg(AX, ax);
+            c.set_reg(DX, dx);
+            c.set_reg(DI, di);
+            c.set_reg(CX, cx);
+            c.set_reg(BX, bx);
+        }
+        let es = c.word(0xdbda);
+        c.set_sreg(ES, es);
+        c.set_reg8(r8::AL, 0x0c);
+        c.set_reg(BP, 0x5555);
+        c.set_reg(SI, 0x46e3);
+        c.interp(0x81cc, 0x81d0)?;
+        c.run(0x81d0, 2)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+    }
+}
