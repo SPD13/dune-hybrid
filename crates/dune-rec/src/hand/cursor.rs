@@ -396,3 +396,114 @@ pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0x1c1a);
     point_in_rect(c.m, 0xd6fe)
 }
+
+/// `loc_09285`: what the cursor (DX, BX) is on in a dialogue: below 98h
+/// the speakers' places at 47F8h (17h of them; within 20h left and 50h
+/// above), CF set with CX the speaker; else the extra place
+/// [472Dh]/[472Fh] (within 4Eh and 3Ch), CX 2Fh with CF. From 98h down,
+/// [`in_dialogue_rects`].
+pub fn dialogue_hit(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9285)?;
+    let mut c = Ctx::new(m);
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    if bx >= 0x98 {
+        c.run(start, 2)?;
+        c.cmp(W, bx, 0x98);
+        return in_dialogue_rects(c.m, 0x92c9);
+    }
+    let step = c.string_step(W);
+    let mut n = 4;
+    let mut p = 0x47f8u16;
+    let mut hit = None;
+    for i in 0..0x17u16 {
+        let x = c.word(p);
+        let y = c.word(p.wrapping_add(step));
+        p = p.wrapping_add(step.wrapping_mul(2));
+        n += 6;
+        if x & 0x8000 == 0 {
+            n += 3;
+            if x.wrapping_sub(dx) >= 0xffe0 {
+                n += 3;
+                if y.wrapping_sub(bx) >= 0xffb0 {
+                    hit = Some(i);
+                    n += 4;
+                    break;
+                }
+            }
+        }
+        n += 1;
+    }
+    let ex = c.word(0x472d);
+    let ey = c.word(0x472f);
+    let mut extra = false;
+    if hit.is_none() {
+        n += 3;
+        if ex == 0 {
+            n += 1;
+        } else {
+            n += 4;
+            if ex.wrapping_sub(dx) < 0xffb2 {
+                n += 1;
+            } else {
+                n += 4;
+                let d = bx.wrapping_sub(ey);
+                if d >= 0x3c {
+                    n += 1;
+                } else {
+                    extra = true;
+                    n += 2;
+                }
+            }
+        }
+    }
+    c.run(start, n)?;
+    c.cmp(W, bx, 0x98);
+    c.set_reg(SI, 0x47f8);
+    c.set_reg(CX, 0x17);
+    for i in 0..0x17u16 {
+        let x = c.lods(W, pc::cpu::DS);
+        c.set_reg(DI, x);
+        let y = c.lods(W, pc::cpu::DS);
+        c.set_reg(BP, y);
+        c.or(W, x, x);
+        if x & 0x8000 == 0 {
+            let d = c.sub(W, x, dx);
+            c.set_reg(DI, d);
+            c.cmp(W, d, 0xffe0);
+            if d >= 0xffe0 {
+                let e = c.sub(W, y, bx);
+                c.set_reg(BP, e);
+                c.cmp(W, e, 0xffb0);
+                if hit == Some(i) {
+                    let cx = c.sub(W, 0x17 - i, 0x17);
+                    let cx = c.neg(W, cx);
+                    c.set_reg(CX, cx);
+                    c.set_flag(CF, true);
+                    return c.ret();
+                }
+            }
+        }
+        c.set_reg(CX, 0x16 - i);
+    }
+    c.set_reg(AX, ex);
+    c.or(W, ex, ex);
+    if ex == 0 {
+        return c.ret();
+    }
+    let a = c.sub(W, ex, dx);
+    c.set_reg(AX, a);
+    c.cmp(W, a, 0xffb2);
+    let cf = c.flag(CF);
+    c.set_flag(CF, !cf);
+    if a < 0xffb2 {
+        return c.ret();
+    }
+    c.set_reg(AX, bx);
+    let a = c.sub(W, bx, ey);
+    c.set_reg(AX, a);
+    c.cmp(W, a, 0x3c);
+    if extra {
+        c.set_reg(CX, 0x2f);
+    }
+    c.ret()
+}

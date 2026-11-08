@@ -2065,3 +2065,89 @@ pub fn open_talking_head_resource(m: &mut Machine, start: u16) -> Result<(), Bai
     c.set_reg(AX, ax);
     super::resources::open_resource_by_index(c.m, 0xc13e)
 }
+
+/// `loc_098b2`: unless [47C3h], the dialogue text closed: [4540h] 0,
+/// bits C0h of [47D1h] cleared, [47C8h] taken; when there was one the
+/// frame 1BF0h emptied (its word 8 and [1C06h] 0) and redrawn
+/// (`loc_0c446`, `draw_head_if_needed_and_update_screen_rect_at_si`),
+/// then [`drop_dialogue_text`].
+pub fn close_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x98b2)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x47c3);
+    if k != 0 {
+        c.run(start, 3)?;
+        c.cmp(B, k as u16, 0);
+        return c.ret();
+    }
+    let old = c.word(0x47c8);
+    c.run(start, 2 + 6 + if old == 0 { 1 } else { 4 })?;
+    c.cmp(B, 0, 0);
+    c.xor(W, 0, 0);
+    c.set_word(0x4540, 0);
+    let v = c.byte(0x47d1);
+    let v = c.and(B, v as u16, 0x3f);
+    c.set_byte(0x47d1, v as u8);
+    c.set_word(0x47c8, 0);
+    c.set_reg(AX, old);
+    c.or(W, old, old);
+    if old == 0 {
+        return c.ret();
+    }
+    c.set_reg(SI, 0x1bf0);
+    c.set_word(0x1bf8, 0);
+    c.set_word(0x1c06, 0);
+    c.call(0xc446, 0x98dc)?;
+    c.run(0x98dc, 2)?;
+    c.set_reg(SI, 0x1bf0);
+    c.call(0xc4f0, 0x98e2)?;
+    c.run(0x98e2, 1)?;
+    drop_dialogue_text(c.m, 0x9b8b)
+}
+
+/// `loc_0978e`: the dialogue scene redrawn: `loc_04aca`; for a speaker
+/// ([47C4h] not FFFFh) `loc_091a0`, `start_dialogue_text`, the box
+/// 1BE2h (`loc_0c477`) when [479Eh], the text frame
+/// (`redraw_dialogue_frame`, [4540h] 0; `loc_09025` for the box 223Ch);
+/// the palette and [`sub_c4dd`].
+pub fn redraw_dialogue_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x978e)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x4aca, 0x9791)?;
+    let who = c.word(0x47c4);
+    c.run(0x9791, 3 + if who == 0xffff { 1 } else { 1 })?;
+    c.set_reg(AX, who);
+    c.cmp(W, who, 0xffff);
+    if who == 0xffff {
+        return c.ret();
+    }
+    c.call(0x91a0, 0x979c)?;
+    c.run(0x979c, 1)?;
+    c.call(0x9908, 0x979f)?;
+    let b = c.word(0x479e);
+    c.run(0x979f, 2 + if b != 0 { 2 } else { 0 })?;
+    c.cmp(W, b, 0);
+    if b != 0 {
+        c.set_reg(SI, 0x1be2);
+        c.call(0xc477, 0x97ac)?;
+    }
+    let si = c.word(0x47c8);
+    c.run(0x97ac, 3 + if si != 0 { 2 } else { 1 })?;
+    c.set_reg(SI, si);
+    c.or(W, si, si);
+    if si != 0 {
+        c.set_word(0x4540, 0);
+        c.call(0x9bac, 0x97bd)?;
+        let b = c.word(0x479e);
+        c.run(0x97bd, 2 + 1)?;
+        c.cmp(W, b, 0x223c);
+        if b == 0x223c {
+            c.call(0x9025, 0x97c8)?;
+            c.run(0x97c8, 1)?;
+        }
+    }
+    c.call(0xc0f4, 0x97cb)?;
+    c.run(0x97cb, 1)?;
+    super::draw::sub_c4dd(c.m, 0xc4dd)
+}
