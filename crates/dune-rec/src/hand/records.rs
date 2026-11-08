@@ -211,3 +211,155 @@ pub fn sub_5082(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.ret()
 }
+
+/// Location records: 1Ch bytes each from 100h (the slot before them at
+/// 0E4h), FFFFh after the last.
+const LOCATIONS_BEFORE: u16 = 0x00e4;
+const LOCATION_SIZE: u16 = 0x1c;
+
+/// `loc_0409a`: SI = the location whose word 6 is DI (ZF set), or past
+/// the last (ZF clear, from `or si, si`).
+pub fn find_location_by_word_6(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x409a)?;
+    let mut c = Ctx::new(m);
+    let di = c.reg(DI);
+    let mut si = LOCATIONS_BEFORE;
+    let mut n = 1;
+    loop {
+        si = si.wrapping_add(LOCATION_SIZE);
+        n += 3;
+        if c.word(si) == 0xffff {
+            n += 2;
+            break;
+        }
+        n += 2;
+        if c.word(si.wrapping_add(6)) == di {
+            n += 1;
+            break;
+        }
+    }
+    c.run(start, n)?;
+    let mut si = LOCATIONS_BEFORE;
+    loop {
+        si = c.add(W, si, LOCATION_SIZE);
+        let w = c.word(si);
+        c.cmp(W, w, 0xffff);
+        if w == 0xffff {
+            c.or(W, si, si);
+            break;
+        }
+        let v = c.word(si.wrapping_add(6));
+        c.cmp(W, di, v);
+        if v == di {
+            break;
+        }
+    }
+    c.set_reg(SI, si);
+    c.ret()
+}
+
+/// `loc_040ae`: for the location at DI: BH = its number (from 1), BL =
+/// 80h, DH = its kind (byte 8), DL = 1.
+pub fn location_coords(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x40ae)?;
+    let mut c = Ctx::new(m);
+    let di = c.reg(DI);
+    let off = di.wrapping_sub(0x100);
+    if off / LOCATION_SIZE > 0xff {
+        // `div bl` faults: the interpreter raises it.
+        c.m.cpu.ip = start;
+        return Err(Bail);
+    }
+    c.run(start, 10)?;
+    let off = c.sub(W, di, 0x100);
+    c.set_reg(AX, off);
+    c.m.cpu.mul_div(&mut c.m.hw, B, 6, LOCATION_SIZE as u32); // div bl
+    let n = c.reg8(r8::AL);
+    let n = c.inc(B, n as u16) as u8;
+    let kind = c.byte(di.wrapping_add(8));
+    c.set_reg(BX, (n as u16) << 8 | 0x80);
+    c.set_reg(DX, (kind as u16) << 8 | 1);
+    c.ret()
+}
+
+/// `loc_040e6`: for the record at SI with bits 40h and 2 of byte 0Fh:
+/// `loc_09556`, `loc_09655`.
+pub fn update_flagged_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x40e6)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let f = c.byte(si.wrapping_add(0x0f));
+    let both = f & 0x40 != 0 && f & 2 != 0;
+    c.run(start, if f & 0x40 == 0 { 3 } else { 5 })?;
+    c.test(B, f as u16, 0x40);
+    if f & 0x40 != 0 {
+        c.test(B, f as u16, 2);
+    }
+    if both {
+        c.call(0x9556, 0x40f5)?;
+        c.run(0x40f5, 1)?;
+        c.call(0x9655, 0x40f8)?;
+        c.run(0x40f8, 1)?;
+    }
+    c.ret()
+}
+
+/// `loc_03efe`: SI = the 5-byte entry DL (from 1) of the list DH (word
+/// table at 13C4h).
+pub fn list_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x3efe)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 11)?;
+    let dx = c.reg(DX);
+    c.xor(B, 0, 0);
+    let i = c.shl1(W, dx >> 8, 1);
+    let list = c.word(0x13c4u16.wrapping_add(i));
+    let k = c.dec(B, dx & 0xff);
+    c.set_reg(AX, 5 << 8 | k);
+    c.mul8(5);
+    let ax = c.reg(AX);
+    let si = c.add(W, list, ax);
+    c.set_reg(SI, si);
+    c.ret()
+}
+
+/// `loc_02e98`: the point at DI (two bytes, y + 0Ch) to [11EDh], [11EFh];
+/// DI noted at [47E6h].
+pub fn note_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2e98)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 10)?;
+    let di = c.reg(DI);
+    c.set_word(0x47e6, di);
+    c.xor(B, 0, 0);
+    let x = c.byte(di) as u16;
+    let x = c.add(W, x, 0);
+    c.set_word(0x11ed, x);
+    let y = c.byte(di.wrapping_add(1)) as u16;
+    c.xor(B, 0, 0);
+    let y = c.add(W, y, 0x0c);
+    c.set_reg(AX, y);
+    c.set_word(0x11ef, y);
+    c.ret()
+}
+
+/// `loc_033ad`: when the record at SI has word 2 = BX, the bit of its
+/// byte 0Eh set at [0F7h].
+pub fn mark_record_bit(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x33ad)?;
+    let mut c = Ctx::new(m);
+    let (si, bx) = (c.reg(SI), c.reg(BX));
+    let w = c.word(si.wrapping_add(2));
+    c.run(start, if w == bx { 7 } else { 3 })?;
+    c.cmp(W, bx, w);
+    if w == bx {
+        let cl = c.byte(si.wrapping_add(0x0e));
+        c.set_reg8(r8::CL, cl);
+        let bit = c.shl(B, 1, cl) as u8;
+        c.set_reg8(r8::AL, bit);
+        let v = c.byte(0xf7);
+        let v = c.or(B, v as u16, bit as u16);
+        c.set_byte(0xf7, v as u8);
+    }
+    c.ret()
+}

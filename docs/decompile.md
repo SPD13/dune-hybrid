@@ -173,8 +173,11 @@ a difference comes from one). Modules by area: `story`, `phases`, `intro`,
 (frame tasks), `video`, `gfx`, `screen`, `sprites`, `text`, `hnm`, `hsq`
 (the decompressor), `sound`, `audio`, `voice`, `input`, `dos`, `files`,
 `resources` (opening sprite sheets, the condition evaluator), `ui`,
-`panels`, `globe`, `mouse`, `draw`, `hnmload`, `scenes`, `saves`, `frame` (the frame-task runner, input
-checks, HNM frame steps); data-segment
+`panels`, `globe`, `mouse`, `draw`, `hnmload`, `scenes`, `saves`, `frame`
+(the frame-task runner, input checks, HNM frame steps), `cursor` (the
+keyboard cursor's hotspot search), `map` (the map screen), `troops`,
+`dialogue`, `screens` (the stack of UI screens, the panel's buttons);
+data-segment
 globals are named in `globals.rs` (from the routines that use them and
 Cryogenic's `GlobalsOnDs.cs`; unknown ones keep their offset).
 
@@ -194,7 +197,7 @@ the instruction count (virtual time). `Ctx` holds the bookkeeping:
   `interp` (`INT` and far calls into the drivers), and tail jumps call the
   target port directly.
 
-Ported: 312 routines (the small ones first: flags and setters, game time,
+Ported: 525 routines (the small ones first: flags and setters, game time,
 location kinds, frame tasks, condition operators, the intro's steps,
 framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
 decompression, voice and music start/stop, DUNE.DAT access, the memory
@@ -205,7 +208,15 @@ the frame-task runner, the input check, HNM frame stepping; sprite
 drawing, plain and scaled, and UI elements; opening videos and the
 intro's video loaders, the IRUL videos with subtitles, the result bars,
 the font glyphs, map statistics; saved games' RLE and the restore of
-the map, particles, numbers in strings), all equal to the original in every
+the map, particles, numbers in strings; the keyboard cursor's hotspot
+search, HNM ring-buffer bookkeeping, line and rect outlines, the
+settings screen's hit tests and volumes, the clock-stop counter, the
+map screen's view rect, mark and projection (map to screen and back),
+map rows, troop and location records, dialogue state and the dialogue
+table scan, save-slot labels, the stats' change marks; the stack of UI
+screens, the panel's buttons and gauges, the element under the cursor,
+the joystick read as keys, particle variants and moves, clipped rect
+copies, the HNM memory setup), all equal to the original in every
 checked call (two 10-minute games with `--call-each 4`, 0 differences), and `--rec on`
 screenshots unchanged. A port no run has checked to completion stays out of the table
 (`copy_pal_and_transition`, `comm_fade_in_glow`,

@@ -1,0 +1,612 @@
+//! The stack of UI screens: [`TOP`] points at the current entry (its list
+//! of UI elements, its handler), entries 4 bytes from [`BOTTOM`]. A list
+//! starts with a byte: its kind in the low 4 bits (0Fh: none to leave),
+//! FFh at the end of the stack.
+
+use super::{B, Ctx, W, entered, globals as g, r8};
+use pc::{
+    Machine,
+    cpu::{AX, BP, BX, CF, CS, CX, DI, ES, SI},
+    rec::Bail,
+};
+
+mod code {
+    pub const SAVE_REGS: u16 = 0xe270;
+    pub const RESTORE_REGS: u16 = 0xe283;
+    pub const CURRENT_UI_ELEMENTS: u16 = 0xd41b;
+    pub const CALL_RESTORE_CURSOR: u16 = 0xdbb2;
+    pub const DRAW_MOUSE: u16 = 0xdbec;
+    pub const HIGHLIGHT_HOVERED_TEXT_ACTION_ITEM: u16 = 0xd50f;
+    pub const DRAW_UI_ELEMENTS_LIST: u16 = 0xd1f2;
+}
+
+const TOP: u16 = 0x21da;
+const BOTTOM: u16 = 0x21be;
+/// Bit 7: drawing for a transition; bit 0: redraw asked.
+const TRANSITION: u16 = g::TRANSITION_ACTIVE;
+/// The cursor's UI element (its sprite at +2).
+const CURSOR_ELEMENT: u16 = 0x1f7e;
+
+/// `loc_0d2fd`: back to the screen below (unless at the bottom),
+/// `loc_0d36d` with CL = FFh on its list (BP).
+pub fn pop_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd2fd)?;
+    pop(&mut Ctx::new(m), start, 0, |_| {})
+}
+
+/// From D2FD (the stretch from `at`, `prefix` instructions before, done by
+/// `ops`).
+fn pop(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    let si = c.word(TOP);
+    let bottom = si == BOTTOM;
+    c.run(at, prefix + if bottom { 4 } else { 8 })?;
+    ops(c);
+    c.set_reg(SI, si);
+    c.cmp(W, si, BOTTOM);
+    if bottom {
+        return c.ret();
+    }
+    let si = c.sub(W, si, 4);
+    c.set_reg(SI, si);
+    c.set_word(TOP, si);
+    let bp = c.word(si);
+    c.set_reg(BP, bp);
+    c.set_reg8(r8::CL, 0xff);
+    c.call(0xd36d, 0xd315)?;
+    c.run(0xd315, 1)?;
+    c.ret()
+}
+
+/// `loc_0d2ea`: leaves the current screen: its handler (word 2), then
+/// [`pop_screen`]; nothing for a list of kind 0Fh.
+pub fn leave_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd2ea)?;
+    let mut c = Ctx::new(m);
+    let si = c.word(TOP);
+    let di = c.word(si);
+    let kind = c.byte(di) & 0x0f;
+    c.run(start, if kind == 0x0f { 7 } else { 8 })?;
+    c.set_reg(SI, si);
+    c.set_reg(DI, di);
+    let b = c.byte(di);
+    let al = c.and(B, b as u16, 0x0f);
+    c.set_reg8(r8::AL, al as u8);
+    c.cmp(B, al, 0x0f);
+    if kind == 0x0f {
+        return c.ret();
+    }
+    let h = c.word(si.wrapping_add(2));
+    c.set_reg(AX, h);
+    c.call(h, 0xd2fd)?;
+    pop(&mut c, 0xd2fd, 0, |_| {})
+}
+
+/// `loc_0d2bd`: leaves screens until the current list is the stack's end
+/// (FFh) or of kind 0; drawn as for a transition (bit 7), the flag kept.
+pub fn leave_screens(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd2bd)?;
+    let mut c = Ctx::new(m);
+    let (mut at, mut extra) = (start, 2);
+    let saved = c.byte(TRANSITION);
+    let mut first = true;
+    loop {
+        let top = c.word(TOP);
+        let list = c.word(top);
+        let b = c.byte(list);
+        let stop = b == 0xff || b & 0x0f == 0;
+        c.run(at, extra + 6 + if b == 0xff { 0 } else { 2 } + if stop { 3 } else { 1 })?;
+        if first {
+            c.set_reg8(r8::AL, saved);
+            let ax = c.reg(AX);
+            c.push(ax);
+            first = false;
+        }
+        c.set_byte(TRANSITION, 0x80);
+        c.set_reg(SI, list);
+        c.lods(B, pc::cpu::DS);
+        c.cmp(B, b as u16, 0xff);
+        if b != 0xff {
+            let al = c.and(B, b as u16, 0x0f);
+            c.set_reg8(r8::AL, al as u8);
+        }
+        if stop {
+            let ax = c.pop();
+            c.set_reg(AX, ax);
+            c.set_byte(TRANSITION, ax as u8);
+            return c.ret();
+        }
+        c.call(0xd2ea, 0xd2d8)?;
+        (at, extra) = (0xd2d8, 1);
+    }
+}
+
+/// `loc_0d316`: a redraw asked (bit 0 of the transition flag) when
+/// [35A6h] is 0.
+pub fn ask_redraw(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd316)?;
+    let mut c = Ctx::new(m);
+    let v = c.word(0x35a6);
+    c.run(start, if v == 0 { 4 } else { 3 })?;
+    c.cmp(W, v, 0);
+    if v == 0 {
+        let t = c.byte(TRANSITION);
+        let t = c.or(B, t as u16, 1);
+        c.set_byte(TRANSITION, t as u8);
+    }
+    c.ret()
+}
+
+/// `loc_0d454`: AX, BX = the place of item CL of the current list (its
+/// 4-byte table after the list's header); for CL = [DCE5h] (the text
+/// action item) AX = A0h and BX one of D423h, D429h, 0 by [DCE4h]'s sign.
+/// CH = 0.
+pub fn item_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd454)?;
+    let mut c = Ctx::new(m);
+    let top = c.word(TOP);
+    let list = c.word(top);
+    let cl = c.reg8(r8::CL);
+    let special = c.byte(0xdce5);
+    let text = cl == special;
+    let k = c.byte(0xdce4) as i8;
+    c.run(start, 6 + if !text { 10 } else if k < 0 { 5 } else if k > 0 { 7 } else { 8 })?;
+    let si = list.wrapping_add(1);
+    c.set_reg(SI, si);
+    c.set_reg8(r8::CH, 0);
+    let ch = c.reg8(r8::CH);
+    c.xor(B, ch as u16, ch as u16);
+    c.cmp(B, cl as u16, special as u16);
+    if !text {
+        let n = c.lods(B, pc::cpu::DS) as u8;
+        let skip = n as i8 as u16;
+        c.set_reg(AX, skip);
+        let si = c.reg(SI);
+        let si = c.add(W, si, skip);
+        let off = c.shl1(W, cl as u16, 2);
+        c.set_reg(AX, off);
+        let si = c.add(W, si, off);
+        c.set_reg(SI, si);
+        let (x, y) = (c.word(si), c.word(si.wrapping_add(2)));
+        c.set_reg(AX, x);
+        c.set_reg(BX, y);
+        return c.ret();
+    }
+    c.set_reg(AX, 0xa0);
+    c.set_reg(BX, 0xd423);
+    c.cmp(B, k as u8 as u16, 0);
+    if k >= 0 {
+        c.set_reg(BX, 0xd429);
+        if k == 0 {
+            let z = c.xor(W, 0xd429, 0xd429);
+            c.set_reg(BX, z);
+        }
+    }
+    c.ret()
+}
+
+/// From D621 (the stretch from `at`, `prefix` instructions before, done by
+/// `ops`): the cursor's sprite AX; when it changes on the cursor's own
+/// list, the cursor redrawn with the first item's place (`loc_0d454`,
+/// `loc_0d48a`). Registers kept (AX pushed before).
+fn set_cursor_sprite(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    c.run(at, prefix + 1)?;
+    ops(c);
+    c.call(code::SAVE_REGS, 0xd624)?;
+    c.run(0xd624, 1)?;
+    c.call(code::CURRENT_UI_ELEMENTS, 0xd627)?;
+    let (ax, bp) = (c.reg(AX), c.reg(BP));
+    let old = c.word(CURSOR_ELEMENT + 2);
+    let same = old == ax;
+    let ours = bp == CURSOR_ELEMENT;
+    c.run(0xd627, 4 + if same { 1 } else if !ours { 3 } else { 3 })?;
+    c.set_reg(SI, CURSOR_ELEMENT);
+    c.cmp(W, old, ax);
+    c.set_word(CURSOR_ELEMENT + 2, ax);
+    if !same {
+        c.cmp(W, bp, CURSOR_ELEMENT);
+        if ours {
+            c.call(code::CALL_RESTORE_CURSOR, 0xd639)?;
+            c.run(0xd639, 2)?;
+            let cx = c.reg(CX);
+            c.xor(W, cx, cx);
+            c.set_reg(CX, 0);
+            c.call(0xd454, 0xd63e)?;
+            c.run(0xd63e, 1)?;
+            c.call(0xd48a, 0xd641)?;
+            c.run(0xd641, 2)?;
+            c.set_byte(0xdce7, 0xff);
+            c.call(code::DRAW_MOUSE, 0xd649)?;
+            c.run(0xd649, 1)?;
+        }
+    }
+    c.call(code::RESTORE_REGS, 0xd64c)?;
+    c.run(0xd64c, 2)?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.ret()
+}
+
+/// `loc_0d617`: the cursor's sprite 90h (see [`set_cursor_sprite`]).
+pub fn cursor_sprite_90(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd617)?;
+    set_cursor_sprite(&mut Ctx::new(m), start, 3, |c| {
+        let ax = c.reg(AX);
+        c.push(ax);
+        c.set_reg(AX, 0x90);
+    })
+}
+
+/// `loc_0d61d`: the cursor's sprite 9Fh (see [`set_cursor_sprite`]).
+pub fn cursor_sprite_9f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd61d)?;
+    set_cursor_sprite(&mut Ctx::new(m), start, 2, |c| {
+        let ax = c.reg(AX);
+        c.push(ax);
+        c.set_reg(AX, 0x9f);
+    })
+}
+
+/// `loc_0d64e`: `highlight_hovered_text_action_item` at (0, 0) (BX, DX
+/// kept).
+pub fn highlight_at_origin(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd64e)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 5)?;
+    let (bx, dx) = (c.reg(BX), c.reg(pc::cpu::DX));
+    c.push(bx);
+    c.push(dx);
+    c.xor(W, bx, bx);
+    c.set_reg(BX, 0);
+    c.xor(W, dx, dx);
+    c.set_reg(pc::cpu::DX, 0);
+    c.call(code::HIGHLIGHT_HOVERED_TEXT_ACTION_ITEM, 0xd657)?;
+    c.run(0xd657, 3)?;
+    let dx = c.pop();
+    c.set_reg(pc::cpu::DX, dx);
+    let bx = c.pop();
+    c.set_reg(BX, bx);
+    c.ret()
+}
+
+/// `loc_0d65a`: the UI element at DI drawn pressed (word 0Ah one up for
+/// the while), when it has bit 20h of byte 9; noted at [DC60h].
+pub fn draw_element_pressed(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd65a)?;
+    let mut c = Ctx::new(m);
+    let di = c.reg(DI);
+    let f = c.byte(di.wrapping_add(9));
+    let on = f & 0x20 != 0;
+    c.run(start, if on { 9 } else { 3 })?;
+    c.test(B, f as u16, 0x20);
+    if !on {
+        return c.ret();
+    }
+    c.set_word(0xdc60, di);
+    let v = c.word(di.wrapping_add(0x0a));
+    let v = c.inc(W, v);
+    c.set_word(di.wrapping_add(0x0a), v);
+    let si = c.reg(SI);
+    c.push(si);
+    c.push(di);
+    c.set_reg(SI, di);
+    c.set_reg(CX, 1);
+    c.call(code::DRAW_UI_ELEMENTS_LIST, 0xd671)?;
+    c.run(0xd671, 4)?;
+    let di = c.pop();
+    c.set_reg(DI, di);
+    let si = c.pop();
+    c.set_reg(SI, si);
+    let v = c.word(di.wrapping_add(0x0a));
+    let v = c.dec(W, v);
+    c.set_word(di.wrapping_add(0x0a), v);
+    c.ret()
+}
+
+/// `loc_0d741`: for [1B0Ch] 3..5, the rect at 2458h drawn by the driver
+/// (function at 38DDh) in colour F0h on the screen buffer.
+pub fn draw_rect_2458(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd741)?;
+    let mut c = Ctx::new(m);
+    let v = c.word(0x1b0c);
+    let d = v.wrapping_sub(3);
+    c.run(start, if d >= 3 { 5 } else { 7 })?;
+    let d = c.sub(W, v, 3);
+    c.set_reg(AX, d);
+    c.cmp(W, d, 3);
+    if d >= 3 {
+        return c.ret();
+    }
+    c.set_reg(SI, 0x2458);
+    let screen = c.word(g::SCREEN_BUFFER);
+    c.set_sreg(ES, screen);
+    c.set_reg8(r8::AL, 0xf0);
+    c.interp(0xd755, 0xd759)?;
+    c.run(0xd759, 1)?;
+    c.ret()
+}
+
+/// `loc_0d95e`: the click handler AX.
+pub fn set_click_handler(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd95e)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let ax = c.reg(AX);
+    c.set_word(g::MAP_CLICK_HANDLER, ax);
+    c.ret()
+}
+
+/// `loc_0d0e3`: the index of AL in the 9 characters at CS:D0D1h: AL =
+/// the byte 8 after it, AH = 5 + its index (CF clear); CF set when not
+/// there. CX, DI, ES kept.
+pub fn special_char(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd0e3)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 8)?;
+    let (cx, di, es) = (c.reg(CX), c.reg(DI), c.sreg(ES));
+    c.push(cx);
+    c.push(di);
+    c.push(es);
+    let cs = c.sreg(CS);
+    c.push(cs);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(DI, 0xd0d1);
+    c.set_reg(CX, 9);
+    c.m.cpu.string_op(&mut c.m.hw, 0xae, None, 0xf2); // repne scasb
+    let found = c.flag(pc::cpu::ZF);
+    c.run(0xd0f0, if found { 6 } else { 3 } + 3)?;
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.set_flag(CF, true);
+    if found {
+        let di = c.reg(DI);
+        let al = c.byte_in(CS, di.wrapping_add(8));
+        c.set_reg8(r8::AL, al);
+        let left = c.reg8(r8::CL);
+        let ah = c.sub(B, 0x0d, left as u16) as u8;
+        c.set_reg8(r8::AH, ah);
+    }
+    let di = c.pop();
+    c.set_reg(DI, di);
+    let cx = c.pop();
+    c.set_reg(CX, cx);
+    c.ret()
+}
+
+/// `loc_0db03`: the cursor moved to (DX, BX): restored, the position set
+/// (`set_mouse_pos`), drawn again.
+pub fn move_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xdb03)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(code::CALL_RESTORE_CURSOR, 0xdb06)?;
+    c.run(0xdb06, 3)?;
+    let (dx, bx) = (c.reg(pc::cpu::DX), c.reg(BX));
+    c.set_word(g::MOUSE_X, dx);
+    c.set_word(g::MOUSE_Y, bx);
+    c.call(0xdae3, 0xdb11)?;
+    c.run(0xdb11, 1)?;
+    super::mouse::draw_mouse(c.m, 0xdbec)
+}
+
+/// `loc_0df07`: the 5 UI elements at 1B48h drawn, the sprite sheet
+/// [2784h] opened again, `loc_0d397`, and the cursor drawn.
+pub fn draw_1b48_and_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xdf07)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    let sheet = c.word(0x2784);
+    c.push(sheet);
+    c.set_reg(SI, 0x1b48);
+    c.set_reg(CX, 5);
+    c.call(code::DRAW_UI_ELEMENTS_LIST, 0xdf14)?;
+    c.run(0xdf14, 2)?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.call(0xc13e, 0xdf18)?;
+    c.run(0xdf18, 1)?;
+    c.call(0xd397, 0xdf1b)?;
+    c.run(0xdf1b, 1)?;
+    super::mouse::draw_mouse(c.m, 0xdbec)
+}
+
+/// From D72B (the stretch from `at`, `prefix` instructions before, done by
+/// `ops`): the 6 UI elements at SI copied to 1B8Eh, the rect at 2458h
+/// (`loc_0d741`), and the copies drawn.
+fn set_buttons(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    c.run(at, prefix + 5)?;
+    ops(c);
+    let ds = c.sreg(pc::cpu::DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.set_reg(DI, BUTTONS);
+    c.set_reg(CX, 0x2a);
+    c.rep(0xa5);
+    c.run(0xd735, 1)?;
+    c.call(0xd741, 0xd738)?;
+    c.run(0xd738, 3)?;
+    c.set_reg(SI, BUTTONS);
+    c.set_reg(CX, 6);
+    super::gfx::draw_ui_elements_list_at_ds_si(c.m, 0xd1f2)
+}
+
+/// The 6 buttons of the panel (UI elements).
+const BUTTONS: u16 = 0x1b8e;
+
+/// `loc_0d72b`: the buttons from SI (see [`set_buttons`]).
+pub fn set_buttons_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd72b)?;
+    set_buttons(&mut Ctx::new(m), start, 0, |_| {})
+}
+
+/// `loc_0d717`: the buttons for the screen: 1CCAh with hotspots (46EBh),
+/// else 1D72h with bits 3 of [11C9h], else 1C76h.
+pub fn set_buttons_for_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd717)?;
+    let mut c = Ctx::new(m);
+    let kinds = c.byte(0x46eb);
+    let f = c.byte(0x11c9);
+    let prefix = if kinds != 0 { 4 } else if f & 3 == 0 { 5 } else { 6 };
+    set_buttons(&mut c, start, prefix, |c| {
+        c.cmp(B, kinds as u16, 0);
+        if kinds != 0 {
+            c.set_reg(SI, 0x1cca);
+            return;
+        }
+        c.set_reg(SI, 0x1c76);
+        c.test(B, f as u16, 3);
+        if f & 3 != 0 {
+            c.set_reg(SI, 0x1d72);
+        }
+    })
+}
+
+/// `loc_0d763`: the two gauges at 1C0Ch drawn at 40h, then at 41h + the
+/// two signed bytes at 1152h.
+pub fn draw_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd763)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 6)?;
+    let si = 0x1c0cu16;
+    c.set_reg(SI, si);
+    c.set_reg(AX, 0x40);
+    c.set_word(si + 0x0a, 0x40);
+    c.set_word(si + 0x18, 0x40);
+    c.set_reg(CX, 2);
+    c.call(code::DRAW_UI_ELEMENTS_LIST, 0xd775)?;
+    c.run(0xd775, 11)?;
+    c.set_reg(SI, si);
+    let a = c.byte(0x1152) as i8 as u16;
+    let a = c.add(W, a, 0x41);
+    c.set_word(si + 0x0a, a);
+    let b = c.byte(0x1153) as i8 as u16;
+    let b = c.add(W, b, 0x41);
+    c.set_reg(AX, b);
+    c.set_word(si + 0x18, b);
+    c.set_reg(CX, 2);
+    super::gfx::draw_ui_elements_list_at_ds_si(c.m, 0xd1f2)
+}
+
+/// `loc_0d6b7`: the UI element of the current list (or of 1B48h's five
+/// with [46D9h]) under the cursor (DX, BX): DI = it, CF set; CF clear when
+/// none (ZF set and nothing done when there is no list for the cursor).
+pub fn element_under_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd6b7)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xd694, 0xd6ba)?;
+    if c.flag(pc::cpu::ZF) {
+        c.run(0xd6ba, 2)?;
+        return c.ret();
+    }
+    let (dx, bx) = (c.reg(pc::cpu::DX), c.reg(BX));
+    let list = 0x1ae4u16;
+    let mut cx = c.word(list);
+    let mut di = list.wrapping_add(2);
+    let handler = c.word(g::MAP_CLICK_HANDLER);
+    let few = handler == 0x1ad6;
+    if few {
+        cx = cx.wrapping_sub(5);
+    }
+    let alt = c.byte(0x46d9) != 0;
+    if alt {
+        cx = 5;
+        di = 0x1b48;
+    }
+    let mut n = 1 + 5 + few as u32 + 2 + if alt { 2 } else { 0 };
+    // The scan, purely.
+    let (mut k, mut d) = (cx, di);
+    loop {
+        let f = c.byte(d.wrapping_add(8));
+        let r = [c.word(d), c.word(d.wrapping_add(2)), c.word(d.wrapping_add(4)), c.word(d.wrapping_add(6))];
+        n += 2;
+        let inside = if f & 0x80 == 0 {
+            false
+        } else {
+            n += 2;
+            if dx <= r[0] {
+                false
+            } else {
+                n += 2;
+                if dx >= r[2] {
+                    false
+                } else {
+                    n += 2;
+                    if bx <= r[1] {
+                        false
+                    } else {
+                        n += 4;
+                        bx.wrapping_sub(1) < r[3]
+                    }
+                }
+            }
+        };
+        if inside {
+            n += 1;
+            break;
+        }
+        n += 2;
+        k = k.wrapping_sub(1);
+        if k == 0 {
+            n += 2;
+            break;
+        }
+        d = d.wrapping_add(0x0e);
+    }
+    c.run(0xd6ba, n)?;
+    c.set_reg(DI, list);
+    let w = c.word(list);
+    c.set_reg(CX, w);
+    let d0 = c.add(W, list, 2);
+    c.set_reg(DI, d0);
+    c.cmp(W, handler, 0x1ad6);
+    if few {
+        let v = c.sub(W, w, 5);
+        c.set_reg(CX, v);
+    }
+    let a = c.byte(0x46d9);
+    c.cmp(B, a as u16, 0);
+    if alt {
+        c.set_reg(CX, 5);
+        c.set_reg(DI, 0x1b48);
+    }
+    loop {
+        let d = c.reg(DI);
+        let f = c.byte(d.wrapping_add(8));
+        c.cmp(B, f as u16, 0);
+        let mut inside = false;
+        if f & 0x80 != 0 {
+            let r0 = c.word(d);
+            c.cmp(W, dx, r0);
+            if dx > r0 {
+                let r2 = c.word(d.wrapping_add(4));
+                c.cmp(W, dx, r2);
+                if dx < r2 {
+                    let r1 = c.word(d.wrapping_add(2));
+                    c.cmp(W, bx, r1);
+                    if bx > r1 {
+                        let b1 = c.dec(W, bx);
+                        let r3 = c.word(d.wrapping_add(6));
+                        c.cmp(W, b1, r3);
+                        let cf = c.flag(CF);
+                        c.inc(W, b1);
+                        c.set_flag(CF, cf);
+                        inside = b1 < r3;
+                    }
+                }
+            }
+        }
+        if inside {
+            return c.ret();
+        }
+        let d = c.add(W, d, 0x0e);
+        c.set_reg(DI, d);
+        let k = c.reg(CX).wrapping_sub(1);
+        c.set_reg(CX, k);
+        if k == 0 {
+            c.set_flag(CF, false);
+            return c.ret();
+        }
+    }
+}

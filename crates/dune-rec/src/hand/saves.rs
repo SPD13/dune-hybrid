@@ -17,6 +17,9 @@ mod code {
     pub const FIND_LAST_NUMERIC_DIGIT: u16 = 0xd03c;
     pub const OPEN_RES_OR_FILE_OR_DIE: u16 = 0xf229;
     pub const READ_DUNE_DAT_CX_TO_ESDI: u16 = 0xf2ea;
+    pub const FONT_SET_DRAW_POSITION: u16 = 0xd04e;
+    pub const SAVE_REGS: u16 = 0xe270;
+    pub const RESTORE_REGS: u16 = 0xe283;
 }
 
 /// Particle records: 11h bytes each, after the count at [`g::PARTICLES`].
@@ -262,6 +265,13 @@ pub fn particles_spawn_particle(m: &mut Machine, start: u16) -> Result<(), Bail>
     let ax = c.pop();
     c.set_reg(AX, ax);
     c.call(code::CENTER_SPRITE_COORDINATES, 0xc613)?;
+    spawn_at(&mut c)
+
+}
+
+/// From C613: a particle for sprite AX at (DX, BX), resource SI, appended
+/// to the list; its rect from the sprite's size.
+fn spawn_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xc613, 15)?;
     let si = c.reg(SI);
     c.push(si);
@@ -304,6 +314,13 @@ pub fn particles_spawn_particle(m: &mut Machine, start: u16) -> Result<(), Bail>
     let si = c.pop();
     c.set_reg(SI, si);
     c.ret()
+}
+
+/// `loc_0c613`: [`spawn_at`] (`particles_spawn_particle` without opening
+/// the resource and centring).
+pub fn particles_add_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc613)?;
+    spawn_at(&mut Ctx::new(m))
 }
 
 /// From E2E3: writes AX (0..999, more is 999) as 3 digits ending at ES:SI,
@@ -408,4 +425,395 @@ pub fn read_resource_to_esdi(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0xf252, 1)?;
     }
+}
+
+/// From E31C: writes AX (0..65535) as 5 digits ending at ES:SI, leading
+/// zeros as spaces (the last 3 through E2F6, [`number`]'s tail). BX, CX
+/// kept; DX = 0.
+fn number5(c: &mut Ctx) -> Result<(), Bail> {
+    let ax = c.reg(AX);
+    let (q, rem) = (ax / 1000, ax % 1000);
+    let blank1 = q / 10 == 0;
+    let blank2 = q == 0;
+    let (h, tens) = (rem / 100, rem % 100 / 10);
+    let blank_tens = blank2 && h == 0 && tens == 0;
+    let n = 11
+        + if blank1 { 3 + if blank2 { 2 } else { 0 } } else { 0 }
+        + 8
+        + if blank2 { 4 + if h == 0 { 2 } else { 0 } } else { 0 }
+        + 7
+        + if blank2 && h == 0 { 2 + blank_tens as u32 } else { 0 }
+        + 4;
+    c.run(0xe31c, n)?;
+    let (bx, cx) = (c.reg(BX), c.reg(CX));
+    c.push(bx);
+    c.push(cx);
+    c.set_reg(CX, 0x3e8);
+    c.set_reg(BX, 0x3e8);
+    let dx = c.reg(DX);
+    let zero = c.xor(W, dx, dx);
+    c.set_reg(DX, zero);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 6, 0x3e8); // div cx
+    c.aam(10);
+    let v = c.reg(AX).rotate_left(8);
+    let mut v = c.add(W, v, 0x3030);
+    c.cmp(B, v & 0xff, 0x30);
+    if blank1 {
+        v = v & 0xff00 | 0x20;
+        c.cmp(B, v >> 8, 0x30);
+        if blank2 {
+            v = 0x2020;
+            let bx = c.reg(BX);
+            let zero = c.xor(W, bx, bx);
+            c.set_reg(BX, zero);
+        }
+    }
+    c.set_reg(AX, v);
+    let si = c.reg(SI);
+    c.set_word_in(pc::cpu::ES, si.wrapping_sub(5), v);
+    let rest = c.reg(DX);
+    c.set_reg(AX, rest);
+    let zero = c.xor(W, rest, rest);
+    c.set_reg(DX, zero);
+    c.set_reg(CX, 0x64);
+    c.m.cpu.mul_div(&mut c.m.hw, B, 6, 0x64); // div cl
+    let al = c.reg8(r8::AL);
+    let mut digit = c.add(B, al as u16, 0x30) as u8;
+    let bx = c.reg(BX);
+    c.or(W, bx, bx);
+    if bx == 0 {
+        let one = c.inc(W, bx);
+        c.set_reg(BX, one);
+        c.cmp(B, digit as u16, 0x30);
+        if h == 0 {
+            digit = b' ';
+            let zero = c.xor(W, one, one);
+            c.set_reg(BX, zero);
+        }
+    }
+    c.set_reg8(r8::AL, digit);
+    c.m.cpu.write8(&mut c.m.hw, pc::cpu::ES, si.wrapping_sub(3), digit);
+    let ah = c.reg8(r8::AH);
+    c.set_reg8(r8::AL, ah);
+    c.aam(10);
+    let ax = c.reg(AX).rotate_left(8);
+    let mut ax = c.add(W, ax, 0x3030);
+    let bx = c.reg(BX);
+    c.or(W, bx, bx);
+    if bx == 0 {
+        c.cmp(B, ax & 0xff, 0x30);
+        if ax & 0xff == 0x30 {
+            ax = ax & 0xff00 | b' ' as u16;
+        }
+    }
+    c.set_reg(AX, ax);
+    c.set_word_in(pc::cpu::ES, si.wrapping_sub(2), ax);
+    let cx = c.pop();
+    c.set_reg(CX, cx);
+    let bx = c.pop();
+    c.set_reg(BX, bx);
+    c.ret()
+}
+
+/// `loc_0e31c`: AX as 5 digits ending at ES:SI (see [`number5`]).
+pub fn string_replace_5_digits_ending_at_es_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xe31c)?;
+    number5(&mut Ctx::new(m))
+}
+
+/// From E297 (the stretch starting at `at` with `prefix` instructions
+/// before it, done by `ops`): draws AX (0..255 for each hundred) as 3
+/// digits through the font's glyph routine ([`g::FONT_DRAW`]), leading
+/// zeros as spaces. CX kept.
+fn draw_number(c: &mut Ctx, at: u16, prefix: u32, ax: u16, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    if ax / 100 > 0xff {
+        // `div cl` faults: the interpreter raises it.
+        c.m.cpu.ip = at;
+        return Err(Bail);
+    }
+    let zero = ax / 100 == 0;
+    c.run(at, prefix + 6 + if zero { 2 } else { 0 } + 1)?;
+    ops(c);
+    let cx = c.reg(CX);
+    c.push(cx);
+    c.set_reg(CX, 0x64);
+    c.set_reg(AX, ax);
+    c.m.cpu.mul_div(&mut c.m.hw, B, 6, 0x64); // div cl
+    let al = c.reg8(r8::AL);
+    let digit = c.add(B, al as u16, 0x30) as u8;
+    c.cmp(B, digit as u16, 0x30);
+    c.set_reg8(r8::AL, digit);
+    if zero {
+        c.set_reg8(r8::AL, b' ');
+        let ch = c.reg8(r8::CH);
+        let ch = c.dec(B, ch as u16) as u8;
+        c.set_reg8(r8::CH, ch);
+    }
+    let glyph = c.word(g::FONT_DRAW);
+    c.call(glyph, 0xe2ab)?;
+    let ah = c.reg8(r8::AH);
+    let ch = c.reg8(r8::CH);
+    let mut v = ((ah % 10) as u16) << 8 | (ah / 10) as u16;
+    v = v.wrapping_add(0x3030);
+    let blank = ch != 0 && v & 0xff == 0x30;
+    c.run(0xe2ab, 6 + if ch != 0 { 2 + blank as u32 } else { 0 } + 1)?;
+    c.set_reg8(r8::AL, ah);
+    c.aam(10);
+    let ax = c.reg(AX).rotate_left(8);
+    let mut ax = c.add(W, ax, 0x3030);
+    c.or(B, ch as u16, ch as u16);
+    if ch != 0 {
+        c.cmp(B, ax & 0xff, 0x30);
+        if blank {
+            ax = ax & 0xff00 | 0x20;
+        }
+    }
+    c.set_reg(AX, ax);
+    let glyph = c.word(g::FONT_DRAW);
+    c.call(glyph, 0xe2c2)?;
+    c.run(0xe2c2, 2)?;
+    let ah = c.reg8(r8::AH);
+    c.set_reg8(r8::AL, ah);
+    let glyph = c.word(g::FONT_DRAW);
+    c.call(glyph, 0xe2c8)?;
+    c.run(0xe2c8, 2)?;
+    let cx = c.pop();
+    c.set_reg(CX, cx);
+    c.ret()
+}
+
+/// `loc_0e295`: AL drawn as 3 digits at the font's position.
+pub fn draw_number_al(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xe295)?;
+    let mut c = Ctx::new(m);
+    let al = c.reg8(r8::AL) as u16;
+    draw_number(&mut c, start, 1, al, |c| {
+        let ah = c.reg8(r8::AH) as u16;
+        let z = c.xor(B, ah, ah);
+        c.set_reg8(r8::AH, z as u8);
+    })
+}
+
+/// `loc_0e290`: AX drawn as 3 digits at DX, BX (`font_set_draw_position`).
+pub fn draw_number_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xe290)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(code::FONT_SET_DRAW_POSITION, 0xe293)?;
+    let ax = c.reg(AX);
+    draw_number(&mut c, 0xe293, 1, ax, |_| {})
+}
+
+/// From B2CD (the stretch from `at`, `prefix` instructions before, done by
+/// `ops`): the label of a save slot: phrase AX (low 12 bits), its two last
+/// numbers found (`find_last_numeric_digit_in_str_at_es_si`), the first
+/// set to the save's day ((time + 3) / 16 + 1), and after it the 10
+/// characters of phrase 117h for the time of day (time & 0Fh). Registers
+/// and ES kept.
+fn save_slot_label(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    c.run(at, prefix + 1)?;
+    ops(c);
+    c.call(code::SAVE_REGS, 0xb2d0)?;
+    c.run(0xb2d0, 4)?;
+    let es = c.sreg(ES);
+    c.push(es);
+    let ax = c.reg(AX);
+    let ax = c.and(W, ax, 0x0fff);
+    c.set_reg(AX, ax);
+    c.set_reg(SI, ax);
+    c.call(code::GET_PHRASE_OR_COMMAND_STRING_SI, 0xb2d9)?;
+    c.run(0xb2d9, 1)?;
+    c.call(code::FIND_LAST_NUMERIC_DIGIT, 0xb2dc)?;
+    c.run(0xb2dc, 1)?;
+    c.call(code::FIND_LAST_NUMERIC_DIGIT, 0xb2df)?;
+    c.run(0xb2df, 9)?;
+    let t = c.word(SAVE_TIME);
+    c.push(t);
+    let v = c.add(W, t, 3);
+    let v = c.shr1(W, v, 4);
+    let v = c.inc(W, v);
+    c.set_reg(AX, v);
+    c.call(0xe2e3, 0xb2f2)?;
+    c.run(0xb2f2, 3)?;
+    let si = c.reg(SI);
+    c.set_reg(DI, si.wrapping_add(3));
+    c.set_reg(SI, 0x117);
+    c.call(code::GET_PHRASE_OR_COMMAND_STRING_SI, 0xb2fb)?;
+    c.run(0xb2fb, 7)?;
+    let t = c.pop();
+    let al = c.and(B, t & 0xff, 0x0f);
+    c.set_reg(AX, 0x0a00 | al);
+    c.mul8(0x0a);
+    let off = c.reg(AX);
+    let si = c.reg(SI);
+    let si = c.add(W, si, off);
+    c.set_reg(SI, si);
+    c.set_reg(CX, 0x0a);
+    c.m.cpu.string_op(&mut c.m.hw, 0xa4, Some(ES), 0xf3); // rep movsb es:
+    c.run(0xb30a, 2)?;
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.call(code::RESTORE_REGS, 0xb30e)?;
+    c.run(0xb30e, 1)?;
+    c.ret()
+}
+
+/// The time read from a save's file (its first word).
+const SAVE_TIME: u16 = 0xd816;
+
+/// `loc_0b2cd`: see [`save_slot_label`].
+pub fn save_slot_label_ax(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb2cd)?;
+    save_slot_label(&mut Ctx::new(m), start, 0, |_| {})
+}
+
+/// `loc_0b2c4`: [`save_slot_label`] of the slot at SI (its phrase the
+/// first word), unless [38AFh] is above 32h.
+pub fn save_slot_label_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb2c4)?;
+    let mut c = Ctx::new(m);
+    let v = c.byte(0x38af);
+    if v > 0x32 {
+        c.run(start, 3)?;
+        c.cmp(B, v as u16, 0x32);
+        return c.ret();
+    }
+    save_slot_label(&mut c, start, 3, |c| {
+        c.cmp(B, v as u16, 0x32);
+        let si = c.reg(SI);
+        let ax = c.word(si);
+        c.set_reg(AX, ax);
+    })
+}
+
+/// `loc_0c5cf`: a particle for the spawn record at BP (SS: its resource
+/// byte, then 3-byte variants to a 0): with variants, spawned
+/// (`particles_spawn_particle`), the record noted in the particle (+0Fh),
+/// one variant picked at random (+0Dh) and bit 0 of +0Ch set (SI kept).
+pub fn particles_spawn_variant(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc5cf)?;
+    let mut c = Ctx::new(m);
+    let bp = c.reg(BP);
+    let res = c.byte_in(SS, bp);
+    let more = c.byte_in(SS, bp.wrapping_add(3));
+    c.run(start, if more == 0 { 4 } else { 6 })?;
+    let ah = c.reg8(r8::AH) as u16;
+    c.xor(B, ah, ah);
+    c.set_reg(AX, res as u16);
+    c.cmp(B, more as u16, 0);
+    if more == 0 {
+        return particles_spawn_particle(c.m, 0xc60b);
+    }
+    c.push(bp);
+    c.call(0xc60b, 0xc5de)?;
+    // The variants, purely: SI from BP by 3 while not 0.
+    let mut k = 0u16;
+    let mut p = bp;
+    loop {
+        p = p.wrapping_add(3);
+        k += 1;
+        if c.byte(p) == 0 {
+            break;
+        }
+    }
+    let count = k - 1;
+    c.run(0xc5de, 5 + 5 * k as u32 + if count == 0 { 2 + 2 } else { 3 })?;
+    let bp = c.pop();
+    c.set_reg(BP, bp);
+    let di = c.reg(DI);
+    c.set_word(di.wrapping_add(0x0f), bp);
+    let si = c.reg(SI);
+    c.push(si);
+    c.set_reg(SI, bp);
+    let mut bx = 0xffffu16;
+    let mut p = bp;
+    loop {
+        bx = c.inc(W, bx);
+        p = c.add(W, p, 3);
+        let v = c.byte(p);
+        c.cmp(B, v as u16, 0);
+        if v == 0 {
+            break;
+        }
+    }
+    c.set_reg(SI, p);
+    c.set_reg(BX, bx);
+    c.or(W, bx, bx);
+    if count == 0 {
+        let si = c.pop();
+        c.set_reg(SI, si);
+        return c.ret();
+    }
+    c.call(0xe3df, 0xc5fa)?;
+    c.run(0xc5fa, 8)?;
+    let ax = c.reg(AX);
+    c.set_reg(BX, ax);
+    let a2 = c.shl1(W, ax, 1);
+    let a3 = c.add(W, a2, ax);
+    c.set_reg(AX, a3);
+    let bp = c.reg(BP);
+    let bp = c.add(W, bp, a3);
+    c.set_reg(BP, bp);
+    let di = c.reg(DI);
+    c.set_word(di.wrapping_add(0x0d), bp);
+    let f = c.byte(di.wrapping_add(0x0c));
+    let f = c.or(B, f as u16, 1);
+    c.set_byte(di.wrapping_add(0x0c), f as u8);
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.ret()
+}
+
+/// `loc_0c661`: the particle at DI (resource opened first,
+/// `open_onmap_resource`) moved by (DX, BX), and the screen redrawn over
+/// the old place and the new one (`particles_update_dirty_rect` on the
+/// union, built on the stack).
+pub fn particles_move_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc661)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(code::OPEN_ONMAP_RESOURCE, 0xc664)?;
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    c.run(0xc664, 17 + if dx & 0x8000 != 0 { 2 } else { 3 } + 2 + if bx & 0x8000 != 0 { 2 } else { 3 } + 2)?;
+    let si = c.reg(DI);
+    c.set_reg(SI, si);
+    let sp = c.reg(SP);
+    let sp = c.sub(W, sp, 8);
+    c.set_reg(SP, sp);
+    c.set_reg(DI, sp);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    for _ in 0..4 {
+        c.movs(W);
+    }
+    let s = c.reg(SI);
+    let s = c.sub(W, s, 8);
+    c.set_reg(SI, s);
+    let d = c.reg(DI);
+    let d = c.sub(W, d, 8);
+    c.set_reg(DI, d);
+    for (k, v) in [(0u16, dx), (2, bx), (4, dx), (6, bx)] {
+        let w = c.word(s.wrapping_add(k));
+        let w = c.add(W, w, v);
+        c.set_word(s.wrapping_add(k), w);
+    }
+    c.or(W, dx, dx);
+    let k = if dx & 0x8000 != 0 { 0 } else { 4 };
+    let v = c.word(s.wrapping_add(k));
+    c.set_reg(AX, v);
+    c.set_word(d.wrapping_add(k), v);
+    c.or(W, bx, bx);
+    let k = if bx & 0x8000 != 0 { 2 } else { 6 };
+    let v = c.word(s.wrapping_add(k));
+    c.set_reg(AX, v);
+    c.set_word(d.wrapping_add(k), v);
+    c.set_reg(SI, d);
+    c.call(code::PARTICLES_UPDATE_DIRTY_RECT, 0xc6a9)?;
+    c.run(0xc6a9, 2)?;
+    let sp = c.reg(SP);
+    let sp = c.add(W, sp, 8);
+    c.set_reg(SP, sp);
+    c.ret()
 }

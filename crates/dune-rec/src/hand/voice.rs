@@ -4,7 +4,7 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, SS, ZF},
     rec::Bail,
 };
 
@@ -404,4 +404,216 @@ pub fn create_voc_file_name_from_bx(m: &mut Machine, start: u16) -> Result<(), B
     }
     c.stos(B);
     c.ret()
+}
+
+/// `loc_0a8b1`: the hex digit of AL's low 4 bits, in AL.
+pub fn hex_digit(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa8b1)?;
+    let mut c = Ctx::new(m);
+    let al = c.reg8(r8::AL);
+    let d = (al & 0x0f) + 0x30;
+    c.run(start, if d <= 0x39 { 5 } else { 6 })?;
+    let v = c.and(B, al as u16, 0x0f);
+    let mut v = c.add(B, v, 0x30);
+    c.cmp(B, v, 0x39);
+    if v > 0x39 {
+        v = c.add(B, v, 7);
+    }
+    c.set_reg8(r8::AL, v as u8);
+    c.ret()
+}
+
+/// `loc_0a9f4`: the voice buffer playing (its far pointer at [3824h]) is
+/// refilled from 6 bytes in (`loc_0aa70`), handed to the PCM driver
+/// (function at 39A1h), and [3824h] swaps to the other buffer (3811h /
+/// 3819h).
+pub fn swap_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa9f4)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    let si = c.word(g::VOICE_BUFFER_PLAYING);
+    c.set_reg(SI, si);
+    let (off, seg) = (c.word(si), c.word(si.wrapping_add(2)));
+    c.set_sreg(ES, seg);
+    let di = c.add(W, off, 6);
+    c.set_reg(DI, di);
+    c.call(0xaa70, 0xaa00)?;
+    c.interp(0xaa00, 0xaa04)?;
+    c.run(0xaa04, 4)?;
+    let x = c.xor(W, 0x3811, 0x3819);
+    c.set_reg(AX, x);
+    let v = c.word(g::VOICE_BUFFER_PLAYING);
+    let v = c.xor(W, v, x);
+    c.set_word(g::VOICE_BUFFER_PLAYING, v);
+    c.ret()
+}
+
+/// `loc_0abd5`: `loc_0a7c2` while a voice plays (`is_voc_pcm_playing`).
+pub fn while_voice_playing(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xabd5)?;
+    let mut c = Ctx::new(m);
+    loop {
+        c.run(0xabd5, 1)?;
+        c.call(0xabcc, 0xabd8)?;
+        c.run(0xabd8, 2)?;
+        if c.flag(ZF) {
+            return c.ret();
+        }
+        c.call(0xa7c2, 0xabd5)?;
+    }
+}
+
+/// `loc_0ad43`: the music asked for at [DBCCh] played (`play_music`), the
+/// current one forgotten first.
+pub fn play_requested_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xad43)?;
+    let mut c = Ctx::new(m);
+    let al = c.byte(0xdbcc);
+    c.run(start, if al == 0 { 5 } else { 4 })?;
+    c.set_reg8(r8::AL, al);
+    c.set_byte(g::CURRENT_MUSIC, 0);
+    c.or(B, al as u16, al as u16);
+    if al == 0 {
+        return c.ret();
+    }
+    super::audio::play_music(c.m, 0xad95)
+}
+
+/// `loc_0adbe`: unless sound is off, music is on its own (bit 0 of the
+/// music settings) or [DBCDh] has bit 40h, the driver's function at
+/// 397Dh with AX = 12Ch, BX = 0; [DBCDh] = what it returns (BX kept).
+pub fn music_driver_397d(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xadbe)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xaec6, 0xadc1)?;
+    if c.flag(CF) {
+        c.run(0xadc1, 2)?;
+        return c.ret();
+    }
+    let set = c.byte(g::MUSIC_SETTINGS);
+    let present = c.byte(g::IS_SOUND_PRESENT);
+    let n = if set & 1 != 0 { 4 } else if present & 0x40 != 0 { 6 } else { 8 };
+    c.run(0xadc1, n)?;
+    c.test(B, set as u16, 1);
+    if set & 1 != 0 {
+        return c.ret();
+    }
+    c.test(B, present as u16, 0x40);
+    if present & 0x40 != 0 {
+        return c.ret();
+    }
+    let bx = c.reg(BX);
+    c.push(bx);
+    c.set_reg(AX, 0x12c);
+    c.xor(W, bx, bx);
+    c.set_reg(BX, 0);
+    c.interp(0xadd7, 0xaddb)?;
+    c.run(0xaddb, 3)?;
+    let al = c.reg8(r8::AL);
+    c.set_byte(g::IS_SOUND_PRESENT, al);
+    let bx = c.pop();
+    c.set_reg(BX, bx);
+    c.ret()
+}
+
+/// `loc_0acbf`: the 12h bytes at 37FAh (SS) shuffled (18 swaps of two
+/// random places 0..8, the third generator stirred by the timer). SI = them.
+pub fn shuffle_37fa(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xacbf)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let bp = 0x37fau16;
+    c.set_reg(BP, bp);
+    c.set_reg(CX, 0x12);
+    loop {
+        c.run(0xacc5, 2)?;
+        c.set_reg(BX, 8);
+        c.call(0xe3df, 0xaccb)?;
+        c.run(0xaccb, 5)?;
+        let a = c.reg(AX);
+        c.set_reg(SI, a);
+        let t = c.word(g::TIMER);
+        let cx = c.reg(CX);
+        let t = c.xor(W, t, cx);
+        c.set_reg(AX, t);
+        let s = c.word(g::RAND_BELOW_SEED);
+        let s = c.add(W, s, t);
+        c.set_word(g::RAND_BELOW_SEED, s);
+        c.call(0xe3df, 0xacd9)?;
+        let cx = c.reg(CX).wrapping_sub(1);
+        c.run(0xacd9, 5 + if cx == 0 { 2 } else { 0 })?;
+        let b = c.reg(AX);
+        c.set_reg(DI, b);
+        let si = c.reg(SI);
+        let x = c.byte_in(SS, bp.wrapping_add(si));
+        let y = c.byte_in(SS, bp.wrapping_add(b));
+        c.m.cpu.write8(&mut c.m.hw, SS, bp.wrapping_add(b), x);
+        c.m.cpu.write8(&mut c.m.hw, SS, bp.wrapping_add(si), y);
+        c.set_reg8(r8::AL, y);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            c.set_reg(SI, bp);
+            return c.ret();
+        }
+    }
+}
+
+/// `loc_0aba9`: with PCM on, `loc_0ab92` until the voice file is closed
+/// or 1000 ticks went by; then the voice not playing.
+pub fn wait_voice_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xaba9)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xae2f, 0xabac)?;
+    if c.flag(ZF) {
+        c.run(0xabac, 2)?;
+        return c.ret();
+    }
+    c.run(0xabac, 4)?;
+    let t0 = c.word(g::TIMER);
+    c.set_reg(BX, t0);
+    loop {
+        let bx = c.reg(BX);
+        c.push(bx);
+        c.call(0xab92, 0xabb6)?;
+        c.run(0xabb6, 1)?;
+        c.call(0xaba3, 0xabb9)?;
+        let closed = c.flag(ZF);
+        if closed {
+            c.run(0xabb9, 4)?;
+            let bx = c.pop();
+            c.set_reg(BX, bx);
+            c.set_byte(g::VOC_PCM_PLAYING, 0);
+            return c.ret();
+        }
+        let sp = c.reg(pc::cpu::SP);
+        let bx = c.word_in(SS, sp);
+        let t = c.word(g::TIMER);
+        let left = t.wrapping_sub(bx) < 0x3e8;
+        c.run(0xabb9, 6 + if left { 2 } else { 2 })?;
+        let bx = c.pop();
+        c.set_reg(BX, bx);
+        let d = c.sub(W, t, bx);
+        c.set_reg(AX, d);
+        c.cmp(W, d, 0x3e8);
+        if !left {
+            c.set_byte(g::VOC_PCM_PLAYING, 0);
+            return c.ret();
+        }
+    }
+}
+
+/// `loc_0b02c`: the voice stopped, voice 2 started, then transition 0Eh.
+pub fn voice_2_and_transition(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb02c)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xac14, 0xb02f)?;
+    c.run(0xb02f, 2)?;
+    c.set_reg8(r8::AL, 2);
+    c.call(0xab15, 0xb034)?;
+    c.run(0xb034, 2)?;
+    c.set_reg8(r8::AL, 0x0e);
+    super::screen::transition_al(c.m, 0xc108)
 }

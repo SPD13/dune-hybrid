@@ -51,10 +51,16 @@ fn rect_shape(c: &mut Ctx, si: u16) -> (bool, u32) {
 /// C446: copies the rectangle at SI from the second framebuffer to the
 /// front buffer (driver function 14). CX kept.
 fn copy_rect_fb2_to_fb1(c: &mut Ctx) -> Result<(), Bail> {
+    copy_rect_to_fb1(c, 0xc446, 1, g::FRAMEBUFFER_2)
+}
+
+/// The rectangle at SI from the buffer at `from` to the front buffer; the
+/// stretch starts at `at`, `prefix` instructions before C449.
+fn copy_rect_to_fb1(c: &mut Ctx, at: u16, prefix: u32, from: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     let (empty, n) = rect_shape(c, si);
-    c.run(0xc446, 3 + n + if empty { 2 } else { 4 })?;
-    let fb2 = c.word(g::FRAMEBUFFER_2);
+    c.run(at, prefix + 2 + n + if empty { 2 } else { 4 })?;
+    let fb2 = c.word(from);
     c.set_reg(AX, fb2);
     let cx = c.reg(CX);
     c.push(cx);
@@ -83,6 +89,13 @@ fn copy_rect_fb2_to_fb1(c: &mut Ctx) -> Result<(), Bail> {
 pub fn copy_rect_fb2_to_fb1_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc446)?;
     copy_rect_fb2_to_fb1(&mut Ctx::new(m))
+}
+
+/// `loc_0c46f`: the rectangle at SI from the back buffer to the front
+/// buffer.
+pub fn copy_rect_backbuffer_to_fb1(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc46f)?;
+    copy_rect_to_fb1(&mut Ctx::new(m), 0xc46f, 2, g::BACKBUFFER)
 }
 
 /// `copy_game_area_to_screen_fb2_to_fb1` (C43E): the game area.
@@ -369,4 +382,85 @@ pub fn draw_all_ui_elements(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let count = c.lods(W, DS);
     c.set_reg(CX, count);
     super::gfx::draw_ui_elements_list_at_ds_si(c.m, 0xd1f2)
+}
+
+/// `loc_0c7d4`: the rect at SI (left, top, right, bottom, signed) clipped
+/// to the rect at DI, copied from the screen buffer to the front buffer
+/// (driver function 16); nothing when they do not meet. DS back as SS.
+pub fn copy_rect_clipped(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc7d4)?;
+    let mut c = Ctx::new(m);
+    let (si, di) = (c.reg(SI), c.reg(DI));
+    let r = [c.word(si), c.word(si + 2), c.word(si + 4), c.word(si + 6)];
+    let k = [c.word(di), c.word(di + 2), c.word(di + 4), c.word(di + 6)];
+    // Up to where the signed tests pass.
+    let tests = [(r[0] as i16) < (k[2] as i16), (r[1] as i16) < (k[3] as i16), (r[2] as i16) > (k[0] as i16), (r[3] as i16) > (k[1] as i16)];
+    let passed = tests.iter().take_while(|&&t| t).count();
+    if passed < 4 {
+        c.run(start, 4 * passed as u32 + 4)?;
+        let mut v = 0;
+        for i in 0..=passed {
+            v = c.lods(W, DS);
+            let lim = [k[2], k[3], k[0], k[1]][i];
+            c.cmp(W, v, lim);
+            if i == passed {
+                break;
+            }
+            c.set_reg([DX, BX, BP, AX][i], v);
+        }
+        let _ = v;
+        return c.ret();
+    }
+    let x0 = if r[0] < k[0] { k[0] } else { r[0] };
+    let x1 = if r[2] >= k[2] { k[2] } else { r[2] };
+    let y0 = if r[1] < k[1] { k[1] } else { r[1] };
+    let y1 = if r[3] >= k[3] { k[3] } else { r[3] };
+    let n = 15
+        + 2 + (r[0] < k[0]) as u32
+        + 2 + (r[2] >= k[2]) as u32
+        + 2 + (r[1] < k[1]) as u32
+        + 2 + (r[3] >= k[3]) as u32
+        + 2;
+    let empty = x1 <= x0 || y1 <= y0;
+    if empty {
+        c.run(start, n + if x1 <= x0 { 1 } else { 3 })?;
+    } else {
+        c.run(start, n + 2 + 2)?;
+    }
+    for (i, reg) in [DX, BX, BP, AX].into_iter().enumerate() {
+        let v = c.lods(W, DS);
+        c.cmp(W, v, [k[2], k[3], k[0], k[1]][i]);
+        if reg != AX {
+            c.set_reg(reg, v);
+        }
+    }
+    c.cmp(W, r[0], k[0]);
+    c.set_reg(DX, x0);
+    c.cmp(W, r[2], k[2]);
+    c.set_reg(BP, x1);
+    c.cmp(W, r[1], k[1]);
+    c.set_reg(BX, y0);
+    c.cmp(W, r[3], k[3]);
+    c.set_reg(AX, y1);
+    let w = c.sub(W, x1, x0);
+    c.set_reg(BP, w);
+    if x1 <= x0 {
+        return c.ret();
+    }
+    let h = c.sub(W, y1, y0);
+    c.set_reg(AX, h);
+    if y1 <= y0 {
+        return c.ret();
+    }
+    let front = c.word(g::FRAMEBUFFER_FRONT);
+    c.set_sreg(ES, front);
+    let screen = c.word(g::SCREEN_BUFFER);
+    c.set_sreg(DS, screen);
+    c.interp(0xc81f, 0xc824)?;
+    c.run(0xc824, 3)?;
+    let ss = c.sreg(SS);
+    c.push(ss);
+    let ds = c.pop();
+    c.set_sreg(DS, ds);
+    c.ret()
 }

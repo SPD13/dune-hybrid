@@ -382,3 +382,18 @@ pub fn copy_game_area_rect_to_clip_rect(m: &mut Machine, start: u16) -> Result<(
     copy_rect(&mut c);
     c.ret()
 }
+
+/// `loc_0d082`: the font with glyphs drawn by `sub_d0ff` (the tall font's
+/// sizes).
+pub fn font_select_d0ff(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    select_font(m, start, 0xd082, 0xd0ff, 0xceec)
+}
+
+/// `loc_0d08f`: glyphs drawn by `font_draw_glyph_func`, the sizes kept.
+pub fn font_glyphs_d16a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd08f)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_word(g::FONT_DRAW, 0xd16a);
+    c.ret()
+}

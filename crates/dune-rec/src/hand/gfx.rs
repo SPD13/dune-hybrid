@@ -2,15 +2,17 @@
 //! DS:38B5, Cryogenic's `gfxVtable`), the sprite drawing wrappers, HNM
 //! frame steps and UI drawing.
 
-use super::{Ctx, W, entered, globals as g};
+use super::{B, Ctx, W, entered, globals as g};
 use pc::{
     Machine,
-    cpu::{AX, BP, CF, CX, DS, ES, SI, SP, SS},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, SP, SS},
     rec::Bail,
 };
 
 mod code {
     pub const SET_FB1_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc07c;
+    pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
+    pub const DRAW_LINE: u16 = 0xc53e;
     pub const LOAD_ICONES_SPRITES: u16 = 0xc137;
     pub const APPLY_PALETTE: u16 = 0xc1ba;
     pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
@@ -318,4 +320,273 @@ pub fn ui_head_animate_down(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(code::WAIT_A_BIT, 0x1832)?;
         c.run(0x1832, 1)?; // jmp short 181Eh
     }
+}
+
+/// `loc_0c0e8`: driver function 30 on the screen buffer, BP = the timer.
+pub fn gfx_call_30(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc0e8)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let screen = c.word(g::SCREEN_BUFFER);
+    c.set_sreg(ES, screen);
+    c.set_reg(BP, g::TIMER);
+    c.interp(0xc0ef, 0xc0f3)?;
+    c.run(0xc0f3, 1)?;
+    c.ret()
+}
+
+/// `loc_0c343`: sprite AX of the sprite sheet centred on (DX, BX), into the
+/// active framebuffer, clipped to the rect at D834h (driver function 6).
+/// DS comes back as SS.
+pub fn draw_sprite_centred(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc343)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 16)?;
+    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    c.set_sreg(ES, fb);
+    let (sheet, seg) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
+    c.set_reg(SI, sheet);
+    c.set_sreg(DS, seg);
+    let ax = c.reg(AX);
+    let bp = c.shl1(W, ax, 1);
+    c.set_reg(BP, bp);
+    let off = c.word(bp.wrapping_add(sheet));
+    let si = c.add(W, sheet, off);
+    c.set_reg(SI, si);
+    let w = c.lods(W, DS);
+    c.set_reg(DI, w);
+    let hi = c.and(B, w >> 8, 0x0f);
+    let half = c.shr1(W, hi << 8 | w & 0xff, 1);
+    c.set_reg(AX, half);
+    let dx = c.reg(DX);
+    let dx = c.sub(W, dx, half);
+    c.set_reg(DX, dx);
+    let h = c.lods(W, DS);
+    c.xor(B, h >> 8, h >> 8);
+    let h = h & 0xff;
+    c.set_reg(CX, h);
+    let half = c.shr1(W, h, 1);
+    c.set_reg(AX, half);
+    let bx = c.reg(BX);
+    let bx = c.sub(W, bx, half);
+    c.set_reg(BX, bx);
+    c.set_reg(BP, g::RECT_D834);
+    c.interp(0xc368, 0xc36d)?;
+    c.run(0xc36d, 3)?;
+    let ss = c.sreg(SS);
+    c.push(ss);
+    let ds = c.pop();
+    c.set_sreg(DS, ds);
+    c.ret()
+}
+
+/// `loc_0c53e`: a line from (DX, BX) to (DI, CX) in the text colour, into
+/// the active framebuffer (driver function 19; SI, BP its clip).
+pub fn draw_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc53e)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    line(&mut c)?;
+    c.run(0xc550, 1)?;
+    c.ret()
+}
+
+fn line(c: &mut Ctx) -> Result<(), Bail> {
+    c.set_reg(SI, LINE_CLIP);
+    let bp = c.word(LINE_CLIP + 8);
+    c.set_reg(BP, bp);
+    let colour = c.byte(g::TEXT_COLOUR);
+    c.set_reg8(super::r8::AL, colour);
+    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    c.set_sreg(ES, fb);
+    c.interp(0xc54c, 0xc550)
+}
+
+/// The clip rect of lines, and a word after it.
+const LINE_CLIP: u16 = 0x276a;
+
+/// From C560: the outline of the rect (DX, BX) to (DI, CX) in colour AL:
+/// top, left, bottom, right. The stretch from `at` has `prefix`
+/// instructions before C560.
+fn rect_outline(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    c.run(at, prefix + 7)?;
+    ops(c);
+    let al = c.reg8(super::r8::AL);
+    c.set_byte(g::TEXT_COLOUR, al);
+    for r in [BX, CX, DX, DI] {
+        let v = c.reg(r);
+        c.push(v);
+    }
+    let bx = c.reg(BX);
+    c.set_reg(CX, bx);
+    c.call(code::DRAW_LINE, 0xc56c)?;
+    c.run(0xc56c, 4)?;
+    let sp = c.reg(SP);
+    c.set_reg(BP, sp);
+    let bottom = c.word_in(SS, sp.wrapping_add(4));
+    c.set_reg(CX, bottom);
+    c.set_reg(BX, bottom);
+    c.call(code::DRAW_LINE, 0xc576)?;
+    c.run(0xc576, 4)?;
+    let sp = c.reg(SP);
+    c.set_reg(BP, sp);
+    let dx = c.reg(DX);
+    c.set_reg(DI, dx);
+    let top = c.word_in(SS, sp.wrapping_add(6));
+    c.set_reg(BX, top);
+    c.call(code::DRAW_LINE, 0xc580)?;
+    c.run(0xc580, 3)?;
+    let di = c.pop();
+    c.set_reg(DI, di);
+    c.set_reg(DX, di);
+    c.call(code::DRAW_LINE, 0xc586)?;
+    c.run(0xc586, 4)?;
+    for r in [DX, CX, BX] {
+        let v = c.pop();
+        c.set_reg(r, v);
+    }
+    c.ret()
+}
+
+/// `draw_rect_outline` (C560).
+pub fn draw_rect_outline(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc560)?;
+    rect_outline(&mut Ctx::new(m), start, 0, |_| {})
+}
+
+/// `loc_0c551`: the outline of the rect at SI (left, top, right, bottom,
+/// exclusive; then the colour byte).
+pub fn draw_rect_outline_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc551)?;
+    rect_outline(&mut Ctx::new(m), start, 11, |c| {
+        let l = c.lods(W, DS);
+        c.set_reg(DX, l);
+        let t = c.lods(W, DS);
+        c.set_reg(BX, t);
+        let r = c.lods(W, DS);
+        let r = c.dec(W, r);
+        c.set_reg(DI, r);
+        let b = c.lods(W, DS);
+        let b = c.dec(W, b);
+        c.set_reg(CX, b);
+        c.lods(B, DS);
+    })
+}
+
+/// `loc_0c2f2`: opens resource AL and draws its sprite 0 at (0, 0).
+pub fn open_resource_and_draw_sprite_0(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc2f2)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let ah = c.reg8(super::r8::AH) as u16;
+    let z = c.xor(B, ah, ah);
+    c.set_reg8(super::r8::AH, z as u8);
+    c.call(code::OPEN_RESOURCE_BY_INDEX, 0xc2f7)?;
+    c.run(0xc2f7, 6)?;
+    for r in [AX, BX, DX] {
+        let v = c.reg(r);
+        let z = c.xor(W, v, v);
+        c.set_reg(r, z);
+    }
+    c.push(0);
+    c.push(0);
+    c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0xc302)?;
+    c.run(0xc302, 3)?;
+    let dx = c.pop();
+    c.set_reg(DX, dx);
+    let bx = c.pop();
+    c.set_reg(BX, bx);
+    c.ret()
+}
+
+/// `loc_01834`: driver function 25 on the front buffer, SI = CD9Eh,
+/// BP = 1E76h.
+pub fn gfx_call_25(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1834)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    c.set_reg(SI, 0xcd9e);
+    c.set_reg(BP, 0x1e76);
+    let front = c.word(g::FRAMEBUFFER_FRONT);
+    c.set_sreg(ES, front);
+    c.interp(0x183e, 0x1842)?;
+    c.run(0x1842, 1)?;
+    c.ret()
+}
+
+/// `loc_04b16`: unless the front buffer is the screen, driver function
+/// 18 with ES = the screen buffer + 1E0h (paragraphs).
+pub fn gfx_call_18(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4b16)?;
+    let mut c = Ctx::new(m);
+    let (screen, front) = (c.word(g::SCREEN_BUFFER), c.word(g::FRAMEBUFFER_FRONT));
+    c.run(start, if screen == front { 5 } else { 6 })?;
+    c.set_reg(AX, screen);
+    c.set_reg(SI, front);
+    c.cmp(W, screen, front);
+    if screen == front {
+        return c.ret();
+    }
+    let es = c.add(W, screen, 0x1e0);
+    c.set_reg(AX, es);
+    c.set_sreg(ES, es);
+    c.interp(0x4b26, 0x4b2a)?;
+    c.run(0x4b2a, 1)?;
+    c.ret()
+}
+
+/// A ring of points (x, y words) in the code segment, E40Ch..E85Ch; the
+/// next free slot at [`POINTS_NEXT`].
+const POINTS_RING: u16 = 0xe40c;
+const POINTS_RING_END: u16 = 0xe85c;
+const POINTS_NEXT: u16 = 0x149a;
+
+/// `loc_049ea`: [4728h] cleared, every point of the ring to (800h, 800h).
+pub fn clear_points_ring(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x49ea)?;
+    let mut c = Ctx::new(m);
+    let n = ((POINTS_RING_END - POINTS_RING) / 4) as u32;
+    c.run(start, 5 + 4 * n + 1)?;
+    c.set_byte(0x4728, 0);
+    let cs = c.sreg(pc::cpu::CS);
+    c.push(cs);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.set_reg(DI, POINTS_RING);
+    c.set_reg(AX, 0x800);
+    loop {
+        c.stos(W);
+        c.stos(W);
+        let di = c.reg(DI);
+        c.cmp(W, di, POINTS_RING_END);
+        if di >= POINTS_RING_END {
+            return c.ret();
+        }
+    }
+}
+
+/// `loc_04a00`: the point (DX, BX) into the ring's next slot.
+pub fn add_point_to_ring(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4a00)?;
+    let mut c = Ctx::new(m);
+    let di = c.word(POINTS_NEXT);
+    let step = c.string_step(W);
+    let end = di.wrapping_add(step.wrapping_mul(2));
+    let wrap = end >= POINTS_RING_END;
+    c.run(start, 11 + wrap as u32)?;
+    let cs = c.sreg(pc::cpu::CS);
+    c.push(cs);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.set_reg(DI, di);
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    c.set_reg(AX, dx);
+    c.stos(W);
+    c.set_reg(AX, bx);
+    c.stos(W);
+    c.cmp(W, end, POINTS_RING_END);
+    let next = if wrap { POINTS_RING } else { end };
+    c.set_reg(DI, next);
+    c.set_word(POINTS_NEXT, next);
+    c.ret()
 }

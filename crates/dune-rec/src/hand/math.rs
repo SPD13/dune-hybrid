@@ -229,3 +229,97 @@ pub fn rand_masked(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, r);
     c.ret()
 }
+
+/// `loc_0e3df`: a random number 0..=BX from the third generator (factor
+/// CBD1h, as [`rand`]): drawn under the next power of two, again while
+/// above BX. AX = it (0 when BX is 0); CX, DX kept. Flags from the last
+/// `cmp ax, bx` (from `or ax, ax` when BX is 0).
+pub fn rand_below(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xe3df)?;
+    let mut c = Ctx::new(m);
+    let bx = c.reg(BX);
+    if bx == 0 {
+        c.run(start, 8)?;
+        let (cx, dx) = (c.reg(CX), c.reg(DX));
+        c.push(cx);
+        c.push(dx);
+        c.set_reg(AX, 0);
+        c.or(W, 0, 0);
+        c.pop();
+        c.pop();
+        return c.ret();
+    }
+    let bits = 16 - bx.leading_zeros();
+    let mask = (0xffffu32 << bits) as u16 ^ 0xffff;
+    // The draws, purely, to count them.
+    let mut seed = c.word(g::RAND_BELOW_SEED);
+    let mut draws = 0;
+    loop {
+        draws += 1;
+        let p = seed as u32 * 0xcbd1;
+        seed = (p as u16).wrapping_add(1);
+        let v = ((p >> 16) as u16 & 0xff) << 8 | seed >> 8;
+        if v & mask <= bx {
+            break;
+        }
+    }
+    c.run(start, 7 + 3 * bits + 10 * draws + 3)?;
+    let (cx, dx) = (c.reg(CX), c.reg(DX));
+    c.push(cx);
+    c.push(dx);
+    c.or(W, bx, bx);
+    let mut ax = bx;
+    let mut m = 0xffffu16;
+    loop {
+        m = c.shl1(W, m, 1);
+        ax = c.shr1(W, ax, 1);
+        if ax == 0 {
+            break;
+        }
+    }
+    let m = !m;
+    c.set_reg(CX, m);
+    let mut v;
+    loop {
+        let seed = c.word(g::RAND_BELOW_SEED);
+        c.set_reg(AX, seed);
+        c.set_reg(DX, 0xcbd1);
+        c.mul16(0xcbd1);
+        let lo = c.reg(AX);
+        let seed = c.inc(W, lo);
+        c.set_word(g::RAND_BELOW_SEED, seed);
+        let dl = c.reg8(r8::DL);
+        v = (dl as u16) << 8 | seed >> 8;
+        v = c.and(W, v, m);
+        c.cmp(W, v, bx);
+        if v <= bx {
+            break;
+        }
+    }
+    c.set_reg(AX, v);
+    let dx = c.pop();
+    c.set_reg(DX, dx);
+    let cx = c.pop();
+    c.set_reg(CX, cx);
+    c.ret()
+}
+
+
+/// `loc_00cf2`: AX (after `add al, bl`) rotated right by 5, AH then
+/// shifted right by 3: BH = AH, DH = AL; BL, DL their old high bytes.
+/// CL = 3.
+pub fn unpack_0cf2(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0cf2)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 10)?;
+    let (ax, bx, dx) = (c.reg(AX), c.reg(BX), c.reg(DX));
+    let al = c.add(Width::B, ax & 0xff, bx & 0xff);
+    let ax = c.m.cpu.shift(1, Width::W, (ax & 0xff00 | al) as u32, 5) as u16; // ror ax, 5
+    let ah = c.m.cpu.shift(5, Width::B, (ax >> 8) as u32, 3) as u16; // shr ah, 3
+    let ax = ah << 8 | ax & 0xff;
+    c.set_reg(AX, ax);
+    c.set_reg8(r8::CL, 3);
+    c.set_reg(BX, ah << 8 | bx >> 8);
+    c.set_reg(DX, (ax & 0xff) << 8 | dx >> 8);
+    c.ret()
+}

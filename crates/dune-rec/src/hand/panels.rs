@@ -38,6 +38,7 @@ mod code {
     pub const SETTINGS_UI_DRAW_SLIDER: u16 = 0xa502;
     pub const SETTINGS_UI_ADD_GLOBAL_OFFSET: u16 = 0xa45c;
     pub const SUB_A465: u16 = 0xa465;
+    pub const MUSIC_ENABLED: u16 = 0xae28;
     pub const REMOVE_FRAME_TASK: u16 = 0xda5f;
     pub const SUB_D61D: u16 = 0xd61d;
     pub const IS_VOC_PCM_PLAYING: u16 = 0xabcc;
@@ -536,9 +537,18 @@ pub fn settings_ui_draw_language_buttons(m: &mut Machine, start: u16) -> Result<
     c.run(start, 2)?;
     c.set_reg(AX, 0x55);
     c.call(code::OPEN_RESOURCE_BY_INDEX, 0xa432)?;
-    c.run(0xa432, 3)?;
-    let language = c.byte(g::LANGUAGE);
-    c.set_reg8(r8::AL, language);
+    lit_button(&mut c, 0xa432, 1, |c| {
+        let language = c.byte(g::LANGUAGE);
+        c.set_reg8(r8::AL, language);
+    })
+}
+
+/// From A435: button AL lit (sprite 1Ch + 2 x the button), on the screen;
+/// the stretch from `at` has `prefix` instructions before A435, done by
+/// `ops`.
+fn lit_button(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    c.run(at, prefix + 2)?;
+    ops(c);
     let fb = c.word(g::FRAMEBUFFER_ACTIVE);
     c.push(fb);
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xa43c)?;
@@ -555,6 +565,213 @@ pub fn settings_ui_draw_language_buttons(m: &mut Machine, start: u16) -> Result<
     c.run(0xa447, 2)?;
     let fb = c.pop();
     c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.ret()
+}
+
+/// `loc_0a44c`: the button of the setting at [28E7h] (+8) lit.
+pub fn settings_ui_draw_second_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa44c)?;
+    let mut c = Ctx::new(m);
+    lit_button(&mut c, start, 3, |c| {
+        let v = c.byte(SETTINGS_SECOND_BUTTON);
+        let al = c.add(B, v as u16, 8);
+        c.set_reg8(r8::AL, al as u8);
+    })
+}
+
+/// `loc_0a465`: the screen position (DX, BX) of button AL: x from the
+/// table at 28DCh in steps of 7, the y and the base x at 28C7h; plus the
+/// settings screen's origin. AX kept.
+pub fn settings_ui_button_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa465)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 9)?;
+    let ax = c.reg(AX);
+    c.push(ax);
+    let y = c.word(BUTTONS_Y);
+    c.set_reg(DX, y);
+    let col = c.byte(BUTTON_COLUMNS.wrapping_add(ax & 0xff));
+    c.set_reg(AX, ax & 0xff00 | col as u16);
+    c.set_reg(BX, BUTTON_COLUMNS & 0xff00 | 7);
+    c.mul8(7);
+    let x = c.reg(AX);
+    let base = c.word(BUTTONS_Y + 2);
+    let x = c.add(W, x, base);
+    c.set_reg(BX, x);
+    c.call(code::SETTINGS_UI_ADD_GLOBAL_OFFSET, 0xa47b)?;
+    c.run(0xa47b, 2)?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.ret()
+}
+
+/// The setting whose button [`settings_ui_draw_second_buttons`] lights.
+const SETTINGS_SECOND_BUTTON: u16 = 0x28e7;
+/// The buttons: their row's two words, and a column per button.
+const BUTTONS_Y: u16 = 0x28c7;
+const BUTTON_COLUMNS: u16 = 0x28dc;
+/// The settings' records (8 bytes: value, shown, x, y, ...): three
+/// sliders, three switches.
+const SLIDERS: [u16; 3] = [0x288e, 0x2896, 0x289e];
+const SWITCHES: [u16; 3] = [0x28a6, 0x28ae, 0x28b6];
+/// What the cursor is on: 1 a slider, 2 a switch, 0 nothing.
+const SETTINGS_HOVER: u16 = 0x28be;
+
+/// From A685 (the stretch from `at`, `prefix` instructions before it, the
+/// last `mov si, record`): whether the cursor (DX, BX, relative) is on the
+/// setting `record`, shown, in a `w` x `h` box from its x, y; CF set when
+/// it is (AX, BP the offsets in it). Returns.
+fn on_setting(c: &mut Ctx, at: u16, prefix: u32, record: u16, w: u16, h: u16) -> Result<(), Bail> {
+    let shown = c.byte(record.wrapping_add(1));
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    let (x, y) = (c.word(record.wrapping_add(2)), c.word(record.wrapping_add(4)));
+    let ax = dx.wrapping_sub(x);
+    c.run(at, prefix + if shown < 1 { 4 } else if ax >= w { 10 } else { 11 })?;
+    c.set_reg(SI, record);
+    c.cmp(B, shown as u16, 1);
+    let cf = c.flag(CF);
+    c.set_flag(CF, !cf);
+    if shown >= 1 {
+        let ax = c.sub(W, dx, x);
+        c.set_reg(AX, ax);
+        let bp = c.sub(W, bx, y);
+        c.set_reg(BP, bp);
+        c.cmp(W, ax, w);
+        if ax < w {
+            c.cmp(W, bp, h);
+        }
+    }
+    c.ret()
+}
+
+/// A672 / A69F: [`on_setting`] for each of three records until one is hit
+/// (CF set). `test` is A685 or A6B2, the first two through it.
+fn on_any(c: &mut Ctx, entry: u16, records: [u16; 3], test: u16, w: u16, h: u16) -> Result<(), Bail> {
+    c.run(entry, 2)?;
+    c.set_reg(SI, records[0]);
+    c.call(test, entry + 6)?;
+    if c.flag(CF) {
+        c.run(entry + 6, 2)?;
+        return c.ret();
+    }
+    c.run(entry + 6, 3)?;
+    c.set_reg(SI, records[1]);
+    c.call(test, entry + 0x0e)?;
+    if c.flag(CF) {
+        c.run(entry + 0x0e, 2)?;
+        return c.ret();
+    }
+    on_setting(c, entry + 0x0e, 2, records[2], w, h)
+}
+
+/// `loc_0a685`: [`on_setting`] for the slider at SI (16h x 5).
+pub fn settings_on_slider(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa685)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    on_setting(&mut c, start, 0, si, 0x16, 5)
+}
+
+/// `loc_0a6b2`: [`on_setting`] for the switch at SI (0Dh x 0Bh).
+pub fn settings_on_switch(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa6b2)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    on_setting(&mut c, start, 0, si, 0x0d, 0x0b)
+}
+
+/// `loc_0a672`: whether the cursor is on a slider (SI = it).
+pub fn settings_on_a_slider(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa672)?;
+    on_any(&mut Ctx::new(m), start, SLIDERS, 0xa685, 0x16, 5)
+}
+
+/// `loc_0a69f`: whether the cursor is on a switch (SI = it).
+pub fn settings_on_a_switch(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa69f)?;
+    on_any(&mut Ctx::new(m), start, SWITCHES, 0xa6b2, 0x0d, 0x0b)
+}
+
+/// `loc_0a594`: what the cursor is on, at [`SETTINGS_HOVER`].
+pub fn settings_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa594)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xa672, 0xa597)?;
+    if c.flag(CF) {
+        c.run(0xa597, 3)?;
+        c.set_byte(SETTINGS_HOVER, 1);
+        return c.ret();
+    }
+    c.run(0xa597, 2)?;
+    c.call(0xa69f, 0xa5a2)?;
+    let on = c.flag(CF);
+    c.run(0xa5a2, 3)?;
+    c.set_byte(SETTINGS_HOVER, if on { 2 } else { 0 });
+    c.ret()
+}
+
+/// `loc_0a637`: the music driver's volume (function at 39A5h) from the
+/// first slider, FFh when music is off; AH = the first switch.
+pub fn settings_apply_music_volume(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa637)?;
+    let mut c = Ctx::new(m);
+    let settings = c.word(g::SOUND_SETTINGS);
+    let off = settings & 4 == 0;
+    c.run(start, if off { 5 } else { 4 })?;
+    c.test(W, settings, 4);
+    if off {
+        c.set_byte(SLIDERS[0], 0xff);
+    }
+    let (v, sw) = (c.byte(SLIDERS[0]), c.byte(SWITCHES[0]));
+    c.set_reg(AX, (sw as u16) << 8 | v as u16);
+    c.interp(0xa64b, 0xa64f)?;
+    c.run(0xa64f, 1)?;
+    c.ret()
+}
+
+/// `loc_0a650`: the sound driver's volume (3985h) from the second slider
+/// (at least 4), both it and the third FFh when sound is off; AH = the
+/// second switch.
+pub fn settings_apply_sound_volume(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa650)?;
+    let mut c = Ctx::new(m);
+    let settings = c.word(g::SOUND_SETTINGS);
+    let off = settings & 0x400 == 0;
+    let v = if off { 0xff } else { c.byte(SLIDERS[1]) };
+    c.run(start, 2 + if off { 3 } else { 0 } + 4 + (v < 4) as u32)?;
+    c.test(W, settings, 0x400);
+    if off {
+        c.set_reg8(r8::AL, 0xff);
+        c.set_byte(SLIDERS[1], 0xff);
+        c.set_byte(SLIDERS[2], 0xff);
+    }
+    let sw = c.byte(SWITCHES[1]);
+    c.set_reg(AX, (sw as u16) << 8 | v as u16);
+    c.cmp(B, v as u16, 4);
+    if v < 4 {
+        c.set_reg8(r8::AL, 4);
+    }
+    c.interp(0xa66d, 0xa671)?;
+    c.run(0xa671, 1)?;
+    c.ret()
+}
+
+/// `loc_0ade0`: the voice volume (function at 397Dh): AX = 64h, BL = the
+/// third slider (at least 4), BH = the third switch.
+pub fn settings_apply_voice_volume(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xade0)?;
+    let mut c = Ctx::new(m);
+    let (v, sw) = (c.byte(SLIDERS[2]), c.byte(SWITCHES[2]));
+    c.run(start, 6 + (v < 4) as u32)?;
+    c.set_reg(AX, 0x64);
+    c.set_reg(BX, (sw as u16) << 8 | v as u16);
+    c.cmp(B, v as u16, 4);
+    if v < 4 {
+        c.set_reg8(r8::BL, 4);
+    }
+    c.interp(0xadff, 0xae03)?;
+    c.run(0xae03, 1)?;
     c.ret()
 }
 
@@ -786,5 +1003,47 @@ pub fn sub_c85b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, now);
     c.set_word(g::HEAD_ZOOM_START, now);
     c.set_word(g::TIME_BETWEEN_FACE_ZOOMS, 0x1770);
+    c.ret()
+}
+
+/// `loc_0ac3a`: the three settings buttons of list 201Ah (SS) hidden
+/// (bit 40h); with music on (`loc_0ae28`), shown again, CL = 1 or 2 by
+/// the music settings' bit 0 (0 with bit 10h of [2943h]); CL = FFh with
+/// music off.
+pub fn settings_music_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xac3a)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 6)?;
+    let bp = 0x201au16;
+    c.set_reg(BP, bp);
+    for k in [3u16, 7, 0x0b] {
+        let v = c.byte_in(SS, bp + k);
+        let v = c.or(B, v as u16, 0x40) as u8;
+        c.m.cpu.write8(&mut c.m.hw, SS, bp + k, v);
+    }
+    c.set_reg8(r8::CL, 0xff);
+    c.call(code::MUSIC_ENABLED, 0xac4e)?;
+    if c.flag(ZF) {
+        c.run(0xac4e, 2)?;
+        return c.ret();
+    }
+    let f = c.byte(0x2943);
+    let set = c.byte(g::MUSIC_SETTINGS);
+    c.run(0xac4e, 7 + if f & 0x10 != 0 { 1 } else { 4 })?;
+    let bp = c.reg(BP);
+    for k in [3u16, 7, 0x0b] {
+        let v = c.byte_in(SS, bp.wrapping_add(k));
+        let v = c.and(B, v as u16, 0xbf) as u8;
+        c.m.cpu.write8(&mut c.m.hw, SS, bp.wrapping_add(k), v);
+    }
+    let cx = c.reg(CX);
+    c.xor(W, cx, cx);
+    c.set_reg(CX, 0);
+    c.test(B, f as u16, 0x10);
+    if f & 0x10 == 0 {
+        let cl = c.and(B, set as u16, 1);
+        let cx = c.inc(W, cl);
+        c.set_reg(CX, cx);
+    }
     c.ret()
 }

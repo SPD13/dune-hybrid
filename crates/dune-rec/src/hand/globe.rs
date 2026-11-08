@@ -1,14 +1,15 @@
 //! The globe view (its background, decorations sliding open and shut, the
 //! rotation table) and the frieze sides of the game screen.
 
-use super::{Ctx, W, entered, globals as g};
+use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CX, DI, DS, DX, ES, SI},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, SS},
     rec::Bail,
 };
 
 mod code {
+    pub const MAP_CELL_AT: u16 = 0xb58b;
     pub const SET_FB1_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc07c;
     pub const SET_SCREEN_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc08e;
     pub const GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN: u16 = 0xc097;
@@ -394,4 +395,452 @@ pub fn frieze_sides_closed_book(m: &mut Machine, start: u16) -> Result<(), Bail>
     }
     c.set_reg(CX, 2);
     super::gfx::draw_ui_elements_list_at_ds_si(c.m, 0xd1f2)
+}
+
+/// `loc_0bc4e`: whether the cursor (DX, BX) is on the globe, 80h x 6Dh at
+/// (60h, 19h): CF set when it is; DX, BX made relative to it (as far as
+/// the checks went).
+pub fn on_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xbc4e)?;
+    let mut c = Ctx::new(m);
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    let x = dx.wrapping_sub(0x60);
+    let n = if dx < 0x60 {
+        4
+    } else if x >= 0x80 {
+        6
+    } else if bx < 0x19 {
+        9
+    } else {
+        10
+    };
+    c.run(start, n)?;
+    let x = c.sub(W, dx, 0x60);
+    c.set_reg(DX, x);
+    let cf = c.flag(CF);
+    c.set_flag(CF, !cf);
+    if dx < 0x60 {
+        return c.ret();
+    }
+    c.cmp(W, x, 0x80);
+    if x >= 0x80 {
+        return c.ret();
+    }
+    let y = c.sub(W, bx, 0x19);
+    c.set_reg(BX, y);
+    let cf = c.flag(CF);
+    c.set_flag(CF, !cf);
+    if bx >= 0x19 {
+        c.cmp(W, y, 0x6d);
+    }
+    c.ret()
+}
+
+/// `loc_0b532`: AL = the map byte at angle BX, distance DX (`map_func`
+/// B58B: ES:DI to it). DX kept.
+pub fn map_byte_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb532)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let dx = c.reg(DX);
+    c.push(dx);
+    c.call(code::MAP_CELL_AT, 0xb536)?;
+    c.run(0xb536, 3)?;
+    let dx = c.pop();
+    c.set_reg(DX, dx);
+    let di = c.reg(DI);
+    let v = c.byte_in(ES, di);
+    c.set_reg8(r8::AL, v);
+    c.ret()
+}
+
+/// `loc_0b5c5`: `map_func` (B58B), then DX = 10000h x DX / BP (DX:0 / BP).
+pub fn map_cell_scaled(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb5c5)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(code::MAP_CELL_AT, 0xb5c8)?;
+    let (dx, bp) = (c.reg(DX), c.reg(BP));
+    if bp == 0 || dx >= bp {
+        // `div bp` faults: the interpreter raises it.
+        c.m.cpu.ip = 0xb5c8;
+        return Err(Bail);
+    }
+    c.run(0xb5c8, 4)?;
+    let ax = c.reg(AX);
+    let z = c.xor(W, ax, ax);
+    c.set_reg(AX, z);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 6, bp as u32); // div bp
+    let q = c.reg(AX);
+    c.set_reg(DX, q);
+    c.ret()
+}
+
+/// The map's projection: the mark (centre) at 197Ch/197Eh and the
+/// screen's centre at DCF6h/DCF8h; a second set at 1980h/DCFAh to swap
+/// with.
+const CENTRE: u16 = 0x197c;
+const SCREEN_CENTRE: u16 = 0xdcf6;
+const OTHER_CENTRE: u16 = 0x1980;
+const OTHER_SCREEN_CENTRE: u16 = 0xdcfa;
+/// The latitude table: 8-byte rows (SS for [BP+...]).
+const LATITUDES: u16 = 0x4948;
+/// Bit 7: the zoomed map (shifts by 2).
+const HOTSPOT_KINDS: u16 = 0x46eb;
+
+/// `loc_0b69a`: the two projection centres swapped.
+pub fn swap_projection(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb69a)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 13)?;
+    let mut ax = 0;
+    for (a, b) in [(CENTRE, OTHER_CENTRE), (CENTRE + 2, OTHER_CENTRE + 2), (SCREEN_CENTRE, OTHER_SCREEN_CENTRE), (SCREEN_CENTRE + 2, OTHER_SCREEN_CENTRE + 2)] {
+        let (x, y) = (c.word(a), c.word(b));
+        c.set_word(b, x);
+        c.set_word(a, y);
+        ax = y;
+    }
+    c.set_reg(AX, ax);
+    c.ret()
+}
+
+/// `loc_0b647`: the screen point (DX, BX) of the map point DX (along),
+/// BX (row): rows by the zoom, along scaled by the row's width (the
+/// latitude table's word 2) about the centre.
+pub fn map_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb647)?;
+    let mut c = Ctx::new(m);
+    let zoom = c.byte(HOTSPOT_KINDS) & 0x80 != 0;
+    let bx = c.reg(BX);
+    let row8 = bx.wrapping_mul(8);
+    let neg = row8 & 0x8000 != 0;
+    let cl = if zoom { 2 } else { 0 };
+    c.run(start, 3 + zoom as u32 + 8 + neg as u32 + 6 + if zoom { 3 * 2 } else { 0 } + 2)?;
+    c.xor(W, 0, 0);
+    let k = c.byte(HOTSPOT_KINDS);
+    c.test(B, k as u16, 0x80);
+    c.set_reg(CX, cl);
+    let cy = c.word(CENTRE + 2);
+    let y = c.sub(W, bx, cy);
+    let y = c.shl(W, y, cl as u8);
+    let sy = c.word(SCREEN_CENTRE + 2);
+    let y = c.add(W, y, sy);
+    c.set_reg(BX, y);
+    let mut bp = c.shl1(W, bx, 3);
+    if neg {
+        bp = c.neg(W, bp);
+    }
+    let w = c.word_in(SS, bp.wrapping_add(LATITUDES + 2));
+    let w = c.add(W, w, w);
+    c.set_reg(BP, w);
+    let dx = c.reg(DX);
+    let cx0 = c.word(CENTRE);
+    let d = c.sub(W, dx, cx0);
+    c.set_reg(AX, d);
+    c.set_reg(DX, d);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 5, w as u32); // imul bp
+    if zoom {
+        for _ in 0..2 {
+            let ax = c.reg(AX);
+            let ax = c.shl1(W, ax, 1);
+            c.set_reg(AX, ax);
+            let dx = c.reg(DX);
+            let dx = c.rcl1(W, dx);
+            c.set_reg(DX, dx);
+        }
+        c.set_reg(CX, 0);
+    }
+    let dx = c.reg(DX);
+    let sx = c.word(SCREEN_CENTRE);
+    let dx = c.add(W, dx, sx);
+    c.set_reg(DX, dx);
+    c.ret()
+}
+
+/// `loc_0b683`: with SF from the caller: BP, DX made a span (DX the
+/// larger part, at most -BP).
+pub fn span_b683(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb683)?;
+    let mut c = Ctx::new(m);
+    let sf = c.flag(pc::cpu::SF);
+    let (bp, dx) = (c.reg(BP), c.reg(DX));
+    let (bp2, dx2) = if sf { (dx, dx.wrapping_add(bp)) } else { (dx.wrapping_sub(bp), dx) };
+    let cx = bp2.wrapping_neg();
+    let take = cx < dx2;
+    c.run(start, if sf { 3 } else { 4 } + 4 + take as u32 + 1)?;
+    if sf {
+        c.set_reg(BP, dx);
+        let d = c.add(W, bp, dx);
+        c.set_reg(DX, d);
+    } else {
+        let b = c.sub(W, bp, dx);
+        let b = c.neg(W, b);
+        c.set_reg(BP, b);
+    }
+    let bp = c.reg(BP);
+    let cx = c.neg(W, bp);
+    c.set_reg(CX, cx);
+    let dx = c.reg(DX);
+    c.cmp(W, cx, dx);
+    if take {
+        c.set_reg(DX, bp);
+    }
+    c.ret()
+}
+
+/// `loc_0b5cf`: DX += AL (signed), BH += AH with the carry into BL (the
+/// row), BL kept in 62h..9Eh (the step undone at the edge).
+pub fn step_b5cf(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb5cf)?;
+    let mut c = Ctx::new(m);
+    let (ax, bx) = (c.reg(AX), c.reg(BX));
+    let (ah, bh, bl) = ((ax >> 8) as u8, (bx >> 8) as u8, bx as u8);
+    let n = if ah == 0 {
+        5
+    } else if ah & 0x80 == 0 {
+        let (_, carry) = bh.overflowing_add(ah);
+        if !carry { 8 } else if (bl.wrapping_add(1) as i8) < 0x62 { 11 } else { 14 }
+    } else {
+        let (_, carry) = bh.overflowing_add(ah);
+        if carry { 8 } else if (bl.wrapping_sub(1) as i8) > (0x9e_u8 as i8) { 11 } else { 13 }
+    };
+    c.run(start, n)?;
+    c.or(B, ah as u16, ah as u16);
+    if ah != 0 {
+        let (mut bh, mut bl) = (bh, bl);
+        if ah & 0x80 == 0 {
+            bh = c.add(B, bh as u16, ah as u16) as u8;
+            if c.flag(pc::cpu::CF) {
+                bl = c.inc(B, bl as u16) as u8;
+                c.cmp(B, bl as u16, 0x62);
+                if (bl as i8) >= 0x62 {
+                    bl = c.dec(B, bl as u16) as u8;
+                    bh = c.sub(B, bh as u16, ah as u16) as u8;
+                }
+            }
+        } else {
+            bh = c.add(B, bh as u16, ah as u16) as u8;
+            if !c.flag(pc::cpu::CF) {
+                bl = c.dec(B, bl as u16) as u8;
+                c.cmp(B, bl as u16, 0x9e);
+                if (bl as i8) <= (0x9e_u8 as i8) {
+                    bl = c.inc(B, bl as u16) as u8;
+                    bh = c.sub(B, bh as u16, ah as u16) as u8;
+                }
+            }
+        }
+        c.set_reg(BX, (bh as u16) << 8 | bl as u16);
+    }
+    let al = ax as u8 as i8 as u16;
+    c.set_reg(AX, al);
+    let dx = c.reg(DX);
+    let dx = c.add(W, dx, al);
+    c.set_reg(DX, dx);
+    c.ret()
+}
+
+/// `loc_0b53b`: AX map bytes of the row BX centred on DX (wrapping at the
+/// row's width BP) into 3-byte entries at SI (the byte, its offset); SI
+/// after them. BX, CX, DX kept.
+pub fn read_map_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb53b)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 5)?;
+    for r in [BX, CX, DX, AX] {
+        let v = c.reg(r);
+        c.push(v);
+    }
+    c.call(code::MAP_CELL_AT, 0xb542)?;
+    let sp = c.reg(pc::cpu::SP);
+    let count = c.word_in(SS, sp);
+    if count == 0 {
+        // `loop` from 0: 65536 rounds; the interpreter does those.
+        c.m.cpu.ip = 0xb542;
+        return Err(Bail);
+    }
+    let (dx, di, bp) = (c.reg(DX), c.reg(DI), c.reg(BP));
+    let half = count >> 1;
+    let (dx1, borrow) = dx.overflowing_sub(half);
+    // The loop's path, purely.
+    let mut n = 6 + if borrow { 2 } else { 0 };
+    let mut x = if borrow { dx1.wrapping_add(bp) } else { dx1 };
+    for _ in 0..count {
+        x = x.wrapping_add(1);
+        n += 9;
+        if x >= bp {
+            x = x.wrapping_sub(bp);
+            n += 2;
+        }
+    }
+    n += 4;
+    c.run(0xb542, n)?;
+    let ax = c.pop();
+    c.set_reg(CX, ax);
+    let half = c.shr1(W, ax, 1);
+    c.set_reg(AX, half);
+    let mut di = c.sub(W, di, half);
+    let mut dx = c.sub(W, dx, half);
+    if borrow {
+        dx = c.add(W, dx, bp);
+        di = c.add(W, di, bp);
+    }
+    let mut si = c.reg(SI);
+    for _ in 0..count {
+        let v = c.byte_in(ES, di);
+        c.set_reg8(r8::AL, v);
+        c.m.cpu.write8(&mut c.m.hw, pc::cpu::DS, si, v);
+        c.set_word(si.wrapping_add(1), di);
+        si = c.add(W, si, 3);
+        di = c.inc(W, di);
+        dx = c.inc(W, dx);
+        c.cmp(W, dx, bp);
+        if dx >= bp {
+            dx = c.sub(W, dx, bp);
+            di = c.sub(W, di, bp);
+        }
+    }
+    c.set_reg(SI, si);
+    c.set_reg(DI, di);
+    c.set_reg(CX, 0);
+    for r in [DX, CX, BX] {
+        let v = c.pop();
+        c.set_reg(r, v);
+    }
+    c.ret()
+}
+
+/// `loc_0b56c`: CX rows (from BX - CX / 2, not above row -62h) of AX map
+/// bytes each (`read_map_row`) into the buffer at 9E68h; SI = it.
+pub fn read_map_rows(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb56c)?;
+    let mut c = Ctx::new(m);
+    let (cx, bx) = (c.reg(CX), c.reg(BX));
+    if cx == 0 {
+        return Err(Bail);
+    }
+    let top = bx.wrapping_sub(cx >> 1);
+    let clamp = (top as i16) < -0x62;
+    c.run(start, 6 + clamp as u32 + 1 + 2)?;
+    c.push(cx);
+    let half = c.shr1(W, cx, 1);
+    c.set_reg(SI, half);
+    let mut y = c.sub(W, bx, half);
+    c.cmp(W, y, 0xff9e);
+    if clamp {
+        y = 0xff9e;
+    }
+    c.set_reg(BX, y);
+    c.set_reg(SI, ROWS_BUFFER);
+    loop {
+        let ax = c.reg(AX);
+        c.push(ax);
+        c.call(0xb53b, 0xb582)?;
+        let cx = c.reg(CX).wrapping_sub(1);
+        c.run(0xb582, 3 + if cx == 0 { 3 } else { 2 })?;
+        let ax = c.pop();
+        c.set_reg(AX, ax);
+        let bx = c.reg(BX);
+        let bx = c.inc(W, bx);
+        c.set_reg(BX, bx);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    c.set_reg(SI, ROWS_BUFFER);
+    let cx = c.pop();
+    c.set_reg(CX, cx);
+    c.ret()
+}
+
+const ROWS_BUFFER: u16 = 0x9e68;
+
+/// `loc_0b5f9`: the map point of the screen point (DX, BX), the reverse of
+/// [`map_to_screen`]: BX the row, DX along it as a fraction of the row
+/// (DX:0 / the row's width).
+pub fn screen_to_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb5f9)?;
+    let mut c = Ctx::new(m);
+    let zoom = c.byte(HOTSPOT_KINDS) & 0x80 != 0;
+    let cl = if zoom { 2u16 } else { 0 };
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    let (sx, sy) = (c.word(SCREEN_CENTRE), c.word(SCREEN_CENTRE + 2));
+    let row = ((bx.wrapping_sub(sy) as i16) >> cl) as u16;
+    let row = row.wrapping_add(c.word(CENTRE + 2));
+    let neg = row & 0x8000 != 0;
+    let off = (if neg { row.wrapping_neg() } else { row }).wrapping_mul(8);
+    let si = LATITUDES.wrapping_add(off);
+    let d = dx.wrapping_sub(sx);
+    // The rest of the path and the divisor.
+    let (n2, div, num) = if zoom {
+        let v = ((d as i16) >> cl) as u16;
+        let v = v.wrapping_add(c.word(si.wrapping_add(4)));
+        (3 + 1, cl, v.wrapping_add(cl))
+    } else {
+        let v = d.wrapping_add(c.word(si.wrapping_add(6)));
+        let w = c.word(si.wrapping_add(2)).wrapping_shl(1);
+        if v < w {
+            (5, w, v)
+        } else if v.wrapping_sub(w) & 0x8000 != 0 {
+            (7, w, v.wrapping_add(w))
+        } else {
+            (8, w, v.wrapping_sub(w))
+        }
+    };
+    if div == 0 || num >= div {
+        // `div cx` faults: the interpreter raises it.
+        return Err(Bail);
+    }
+    c.run(start, 5 + zoom as u32 + 4 + neg as u32 + 6 + n2 + 4)?;
+    let dx = c.sub(W, dx, sx);
+    let bx = c.sub(W, bx, sy);
+    c.xor(W, 0, 0);
+    let k = c.byte(HOTSPOT_KINDS);
+    c.test(B, k as u16, 0x80);
+    c.set_reg(CX, cl);
+    let bx = c.m.cpu.shift(7, W, bx as u32, cl as u32) as u16; // sar bx, cl
+    let cy = c.word(CENTRE + 2);
+    let bx = c.add(W, bx, cy);
+    c.set_reg(BX, bx);
+    let mut ax = bx;
+    if neg {
+        ax = c.neg(W, ax);
+    }
+    let ax = c.shl1(W, ax, 3);
+    let si = c.add(W, LATITUDES, ax);
+    c.set_reg(SI, si);
+    let mut dx = dx;
+    if zoom {
+        dx = c.m.cpu.shift(7, W, dx as u32, cl as u32) as u16; // sar dx, cl
+        let a = c.word(si.wrapping_add(4));
+        dx = c.add(W, dx, a);
+        dx = c.add(W, dx, cl);
+    } else {
+        let a = c.word(si.wrapping_add(6));
+        dx = c.add(W, dx, a);
+        let w = c.word(si.wrapping_add(2));
+        let w = c.shl1(W, w, 1);
+        c.set_reg(CX, w);
+        c.cmp(W, dx, w);
+        if dx >= w {
+            dx = if dx.wrapping_sub(w) & 0x8000 != 0 { c.add(W, dx, w) } else { c.sub(W, dx, w) };
+        }
+    }
+    c.set_reg(DX, dx);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 6, div as u32); // div cx
+    let q = c.reg(AX);
+    c.set_reg(DX, q);
+    c.ret()
+}
+
+/// `loc_0b8ea`: the frame task B9AEh every tick.
+pub fn add_task_b9ae(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb8ea)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    c.set_reg(SI, 0xb9ae);
+    c.set_reg(BP, 1);
+    super::tasks::add_frame_task(c.m, 0xda25)
 }

@@ -9,6 +9,7 @@ use pc::{
 };
 
 mod code {
+    pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
     pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     pub const APPLY_SPRITE_SHEET_PALETTE: u16 = 0xc1aa;
     pub const READ_CONDIT_OPERAND: u16 = 0xa30b;
@@ -247,3 +248,38 @@ fn finish(c: &mut Ctx) -> Result<(), Bail> {
     c.or(W, dx, dx);
     c.ret()
 }
+
+/// `loc_0ce53`: with bit 2 of [3403h], resources 63h..68h opened (loaded)
+/// ahead.
+pub fn preload_resources_63_to_68(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xce53)?;
+    let mut c = Ctx::new(m);
+    let flags = c.byte(PRELOAD_FLAGS);
+    if flags & 4 == 0 {
+        c.run(start, 3)?;
+        c.test(B, flags as u16, 4);
+        return c.ret();
+    }
+    c.run(start, 6)?;
+    c.test(B, flags as u16, 4);
+    let mut n = 2u16;
+    loop {
+        c.push(n);
+        let r = c.add(W, n, 0x61);
+        c.set_reg(AX, r);
+        c.call(code::OPEN_RESOURCE_BY_INDEX, 0xce64)?;
+        let next = n + 1;
+        c.run(0xce64, 4 + if next < 8 { 3 } else { 1 })?;
+        c.pop();
+        let next = c.inc(W, n);
+        c.cmp(W, next, 8);
+        c.set_reg(AX, next);
+        if next >= 8 {
+            return c.ret();
+        }
+        n = next;
+    }
+}
+
+/// Bit 2: preload resources 63h..68h.
+const PRELOAD_FLAGS: u16 = 0x3403;

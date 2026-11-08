@@ -205,6 +205,8 @@ pub const ESC_HIT: u16 = 0xcee9;
 /// Random number seeds.
 pub const RAND_MASKED_SEED: u16 = 0xd824;
 pub const RAND_SEED: u16 = 0xd826;
+/// The third generator's seed (`rand_below`).
+pub const RAND_BELOW_SEED: u16 = 0xd828;
 /// Mouse buttons (low byte) and state, position.
 pub const MOUSE_BUTTONS: u16 = 0xdc34;
 pub const MOUSE_BUTTONS_SEEN: u16 = 0xdc35;

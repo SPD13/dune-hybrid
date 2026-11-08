@@ -519,3 +519,81 @@ pub fn intro_27_baron_guards_play(m: &mut Machine, start: u16) -> Result<(), Bai
         return c.ret();
     }
 }
+
+/// From 097E (the stretch from `at`, `prefix` instructions before):
+/// `loc_008f0` with BX = 180h, `loc_037b2`, then the active framebuffer
+/// copied to the second.
+fn setup_and_copy(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    c.run(at, prefix + 2)?;
+    ops(c);
+    c.set_reg(BX, 0x180);
+    c.call(0x08f0, 0x0984)?;
+    c.run(0x0984, 1)?;
+    c.call(0x37b2, 0x0987)?;
+    c.run(0x0987, 1)?;
+    super::gfx::copy_active_framebuffer_to_framebuffer_2(c.m, 0xc412)
+}
+
+/// `loc_0097e`: see [`setup_and_copy`].
+pub fn setup_and_copy_097e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x097e)?;
+    setup_and_copy(&mut Ctx::new(m), start, 0, |_| {})
+}
+
+/// `loc_00978`: [12h] cleared, then [`setup_and_copy`].
+pub fn setup_and_copy_0978(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0978)?;
+    setup_and_copy(&mut Ctx::new(m), start, 1, |c| c.set_word(g::INTRO_0012, 0))
+}
+
+/// `loc_00a16`: `loc_00a23` with the active framebuffer kept; CF clear.
+pub fn keep_framebuffer_0a23(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0a16)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    c.push(fb);
+    c.call(0x0a23, 0x0a1d)?;
+    c.run(0x0a1d, 3)?;
+    let fb = c.pop();
+    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.set_flag(CF, false);
+    c.ret()
+}
+
+/// `loc_04937`: at frame 11 of the video, the PCM driver's function 5;
+/// then `check_if_hnm_complete`.
+pub fn sound_at_frame_11(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4937)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    let ax = c.word(g::HNM_FRAME);
+    c.set_reg(AX, ax);
+    c.cmp(B, ax & 0xff, 0x0b);
+    if ax & 0xff == 0x0b {
+        c.call(0xac30, 0x4941)?;
+        c.run(0x4941, 1)?;
+    }
+    super::video::check_if_hnm_complete(c.m, 0xcc85)
+}
+
+/// `loc_0105b`: `loc_0425b` for each word (DI) of the 0-ended list at
+/// CS:SI.
+pub fn for_each_in_code_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x105b)?;
+    let mut c = Ctx::new(m);
+    let (mut at, mut jmp) = (start, 0);
+    loop {
+        let si = c.reg(SI);
+        let w = c.code_word(si);
+        c.run(at, jmp + if w == 0 { 4 } else { 5 })?;
+        c.lods(W, pc::cpu::CS);
+        c.or(W, w, w);
+        if w == 0 {
+            return c.ret();
+        }
+        c.set_reg(pc::cpu::DI, w);
+        c.call(0x425b, 0x1066)?;
+        (at, jmp) = (0x1066, 1);
+    }
+}

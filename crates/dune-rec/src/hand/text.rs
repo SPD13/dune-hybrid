@@ -298,3 +298,53 @@ pub fn font_draw_phrase_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, si);
     }
 }
+
+/// `loc_088e1`: past a command byte (bit 7) at SI, or `loc_08b11` on the
+/// text there (CF clear when it stops at an FEh/FFh byte).
+pub fn text_8b11_unless_command(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x88e1)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let b = c.byte(si);
+    let command = b & 0x80 != 0;
+    c.run(start, if command { 4 } else { 5 })?;
+    c.lods(B, DS);
+    c.or(B, b as u16, b as u16);
+    if command {
+        return c.ret();
+    }
+    c.set_reg(SI, si);
+    c.call(0x8b11, 0x88ea)?;
+    let si = c.reg(SI);
+    let v = c.byte(si);
+    c.run(0x88ea, if v >= 0xfe { 3 } else { 4 })?;
+    c.cmp(B, v as u16, 0xfe);
+    c.ret()
+}
+
+/// `loc_08a23`: AX's decimal digits: BL = the ten thousands, DX = the
+/// thousands and hundreds (`aam`'d), AX = the tens and units (`aam`'d).
+pub fn decimal_digits(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8a23)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 12)?;
+    let dx = c.reg(DX);
+    c.xor(W, dx, dx);
+    c.set_reg(DX, 0);
+    c.set_reg(CX, 0x2710);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 6, 0x2710); // div cx
+    let q = c.reg8(r8::AL);
+    c.set_reg8(r8::BL, q);
+    c.set_reg(CX, 0x64);
+    let r = c.reg(DX);
+    c.set_reg(AX, r);
+    c.xor(W, r, r);
+    c.set_reg(DX, 0);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 6, 0x64); // div cx
+    c.aam(10);
+    let (ax, dx) = (c.reg(AX), c.reg(DX));
+    c.set_reg(AX, dx);
+    c.set_reg(DX, ax);
+    c.aam(10);
+    c.ret()
+}

@@ -1,6 +1,6 @@
 //! Input: keyboard scancode, mouse buttons and position.
 
-use super::{B, Ctx, entered, globals as g, r8};
+use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
     cpu::{AX, BX, DX, SI},
@@ -87,6 +87,53 @@ pub fn kb_check_for_esc_key_hit(m: &mut Machine, start: u16) -> Result<(), Bail>
     if esc {
         c.set_byte(g::ESC_HIT, 1);
         c.set_byte(g::KEY_HIT, 0);
+    }
+    c.ret()
+}
+
+/// `loc_0dd10`: the joystick (`read_game_port`) as keys: [CEE6h] FFh with
+/// a button (bits 30h); [CEE1h]/[CEDFh] FFh for left/right of the dead
+/// zone at 39ABh/39ADh, [CEE4h]/[CEDCh] for up/down of 39AFh/39B1h.
+pub fn joystick_as_keys(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xdd10)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xdce0, 0xdd13)?;
+    let (al, dx, bx) = (c.reg8(super::r8::AL), c.reg(DX), c.reg(BX));
+    let button = al & 0x30 != 0;
+    let (x0, x1, y0, y1) = (c.word(0x39ab), c.word(0x39ad), c.word(0x39af), c.word(0x39b1));
+    let axis = |v: u16, lo: u16, hi: u16| -> (u32, u16) {
+        if v <= lo {
+            (5, 0xff00)
+        } else if v >= hi {
+            (5, 0x00ff)
+        } else {
+            (6, 0)
+        }
+    };
+    let (nx, ax_x) = axis(dx, x0, x1);
+    let (ny, ax_y) = axis(bx, y0, y1);
+    c.run(0xdd13, 4 + button as u32 + 1 + nx + 2 + ny + 3)?;
+    c.set_reg8(super::r8::AH, al);
+    c.xor(B, 0, 0);
+    c.set_reg8(super::r8::AL, 0);
+    let mut v = 0u8;
+    c.test(B, al as u16, 0x30);
+    if button {
+        v = 0xff;
+    }
+    c.set_byte(0xcee6, v);
+    for (val, lo, hi, a, b, res) in [(dx, x0, x1, 0xcee1u16, 0xcedfu16, ax_x), (bx, y0, y1, 0xcee4, 0xcedc, ax_y)] {
+        c.cmp(W, val, lo);
+        if val > lo {
+            c.cmp(W, val, hi);
+            if val < hi {
+                c.xor(W, 0xff, 0xff);
+            }
+        }
+        c.set_reg(AX, res);
+        c.set_byte(a, res as u8);
+        c.set_byte(b, (res >> 8) as u8);
     }
     c.ret()
 }

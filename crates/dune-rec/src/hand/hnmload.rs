@@ -4,11 +4,12 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DI, DX, ES, SI},
+    cpu::{AX, BP, BX, CF, CX, DI, DX, ES, SI, SP, SS},
     rec::Bail,
 };
 
 mod code {
+    pub const COPY_RECT_AT_SI_TO_DI: u16 = 0x5b99;
     pub const HNM_CLOSE_RESOURCE: u16 = 0xca01;
     pub const HNM_RESET_BUFFERS: u16 = 0xce1a;
     pub const HNM_RESET_FRAME_COUNTER: u16 = 0xce01;
@@ -353,4 +354,115 @@ pub fn remove_all_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0939, 2)?;
     c.set_reg(SI, 0x0826);
     super::tasks::remove_frame_task(c.m, 0xda5f)
+}
+
+/// `loc_0ceb0`: opens video AX and loads its palette; with flag 8 in its
+/// entry, the header's 8 bytes from [`g::HNM_BODY_OFFSET`] noted just
+/// before the entry. CF from the open.
+pub fn hnm_open_noting_body(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xceb0)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(code::HNM_FLAG_NAME_PTR, 0xceb3)?;
+    c.run(0xceb3, 2)?;
+    let bx = c.reg(BX);
+    c.push(bx);
+    c.call(code::HNM_OPEN_AND_LOAD_PALETTE, 0xceb7)?;
+    let failed = c.flag(CF);
+    let sp = c.reg(SP);
+    let di = c.word_in(SS, sp);
+    let noted = !failed && c.byte(di) & 8 != 0;
+    c.run(0xceb7, if failed { 3 } else if noted { 7 } else { 5 })?;
+    c.pop();
+    c.set_reg(DI, di);
+    if !failed {
+        let f = c.byte(di);
+        c.test(B, f as u16, 8);
+        if noted {
+            let di = c.sub(W, di, 8);
+            c.set_reg(DI, di);
+            c.set_reg(SI, g::HNM_BODY_OFFSET);
+            c.call(code::COPY_RECT_AT_SI_TO_DI, 0xcec8)?;
+            c.run(0xcec8, 1)?;
+        }
+    }
+    c.ret()
+}
+
+/// `loc_0ce6c` (`hnm_initialize_memory_handler`): videos 2..8 lose flag 4
+/// (kept in memory) unless memory is short (bit 2 of [2943h] or [39A9h]
+/// at least 15Eh); with bits 3 of [2943h] all 25h lose flag 80h; videos
+/// 2..7 opened (`loc_0ceb0`); then the video closed.
+pub fn hnm_initialize_memory_handler(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xce6c)?;
+    let mut c = Ctx::new(m);
+    let mem = c.byte(0x2943);
+    let big = c.word(0x39a9);
+    let clear4 = mem & 2 != 0 || big < 0x15e;
+    c.run(start, if mem & 2 != 0 { 2 } else { 4 } + if clear4 { 2 } else { 0 })?;
+    c.test(B, mem as u16, 2);
+    if mem & 2 == 0 {
+        c.cmp(W, big, 0x15e);
+    }
+    if clear4 {
+        c.set_reg(AX, 2);
+        loop {
+            c.call(code::HNM_FLAG_NAME_PTR, 0xce81)?;
+            let ax = c.reg(AX).wrapping_add(1);
+            c.run(0xce81, 4 + if ax < 9 { 1 } else { 0 })?;
+            let bx = c.reg(BX);
+            let f = c.byte(bx);
+            let f = c.and(B, f as u16, 0xfb);
+            c.set_byte(bx, f as u8);
+            let ax = c.inc(W, ax.wrapping_sub(1));
+            c.cmp(W, ax, 9);
+            c.set_reg(AX, ax);
+            if ax >= 9 {
+                break;
+            }
+        }
+    }
+    let mem = c.byte(0x2943);
+    let clear80 = mem & 3 != 0;
+    c.run(0xce8a, 2 + if clear80 { 2 } else { 0 })?;
+    c.test(B, mem as u16, 3);
+    if clear80 {
+        let ax = c.reg(AX);
+        c.xor(W, ax, ax);
+        c.set_reg(AX, 0);
+        loop {
+            c.call(code::HNM_FLAG_NAME_PTR, 0xce96)?;
+            let ax = c.reg(AX).wrapping_add(1);
+            c.run(0xce96, 4 + if ax < 0x25 { 1 } else { 0 })?;
+            let bx = c.reg(BX);
+            let f = c.byte(bx);
+            let f = c.and(B, f as u16, 0x7f);
+            c.set_byte(bx, f as u8);
+            let ax = c.inc(W, ax.wrapping_sub(1));
+            c.cmp(W, ax, 0x25);
+            c.set_reg(AX, ax);
+            if ax >= 0x25 {
+                break;
+            }
+        }
+    }
+    c.run(0xce9f, 3)?;
+    c.set_reg(AX, 2);
+    c.push(2);
+    c.call(0xceb0, 0xcea6)?;
+    loop {
+        let sp = c.reg(SP);
+        let ax = c.word_in(SS, sp).wrapping_add(1);
+        let more = ax < 8;
+        c.run(0xcea6, 4 + if more { 2 } else { 1 })?;
+        c.pop();
+        let ax = c.inc(W, ax.wrapping_sub(1));
+        c.cmp(W, ax, 8);
+        c.set_reg(AX, ax);
+        if !more {
+            return super::hnm::hnm_close_resource(c.m, 0xca01);
+        }
+        c.push(ax);
+        c.call(0xceb0, 0xcea6)?;
+    }
 }

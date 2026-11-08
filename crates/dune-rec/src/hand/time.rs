@@ -67,3 +67,40 @@ pub fn sky_palette_for_game_time(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_reg8(r8::BL, id);
     c.ret()
 }
+
+/// While not 0, the game's clock does not run (the timer interrupt skips
+/// it): a count of who stopped it.
+const CLOCK_STOPPED: u16 = 0x2788;
+
+/// `loc_0b2b9`: the clock stopped once more.
+pub fn stop_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb2b9)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let n = c.byte(CLOCK_STOPPED);
+    let n = c.inc(B, n as u16);
+    c.set_byte(CLOCK_STOPPED, n as u8);
+    c.ret()
+}
+
+/// `loc_0b2b3`: one stop less (not below 0).
+pub fn release_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb2b3)?;
+    let mut c = Ctx::new(m);
+    let n = c.byte(CLOCK_STOPPED);
+    let below = n.wrapping_sub(1) & 0x80 != 0;
+    c.run(start, if below { 4 } else { 3 })?;
+    let n = c.dec(B, n as u16);
+    let n = if below { c.inc(B, n) } else { n };
+    c.set_byte(CLOCK_STOPPED, n as u8);
+    c.ret()
+}
+
+/// `loc_0b2be`: the clock running.
+pub fn start_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb2be)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_byte(CLOCK_STOPPED, 0);
+    c.ret()
+}

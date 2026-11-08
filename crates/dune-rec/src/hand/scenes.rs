@@ -6,11 +6,14 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DS, DX, ES, SI, SS},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, SP, SS},
     rec::Bail,
 };
 
 mod code {
+    pub const FIND_LAST_NUMERIC_DIGIT: u16 = 0xd03c;
+    pub const STRING_REPLACE_NUMBER: u16 = 0xe2e3;
+    pub const STRING_REPLACE_5_DIGITS: u16 = 0xe31c;
     pub const SET_SCREEN_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc08e;
     pub const LOAD_ICONES_SPRITES: u16 = 0xc137;
     pub const DRAW_SPRITE: u16 = 0xc2fd;
@@ -587,4 +590,137 @@ pub fn pause_if_p_key_pressed(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     Err(Bail)
+}
+
+/// From BF7D (the stretch from `at`, `prefix` instructions before, done by
+/// `ops`): the stat (pushed, over DI) stored at [DI], and its change
+/// marked at [BP] (SS): 2 up, 1 down; the same value marks 3 only in a new
+/// 16-tick period (not the one at [`STATS_PERIOD`]). DI on by 2, BP by 1.
+fn note_stat(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    let sp = c.reg(SP);
+    let new = c.word_in(SS, sp);
+    let di = c.word_in(SS, sp.wrapping_add(2));
+    let old = c.word(di);
+    let period = c.word(g::GAME_TIME) & 0xfff0;
+    let saved = c.word(STATS_PERIOD);
+    let n = if new == old {
+        if saved == period { 14 } else { 17 }
+    } else if new < old {
+        13
+    } else {
+        14
+    };
+    c.run(at, prefix + n)?;
+    ops(c);
+    let new = c.pop();
+    let di = c.pop();
+    c.set_reg(DX, new);
+    c.set_word(di, new);
+    c.cmp(W, new, old);
+    let mut ax = old & 0xff00 | 3;
+    let mark = if new == old {
+        let t = c.word(g::GAME_TIME);
+        let t = c.and(W, t, 0xfff0);
+        ax = t;
+        c.cmp(W, saved, t);
+        if saved == t {
+            None
+        } else {
+            ax = t & 0xff00 | 3;
+            Some(3)
+        }
+    } else if new < old {
+        ax = ax & 0xff00 | 2;
+        Some(2)
+    } else {
+        let v = c.dec(B, 2);
+        ax = ax & 0xff00 | v;
+        Some(1)
+    };
+    c.set_reg(AX, ax);
+    let bp = c.reg(BP);
+    if let Some(v) = mark {
+        c.m.cpu.write8(&mut c.m.hw, SS, bp, v);
+    }
+    let di = c.add(W, di, 2);
+    c.set_reg(DI, di);
+    let bp = c.inc(W, bp);
+    c.set_reg(BP, bp);
+    c.ret()
+}
+
+/// The 16-tick period the stats were last compared in.
+const STATS_PERIOD: u16 = 0x115c;
+
+/// `loc_0bf73`: stat AX into the 3-digit number of the string at ES:SI
+/// (`find_last_numeric_digit_in_str_at_es_si`, `string_replace_number_
+/// ending_at_es_si`), then [`note_stat`].
+pub fn stat_3_digits(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xbf73)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    let (di, ax) = (c.reg(DI), c.reg(AX));
+    c.push(di);
+    c.push(ax);
+    c.call(code::FIND_LAST_NUMERIC_DIGIT, 0xbf78)?;
+    c.run(0xbf78, 3)?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.push(ax);
+    c.call(code::STRING_REPLACE_NUMBER, 0xbf7d)?;
+    note_stat(&mut c, 0xbf7d, 0, |_| {})
+}
+
+/// `loc_0bf61`: stat AX as 5 digits (one more place, a '0' first), then
+/// [`note_stat`].
+pub fn stat_5_digits(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xbf61)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    let (di, ax) = (c.reg(DI), c.reg(AX));
+    c.push(di);
+    c.push(ax);
+    c.call(code::FIND_LAST_NUMERIC_DIGIT, 0xbf66)?;
+    c.run(0xbf66, 5)?;
+    let si = c.reg(SI);
+    let si = c.dec(W, si);
+    c.set_reg(SI, si);
+    c.m.cpu.write8(&mut c.m.hw, pc::cpu::ES, si, 0x30);
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.push(ax);
+    c.call(code::STRING_REPLACE_5_DIGITS, 0xbf70)?;
+    note_stat(&mut c, 0xbf70, 2, |c| {
+        let si = c.reg(SI);
+        let si = c.inc(W, si);
+        c.set_reg(SI, si);
+    })
+}
+
+/// `loc_0bd00`: `sub_c0d5` with AX = 0, CX = 0Ah on the rect at DD06h
+/// grown by 1 on each side (back after).
+pub fn grown_rect_c0d5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xbd00)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 8)?;
+    let ax = c.reg(AX);
+    c.xor(W, ax, ax);
+    c.set_reg(AX, 0);
+    c.set_reg(CX, 0x0a);
+    let r = 0xdd06u16;
+    c.set_reg(SI, r);
+    for (k, up) in [(0u16, true), (2, true), (4, false), (6, false)] {
+        let v = c.word(r + k);
+        let v = if up { c.inc(W, v) } else { c.dec(W, v) };
+        c.set_word(r + k, v);
+    }
+    c.call(code::SUB_C0D5, 0xbd16)?;
+    c.run(0xbd16, 6)?;
+    c.set_reg(SI, r);
+    for (k, up) in [(0u16, false), (2, false), (4, true), (6, true)] {
+        let v = c.word(r + k);
+        let v = if up { c.inc(W, v) } else { c.dec(W, v) };
+        c.set_word(r + k, v);
+    }
+    c.ret()
 }
