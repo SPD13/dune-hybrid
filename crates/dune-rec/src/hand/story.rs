@@ -4262,3 +4262,41 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x329c, 1)?;
     c.ret()
 }
+
+/// `sub_1027`: bit 80h of [122Eh] cleared, then the panel's buttons
+/// (`panel_buttons`).
+pub fn buttons_after_122e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1027)?;
+    let mut c = Ctx::new(m);
+    super::screens::panel_buttons_at(&mut c, start, 2, |c| {
+        let v = c.byte(0x122e);
+        let v = c.and(B, v as u16, 0x7f);
+        c.set_byte(0x122e, v as u8);
+    })
+}
+
+/// `sub_10a4`: bit 80h of [1245h] cleared, [1217h] FFFFh, then the panel's
+/// buttons.
+pub fn buttons_after_1245(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x10a4)?;
+    let mut c = Ctx::new(m);
+    super::screens::panel_buttons_at(&mut c, start, 3, |c| {
+        let v = c.byte(0x1245);
+        let v = c.and(B, v as u16, 0x7f);
+        c.set_byte(0x1245, v as u8);
+        c.set_word(0x1217, 0xffff);
+    })
+}
+
+/// `loc_01188`: bit 80h of [1259h] cleared, [1211h] FFFFh, then the panel's
+/// buttons.
+pub fn buttons_after_1259(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1188)?;
+    let mut c = Ctx::new(m);
+    super::screens::panel_buttons_at(&mut c, start, 3, |c| {
+        let v = c.byte(0x1259);
+        let v = c.and(B, v as u16, 0x7f);
+        c.set_byte(0x1259, v as u8);
+        c.set_word(0x1211, 0xffff);
+    })
+}

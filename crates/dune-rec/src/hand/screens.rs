@@ -1119,3 +1119,147 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0xdbda, fb);
     super::mouse::draw_mouse_cursor_if_needed(c.m, 0xdb67)
 }
+
+/// From `loc_0d735` (after `n` instructions from `at` with the effect of
+/// `ops`): `loc_0d741` and the 6 buttons drawn.
+fn buttons_from_d735(c: &mut Ctx, at: u16, n: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    c.run(at, n + 1)?;
+    ops(c);
+    c.call(0xd741, 0xd738)?;
+    c.run(0xd738, 3)?;
+    c.set_reg(SI, BUTTONS);
+    c.set_reg(CX, 6);
+    super::gfx::draw_ui_elements_list_at_ds_si(c.m, 0xd1f2)
+}
+
+/// `loc_02ffb`: the panel's buttons for the situation: in a dialogue or
+/// a map mode the sets 1D1Eh / 1D72h ([`set_buttons_si`]); at a place
+/// ([6] 80h, not 21h) its entry's (`list_entry`) 4 buttons, active (80h)
+/// for codes from -5 up, the first ones by the current location and
+/// [4]; elsewhere the plain set (1Dh.. and 23h).
+pub fn panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2ffb)?;
+    let mut c = Ctx::new(m);
+    panel_buttons_at(&mut c, start, 0, |_| {})
+}
+
+/// `loc_02ffb` after `pre` instructions from `at` (with `ops`).
+pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    let dlg = c.byte(0x2b);
+    let mode = c.byte(0x11c9);
+    let (ca, cb) = (c.byte(0x11ca), c.byte(0x11cb));
+    if dlg != 0 || mode & 3 != 0 {
+        let (n, si) = if dlg != 0 {
+            (4, 0x1d1e)
+        } else if ca != 0 {
+            (8, 0x1d1e)
+        } else if cb != 0 {
+            (10, 0x1d72)
+        } else {
+            (11, 0x1d1e)
+        };
+        return set_buttons(c, at, pre + n, |c| {
+            ops(c);
+            c.cmp(B, dlg as u16, 0);
+            if dlg == 0 {
+                c.test(B, mode as u16, 3);
+                c.cmp(B, ca as u16, 0);
+                if ca == 0 {
+                    c.cmp(B, cb as u16, 0);
+                }
+            }
+            c.set_reg(SI, si);
+        });
+    }
+    let bx = c.word(6);
+    let dx = c.word(4);
+    let place = bx & 0xff == 0x80 && dx >> 8 != 0x21;
+    if !place {
+        let n = 4 + 3 + if bx & 0xff == 0x80 { 3 } else { 0 } + 4 + 4 * 5 + 1;
+        return buttons_from_d735(c, at, pre + n, |c| {
+            ops(c);
+            c.cmp(B, 0, 0);
+            c.test(B, mode as u16, 3);
+            c.set_reg(BX, bx);
+            c.cmp(B, bx & 0xff, 0x80);
+            if bx & 0xff == 0x80 {
+                c.set_reg(DX, dx);
+                c.cmp(B, dx >> 8, 0x21);
+            }
+            c.set_word(0x1b98, 0x23);
+            let mut b = 0x1du16;
+            let mut di = 0x1b98u16;
+            for i in 0..4u16 {
+                di = c.add(W, di, 0x0e);
+                c.set_word(di, b);
+                c.set_word(di.wrapping_sub(2), 0x80);
+                b = c.inc(W, b);
+                c.set_reg(CX, 3 - i);
+            }
+            c.set_reg(DI, di);
+            c.set_reg(BX, b);
+        });
+    }
+    c.run(at, pre + 4 + 7)?;
+    ops(c);
+    c.cmp(B, 0, 0);
+    c.test(B, mode as u16, 3);
+    c.set_reg(BX, bx);
+    c.cmp(B, 0x80, 0x80);
+    c.set_reg(DX, dx);
+    c.cmp(B, dx >> 8, 0x21);
+    c.call(0x3efe, 0x3035)?;
+    let si = c.reg(SI).wrapping_add(1);
+    let here = c.word(0x114e);
+    let dl = c.reg8(r8::DL);
+    let step = c.string_step(B);
+    let mut n = 5 + (here == 0x100) as u32 + 3 + if dl == 1 { 2 } else { 0 } + 4;
+    let mut p = si;
+    for _ in 0..4 {
+        let a = c.byte(p);
+        p = p.wrapping_add(step);
+        n += 5;
+        if a != 0 {
+            n += 2 + ((a as i8) >= -5) as u32;
+        }
+        n += 2;
+    }
+    c.run(0x3035, n + 2)?;
+    let s = c.inc(W, c.reg(SI));
+    c.set_reg(SI, s);
+    c.set_reg(DI, 0x1b96);
+    c.cmp(W, here, 0x100);
+    let mut al = if here == 0x100 { 0x80u8 } else { 0x20 };
+    let mut b = 0x21u16;
+    c.cmp(B, dl as u16, 1);
+    if dl == 1 {
+        b = c.inc(W, b);
+        al = 0x20;
+    }
+    c.set_reg(BX, b);
+    c.set_word(0x1b98, b);
+    c.set_byte(0x1bdc, al);
+    c.set_byte(0x1cc4, al);
+    let mut di = 0x1b96u16;
+    for i in 0..4u16 {
+        let a = c.lods(B, pc::cpu::DS);
+        di = c.add(W, di, 0x0e);
+        let mut ah = 0x20u8;
+        c.or(B, a, a);
+        if a != 0 {
+            c.cmp(B, a, 0xfb);
+            if (a as u8 as i8) >= -5 {
+                ah = 0x80;
+            }
+        }
+        c.set_reg(AX, (ah as u16) << 8 | a);
+        c.set_byte(di, ah);
+        c.set_reg(CX, 3 - i);
+    }
+    c.set_reg(DI, di);
+    c.call(0xd741, 0xd738)?;
+    c.run(0xd738, 3)?;
+    c.set_reg(SI, BUTTONS);
+    c.set_reg(CX, 6);
+    super::gfx::draw_ui_elements_list_at_ds_si(c.m, 0xd1f2)
+}
