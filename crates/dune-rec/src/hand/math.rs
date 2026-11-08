@@ -430,3 +430,32 @@ fn or_neg(c: &mut Ctx, bx: u16, dx: u16) {
     }
     c.set_reg(CX, cx);
 }
+
+/// `loc_05133`: the direction from (DI, CX) to (DX, BX) in 256ths: the
+/// deltas (halved when the y one is outside -80h..7Fh), y scaled by 256,
+/// then [`direction_256`].
+pub fn direction_between(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5133)?;
+    let mut c = Ctx::new(m);
+    let (bx, cx, dx, di) = (c.reg(BX), c.reg(CX), c.reg(DX), c.reg(DI));
+    let by = cx.wrapping_sub(bx);
+    let half = (by as i16) < -0x80 || (by as i16) >= 0x80;
+    let n = 6 + if (by as i16) < -0x80 { 0 } else { 2 } + if half { 2 } else { 0 } + 2;
+    c.run(start, n)?;
+    let b = c.sub(W, bx, cx);
+    let mut b = c.neg(W, b);
+    let d = c.sub(W, dx, di);
+    let mut d = c.neg(W, d);
+    c.cmp(W, b, 0xff80);
+    if (b as i16) >= -0x80 {
+        c.cmp(W, b, 0x80);
+    }
+    if half {
+        b = c.m.cpu.shift(7, W, b as u32, 1) as u16;
+        d = c.m.cpu.shift(7, W, d as u32, 1) as u16;
+    }
+    c.set_reg(DX, d);
+    c.xor(B, 0, 0);
+    c.set_reg(BX, (b & 0xff) << 8);
+    direction_256(c.m, 0x514e)
+}

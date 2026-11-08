@@ -4751,3 +4751,108 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5c75, 1)?;
     c.ret()
 }
+
+/// `loc_07443`: the location DI raided: its byte 0Bh 5 and the circle
+/// (`location_circle`), then the day + 2; charisma down 4, `loc_06f56`
+/// with 1; bit 8 of byte 0Ah; its region mark into [115Ah]; its troops
+/// through `loc_075af` and `loc_075ea`, then `loc_0762a` repeated until
+/// CX is at most DX (1 on a quarter of the seed's ticks); unless
+/// `loc_01cda` leaves DL above 1, [0C2h] 1, bit 2 of [0FF7h] and
+/// [1007h] cleared and `loc_0765e`; then [`count_shown_location`].
+pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7443)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    let (si, di) = (c.reg(SI), c.reg(DI));
+    c.push(si);
+    c.push(di);
+    c.set_byte(di.wrapping_add(0x0b), 5);
+    c.call(0x644e, 0x744c)?;
+    c.run(0x744c, 3)?;
+    let di = c.pop();
+    c.set_reg(DI, di);
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.call(0x1ac5, 0x7451)?;
+    c.run(0x7451, 4)?;
+    let al = c.reg8(r8::AL);
+    let a = c.add(B, al as u16, 2);
+    let di = c.reg(DI);
+    c.set_byte(di.wrapping_add(0x0b), a as u8);
+    c.set_reg8(r8::AL, 4);
+    c.call(0x6f78, 0x745b)?;
+    c.run(0x745b, 2)?;
+    c.set_reg8(r8::AL, 1);
+    c.call(0x6f56, 0x7460)?;
+    c.run(0x7460, 9)?;
+    let di = c.reg(DI);
+    let f = c.byte(di.wrapping_add(0x0a));
+    let f = c.or(B, f as u16, 8);
+    c.set_byte(di.wrapping_add(0x0a), f as u8);
+    let cx = c.reg(CX);
+    c.push(cx);
+    let cl = c.byte(di);
+    c.set_reg8(r8::CL, cl);
+    let r = c.m.cpu.shift(0, W, 0x8000, (cl & 0x1f) as u32) as u16;
+    c.set_reg(AX, r);
+    c.set_word(0x115a, r);
+    let x = c.pop();
+    c.set_reg(CX, x);
+    c.set_reg(BP, 0x75af);
+    c.call(0x6603, 0x7476)?;
+    c.run(0x7476, 2)?;
+    c.set_reg(BP, 0x75ea);
+    c.call(0x6603, 0x747c)?;
+    let seed = c.word(0);
+    let z = seed & 3 == 0;
+    c.run(0x747c, 3 + z as u32)?;
+    c.xor(W, 0, 0);
+    c.test(W, seed, 3);
+    let mut dx = 0u16;
+    if z {
+        dx = c.inc(W, 0);
+    }
+    c.set_reg(DX, dx);
+    loop {
+        c.run(0x7487, 3)?;
+        c.xor(W, 0, 0);
+        c.set_reg(CX, 0);
+        c.set_reg(BP, 0x762a);
+        c.call(0x6603, 0x748f)?;
+        let (cx, dx) = (c.reg(CX), c.reg(DX));
+        c.run(0x748f, 2 + if cx > dx { 0 } else { 3 })?;
+        c.cmp(W, cx, dx);
+        if cx <= dx {
+            break;
+        }
+    }
+    let (si, di) = (c.reg(SI), c.reg(DI));
+    c.push(si);
+    c.push(di);
+    c.call(0x1cda, 0x7498)?;
+    let dl = c.reg8(r8::DL);
+    if dl > 1 {
+        c.run(0x7498, 2 + 3)?;
+        c.cmp(B, dl as u16, 1);
+    } else {
+        c.run(0x7498, 7)?;
+        c.cmp(B, dl as u16, 1);
+        c.set_byte(0xc2, 1);
+        for p in [0xff7u16, 0x1007] {
+            let v = c.byte(p);
+            let v = c.and(B, v as u16, 0xfd);
+            c.set_byte(p, v as u8);
+        }
+        let d = c.pop();
+        c.set_reg(DI, d);
+        c.call(0x765e, 0x74b0)?;
+        c.run(0x74b0, 4)?;
+        let d = c.reg(DI);
+        c.push(d);
+    }
+    let d = c.pop();
+    c.set_reg(DI, d);
+    let s = c.pop();
+    c.set_reg(SI, s);
+    count_shown_location(c.m, 0x5d50)
+}
