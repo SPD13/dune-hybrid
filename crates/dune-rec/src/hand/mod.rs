@@ -888,6 +888,13 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x3d83, story::sal_read_position_markers, "sal_read_position_markers"),
     (0x8ed3, text::word_width, "loc_08ed3"),
     (0x5605, map::clear_map_header, "loc_05605"),
+    (0x7bb9, map::show_message_after_31f6, "loc_07bb9"),
+    (0x636a, map::map_row_right, "loc_0636a"),
+    (0x639a, map::map_row_left, "loc_0639a"),
+    (0x6ac5, troops::set_troop_activity, "loc_06ac5"),
+    (0x4c92, map::setup_scroll_scene, "loc_04c92"),
+    (0x4d57, map::scroll_scene_31, "loc_04d57"),
+    (0x3916, ui::sky_fade_task, "loc_03916"),
 ];
 
 /// 8-bit register numbers (the CPU's encoding).

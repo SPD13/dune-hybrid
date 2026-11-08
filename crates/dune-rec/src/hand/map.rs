@@ -3402,3 +3402,196 @@ pub fn clear_map_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SP, sp);
     get_point_4710(c.m, 0x557b)
 }
+
+/// `loc_07bb9`: `loc_031f6` (AX kept), then [`show_message_0f`].
+pub fn show_message_after_31f6(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7bb9)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.call(0x31f6, 0x7bbd)?;
+    c.run(0x7bbd, 1)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    show_message_0f(c.m, 0x7bbe)
+}
+
+/// `loc_0636a` / `loc_0639a`: from the map point (SI, CX after
+/// `loc_0b58b` of (DX, BX)) the map row walked right (to [46E7h]) or left
+/// (to [46E3h]), 4 screen pixels a cell, wrapping at BP; each cell of ES:DI
+/// with bits 30h = 10h gets its dot (`draw_map_dot`).
+pub fn map_row_right(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x636a)?;
+    map_row(m, start, true)
+}
+
+pub fn map_row_left(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x639a)?;
+    map_row(m, start, false)
+}
+
+fn map_row(m: &mut Machine, start: u16, right: bool) -> Result<(), Bail> {
+    let mut c = Ctx::new(m);
+    let b = start.wrapping_sub(0x636a);
+    c.run(start, 3)?;
+    let (si, dx) = (c.reg(SI), c.reg(DX));
+    c.set_reg(SI, dx);
+    c.set_reg(DX, si);
+    let (cx, bx) = (c.reg(CX), c.reg(BX));
+    c.set_reg(CX, bx);
+    c.set_reg(BX, cx);
+    c.call(0xb58b, 0x6371 + b)?;
+    c.run(0x6371 + b, 2)?;
+    let (si, dx) = (c.reg(SI), c.reg(DX));
+    c.set_reg(SI, dx);
+    c.set_reg(DX, si);
+    let cx = c.reg(CX);
+    c.set_reg(BX, cx);
+    loop {
+        let di = c.reg(DI);
+        let w = c.word_in(ES, di);
+        let hit = w & 0x30 == 0x10;
+        c.run(0x6375 + b, 4 + hit as u32)?;
+        let a = c.and(W, w, 0x3030);
+        c.set_reg(AX, a);
+        c.cmp(B, a & 0xff, 0x10);
+        if hit {
+            c.call(0x63c7, 0x6398 + b - if right { 0 } else { 0x30 - 0x2d })?;
+            c.run(if right { 0x6398 } else { 0x63c5 }, 1)?;
+        }
+        let dx = c.reg(DX);
+        let (lim, out) = if right {
+            let l = c.word(0x46e7);
+            (l, dx.wrapping_add(4) >= l)
+        } else {
+            let l = c.word(0x46e3);
+            (l, dx.wrapping_sub(4) < l)
+        };
+        let si = c.reg(SI);
+        let bp = c.reg(BP);
+        let (wrap, n) = if out {
+            (false, 4)
+        } else if right {
+            let w = si.wrapping_add(1) >= bp;
+            (w, 3 + 4 + if w { 3 } else { 0 })
+        } else {
+            let w = si.wrapping_sub(1) & 0x8000 != 0;
+            (w, 3 + 3 + if w { 3 } else { 0 })
+        };
+        c.run(if right { 0x637f } else { 0x63af }, n)?;
+        let d = if right { c.add(W, dx, 4) } else { c.sub(W, dx, 4) };
+        c.set_reg(DX, d);
+        c.cmp(W, d, lim);
+        if out {
+            return c.ret();
+        }
+        let di = c.reg(DI);
+        if right {
+            let di = c.inc(W, di);
+            let s = c.inc(W, si);
+            c.cmp(W, s, bp);
+            let (s, di) = if wrap { (c.sub(W, s, bp), c.sub(W, di, bp)) } else { (s, di) };
+            c.set_reg(SI, s);
+            c.set_reg(DI, di);
+        } else {
+            let di = c.dec(W, di);
+            let s = c.dec(W, si);
+            let (s, di) = if wrap { (c.add(W, s, bp), c.add(W, di, bp)) } else { (s, di) };
+            c.set_reg(SI, s);
+            c.set_reg(DI, di);
+        }
+    }
+}
+
+/// `loc_04c92`: a scrolling scene set up: resource AL ([485Eh]) opened,
+/// its place (DX, BX) and steps (BP, CX) into 486Eh..4874h, the
+/// positions cleared; from its sprite table ([0DBB0h]): the scene's size
+/// ([487Ah], [487Ch]), its sprite lists ([486Ch]) and the script AH
+/// ([4868h], [486Ah]). DS kept.
+pub fn setup_scroll_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4c92)?;
+    let mut c = Ctx::new(m);
+    scroll_scene_at(&mut c, 0x4c92, 0)
+}
+
+/// `loc_04d57`: [`setup_scroll_scene`] for resource 31h at (5 + BH·4, 29h),
+/// still.
+pub fn scroll_scene_31(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4d57)?;
+    let mut c = Ctx::new(m);
+    scroll_scene_at(&mut c, 0x4d57, 9)
+}
+
+fn scroll_scene_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
+    c.run(at, pre + 11)?;
+    if pre != 0 {
+        c.set_reg8(r8::AL, 0x31);
+        c.set_reg(DX, 5);
+        let bx = c.reg(BX);
+        let bh = c.shl1(B, bx >> 8, 2);
+        let dl = c.add(B, 5, bh);
+        c.set_reg(DX, dl);
+        c.set_reg(BX, 0x29);
+        c.xor(W, 0, 0);
+        c.set_reg(BP, 0);
+        c.set_reg(CX, 0);
+    }
+    let (ds, ax) = (c.sreg(DS), c.reg(AX));
+    c.push(ds);
+    c.push(ax);
+    c.xor(B, 0, 0);
+    let a = ax & 0xff;
+    c.set_reg(AX, a);
+    c.set_word(0x485e, a);
+    let (dx, bx, bp, cx) = (c.reg(DX), c.reg(BX), c.reg(BP), c.reg(CX));
+    c.set_word(0x486e, dx);
+    c.set_word(0x4870, bx);
+    c.set_word(0x4872, bp);
+    c.set_word(0x4874, cx);
+    c.set_word(0x4876, 0);
+    c.set_word(0x4878, 0);
+    c.call(0xc13e, 0x4cb8)?;
+    c.run(0x4cb8, 31)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    let (tab, seg) = (c.word(0xdbb0), c.word(0xdbb2));
+    c.set_sreg(DS, seg);
+    let bx = c.word(tab);
+    let o = c.word(bx.wrapping_add(tab).wrapping_sub(2));
+    let si = c.add(W, tab, o);
+    c.set_reg(DI, 0x4860);
+    let si = c.add(W, si, 4);
+    c.set_reg(SI, si);
+    let x0 = c.lods(W, DS);
+    let y0 = c.lods(W, DS);
+    let x1 = c.lods(W, DS);
+    let w = c.sub(W, x1, x0);
+    c.set_word_in(SS, 0x487a, w);
+    let y1 = c.lods(W, DS);
+    let h = c.sub(W, y1, y0);
+    c.set_word_in(SS, 0x487c, h);
+    c.set_reg(DX, x0);
+    c.set_reg(BX, y0);
+    let si = c.reg(SI);
+    let a = c.add(W, si, 2);
+    c.set_word_in(SS, 0x486c, a);
+    let o = c.word(si);
+    let si = c.add(W, si, o);
+    let ax = c.pop();
+    c.xor(B, 0, 0);
+    let ah = ax >> 8;
+    let bp = c.shl1(W, ah, 1);
+    c.set_reg(AX, bp);
+    c.set_reg(BP, bp);
+    let o = c.word(bp.wrapping_add(si));
+    let si = c.add(W, si, o);
+    c.set_reg(SI, si);
+    c.set_word_in(SS, 0x4868, si);
+    c.set_word_in(SS, 0x486a, si);
+    let ds = c.pop();
+    c.set_sreg(DS, ds);
+    c.ret()
+}

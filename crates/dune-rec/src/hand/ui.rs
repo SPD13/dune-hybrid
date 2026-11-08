@@ -1037,3 +1037,53 @@ pub fn redraw_head_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, s);
     super::draw::draw_head_if_needed_and_update_screen_rect_at_si(c.m, 0xc4f0)
 }
+
+/// `loc_03916` (a frame task): while [46DFh] is set, the sky faded one
+/// step ([46D7h] counting down) by the driver (far [3951h]; the top rows
+/// and, by day, the band 30h at 2D0h); at 0, or without [46DFh], the
+/// task removes itself.
+pub fn sky_fade_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x3916)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x46df);
+    if k == 0 {
+        c.run(start, 5)?;
+        c.cmp(B, 0, 0);
+        c.set_byte(0x46d7, 0);
+        c.set_reg(SI, 0x3916);
+        return super::tasks::remove_frame_task(c.m, 0xda5f);
+    }
+    let alt = c.byte(0x22e3);
+    c.run(start, 2 + 4 + if alt == 0 { 2 } else { 0 } + 2)?;
+    c.cmp(B, k as u16, 0);
+    c.cmp(B, alt as u16, 0);
+    let (cx, bx) = if alt == 0 { (0xf0, 0x180) } else { (0x1c5, 0xdb) };
+    c.set_reg(CX, cx);
+    c.set_reg(BX, bx);
+    let al = c.byte(0x46d7);
+    c.set_reg8(r8::AL, al);
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.interp(0x3934, 0x3938)?;
+    let night = c.byte(0x227d);
+    c.run(0x3938, 3 + if night == 0 { 2 } else { 0 })?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    c.cmp(B, night as u16, 0);
+    if night == 0 {
+        c.set_reg(CX, 0x30);
+        c.set_reg(BX, 0x2d0);
+        c.interp(0x3946, 0x394a)?;
+    }
+    let v = c.byte(0x46d7);
+    let r = v.wrapping_sub(1);
+    c.run(0x394a, if r != 0 { 3 } else { 5 })?;
+    let r = c.dec(B, v as u16);
+    c.set_byte(0x46d7, r as u8);
+    if r != 0 {
+        return c.ret();
+    }
+    c.set_byte(0x46d7, 0);
+    c.set_reg(SI, 0x3916);
+    super::tasks::remove_frame_task(c.m, 0xda5f)
+}

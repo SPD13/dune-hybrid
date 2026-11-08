@@ -3835,3 +3835,97 @@ pub fn troop_yield(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, al);
     c.ret()
 }
+
+/// `loc_06ac5`: the troop SI's activity set from its order (byte 3's top
+/// bits; order 8 at an empty 7C8h becomes 0Ah) when they differ: bits 30h
+/// of byte 12h and 100h of word 10h cleared (the latter back unless
+/// `loc_06c15` sets CF), `drop_troop_particle`, `stamp_record`, its
+/// skill bit (2000h << `loc_0693b`) for activities other than 2, and
+/// `troop_orders_menu` for the troop shown ([1954h]).
+pub fn set_troop_activity(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6ac5)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let b3 = c.byte(si.wrapping_add(3));
+    let (cl, al) = (b3 & 0xfc, b3 & 0x0f);
+    if al == cl {
+        c.run(start, 7)?;
+        c.set_reg8(r8::CL, cl);
+        c.and(B, b3 as u16, 0xfc);
+        let a = c.and(B, b3 as u16, 0x0f);
+        c.set_reg8(r8::AL, a as u8);
+        c.cmp(B, a, cl as u16);
+        return c.ret();
+    }
+    let di = c.word(si.wrapping_add(4));
+    let e = c.byte(di.wrapping_add(0x1a));
+    let n8 = if cl != 8 { 0 } else if di != 0x7c8 { 2 } else if e != 0 { 4 } else { 5 };
+    c.run(start, 6 + 3 + n8 + 4)?;
+    c.and(B, b3 as u16, 0xfc);
+    let a = c.and(B, b3 as u16, 0x0f);
+    c.set_reg8(r8::AL, a as u8);
+    c.cmp(B, a, cl as u16);
+    c.set_reg(DI, di);
+    c.cmp(B, cl as u16, 8);
+    let mut v = cl;
+    if cl == 8 {
+        c.cmp(W, di, 0x7c8);
+        if di == 0x7c8 {
+            c.cmp(B, e as u16, 0);
+            if e == 0 {
+                v = 0x0a;
+            }
+        }
+    }
+    c.set_reg8(r8::CL, v);
+    c.set_byte(si.wrapping_add(3), v);
+    let b = c.byte(si.wrapping_add(0x12));
+    let b = c.and(B, b as u16, 0xcf);
+    c.set_byte(si.wrapping_add(0x12), b as u8);
+    let w = c.word(si.wrapping_add(0x10));
+    let w = c.and(W, w, 0xfeff);
+    c.set_word(si.wrapping_add(0x10), w);
+    c.call(0x6c15, 0x6af9)?;
+    let cf = c.flag(CF);
+    c.run(0x6af9, 2 + (!cf) as u32)?;
+    if !cf {
+        let si = c.reg(SI);
+        let w = c.word(si.wrapping_add(0x10));
+        let w = c.or(W, w, 0x100);
+        c.set_word(si.wrapping_add(0x10), w);
+    }
+    c.call(0x8461, 0x6b03)?;
+    c.run(0x6b03, 1)?;
+    c.call(0x6b25, 0x6b06)?;
+    let si = c.reg(SI);
+    let b3 = c.byte(si.wrapping_add(3));
+    if b3 != 2 {
+        c.run(0x6b06, 3)?;
+        c.cmp(B, b3 as u16, 2);
+        c.call(0x693b, 0x6b0f)?;
+        c.run(0x6b0f, 4)?;
+        let al = c.reg8(r8::AL);
+        c.set_reg8(r8::CL, al);
+        let bit = c.shl(W, 0x2000, al);
+        c.set_reg(AX, bit);
+        let si = c.reg(SI);
+        let w = c.word(si.wrapping_add(0x12));
+        let w = c.or(W, w, bit);
+        c.set_word(si.wrapping_add(0x12), w);
+    } else {
+        c.run(0x6b06, 2)?;
+        c.cmp(B, 2, 2);
+    }
+    let si = c.reg(SI);
+    let id = c.byte(si);
+    let shown = c.byte(0x1954);
+    c.run(0x6b19, 3 + if id == shown { 1 } else { 1 })?;
+    c.set_reg8(r8::AL, id);
+    c.cmp(B, id as u16, shown as u16);
+    if id != shown {
+        return c.ret();
+    }
+    c.call(0x7847, 0x6b24)?;
+    c.run(0x6b24, 1)?;
+    c.ret()
+}
