@@ -958,6 +958,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x5c03, map::map_hover, "loc_05c03"),
     (0x7443, map::location_raided, "loc_07443"),
     (0x5133, math::direction_between, "loc_05133"),
+    (0x63f0, map::grow_spice, "map_func_qq"),
+    (0x65b6, map::spread_spice, "loc_065b6"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
 

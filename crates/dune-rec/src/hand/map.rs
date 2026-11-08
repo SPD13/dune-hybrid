@@ -4856,3 +4856,162 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, s);
     count_shown_location(c.m, 0x5d50)
 }
+
+/// `map_func_qq`: with [46DEh] set, each location from 100h with bit 20h
+/// of byte 0Ah gains spice (byte 1Bh, up to FAh) by half the cells of
+/// kind 10h around it + 1 (`count_10_bytes` at its map cell, word 6);
+/// then [`spread_spice`].
+pub fn grow_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x63f0)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x46de);
+    if k == 0 {
+        c.run(start, 3)?;
+        c.cmp(B, 0, 0);
+        return c.ret();
+    }
+    c.run(start, 4)?;
+    c.cmp(B, k as u16, 0);
+    let es = c.word(0xdd00);
+    c.set_sreg(ES, es);
+    c.set_reg(DI, 0x100);
+    let mut di = 0x100u16;
+    loop {
+        let al = c.byte(di.wrapping_add(0x0a));
+        let bl = c.byte(di.wrapping_add(0x1b));
+        'one: {
+            if al & 0x20 == 0 {
+                c.run(0x63fe, 3)?;
+                c.set_reg8(r8::AL, al);
+                c.test(B, al as u16, 0x20);
+                break 'one;
+            }
+            if bl >= 0xfa {
+                c.run(0x63fe, 7)?;
+                c.set_reg8(r8::AL, al);
+                c.test(B, al as u16, 0x20);
+                c.set_reg(BX, 0xfa00 | bl as u16);
+                c.cmp(B, bl as u16, 0xfa);
+                break 'one;
+            }
+            c.run(0x63fe, 9)?;
+            c.set_reg8(r8::AL, al);
+            c.test(B, al as u16, 0x20);
+            c.set_reg(BX, 0xfa00 | bl as u16);
+            c.cmp(B, bl as u16, 0xfa);
+            let si = c.word(di.wrapping_add(6));
+            c.set_reg(SI, si);
+            c.call(0x642e, 0x6414)?;
+            let dx = c.reg(DX);
+            let d = (dx >> 1).wrapping_add(1);
+            let v = bl.wrapping_add(d as u8);
+            let cap = v >= 0xfa;
+            c.run(0x6414, 5 + cap as u32 + 1)?;
+            let d = c.shr1(W, dx, 1);
+            let d = c.inc(W, d);
+            c.set_reg(DX, d);
+            let v = c.add(B, bl as u16, d & 0xff);
+            c.cmp(B, v, 0xfa);
+            let v = if cap { 0xfa } else { v as u8 };
+            c.set_reg(BX, 0xfa00 | v as u16);
+            let di = c.reg(DI);
+            c.set_byte(di.wrapping_add(0x1b), v);
+        }
+        di = c.reg(DI);
+        let nd = di.wrapping_add(0x1c);
+        let w = c.word(nd);
+        c.run(0x6422, 3 + if w == 0xffff { 1 } else { 0 })?;
+        let d = c.add(W, di, 0x1c);
+        c.set_reg(DI, d);
+        c.cmp(W, w, 0xffff);
+        di = d;
+        if w == 0xffff {
+            break;
+        }
+    }
+    spread_at(&mut c, 0x65b6, 0)
+}
+
+/// `loc_065b6`: 46h steps of the shift-register seed CS:[65B4h] (taps
+/// 402h); for each, the map cells at it and every 7FFh after (below
+/// C5F9h, in [0DD00h]) of kind 10h become kind 20h, counted in BP; with
+/// any in the map's hotspot mode [46ECh] is counted. Bails at entry with
+/// DF set.
+pub fn spread_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x65b6)?;
+    let mut c = Ctx::new(m);
+    spread_at(&mut c, start, 0)
+}
+
+fn spread_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
+    if c.flag(pc::cpu::DF) {
+        c.m.cpu.ip = at;
+        return Err(Bail);
+    }
+    let seg = c.word(0xdd00);
+    let mut si = c.code_word(0x65b4);
+    let mut bp = 0u16;
+    let mut n = pre + 4;
+    let mut writes: Vec<(u16, u8)> = Vec::new();
+    let mut ax = c.reg(AX);
+    let mut di = 0u16;
+    for _ in 0..0x46 {
+        let cf = si & 1 != 0;
+        si >>= 1;
+        n += 2;
+        if cf {
+            si ^= 0x402;
+            n += 1;
+        }
+        di = si;
+        n += 1;
+        loop {
+            let mut al = match writes.iter().rev().find(|w| w.0 == di) {
+                Some(w) => w.1,
+                None => c.byte_at_seg(seg, di),
+            };
+            let ah = al & 0x30;
+            n += 5;
+            if ah == 0x10 {
+                al = al & 0xcf | 0x20;
+                writes.push((di, al));
+                bp = bp.wrapping_add(1);
+                n += 5;
+            }
+            ax = (ah as u16) << 8 | al as u16;
+            di = di.wrapping_add(0x7ff);
+            n += 3;
+            if di >= 0xc5f9 {
+                break;
+            }
+        }
+        n += 1;
+    }
+    let mode = c.byte(0x46eb);
+    n += 3 + if bp == 0 { 1 } else { 2 + if mode & 0x80 != 0 { 2 } else { 1 } };
+    if n > 300_000 {
+        c.m.cpu.ip = at;
+        return Err(Bail);
+    }
+    c.run(at, n)?;
+    c.set_sreg(ES, seg);
+    for (p, v) in writes {
+        c.m.cpu.write8(&mut c.m.hw, ES, p, v);
+    }
+    c.set_reg(AX, ax);
+    c.set_reg(DI, di);
+    c.set_reg(SI, si);
+    c.set_reg(CX, 0);
+    c.set_reg(BP, bp);
+    c.set_word_in(pc::cpu::CS, 0x65b4, si);
+    c.or(W, bp, bp);
+    if bp != 0 {
+        c.cmp(B, mode as u16, 0);
+        if mode & 0x80 != 0 {
+            let v = c.byte(0x46ec);
+            let v = c.inc(B, v as u16);
+            c.set_byte(0x46ec, v as u8);
+        }
+    }
+    c.ret()
+}
