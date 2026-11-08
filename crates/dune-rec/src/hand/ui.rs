@@ -963,3 +963,45 @@ pub fn start_sky_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, 0x10);
     super::tasks::add_frame_task(c.m, 0xda25)
 }
+
+/// `loc_038e1`: with [46DFh] set, when the sky palette for the time
+/// (`get_sky_palette_id_from_game_time_in_bl`) differs from [46D6h],
+/// [`start_sky_task`].
+pub fn sky_if_changed(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x38e1)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x46df);
+    if k == 0 {
+        c.run(start, 3)?;
+        c.cmp(B, 0, 0);
+        return c.ret();
+    }
+    c.run(start, 3)?;
+    c.cmp(B, k as u16, 0);
+    c.call(0x395c, 0x38eb)?;
+    let bl = c.reg8(r8::BL);
+    let cur = c.byte(0x46d6);
+    c.run(0x38eb, if cur == bl { 3 } else { 2 })?;
+    c.cmp(B, cur as u16, bl as u16);
+    if cur == bl {
+        return c.ret();
+    }
+    start_sky_task(c.m, 0x38f1)
+}
+
+/// `sub_a541`: [28E8h] = [28E7h], `clear_some_mouse_rect`, `sub_d95b`,
+/// then the rect 2886h drawn ([`draw_head_if_needed_and_update_screen_rect_at_si`]).
+pub fn redraw_2886(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa541)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    let v = c.byte(0x28e7);
+    c.set_reg8(r8::AL, v);
+    c.set_byte(0x28e8, v);
+    c.call(0xdaa3, 0xa54a)?;
+    c.run(0xa54a, 1)?;
+    c.call(0xd95b, 0xa54d)?;
+    c.run(0xa54d, 2)?;
+    c.set_reg(SI, 0x2886);
+    super::draw::draw_head_if_needed_and_update_screen_rect_at_si(c.m, 0xc4f0)
+}

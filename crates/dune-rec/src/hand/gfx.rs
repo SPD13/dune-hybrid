@@ -778,3 +778,21 @@ pub fn fill_and_outline(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, s);
     draw_rect_outline_at_si(c.m, 0xc551)
 }
+
+/// `loc_07b0f`: [46D8h] cleared, `loc_0c0e8` with SI = DI (SI kept, DI
+/// the old SI), then [`fill_and_outline`].
+pub fn redraw_panel_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7b0f)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 4)?;
+    c.set_byte(0x46d8, 0);
+    let (si, di) = (c.reg(SI), c.reg(DI));
+    c.push(si);
+    c.set_reg(DI, si);
+    c.set_reg(SI, di);
+    c.call(0xc0e8, 0x7b1a)?;
+    c.run(0x7b1a, 1)?;
+    let s = c.pop();
+    c.set_reg(SI, s);
+    fill_and_outline(c.m, 0x7b1b)
+}

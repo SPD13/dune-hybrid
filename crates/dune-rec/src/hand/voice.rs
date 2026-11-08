@@ -617,3 +617,115 @@ pub fn voice_2_and_transition(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, 0x0e);
     super::screen::transition_al(c.m, 0xc108)
 }
+
+/// `loc_0ab92` (a frame task): `loc_0a9b9`; when `loc_0aba3` says done
+/// (ZF), `loc_0aded` and the task removes itself.
+pub fn voice_task_ab92(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xab92)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xa9b9, 0xab95)?;
+    c.run(0xab95, 1)?;
+    c.call(0xaba3, 0xab98)?;
+    if !c.flag(pc::cpu::ZF) {
+        c.run(0xab98, 2)?;
+        return c.ret();
+    }
+    c.run(0xab98, 2)?;
+    c.call(0xaded, 0xab9d)?;
+    c.run(0xab9d, 2)?;
+    c.set_reg(SI, 0xab92);
+    super::tasks::remove_frame_task(c.m, 0xda5f)
+}
+
+/// `loc_0c868`: unless a voice plays (`is_voc_pcm_playing`), the sound
+/// sequence of the scene [22A6h] (below 11h, with a place at 27B6h):
+/// 2792h, or one of 2789h/278Eh at random out of the night; each byte
+/// to its 0 either a pause of 12Ch (negative) or `loc_0c8c1` with it;
+/// then `loc_0c4dd`.
+pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc868)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xabcc, 0xc86b)?;
+    if !c.flag(pc::cpu::ZF) {
+        c.run(0xc86b, 2)?;
+        return c.ret();
+    }
+    let sc = c.word(0x22a6);
+    if sc >= 0x11 {
+        c.run(0xc86b, 5)?;
+        c.set_reg(SI, sc);
+        c.cmp(W, sc, 0x11);
+        return c.ret();
+    }
+    let p = sc << 2;
+    let (dx, bx) = (c.word(p.wrapping_add(0x27b6)), c.word(p.wrapping_add(0x27b8)));
+    if dx | bx == 0 {
+        c.run(0xc86b, 12)?;
+        c.set_reg(SI, sc);
+        c.cmp(W, sc, 0x11);
+        let s = c.shl1(W, sc, 2);
+        c.set_reg(SI, s);
+        c.set_reg(DX, dx);
+        c.set_reg(BX, bx);
+        let a = c.or(W, bx, dx);
+        c.set_reg(AX, a);
+        return c.ret();
+    }
+    let night = c.byte(0x227d);
+    c.run(0xc86b, 11 + 3 + if night == 0 { 3 } else { 0 })?;
+    c.set_reg(SI, sc);
+    c.cmp(W, sc, 0x11);
+    let s = c.shl1(W, sc, 2);
+    c.set_reg(SI, s);
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    let a = c.or(W, bx, dx);
+    c.set_reg(AX, a);
+    c.set_reg(SI, 0x2792);
+    c.cmp(B, night as u16, 0);
+    if night == 0 {
+        c.push(bx);
+        c.set_reg(BX, 1);
+        c.call(0xe3b7, 0xc89a)?;
+        let z = c.flag(pc::cpu::ZF);
+        c.run(0xc89a, 3 + (!z) as u32)?;
+        let b = c.pop();
+        c.set_reg(BX, b);
+        c.set_reg(SI, if z { 0x2789 } else { 0x278e });
+    }
+    loop {
+        let si = c.reg(SI);
+        let al = c.byte(si);
+        if al == 0 {
+            c.run(0xc8a3, 4)?;
+            c.lods(B, DS);
+            c.or(B, 0, 0);
+            c.call(0xc4dd, 0xc8c0)?;
+            c.run(0xc8c0, 1)?;
+            return c.ret();
+        }
+        if al & 0x80 != 0 {
+            c.run(0xc8a3, 6)?;
+            c.lods(B, DS);
+            c.or(B, al as u16, al as u16);
+            c.set_reg(AX, 0x12c);
+            c.call(0xe387, 0xc8b0)?;
+            c.run(0xc8b0, 1)?;
+            continue;
+        }
+        c.run(0xc8a3, 8)?;
+        c.lods(B, DS);
+        c.or(B, al as u16, al as u16);
+        let si = c.reg(SI);
+        c.push(si);
+        c.xor(B, 0, 0);
+        c.set_reg(AX, al as u16);
+        c.set_reg(BP, al as u16);
+        c.call(0xc8c1, 0xc8ba)?;
+        c.run(0xc8ba, 2)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+    }
+}

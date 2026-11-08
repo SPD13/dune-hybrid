@@ -844,3 +844,121 @@ pub fn add_task_b9ae(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, 1);
     super::tasks::add_frame_task(c.m, 0xda25)
 }
+
+/// `loc_0b98b`: one globe frame: `map_func_gfx`, `loc_0baf2`, the rect
+/// D834h (`loc_0db74`, `loc_0c4ed`; BX, DX kept), `loc_0bc0c` when DX is
+/// set, `loc_0db67`, then [`globe_rotation_increment_ax`] by 1.
+pub fn globe_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb98b)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xb977, 0xb98e)?;
+    c.run(0xb98e, 1)?;
+    c.call(0xbaf2, 0xb991)?;
+    c.run(0xb991, 4)?;
+    let (bx, dx) = (c.reg(BX), c.reg(DX));
+    c.push(bx);
+    c.push(dx);
+    c.set_reg(SI, 0xd834);
+    c.call(0xdb74, 0xb999)?;
+    c.run(0xb999, 1)?;
+    c.call(0xc4ed, 0xb99c)?;
+    c.run(0xb99c, 5)?;
+    let d = c.pop();
+    c.set_reg(DX, d);
+    let b = c.pop();
+    c.set_reg(BX, b);
+    c.or(W, d, d);
+    if d != 0 {
+        c.call(0xbc0c, 0xb9a5)?;
+        c.run(0xb9a5, 1)?;
+    }
+    c.call(0xdb67, 0xb9a8)?;
+    c.run(0xb9a8, 2)?;
+    c.set_reg(AX, 1);
+    globe_rotation_increment_ax(c.m, 0xb9e0)
+}
+
+/// `loc_0ba9e`: the globe turned toward the map position
+/// (`get_map_position`, `loc_0b683`): steps of at most 20h around and
+/// 18h up/down (`globe_rotation_increment_ax`, `loc_0ba15`,
+/// [`globe_frame`]) until a step needed no clamping.
+pub fn globe_turn_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xba9e)?;
+    let mut c = Ctx::new(m);
+    loop {
+        c.run(0xba9e, 1)?;
+        c.call(0x407e, 0xbaa1)?;
+        c.run(0xbaa1, 6)?;
+        c.set_reg(AX, 0x18e);
+        let dx = c.reg(DX);
+        c.mul16(dx);
+        let b = c.word(0x494a);
+        let bp = c.add(W, b, b);
+        c.set_reg(BP, bp);
+        let dx = c.reg(DX);
+        let r = c.word(0x494c);
+        let dx = c.sub(W, dx, r);
+        c.set_reg(DX, dx);
+        c.call(0xb683, 0xbab3)?;
+        let (dx, bx) = (c.reg(DX), c.reg(BX));
+        let top = c.word(0x2460);
+        let y = bx.wrapping_sub(top);
+        let (sx, sy) = (dx as i16, y as i16);
+        let c1 = sx >= 0x20;
+        let x1 = if c1 { 0x20 } else { sx };
+        let c2 = x1 <= -0x20;
+        let c3 = sy >= 0x18;
+        let y1 = if c3 { 0x18 } else { sy };
+        let c4 = y1 <= -0x18;
+        let n = 4 + 2 * c1 as u32 + 3 + 2 * c2 as u32 + 4 + 2 * c3 as u32 + 3 + 2 * c4 as u32 + 4;
+        c.run(0xbab3, n)?;
+        let mut cx = 1u16;
+        c.set_reg(AX, 0x20);
+        let mut x = dx;
+        c.cmp(W, x, 0x20);
+        if c1 {
+            x = 0x20;
+            cx = c.inc(W, cx);
+        }
+        let a = c.neg(W, 0x20);
+        c.cmp(W, x, a);
+        if c2 {
+            x = a;
+            cx = c.inc(W, cx);
+        }
+        let mut yv = c.sub(W, bx, top);
+        c.set_reg(AX, 0x18);
+        c.cmp(W, yv, 0x18);
+        if c3 {
+            yv = 0x18;
+            cx = c.inc(W, cx);
+        }
+        let a = c.neg(W, 0x18);
+        c.cmp(W, yv, a);
+        if c4 {
+            yv = a;
+            cx = c.inc(W, cx);
+        }
+        c.set_reg(DX, x);
+        c.set_reg(BX, yv);
+        c.set_reg(CX, cx);
+        c.set_reg(AX, x);
+        c.push(cx);
+        c.push(yv);
+        c.call(0xb9e0, 0xbae7)?;
+        c.run(0xbae7, 2)?;
+        let a = c.pop();
+        c.set_reg(AX, a);
+        c.call(0xba15, 0xbaeb)?;
+        c.run(0xbaeb, 1)?;
+        c.call(0xb98b, 0xbaee)?;
+        let cx = c.word_in(SS, c.m.cpu.regs[pc::cpu::SP]).wrapping_sub(1);
+        c.run(0xbaee, 2 + (cx == 0) as u32)?;
+        c.pop();
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            return c.ret();
+        }
+    }
+}

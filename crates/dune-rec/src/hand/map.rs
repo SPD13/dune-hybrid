@@ -2665,3 +2665,24 @@ pub fn draw_scroll_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, s);
     }
 }
+
+/// `loc_05adf`: the map screen left: `loc_07b36`, its state cleared
+/// ([46EBh], [46F3h], [3CBEh], [0A5C0h], [0DBE0h], [0DBE2h], [1954h]),
+/// [2786h] = C827h, the frame task 6B34h removed.
+pub fn leave_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5adf)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x7b36, 0x5ae2)?;
+    c.run(0x5ae2, 11)?;
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.set_byte(0x46eb, 0);
+    c.set_byte(0x46f3, 0);
+    for p in [0x3cbeu16, 0xa5c0, 0xdbe0, 0xdbe2, 0x1954] {
+        c.set_word(p, 0);
+    }
+    c.set_word(0x2786, 0xc827);
+    c.set_reg(SI, 0x6b34);
+    super::tasks::remove_frame_task(c.m, 0xda5f)
+}
