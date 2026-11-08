@@ -2151,3 +2151,314 @@ pub fn redraw_dialogue_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x97cb, 1)?;
     super::draw::sub_c4dd(c.m, 0xc4dd)
 }
+
+/// `loc_099da` (a frame task): the dialogue text's next step: with the
+/// text running (bit 80h of [47D1h]) the next phrase at [47C6h] (in
+/// [0DBB2h]) framed (`dialogue_frame_rect`, [47CEh] counted down; at the
+/// list's end the next sentence of [47CAh] by `sentence_offset`,
+/// `skip_32_strings`; at the count's end the number part:
+/// `sentence_number_part`, `random_sentence`, `skip_strings`), its box
+/// drawn (`blit_dialogue_frame`, `loc_0db74`,
+/// `draw_head_if_needed_and_update_screen_rect_at_si`) unless the frame
+/// is closed (13Fh); then [`draw_mouse_cursor_if_needed`].
+pub fn dialogue_text_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x99da)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x9197, 0x99dd)?;
+    let al = c.byte(0x47d1);
+    if al & 0x80 == 0 {
+        c.run(0x99dd, 4)?;
+        c.set_reg8(r8::AL, al);
+        c.or(B, al as u16, al as u16);
+        return c.ret();
+    }
+    let mut label;
+    if al & 0x10 != 0 {
+        c.run(0x99dd, 5)?;
+        c.set_reg8(r8::AL, al);
+        c.or(B, al as u16, al as u16);
+        c.test(B, al as u16, 0x10);
+        label = 0x9a40u16;
+    } else {
+        c.run(0x99dd, 7)?;
+        c.set_reg8(r8::AL, al);
+        c.or(B, al as u16, al as u16);
+        c.test(B, al as u16, 0x10);
+        let si = c.word(0x47c6);
+        c.set_reg(SI, si);
+        let es = c.word(0xdbb2);
+        c.set_sreg(ES, es);
+        label = 0x99f0;
+    }
+    loop {
+        match label {
+            0x99f0 => {
+                let si = c.reg(SI);
+                let b = c.byte_in(ES, si);
+                c.run(0x99f0, 2)?;
+                c.cmp(B, b as u16, 0xff);
+                label = if b == 0xff { 0x9a1d } else { 0x99f6 };
+            }
+            0x99f6 => {
+                c.run(0x99f6, 3)?;
+                let v = c.word(0x47ce);
+                let v = c.dec(W, v);
+                c.set_word(0x47ce, v);
+                let si = c.reg(SI);
+                c.set_word(0x47c8, si);
+                c.call(0x9bb1, 0x9a01)?;
+                let x = c.word(0xd834);
+                if x == 0x13f {
+                    c.run(0x9a01, 4)?;
+                    let si = c.reg(SI);
+                    c.set_word(0x47c6, si);
+                    c.cmp(W, x, 0x13f);
+                    return c.ret();
+                }
+                c.run(0x9a01, 4)?;
+                let si = c.reg(SI);
+                c.set_word(0x47c6, si);
+                c.cmp(W, x, 0x13f);
+                c.call(0x908c, 0x9a10)?;
+                c.run(0x9a10, 2)?;
+                c.set_reg(SI, 0xd834);
+                c.call(0xdb74, 0x9a16)?;
+                c.run(0x9a16, 1)?;
+                c.call(0xc4f0, 0x9a19)?;
+                c.run(0x9a19, 1)?;
+                return super::mouse::draw_mouse_cursor_if_needed(c.m, 0xdb67);
+            }
+            0x9a1d => {
+                let n = c.word(0x47ce);
+                if n & 0x8000 != 0 {
+                    c.run(0x9a1d, 3)?;
+                    c.cmp(W, n, 0);
+                    let v = c.byte(0x47d1);
+                    let v = c.or(B, v as u16, 0x10);
+                    c.set_byte(0x47d1, v as u8);
+                    label = 0x9a40;
+                    continue;
+                }
+                c.run(0x9a1d, 5)?;
+                c.cmp(W, n, 0);
+                let si = c.word(0x47ca);
+                c.set_reg(SI, si);
+                let es = c.word(0xdbb2);
+                c.set_sreg(ES, es);
+                c.call(0x994f, 0x9a2f)?;
+                c.run(0x9a2f, 2)?;
+                let (si, bp) = (c.reg(SI), c.reg(BP));
+                let off = c.word_in(ES, bp.wrapping_add(si));
+                let si = c.add(W, si, off);
+                c.set_reg(SI, si);
+                c.call(0x996c, 0x9a35)?;
+                c.run(0x9a35, 2)?;
+                let si = c.reg(SI);
+                c.set_word(0x47c6, si);
+                label = 0x99f0;
+            }
+            _ => {
+                let n = c.word(0x47ce);
+                let si = c.word(0x47c6);
+                let es = c.word(0xdbb2);
+                if (n as i16) > 0 {
+                    c.run(0x9a40, 4)?;
+                    c.set_reg(SI, si);
+                    c.set_sreg(ES, es);
+                    c.cmp(W, n, 0);
+                    label = 0x99f6;
+                    continue;
+                }
+                c.run(0x9a40, 5)?;
+                c.set_reg(SI, si);
+                c.set_sreg(ES, es);
+                c.cmp(W, n, 0);
+                c.call(0x9ab4, 0x9a52)?;
+                if c.flag(pc::cpu::CF) {
+                    c.run(0x9a52, 1)?;
+                    label = 0x99f6;
+                    continue;
+                }
+                c.run(0x9a52, 2)?;
+                c.call(0x9a7b, 0x9a57)?;
+                let ah = c.reg8(r8::AH);
+                if ah != 0 {
+                    c.run(0x9a57, 3)?;
+                    c.or(B, ah as u16, ah as u16);
+                    return c.ret();
+                }
+                c.run(0x9a57, 3)?;
+                c.or(B, 0, 0);
+                c.call(0x9a60, 0x9a5e)?;
+                c.run(0x9a5e, 1)?;
+                label = 0x99f6;
+            }
+        }
+    }
+}
+
+/// `loc_080df`: a phrase AX shown over the map: on the back buffer
+/// `gfx_draw_1be2`, the box 2244h raised (y + 26h from 32h, height 19h;
+/// both restored after), the tall font colour, [`show_phrase`]; outside
+/// [4774h] the text timer [4780h] += 10Ah + [0D810h] and `loc_09efd`;
+/// front buffer, [4720h] 18F3h, [4722h] 0, `loc_0541f`, [1BEAh] 0.
+pub fn show_phrase_on_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x80df)?;
+    let mut c = Ctx::new(m);
+    phrase_on_map_at(&mut c, start, 0, |_| {})
+}
+
+fn phrase_on_map_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    c.run(at, pre + 2)?;
+    ops(c);
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.call(0xc08e, 0x80e3)?;
+    c.run(0x80e3, 1)?;
+    c.call(0x8fd1, 0x80e6)?;
+    let y = c.word(0x2246);
+    let big = y >= 0x32;
+    c.run(0x80e6, 8 + big as u32 + 3)?;
+    let bx = c.pop();
+    c.set_reg(BX, bx);
+    c.set_reg(SI, 0x2244);
+    c.set_reg(AX, y);
+    c.push(y);
+    let h = c.word(0x224a);
+    c.push(h);
+    c.push(bx);
+    c.cmp(W, y, 0x32);
+    let mut ny = y;
+    if big {
+        ny = c.add(W, y, 0x26);
+        c.set_reg(AX, ny);
+    }
+    c.set_word(0x2246, ny);
+    c.set_word(0x224a, 0x19);
+    c.call(0x9f82, 0x8105)?;
+    c.run(0x8105, 2)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    c.call(0x88af, 0x8109)?;
+    let k = c.byte(0x4774);
+    c.run(0x8109, 2 + if k == 0 { 4 } else { 3 })?;
+    c.cmp(B, k as u16, 0);
+    if k == 0 {
+        let d = c.word(0xd810);
+        let a = c.add(W, 0x10a, d);
+        c.set_reg(AX, a);
+        let t = c.word(0x4780);
+        let t = c.add(W, t, a);
+        c.set_word(0x4780, t);
+        c.call(0x9efd, 0x811e)?;
+        c.run(0x811e, 3)?;
+    }
+    let v = c.pop();
+    c.set_word(0x224a, v);
+    let v = c.pop();
+    c.set_word(0x2246, v);
+    c.call(0xc07c, 0x8129)?;
+    c.run(0x8129, 3)?;
+    c.set_word(0x4720, 0x18f3);
+    c.set_byte(0x4722, 0);
+    c.call(0x541f, 0x8137)?;
+    c.run(0x8137, 2)?;
+    c.set_word(0x1bea, 0);
+    c.ret()
+}
+
+/// `loc_088af`: the phrase AX (none for 0) shown: [4780h] = it, [47E0h]
+/// 0; over the map ([`show_phrase_on_map`], the hotspot bit 40h of
+/// [46EBh] dropped); else fetched (`get_phrase_or_command_string_si`),
+/// expanded (`loc_088f1`, `format_interpolated_string` into A6B0h): on
+/// the map screen ([28E7h] 2 and up) out of [46D9h] the box 1BE2h reset
+/// (its byte at 1C06h from [0FBh]); else, unless it starts with a
+/// control code, `loc_08b11`.
+pub fn show_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x88af)?;
+    let mut c = Ctx::new(m);
+    let ax = c.reg(AX);
+    if ax == 0 {
+        c.run(start, 3)?;
+        c.or(W, 0, 0);
+        return c.ret();
+    }
+    let h = c.byte(0x46eb);
+    if h & 0x40 != 0 {
+        return phrase_on_map_at(&mut c, start, 2 + 4 + 2, |c| {
+            c.or(W, ax, ax);
+            c.set_word(0x4780, ax);
+            c.set_byte(0x47e0, 0);
+            c.test(B, h as u16, 0x40);
+            let v = c.and(B, h as u16, 0xbf);
+            c.set_byte(0x46eb, v as u8);
+        });
+    }
+    c.run(start, 2 + 4 + 2)?;
+    c.or(W, ax, ax);
+    c.set_word(0x4780, ax);
+    c.set_byte(0x47e0, 0);
+    c.test(B, h as u16, 0x40);
+    c.set_reg(SI, ax);
+    c.call(0xcf70, 0x88cf)?;
+    c.run(0x88cf, 1)?;
+    c.call(0x88f1, 0x88d2)?;
+    c.run(0x88d2, 3)?;
+    c.set_reg(DI, 0xa6b0);
+    c.push(0xa6b0);
+    c.call(0x8944, 0x88d9)?;
+    let mapk = c.byte(0x28e7);
+    let busy = c.byte(0x46d9);
+    if mapk >= 2 && busy == 0 {
+        c.run(0x88d9, 3 + 2 + 16)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+        c.cmp(B, mapk as u16, 2);
+        c.cmp(B, 0, 0);
+        c.set_word(0x479e, 1);
+        let fb = c.byte(0xfb);
+        let al = c.and(B, !fb as u16, 0x80);
+        c.set_byte(0x1c06, al as u8);
+        let ds = c.sreg(DS);
+        c.push(ds);
+        let es = c.pop();
+        c.set_sreg(ES, es);
+        c.set_reg(DI, 0x1be2);
+        c.xor(W, 0, 0);
+        c.set_reg(AX, 0);
+        for _ in 0..4 {
+            c.stos(W);
+        }
+        c.set_reg8(r8::AL, 0x80);
+        c.stos(W);
+        return c.ret();
+    }
+    let si = c.word_in(SS, c.reg(SP));
+    let al = c.byte(si);
+    let pre = 3 + if mapk >= 2 { 2 } else { 0 };
+    if al & 0x80 != 0 {
+        c.run(0x88d9, pre + 4)?;
+    } else {
+        c.run(0x88d9, pre + 5)?;
+    }
+    let s = c.pop();
+    c.set_reg(SI, s);
+    c.cmp(B, mapk as u16, 2);
+    if mapk >= 2 {
+        c.cmp(B, busy as u16, 0);
+    }
+    let a = c.lods(B, DS);
+    c.or(B, a, a);
+    if a & 0x80 != 0 {
+        return c.ret();
+    }
+    let s = c.dec(W, c.reg(SI));
+    c.set_reg(SI, s);
+    c.call(0x8b11, 0x88ea)?;
+    let si = c.reg(SI);
+    let b = c.byte(si);
+    c.run(0x88ea, 2 + if b >= 0xfe { 1 } else { 2 })?;
+    c.cmp(B, b as u16, 0xfe);
+    c.ret()
+}
