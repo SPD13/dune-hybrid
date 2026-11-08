@@ -970,6 +970,10 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x5a56, map::enter_map_view, "sub_5a56"),
     (0xaf26, ui::open_panel_af26, "sub_af26"),
     (0xaf43, ui::panel_with_head, "sub_af43"),
+    (0x8acc, map::note_phrase_count, "loc_08acc"),
+    (0x5a9a, map::ui_main_view_map_interface, "ui_main_view_map_interface"),
+    (0xbc64, globe::globe_click, "sub_bc64"),
+    (0xb8c6, globe::enter_globe, "sub_b8c6"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];

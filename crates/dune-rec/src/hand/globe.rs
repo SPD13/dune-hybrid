@@ -1245,3 +1245,83 @@ pub fn draw_globe_cursor_at_dx_bx(m: &mut Machine, start: u16) -> Result<(), Bai
     c.set_reg8(r8::BL, v as u8);
     super::draw::draw_sprite_clobbering_bx_dx(c.m, 0xc22f)
 }
+
+/// `sub_bc64`: a click at (DX, BX) on the globe ([`on_globe`]) that hits
+/// a location (`loc_0bd25`, CF): its point (AX, BX) kept in [197Ch],
+/// the globe frame drawn, `loc_0dbb2`, `loc_0bc99`, `loc_0adbe`, then
+/// into the map view (`ui_transition_to_map_interface`). DX, BX kept.
+pub fn globe_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xbc64)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    let (bx, dx) = (c.reg(BX), c.reg(DX));
+    c.push(bx);
+    c.push(dx);
+    c.call(0xbc4e, 0xbc69)?;
+    let miss = |c: &mut Ctx, at: u16| -> Result<(), Bail> {
+        c.run(at, 4)?;
+        let d = c.pop();
+        c.set_reg(DX, d);
+        let b = c.pop();
+        c.set_reg(BX, b);
+        c.ret()
+    };
+    if !c.flag(CF) {
+        return miss(&mut c, 0xbc69);
+    }
+    c.run(0xbc69, 2)?;
+    c.call(0xbd25, 0xbc6e)?;
+    if !c.flag(CF) {
+        return miss(&mut c, 0xbc6e);
+    }
+    c.run(0xbc6e, 4)?;
+    let (ax, bx) = (c.reg(AX), c.reg(BX));
+    c.set_word(0x197c, ax);
+    c.set_word(0x197e, bx);
+    c.call(0xb98b, 0xbc7a)?;
+    c.run(0xbc7a, 4)?;
+    let d = c.pop();
+    c.set_reg(DX, d);
+    let b = c.pop();
+    c.set_reg(BX, b);
+    c.call(0xdbb2, 0xbc90)?;
+    c.run(0xbc90, 1)?;
+    c.call(0xbc99, 0xbc93)?;
+    c.run(0xbc93, 1)?;
+    c.call(0xadbe, 0xbc96)?;
+    c.run(0xbc96, 1)?;
+    super::ui::ui_transition_to_map_interface(c.m, 0x5a3d)
+}
+
+/// `sub_b8c6`: into the globe: `loc_0d2bd`, out of the map view, the
+/// globe set up (`loc_0b8a7`), [0DD03h] up, the globe drawn by
+/// `loc_0c108` (AL 0, DX FFFFh, BP B827h), `loc_0ae04`, the click handler
+/// 2562h, `loc_017e6`, and the frame task B9AEh (every frame).
+pub fn enter_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb8c6)?;
+    let mut c = Ctx::new(m);
+    for (at, to) in [(start, 0xd2bdu16), (0xb8c9, 0x5adf), (0xb8cc, 0xb8a7)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    c.run(0xb8cf, 5)?;
+    let v = c.byte(0xdd03);
+    let v = c.inc(B, v as u16);
+    c.set_byte(0xdd03, v as u8);
+    c.xor(B, 0, 0);
+    c.set_reg8(r8::AL, 0);
+    c.set_reg(DX, 0xffff);
+    c.set_reg(BP, 0xb827);
+    c.call(0xc108, 0xb8de)?;
+    c.run(0xb8de, 1)?;
+    c.call(0xae04, 0xb8e1)?;
+    c.run(0xb8e1, 2)?;
+    c.set_reg(AX, 0x2562);
+    c.call(0xd95e, 0xb8e7)?;
+    c.run(0xb8e7, 1)?;
+    c.call(0x17e6, 0xb8ea)?;
+    c.run(0xb8ea, 3)?;
+    c.set_reg(SI, 0xb9ae);
+    c.set_reg(BP, 1);
+    super::tasks::add_frame_task(c.m, 0xda25)
+}

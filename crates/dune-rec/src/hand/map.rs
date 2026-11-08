@@ -5292,3 +5292,91 @@ fn map_view_redraw(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -
     c.set_word(0xdc58, 0x46e3);
     c.ret()
 }
+
+/// `loc_08acc`: with bit 10h of [47DEh], the count AL for the phrase BP
+/// noted by [`note_47e0`]: CFh up to 8; 55h and 61h less 1, up to 4;
+/// 44h in mode 1 less 1, up to 8. BX kept.
+pub fn note_phrase_count(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8acc)?;
+    let mut c = Ctx::new(m);
+    let saved = c.m.cpu.flags();
+    let (n, _) = phrase_count_walk(&mut c, false);
+    c.m.cpu.set_flags(saved);
+    c.run(start, n)?;
+    let (_, call) = phrase_count_walk(&mut c, true);
+    if let Some(call) = call {
+        if call {
+            c.call(0x8ac3, 0x8ac1)?;
+            c.run(0x8ac1, 2)?;
+        }
+        let b = c.pop();
+        c.set_reg(BX, b);
+    }
+    c.ret()
+}
+
+/// The code of `loc_08acc` up to its call or its end (with `write`, its
+/// registers and push too).
+fn phrase_count_walk(c: &mut Ctx, write: bool) -> (u32, Option<bool>) {
+    let t = c.byte_in(SS, 0x47de);
+    c.test(B, t as u16, 0x10);
+    if t & 0x10 == 0 {
+        return (3, None);
+    }
+    let bx = c.reg(BX);
+    if write {
+        c.push(bx);
+    }
+    let bp = c.reg(BP);
+    let mut ax = c.reg(AX);
+    let mut bh = (bx >> 8) as u8;
+    let mut n = 4u32;
+    let mut lim = None;
+    for (k, l) in [(0xcfu16, 8u8), (0x55, 4), (0x61, 4), (0x44, 8)] {
+        n += 2;
+        c.cmp(W, bp, k);
+        if bp == k {
+            lim = Some((k, l));
+            break;
+        }
+    }
+    let call = match lim {
+        None => false,
+        Some((k, l)) => {
+            let mut go = true;
+            if k == 0x44 {
+                n += 4;
+                let v = c.and(B, t as u16, 0x0f);
+                bh = v as u8;
+                c.cmp(B, v, 1);
+                go = v == 1;
+            }
+            if go {
+                if k != 0xcf {
+                    n += 1;
+                    ax = c.dec(W, ax);
+                }
+                n += 2;
+                c.cmp(B, ax & 0xff, l as u16);
+                if (ax as u8) > l {
+                    n += 2;
+                    ax = ax & 0xff00 | l as u16;
+                }
+            }
+            go
+        }
+    };
+    if write {
+        c.set_reg(AX, ax);
+        c.set_reg(BX, (bh as u16) << 8 | bx & 0xff);
+    }
+    (n + if call { 1 } else { 2 }, Some(call))
+}
+
+/// `ui_main_view_map_interface`: the map view's redraw (the frame
+/// handler [`enter_map_view`] installs).
+pub fn ui_main_view_map_interface(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5a9a)?;
+    let mut c = Ctx::new(m);
+    map_view_redraw(&mut c, start, 0, |_| {})
+}
