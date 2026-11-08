@@ -1087,3 +1087,114 @@ pub fn sky_fade_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x3916);
     super::tasks::remove_frame_task(c.m, 0xda5f)
 }
+
+/// `loc_043e3`: the view brought to the screen: normally the rect 14ACh
+/// (`loc_0c446`, then [`draw_head_if_needed_and_update_screen_rect_at_si`]);
+/// with [473Eh] at a place [6] 80h, the sky palette, the game area and
+/// `sub_c4dd`, then the palette ([`update_screen_palette`]); else
+/// (or with [0DBEAh]) `loc_04abe` and the palette.
+pub fn show_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x43e3)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x473e);
+    if k == 0 {
+        let e = c.word(0xdbea);
+        if e == 0 {
+            c.run(start, 7)?;
+            c.cmp(B, 0, 0);
+            c.cmp(W, 0, 0);
+            c.set_reg(SI, 0x14ac);
+            c.push(0x14ac);
+            c.call(0xc446, 0x43f8)?;
+            c.run(0x43f8, 2)?;
+            let s = c.pop();
+            c.set_reg(SI, s);
+            return super::draw::draw_head_if_needed_and_update_screen_rect_at_si(c.m, 0xc4f0);
+        }
+        c.run(start, 5)?;
+        c.cmp(B, 0, 0);
+        c.cmp(W, e, 0);
+    } else {
+        let p = c.byte(6);
+        if p == 0x80 {
+            c.run(start, 5)?;
+            c.cmp(B, k as u16, 0);
+            c.cmp(B, 0x80, 0x80);
+            c.call(0x388d, 0x4406)?;
+            c.run(0x4406, 1)?;
+            c.call(0xc43e, 0x4409)?;
+            c.run(0x4409, 1)?;
+            c.call(0xc4dd, 0x440c)?;
+            c.run(0x440c, 1)?;
+            return super::gfx::update_screen_palette(c.m, 0xc0f4);
+        }
+        c.run(start, 5)?;
+        c.cmp(B, k as u16, 0);
+        c.cmp(B, p as u16, 0x80);
+    }
+    c.call(0x4abe, 0x4412)?;
+    c.run(0x4412, 1)?;
+    super::gfx::update_screen_palette(c.m, 0xc0f4)
+}
+
+/// `loc_01843`: with a head shown ([0E8h]), its blink: frame 9
+/// ([`redraw_head_panel`]), a pause of 8, frame 8.
+pub fn head_blink(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1843)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0xe8);
+    if k == 0 {
+        c.run(start, 3)?;
+        c.cmp(B, 0, 0);
+        return c.ret();
+    }
+    c.run(start, 4)?;
+    c.cmp(B, k as u16, 0);
+    c.set_byte(0xe8, 9);
+    c.call(0x17be, 0x1852)?;
+    c.run(0x1852, 2)?;
+    c.set_reg(AX, 8);
+    c.call(0xe387, 0x1858)?;
+    c.run(0x1858, 2)?;
+    c.set_byte(0xe8, 8);
+    redraw_head_panel(c.m, 0x17be)
+}
+
+/// `chankiss`: `loc_01392`, `loc_037b2`, the driver's copy (far
+/// [3949h]: the front buffer [0DBDAh] to [0DBDEh], from (0, 32h), mode 3),
+/// the game area to the screen, resource 27h opened with SI 2298h,
+/// `loc_0c21b`, the palette, then [`sub_c4dd`].
+pub fn chankiss(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1442)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x1392, 0x1445)?;
+    c.run(0x1445, 1)?;
+    c.call(0x37b2, 0x1448)?;
+    c.run(0x1448, 6)?;
+    let es = c.word(0xdbde);
+    c.set_sreg(ES, es);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let nds = c.word(0xdbda);
+    c.set_sreg(DS, nds);
+    c.xor(W, 0, 0);
+    c.set_reg(DX, 0);
+    c.set_reg(BX, 0x32);
+    c.set_reg(BP, 3);
+    c.interp(0x1459, 0x145e)?;
+    c.run(0x145e, 2)?;
+    let ds = c.pop();
+    c.set_sreg(DS, ds);
+    c.call(0xc43e, 0x1462)?;
+    c.run(0x1462, 3)?;
+    c.set_reg(SI, 0x2298);
+    c.set_reg(AX, 0x27);
+    c.call(0xc13e, 0x146b)?;
+    c.run(0x146b, 1)?;
+    c.call(0xc21b, 0x146e)?;
+    c.run(0x146e, 1)?;
+    c.call(0xc0f4, 0x1471)?;
+    c.run(0x1471, 1)?;
+    super::draw::sub_c4dd(c.m, 0xc4dd)
+}

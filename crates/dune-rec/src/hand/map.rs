@@ -3980,3 +3980,153 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, si);
     }
 }
+
+/// `loc_040f9`: in a map mode with [10h] set: the 51h map cells around
+/// the position (`get_map_position`, `loc_0b56c` 9×9) with bit 40h whose
+/// record (`loc_0409a`) is a location with bit 80h of byte 0Ah, due
+/// (phase from its byte 0Bh) and ahead (`loc_05124`'s direction within
+/// 60h of [11C7h]): the encounter told (its side in [0E1h], phrase CEh
+/// or D0h, its place `loc_06231` + 48h, [23h] 3, `loc_0425b`,
+/// `loc_04944`, `loc_0dbb2`, `loc_02efb`, `loc_02ffb`, `loc_0d397`).
+pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x40f9)?;
+    let mut c = Ctx::new(m);
+    let mode = c.byte(0x11c9);
+    if mode & 3 == 0 {
+        c.run(start, 3)?;
+        c.test(B, mode as u16, 3);
+        return c.ret();
+    }
+    let w = c.word(0x10);
+    if w == 0 {
+        c.run(start, 5)?;
+        c.test(B, mode as u16, 3);
+        c.cmp(W, 0, 0);
+        return c.ret();
+    }
+    c.run(start, 5)?;
+    c.test(B, mode as u16, 3);
+    c.cmp(W, w, 0);
+    c.call(0x407e, 0x410b)?;
+    c.run(0x410b, 3)?;
+    c.set_reg(CX, 9);
+    c.set_reg(AX, 9);
+    c.call(0xb56c, 0x4114)?;
+    c.run(0x4114, 1)?;
+    c.set_reg(CX, 0x51);
+    let mut cx = 0x51u16;
+    loop {
+        let si = c.reg(SI);
+        let al = c.byte(si);
+        'one: {
+            if al & 0x40 == 0 {
+                c.run(0x4117, 3)?;
+                c.lods(B, DS);
+                c.test(B, al as u16, 0x40);
+                break 'one;
+            }
+            c.run(0x4117, 7)?;
+            c.lods(B, DS);
+            c.test(B, al as u16, 0x40);
+            let si = c.reg(SI);
+            let di = c.word(si);
+            c.set_reg(DI, di);
+            c.push(cx);
+            c.push(si);
+            c.call(0x409a, 0x4123)?;
+            let tail = |c: &mut Ctx| -> Result<(), Bail> {
+                c.run(0x417a, 2)?;
+                let s = c.pop();
+                c.set_reg(SI, s);
+                let x = c.pop();
+                c.set_reg(CX, x);
+                Ok(())
+            };
+            if !c.flag(ZF) {
+                c.run(0x4123, 1)?;
+                tail(&mut c)?;
+                break 'one;
+            }
+            let si = c.reg(SI);
+            let f = c.byte(si.wrapping_add(0x0a));
+            let ph = c.byte(0x2a);
+            let due = c.byte(si.wrapping_add(0x0b));
+            if f & 0x80 == 0 {
+                c.run(0x4123, 3)?;
+                c.test(B, f as u16, 0x80);
+                tail(&mut c)?;
+                break 'one;
+            }
+            if ph < due {
+                c.run(0x4123, 6)?;
+                c.test(B, f as u16, 0x80);
+                c.set_reg8(r8::AL, ph);
+                c.cmp(B, ph as u16, due as u16);
+                tail(&mut c)?;
+                break 'one;
+            }
+            c.run(0x4123, 8)?;
+            c.test(B, f as u16, 0x80);
+            c.set_reg8(r8::AL, ph);
+            c.cmp(B, ph as u16, due as u16);
+            c.set_reg(DI, si);
+            c.call(0x5124, 0x4138)?;
+            if c.flag(CF) {
+                c.run(0x4138, 1)?;
+                tail(&mut c)?;
+                break 'one;
+            }
+            let al = c.reg8(r8::AL);
+            let dir = c.byte(0x11c7);
+            let v = al.wrapping_sub(dir).wrapping_add(0x60);
+            if v >= 0xc0 {
+                c.run(0x4138, 5)?;
+                let a = c.sub(B, al as u16, dir as u16);
+                let a = c.add(B, a, 0x60);
+                c.set_reg8(r8::AL, a as u8);
+                c.cmp(B, a, 0xc0);
+                tail(&mut c)?;
+                break 'one;
+            }
+            let right = v >= 0x60;
+            c.run(0x4138, 5 + 4 + 2 * right as u32 + 3)?;
+            let a = c.sub(B, al as u16, dir as u16);
+            let a = c.add(B, a, 0x60);
+            c.cmp(B, a, 0xc0);
+            c.xor(B, 0, 0);
+            c.cmp(B, a, 0x60);
+            let mut ah = 0u16;
+            let mut cxv = 0xceu16;
+            if right {
+                ah = c.inc(B, 0);
+                cxv = c.add(W, 0xce, 2);
+            }
+            c.set_reg(AX, ah << 8 | a);
+            c.set_reg(CX, cxv);
+            c.set_word(0x11f5, cxv);
+            c.set_byte(0xe1, ah as u8);
+            c.call(0x6231, 0x415d)?;
+            c.run(0x415d, 4)?;
+            let ax = c.reg(AX);
+            let ax = c.add(W, ax, 0x48);
+            c.set_reg(AX, ax);
+            c.set_word(0x11f3, ax);
+            c.set_byte(0x23, 3);
+            c.call(0x425b, 0x416b)?;
+            for (at, to) in [(0x416bu16, 0x4944u16), (0x416e, 0xdbb2), (0x4171, 0x2efb), (0x4174, 0x2ffb), (0x4177, 0xd397)] {
+                c.run(at, 1)?;
+                c.call(to, at + 3)?;
+            }
+            tail(&mut c)?;
+        }
+        let si = c.reg(SI);
+        cx = c.reg(CX).wrapping_sub(1);
+        c.run(0x417c, 2 + (cx == 0) as u32)?;
+        let s = c.add(W, si, 2);
+        c.set_reg(SI, s);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            return c.ret();
+        }
+    }
+}

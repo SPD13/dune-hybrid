@@ -907,6 +907,12 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x7e1e, map::skill_bars_4705, "loc_07e1e"),
     (0x7e3d, map::skill_bars, "loc_07e3d"),
     (0x5dce, map::list_shown_locations, "loc_05dce"),
+    (0x43e3, ui::show_view, "loc_043e3"),
+    (0x40f9, map::scan_encounters, "loc_040f9"),
+    (0xba75, globe::set_globe_tilt_and_rotation, "set_globe_tilt_and_rotation"),
+    (0x9673, dialogue::add_speaker_gauge, "loc_09673"),
+    (0x1843, ui::head_blink, "loc_01843"),
+    (0x1442, ui::chankiss, "chankiss"),
 ];
 
 /// 8-bit register numbers (the CPU's encoding).

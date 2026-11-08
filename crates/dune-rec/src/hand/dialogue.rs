@@ -1732,3 +1732,89 @@ pub fn grow_dialogue_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, s);
     c.ret()
 }
+
+/// `loc_09673`: the speaker byte 0Eh of SI put on a gauge (1152h, else
+/// 1153h, when free; with both taken the first one's speaker leaves:
+/// [23h] its byte 0Eh + 64h, `loc_09556`, and the second moves down),
+/// its marker at +10D0h set to 10h, the gauges redrawn ([`draw_gauges`]).
+/// Nothing when it already has one.
+pub fn add_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9673)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let cl = c.byte(si.wrapping_add(0x0e));
+    let (g1, g2) = (c.byte(0x1152), c.byte(0x1153));
+    let di;
+    if g1 == cl {
+        c.run(start, 5)?;
+        c.set_reg8(r8::CL, cl);
+        c.set_reg(DI, 0x1152);
+        c.cmp(B, g1 as u16, cl as u16);
+        return c.ret();
+    }
+    if g1 == 0xff {
+        c.run(start, 6 + 3)?;
+        c.set_reg8(r8::CL, cl);
+        c.set_reg(DI, 0x1152);
+        c.cmp(B, g1 as u16, cl as u16);
+        c.cmp(B, 0xff, 0xff);
+        di = 0x1152u16;
+    } else if g2 == cl {
+        c.run(start, 10)?;
+        c.set_reg8(r8::CL, cl);
+        c.cmp(B, g1 as u16, cl as u16);
+        c.cmp(B, g1 as u16, 0xff);
+        let d = c.inc(W, 0x1152);
+        c.set_reg(DI, d);
+        c.cmp(B, g2 as u16, cl as u16);
+        return c.ret();
+    } else if g2 == 0xff {
+        c.run(start, 11 + 3)?;
+        c.set_reg8(r8::CL, cl);
+        c.cmp(B, g1 as u16, cl as u16);
+        c.cmp(B, g1 as u16, 0xff);
+        let d = c.inc(W, 0x1152);
+        c.set_reg(DI, d);
+        c.cmp(B, g2 as u16, cl as u16);
+        c.cmp(B, 0xff, 0xff);
+        di = 0x1153;
+    } else {
+        c.run(start, 11 + 11)?;
+        c.set_reg8(r8::CL, cl);
+        c.cmp(B, g1 as u16, cl as u16);
+        c.cmp(B, g1 as u16, 0xff);
+        let d = c.inc(W, 0x1152);
+        c.cmp(B, g2 as u16, cl as u16);
+        c.cmp(B, g2 as u16, 0xff);
+        let d = c.dec(W, d);
+        c.set_reg(DI, d);
+        let cx = c.reg(CX);
+        c.push(cx);
+        c.set_reg8(r8::CL, g1);
+        c.set_reg8(r8::AL, 0x10);
+        c.mul8(g1);
+        let ax = c.reg(AX);
+        let ax = c.add(W, ax, 0xfd8);
+        c.set_reg(SI, ax);
+        let b = c.byte(ax.wrapping_add(0x0e));
+        let v = c.add(B, b as u16, 0x64);
+        c.set_reg(AX, ax & 0xff00 | v);
+        c.set_byte(0x23, v as u8);
+        c.call(0x9556, 0x96a4)?;
+        c.run(0x96a4, 4 + 3)?;
+        let cx = c.pop();
+        c.set_reg(CX, cx);
+        let d = c.reg(DI);
+        let d = c.inc(W, d);
+        c.set_reg(DI, d);
+        let a = c.byte(d);
+        c.set_reg8(r8::AL, a);
+        c.set_byte(d.wrapping_sub(1), a);
+        di = d;
+    }
+    let cl = c.reg8(r8::CL);
+    c.set_reg(DI, di);
+    c.set_byte(di, cl);
+    c.set_byte(di.wrapping_add(0x10d0), 0x10);
+    super::screens::draw_gauges(c.m, 0xd763)
+}

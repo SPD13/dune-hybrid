@@ -971,35 +971,45 @@ pub fn globe_increment_tilt(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     // A first pass counts (its flags undone), the second one writes.
     let saved = c.m.cpu.flags();
-    let n = tilt_walk(&mut c, false);
+    let n = tilt_walk(&mut c, false, true);
     c.m.cpu.set_flags(saved);
     c.run(start, n?)?;
-    tilt_walk(&mut c, true)?;
+    tilt_walk(&mut c, true, true)?;
     c.ret()
 }
 
 /// The code of `globe_increment_tilt_by_ax` after its entry; with
-/// `write`, the memory and registers too. Its instruction count.
-fn tilt_walk(c: &mut Ctx, write: bool) -> Result<u32, Bail> {
-    let ax0 = c.reg(AX);
-    let t = c.word(0x2460);
-    let mut ax = c.add(W, ax0, t);
-    let mut cx = 0x62u16;
-    c.cmp(W, ax, cx);
-    let mut n = 4;
-    if (ax as i16) >= 0x62 {
-        ax = cx;
-        n += 1;
-    }
-    cx = c.neg(W, cx);
-    c.cmp(W, ax, cx);
-    n += 3;
-    if (ax as i16) <= (cx as i16) {
-        ax = cx;
-        n += 1;
+/// `write`, the memory and registers too; without `head`, from BA2Dh
+/// (the table for the tilt [2460h] as it is). Its instruction count.
+fn tilt_walk(c: &mut Ctx, write: bool, head: bool) -> Result<u32, Bail> {
+    let mut n = 0;
+    let mut ax;
+    let mut cx;
+    if head {
+        let ax0 = c.reg(AX);
+        let t = c.word(0x2460);
+        ax = c.add(W, ax0, t);
+        cx = 0x62u16;
+        c.cmp(W, ax, cx);
+        n = 4;
+        if (ax as i16) >= 0x62 {
+            ax = cx;
+            n += 1;
+        }
+        cx = c.neg(W, cx);
+        c.cmp(W, ax, cx);
+        n += 3 + 1;
+        if (ax as i16) <= (cx as i16) {
+            ax = cx;
+            n += 1;
+        }
+        if write {
+            c.set_word(0x2460, ax);
+        }
+    } else {
+        ax = c.word(0x2460);
     }
     if write {
-        c.set_word(0x2460, ax);
         let ds = c.sreg(DS);
         c.push(ds);
         let es = c.pop();
@@ -1011,7 +1021,7 @@ fn tilt_walk(c: &mut Ctx, write: bool) -> Result<u32, Bail> {
     cx = 0xc4;
     ax = c.add(W, ax, bx);
     c.cmp(W, ax, bx);
-    n += 10;
+    n += 9;
     let lo = |ax: u16, v: u16| ax & 0xff00 | v & 0xff;
     let mut l = if (ax as i16) <= (bx as i16) { 0xba55u16 } else { 0xba41 };
     loop {
@@ -1158,4 +1168,38 @@ fn globe_button(m: &mut Machine, start: u16, pre: u32, step: u16, by: u16, jnb: 
     c.call(by, jnb + 5)?;
     c.run(jnb + 5, 1)?;
     globe_frame(c.m, 0xb98b)
+}
+
+/// `set_globe_tilt_and_rotation`: the rotation [494Ch] = DX·18Eh / 64K
+/// ([494Eh] 0) and the tilt [2460h] = BX (unsigned, 20h..FFE0h), then
+/// `loc_0b9f6` and the row table for the tilt (as
+/// [`globe_increment_tilt`]).
+pub fn set_globe_tilt_and_rotation(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xba75)?;
+    let mut c = Ctx::new(m);
+    let bx = c.reg(BX);
+    let lo = bx < 0x20;
+    let a = if lo { 0x20 } else { bx };
+    let hi = a >= 0xffe0;
+    let a = if hi { 0xffe0 } else { a };
+    c.run(start, 8 + lo as u32 + 2 + hi as u32 + 2)?;
+    c.set_reg(SI, 0x494c);
+    c.set_reg(AX, 0x18e);
+    let dx = c.reg(DX);
+    c.mul16(dx);
+    let d = c.reg(DX);
+    c.set_word(0x494c, d);
+    c.set_word(0x494e, 0);
+    c.cmp(W, bx, 0x20);
+    let a1 = if lo { 0x20 } else { bx };
+    c.cmp(W, a1, 0xffe0);
+    c.set_reg(AX, a);
+    c.set_word(0x2460, a);
+    c.call(0xb9f6, 0xba9c)?;
+    let saved = c.m.cpu.flags();
+    let n = tilt_walk(&mut c, false, false);
+    c.m.cpu.set_flags(saved);
+    c.run(0xba9c, 1 + n?)?;
+    tilt_walk(&mut c, true, false)?;
+    c.ret()
 }
