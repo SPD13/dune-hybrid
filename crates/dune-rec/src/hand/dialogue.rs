@@ -4267,3 +4267,348 @@ fn phrase_93aa(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x93dc, 1)?;
     next_line_from_9472(c)
 }
+
+/// `loc_08b11`: the text SI laid out in its box: the old box closed
+/// (`loc_08c8a`), the new one placed (`loc_08ccd`; CF: no room, done),
+/// drawn (`draw_speech_bubble`, `loc_08df0`) and the pen at [4791h] /
+/// [4793h]. The layout A9D0h (line count, then per line its width
+/// count, offset and spacing) is placed by [4799h]: bits 2-3 spread the
+/// lines (4: the line height [479Ah] from the room [478Dh]; 8 / 0Ch:
+/// centred, 8 halved), bit 1 centres the first line (once). Each line:
+/// its words (space / CR runs end a word, a negative byte the line),
+/// 1 the colour pair [0DBE4h] swapped, 6 / 8 the font switches
+/// (`loc_0d075` / `loc_0d068`), others drawn ([2518h]); words spaced by
+/// DX ([479Ch] of them one wider). Lines step by [479Ah] (taken from
+/// [478Dh]); at the end the pen kept, SI back on the last byte, and for
+/// the picture 223Ch ([479Eh]) its outline (`loc_09046`) and the back
+/// buffer made current.
+pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8b11)?;
+    let mut c = Ctx::new(m);
+    c.run(0x8b11, 2)?;
+    let si = c.reg(SI);
+    c.push(si);
+    c.call(0x8c8a, 0x8b15)?;
+    c.run(0x8b15, 2)?;
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.call(0x8ccd, 0x8b19)?;
+    if c.flag(pc::cpu::CF) {
+        c.run(0x8b19, 2)?;
+        return c.ret();
+    }
+    c.run(0x8b19, 2)?;
+    c.call(0x8f28, 0x8b1e)?;
+    c.run(0x8b1e, 1)?;
+    c.call(0x8df0, 0x8b21)?;
+    c.run(0x8b21, 3)?;
+    let (dx, bx) = (c.word(0x4791), c.word(0x4793));
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    c.call(0xd04e, 0x8b2c)?;
+    let f = c.byte(0x4799);
+    let a = f & 0x0c;
+    let w0 = c.word_in(SS, 0xa9d0);
+    let room = c.word(0x478d);
+    let head = |c: &mut Ctx| {
+        c.set_reg(BP, 0xa9d0);
+        c.set_word(0x479a, 0x0a);
+        c.set_reg8(r8::AL, f);
+        c.and(B, f as u16, 0x0c);
+        c.set_reg8(r8::AL, a);
+    };
+    if a == 0 {
+        c.run(0x8b2c, 5)?;
+        head(&mut c);
+    } else if a < 8 {
+        let b1 = w0.wrapping_sub(1);
+        c.run(0x8b2c, 5 + 2 + 6 + if b1 != 0 { 3 } else { 5 })?;
+        head(&mut c);
+        c.cmp(B, a as u16, 8);
+        c.set_reg(BX, w0);
+        c.xor(W, 0, 0);
+        c.set_reg(DX, 0);
+        c.set_reg(AX, room);
+        let ax = c.sub(W, room, 8);
+        c.set_reg(AX, ax);
+        c.dec(W, w0);
+        c.set_reg(BX, b1);
+        if b1 != 0 {
+            c.m.cpu.mul_div(&mut c.m.hw, W, 6, b1 as u32);
+            let q = c.reg(AX);
+            c.set_word(0x479a, q);
+        } else {
+            let h = c.shr1(W, ax, 1);
+            c.set_reg(AX, h);
+            let x = c.word(0xd82c);
+            c.set_reg(DX, x);
+            let y = c.word(0xd82e);
+            let b = c.add(W, h, y);
+            c.set_reg(BX, b);
+            c.call(0xd04e, 0x8b64)?;
+            c.run(0x8b64, 1)?;
+        }
+    } else {
+        let prod = (w0 & 0xff) * 10;
+        let under = room < prod;
+        c.run(0x8b2c, 5 + 2 + 7 + under as u32 + 3 + (a == 8) as u32 + 3)?;
+        head(&mut c);
+        c.cmp(B, a as u16, 8);
+        let fl = c.m.cpu.flags();
+        c.push(fl);
+        c.set_reg(AX, w0);
+        c.set_reg8(r8::AH, 0x0a);
+        c.mul8(0x0a);
+        c.set_reg(BX, room);
+        let mut bx = c.sub(W, room, prod);
+        if under {
+            c.xor(W, bx, bx);
+            bx = 0;
+        }
+        c.set_reg(BX, bx);
+        c.set_word(0x478d, prod);
+        let fl = c.pop();
+        c.m.cpu.set_flags(fl);
+        if a == 8 {
+            bx = c.shr1(W, bx, 1);
+            c.set_reg(BX, bx);
+        }
+        let x = c.word(0xd82c);
+        c.set_reg(DX, x);
+        let y = c.word(0xd82e);
+        let b = c.add(W, bx, y);
+        c.set_reg(BX, b);
+        c.call(0xd04e, 0x8b8b)?;
+    }
+    c.run(0x8b8b, 2)?;
+    let bp = c.reg(BP);
+    let n = c.word_in(SS, bp);
+    c.set_reg(DX, n);
+    let bp = c.add(W, bp, 2);
+    c.set_reg(BP, bp);
+    loop {
+        // 8B91h: a line.
+        let bp = c.reg(BP);
+        let cx = c.word_in(SS, bp);
+        let dx2 = c.word_in(SS, bp.wrapping_add(2));
+        let bx2 = c.word_in(SS, bp.wrapping_add(4));
+        c.run(0x8b91, 7 + (cx == 0) as u32)?;
+        let dx = c.reg(DX);
+        c.push(dx);
+        c.set_reg(CX, cx);
+        let b = c.add(W, bp, 2);
+        c.set_reg(DX, dx2);
+        c.set_reg(BX, bx2);
+        let b = c.add(W, b, 4);
+        c.set_reg(BP, b);
+        if cx != 0 {
+            line_8ba3(&mut c, cx, dx2, bx2)?;
+        }
+        // 8C47h: the next line.
+        let step = c.word(0x479a);
+        let room = c.word(0x478d);
+        let under = room < step;
+        c.run(0x8c47, 6 + under as u32 + 1)?;
+        let x = c.word(0xd830);
+        c.set_reg(DX, x);
+        let y = c.word(0xd832);
+        c.set_reg(BX, y);
+        c.set_reg(AX, step);
+        let b = c.add(W, y, step);
+        c.set_reg(BX, b);
+        let r = c.sub(W, room, step);
+        c.set_word(0x478d, if under { 0 } else { r });
+        c.call(0xd04e, 0x8c63)?;
+        let sp = c.reg(SP);
+        let left = c.word_in(SS, sp).wrapping_sub(1);
+        c.run(0x8c63, 3 + (left != 0) as u32)?;
+        c.pop();
+        c.dec(W, left.wrapping_add(1));
+        c.set_reg(DX, left);
+        if left == 0 {
+            break;
+        }
+    }
+    let k = c.word(0x479e);
+    c.run(0x8c6a, 7 + 1)?;
+    let (x, y) = (c.word(0xd830), c.word(0xd832));
+    c.set_reg(DX, x);
+    c.set_reg(BX, y);
+    c.set_word(0x4791, x);
+    c.set_word(0x4793, y);
+    let si = c.reg(SI);
+    let si = c.dec(W, si);
+    c.set_reg(SI, si);
+    c.cmp(W, k, 0x223c);
+    if k != 0x223c {
+        return c.ret();
+    }
+    c.call(0x9046, 0x8c86)?;
+    c.run(0x8c86, 1)?;
+    super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
+}
+
+/// `loc_08ba3`: a line of CX words with the offset DX / spacing BX (see
+/// [`layout_text`]).
+fn line_8ba3(c: &mut Ctx, cx: u16, dx2: u16, bx2: u16) -> Result<(), Bail> {
+    let f = c.byte(0x4799);
+    if f & 2 != 0 {
+        let cl = cx as u8;
+        let d = cl.wrapping_sub(1);
+        c.run(0x8ba3, 2 + 4 + (d != 0) as u32 + 12)?;
+        c.test(B, f as u16, 2);
+        c.set_reg8(r8::AL, dx2 as u8);
+        c.set_reg8(r8::DL, cl);
+        c.dec(B, cl as u16);
+        c.set_reg8(r8::DL, d);
+        if d != 0 {
+            c.mul8(d);
+        }
+        let al = c.reg8(r8::AL);
+        let s = c.add(B, al as u16, bx2 & 0xff);
+        c.set_reg8(r8::AL, s as u8);
+        c.set_reg8(r8::DL, s as u8);
+        c.set_reg8(r8::AL, cl);
+        let a3 = c.dec(B, cl as u16);
+        c.xor(B, 0, 0);
+        let ax = a3;
+        let ax = c.shl1(W, ax, 1);
+        let dx = c.reg(DX);
+        let dx = c.sub(W, dx, ax);
+        let ax = c.shl1(W, ax, 1);
+        c.set_reg(AX, ax);
+        let dx = c.sub(W, dx, ax);
+        let dx = c.shr1(W, dx, 1);
+        c.set_reg(DX, dx);
+        let v = c.word(0xd82c);
+        let v = c.add(W, v, dx);
+        c.set_word(0xd82c, v);
+        let g = c.and(B, f as u16, 0xfe);
+        c.set_byte(0x4799, g as u8);
+    } else {
+        c.run(0x8ba3, 2)?;
+        c.test(B, f as u16, 2);
+    }
+    let sp = c.reg(SP);
+    let lines = c.word_in(SS, sp);
+    let f = c.byte(0x4799);
+    let plain = lines == 1 || f & 1 == 0;
+    c.run(0x8bd1, 4 + if lines == 1 { 0 } else { 2 } + if plain { 2 } else { 0 } + 1)?;
+    c.pop();
+    c.set_reg(AX, lines);
+    c.push(lines);
+    c.cmp(W, lines, 1);
+    if lines != 1 {
+        c.test(B, f as u16, 1);
+    }
+    if plain {
+        c.set_reg(DX, 6);
+        c.set_reg(BX, 0);
+    }
+    let bx = c.reg(BX);
+    c.set_word(0x479c, bx);
+    // 8BE9h: the characters.
+    loop {
+        let si = c.reg(SI);
+        let al = c.byte(si);
+        let tests: &[u8] = &[0x20, 0x0d, 0x06, 0x08, 0x01];
+        let hit = tests.iter().position(|&t| t == al);
+        let cmps = |c: &mut Ctx, upto: usize| {
+            c.lods(B, DS);
+            c.or(B, al as u16, al as u16);
+            for &t in &tests[..upto] {
+                c.cmp(B, al as u16, t as u16);
+            }
+        };
+        if al & 0x80 != 0 {
+            c.run(0x8be9, 3)?;
+            cmps(c, 0);
+        } else {
+            match hit {
+                Some(0) | Some(1) => {
+                    let k = hit.unwrap();
+                    c.run(0x8be9, 3 + 2 * (k as u32 + 1))?;
+                    cmps(c, k + 1);
+                    skip_blanks_8c19(c)?;
+                }
+                Some(2) | Some(3) => {
+                    let k = hit.unwrap();
+                    c.run(0x8be9, 3 + 2 * (k as u32 + 1) + 1)?;
+                    cmps(c, k + 1);
+                    let (to, ret) = if k == 2 { (0xd075u16, 0x8c12u16) } else { (0xd068, 0x8c17) };
+                    c.call(to, ret)?;
+                    c.run(ret, 1)?;
+                    continue;
+                }
+                Some(_) => {
+                    c.run(0x8be9, 3 + 10 + 4)?;
+                    cmps(c, 5);
+                    let v = c.word(0xdbe4);
+                    let v = v.rotate_left(8);
+                    c.set_reg(AX, v);
+                    c.set_word(0xdbe4, v);
+                    continue;
+                }
+                None => {
+                    c.run(0x8be9, 3 + 10 + 1)?;
+                    cmps(c, 5);
+                    let to = c.word(0x2518);
+                    c.call(to, 0x8c45)?;
+                    c.run(0x8c45, 1)?;
+                    continue;
+                }
+            }
+        }
+        // 8C26h: a word ends.
+        let cx = c.reg(CX).wrapping_sub(1);
+        if cx == 0 {
+            c.run(0x8c26, 2)?;
+            c.dec(W, 1);
+            c.set_reg(CX, 0);
+            return Ok(());
+        }
+        let k = c.word(0x479c);
+        c.run(0x8c26, 2 + 4 + if k != 0 { 2 } else { 0 } + 3)?;
+        let cx0 = c.reg(CX);
+        c.dec(W, cx0);
+        c.set_reg(CX, cx);
+        let dx = c.reg(DX);
+        c.push(dx);
+        let p = c.word(0xd82c);
+        let mut x = c.add(W, dx, p);
+        c.cmp(W, k, 0);
+        if k != 0 {
+            x = c.inc(W, x);
+            let k2 = c.dec(W, k);
+            c.set_word(0x479c, k2);
+        }
+        c.set_reg(DX, x);
+        c.set_word(0xd82c, x);
+        let dx = c.pop();
+        c.set_reg(DX, dx);
+    }
+}
+
+/// `loc_08c19`: the blanks after a word skipped (spaces and CRs), then
+/// the word's end (`loc_08c26`, counted by the caller's loop).
+fn skip_blanks_8c19(c: &mut Ctx) -> Result<(), Bail> {
+    loop {
+        let si = c.reg(SI);
+        let b = c.byte(si);
+        if b == 0x20 {
+            c.run(0x8c19, 4)?;
+            c.cmp(B, b as u16, 0x20);
+        } else if b == 0x0d {
+            c.run(0x8c19, 6)?;
+            c.cmp(B, b as u16, 0x20);
+            c.cmp(B, b as u16, 0x0d);
+        } else {
+            c.run(0x8c19, 4)?;
+            c.cmp(B, b as u16, 0x20);
+            c.cmp(B, b as u16, 0x0d);
+            return Ok(());
+        }
+        let si = c.inc(W, si);
+        c.set_reg(SI, si);
+    }
+}

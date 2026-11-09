@@ -1055,6 +1055,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x8308, troops::troop_move, "loc_08308"),
     (0x8357, troops::troop_arrived, "loc_08357"),
     (0x84a6, troops::troop_set_out, "loc_084a6"),
+    (0x8b11, dialogue::layout_text, "loc_08b11"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),
