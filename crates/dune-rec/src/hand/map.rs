@@ -7136,3 +7136,35 @@ fn speed_4e8e(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     ret_mouse(c)
 }
+
+/// `loc_064b2`: the midpoint walk of radius CX, its spans drawn by
+/// `loc_064ef` (the handler at CS:64EDh); see [`circle_sim`].
+pub fn circle_walk(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x64b2)?;
+    let mut c = Ctx::new(m);
+    let mut r = [c.reg(AX), c.reg(BX), c.reg(CX), c.reg(DX), c.reg(SI), c.reg(DI), c.reg(BP)];
+    let mut label = 0x64b2u16;
+    loop {
+        let Ok((n, end, out, old_cx, carry)) = circle_sim(label, r) else {
+            c.m.cpu.ip = label;
+            return Err(Bail);
+        };
+        c.run(label, n)?;
+        let [ax, bx, cx, dx, si, di, bp] = out;
+        for (reg, v) in [(AX, ax), (BX, bx), (CX, cx), (DX, dx), (SI, si), (DI, di), (BP, bp)] {
+            c.set_reg(reg, v);
+        }
+        match end {
+            Some(back) => {
+                c.call(0x64ef, back)?;
+                r = [c.reg(AX), c.reg(BX), c.reg(CX), c.reg(DX), c.reg(SI), c.reg(DI), c.reg(BP)];
+                label = back;
+            }
+            None => {
+                c.set_flag(CF, carry);
+                c.dec(W, old_cx);
+                return c.ret();
+            }
+        }
+    }
+}

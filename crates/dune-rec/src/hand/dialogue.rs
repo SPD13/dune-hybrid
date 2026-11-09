@@ -4953,3 +4953,105 @@ pub fn format_and_show(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.cmp(B, v as u16, 0xfe);
     c.ret()
 }
+
+/// `loc_088f1`: the phrase ES:SI expanded into SS:A840h (DS and ES
+/// swapped for it): bytes below E0h and FEh copied; E0h-FDh with their
+/// word take a dictionary entry (offset: the word's low 14 bits from
+/// [47B4h]; length: its low nibble plus the word's top two bits * 10h)
+/// and a space after it unless the phrase ends there; FFh (or the
+/// buffer's end at A9CFh) ends it with FFh. Then SI the buffer and DS
+/// back to SS. Bails with DF set.
+pub fn expand_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::ES;
+    entered(start, 0x88f1)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    c.run(0x88f1, 5)?;
+    let (ds, es) = (c.sreg(DS), c.sreg(ES));
+    c.push(ds);
+    c.push(es);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(DI, 0xa840);
+    loop {
+        let si = c.reg(SI);
+        let al = c.byte(si);
+        if al == 0xff {
+            c.run(0x88f8, 3 + 5)?;
+            c.lods(B, DS);
+            c.cmp(B, al as u16, 0xff);
+            return end_893d(&mut c);
+        }
+        if al == 0xfe || al < 0xe0 {
+            let di = c.reg(DI).wrapping_add(1);
+            let full = di >= 0xa9cf;
+            c.run(0x88f8, 3 + 2 + if al == 0xfe { 0 } else { 2 } + 4 + if full { 5 } else { 1 })?;
+            c.lods(B, DS);
+            c.cmp(B, al as u16, 0xff);
+            c.cmp(B, al as u16, 0xfe);
+            if al != 0xfe {
+                c.cmp(B, al as u16, 0xe0);
+            }
+            c.stos(B);
+            c.set_reg8(r8::AL, 0xff);
+            c.cmp(W, di, 0xa9cf);
+            if full {
+                return end_893d(&mut c);
+            }
+            continue;
+        }
+        c.run(0x88f8, 3 + 4 + 14)?;
+        c.lods(B, DS);
+        c.cmp(B, al as u16, 0xff);
+        c.cmp(B, al as u16, 0xfe);
+        c.cmp(B, al as u16, 0xe0);
+        let ch = c.and(B, al as u16, 0x0f);
+        c.set_reg8(r8::CH, ch as u8);
+        let w = c.lods(W, DS);
+        c.set_reg8(r8::CL, (w >> 8) as u8);
+        let ax = c.and(W, w, 0x3fff);
+        c.set_reg(AX, ax);
+        let cl = c.shr1(B, w >> 8, 2);
+        let cl = c.and(B, cl, 0x30);
+        let cl = c.or(B, cl, ch);
+        c.xor(B, ch, ch);
+        c.set_reg(CX, cl);
+        let si = c.reg(SI);
+        c.push(si);
+        let base = c.word_in(SS, 0x47b4);
+        let s2 = c.add(W, base, ax);
+        c.set_reg(SI, s2);
+        c.rep(0xa4);
+        let sp = c.reg(SP);
+        let si = c.word_in(SS, sp);
+        let b = c.byte(si);
+        c.run(0x892f, 3 + if b == 0xff { 1 + 5 } else { 3 })?;
+        let si = c.pop();
+        c.set_reg(SI, si);
+        c.cmp(B, b as u16, 0xff);
+        if b == 0xff {
+            c.lods(B, DS);
+            return end_893d(&mut c);
+        }
+        let di = c.reg(DI);
+        c.m.cpu.write8(&mut c.m.hw, ES, di, 0x20);
+        let di = c.inc(W, di);
+        c.set_reg(DI, di);
+    }
+}
+
+/// `loc_0893d` (counted by the caller): FFh stored, SI the buffer
+/// A840h, DS = SS.
+fn end_893d(c: &mut Ctx) -> Result<(), Bail> {
+    c.stos(B);
+    c.set_reg(SI, 0xa840);
+    let ss = c.sreg(SS);
+    c.push(ss);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.ret()
+}
