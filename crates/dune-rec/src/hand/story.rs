@@ -5816,3 +5816,589 @@ fn scene_flags(c: &mut Ctx, mode: u8, was: u8, map: bool) {
     c.set_reg8(r8::AL, was);
     c.or(B, was as u16, was as u16);
 }
+
+/// `loc_02e52`: the scene refreshed after a move: `scene_start`, the time
+/// noted ([0DC5Ah] = [0CE7Ah]); unless the scene took over ([47A7h]):
+/// travelling ([4735h] bit 7) a travel step (`loc_03723`); else outside a
+/// place ([8] not FFh) the head raised (`ui_head_animate_up`) unless
+/// [4774h]; at a place in the room mode the speaker [47AAh]'s phrase
+/// ([47C4h] = its +0Eh, `loc_0978e`).
+pub fn scene_refresh(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2e52)?;
+    let mut c = Ctx::new(m);
+    refresh_at(&mut c)
+}
+
+fn refresh_at(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x2e52, 1)?;
+    c.call(0x35ad, 0x2e55)?;
+    let t = c.word(0xce7a);
+    let k = c.byte(0x47a7);
+    let note = |c: &mut Ctx| {
+        c.set_reg(AX, t);
+        c.set_word(0xdc5a, t);
+        c.cmp(B, k as u16, 0);
+    };
+    if k != 0 {
+        c.run(0x2e55, 5)?;
+        note(c);
+        return c.ret();
+    }
+    let al = c.byte(0x4735);
+    let head = |c: &mut Ctx| {
+        note(c);
+        c.set_reg8(r8::AL, al);
+        c.or(B, al as u16, al as u16);
+    };
+    if al & 0x80 != 0 {
+        c.run(0x2e55, 8)?;
+        head(c);
+        return travel_step(c);
+    }
+    let b8 = c.byte(8);
+    if b8 != 0xff {
+        let p = c.byte(0x4774);
+        c.run(0x2e55, 12)?;
+        head(c);
+        c.cmp(B, b8 as u16, 0xff);
+        c.cmp(B, p as u16, 0);
+        if p != 0 {
+            return c.ret();
+        }
+        return super::ui::ui_head_animate_up(c.m, 0x17e6);
+    }
+    let mode = c.byte(0x11c9);
+    if mode != 0 {
+        c.run(0x2e55, 12)?;
+        head(c);
+        c.cmp(B, b8 as u16, 0xff);
+        c.cmp(B, mode as u16, 0);
+        return c.ret();
+    }
+    let si = c.word(0x47aa);
+    c.run(0x2e55, if si == 0 { 15 } else { 18 })?;
+    head(c);
+    c.cmp(B, b8 as u16, 0xff);
+    c.cmp(B, 0, 0);
+    c.set_reg(SI, si);
+    c.or(W, si, si);
+    if si == 0 {
+        return c.ret();
+    }
+    c.xor(W, 0, 0);
+    let v = c.byte(si.wrapping_add(0x0e)) as u16;
+    c.set_reg(AX, v);
+    c.set_word(0x47c4, v);
+    c.call(0x978e, 0x2e97)?;
+    c.run(0x2e97, 1)?;
+    c.ret()
+}
+
+/// `loc_03723`: a travel step (AL = [4735h], bit 7 then dropped): from
+/// 94h, every 10h, the view redrawn (`loc_037ad`) and a wait of
+/// ((AL - 94h) / 10h + 1, at most 0Ah) * 100h; before 37h the arrival
+/// (`loc_02db1`); else the fade-out, the handlers 1A0Fh and 401Fh, and
+/// the move to the place's room ([4], DL 2 / 0Ah for the sietches and
+/// palaces) scheduled at 4057h before `scene_start`.
+fn travel_step(c: &mut Ctx) -> Result<(), Bail> {
+    let al = c.reg8(r8::AL);
+    let s = c.byte(0x4735);
+    let a = al.wrapping_sub(0x94);
+    let n = if al < 0x94 { 4 } else if a & 0x0f != 0 { 6 } else { 7 };
+    c.run(0x3723, n)?;
+    let v = c.and(B, s as u16, 0x7f);
+    c.set_byte(0x4735, v as u8);
+    c.sub(B, al as u16, 0x94);
+    c.set_reg8(r8::AL, a);
+    if al < 0x94 {
+        return c.ret();
+    }
+    c.test(B, a as u16, 0x0f);
+    if a & 0x0f != 0 {
+        return c.ret();
+    }
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.call(0xdbb2, 0x3734)?;
+    for (at, to) in [(0x3734u16, 0xc07cu16), (0x3737, 0x37ad), (0x373a, 0xc4dd)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    let sp = c.reg(SP);
+    let ax = c.word_in(SS, sp);
+    let big = ((ax & 0xff) >> 4) + 1 >= 0x0a;
+    c.run(0x373d, 9 + big as u32)?;
+    c.pop();
+    c.set_reg(AX, ax);
+    c.xor(B, 0, 0);
+    c.set_reg8(r8::CL, 4);
+    let x = c.m.cpu.shift(5, W, ax as u32 & 0xff, 4) as u16;
+    let x = c.inc(W, x);
+    c.cmp(B, x & 0xff, 0x0a);
+    let x = if big { 0x0a } else { x & 0xff };
+    c.set_reg(AX, x << 8);
+    c.call(0xe387, 0x3750)?;
+    let s = c.byte(0x4735);
+    c.run(0x3750, 3)?;
+    c.cmp(B, s as u16, 0x37);
+    if s < 0x37 {
+        return room_arrive(c.m, 0x2db1);
+    }
+    c.call(0x0e77, 0x375a)?;
+    c.run(0x375a, 2)?;
+    c.set_reg(CX, 5);
+    c.call(0x0fd9, 0x3760)?;
+    c.run(0x3760, 3)?;
+    c.set_reg(BP, 0xc0ad);
+    c.set_reg8(r8::AL, 0x34);
+    c.call(0xc108, 0x3768)?;
+    c.run(0x3768, 1)?;
+    c.call(0x0086, 0x376b)?;
+    c.run(0x376b, 2)?;
+    c.set_reg(BP, 0x1a0f);
+    c.call(0xc097, 0x3771)?;
+    c.run(0x3771, 4)?;
+    let si = c.word(0x1150);
+    c.set_reg(SI, si);
+    c.set_byte(0x47a6, 0xff);
+    c.set_reg(BP, 0x401f);
+    c.call(0xc097, 0x3780)?;
+    let dx = c.word(4);
+    let bx = c.word(6);
+    let dh = (dx >> 8) as u8;
+    c.run(0x3780, 4 + if dh < 0x21 { 3 + (dh == 0x20) as u32 } else { 0 } + 4)?;
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    c.cmp(B, dh as u16, 0x21);
+    if dh < 0x21 {
+        c.set_reg8(r8::DL, 2);
+        c.cmp(B, dh as u16, 0x20);
+        if dh == 0x20 {
+            c.set_reg8(r8::DL, 0x0a);
+        }
+    }
+    c.set_reg(BP, 0x4057);
+    c.set_reg8(r8::AL, 0x34);
+    c.set_byte(0x47a6, 0xff);
+    c.call(0xc108, 0x37a3)?;
+    c.run(0x37a3, 2)?;
+    let e = c.byte(0xe7);
+    let e = c.inc(B, e as u16);
+    c.set_byte(0xe7, e as u8);
+    scene_start(c.m, 0x35ad)
+}
+
+/// `loc_02db1` / `loc_02dbf`: the arrival in a room (from `loc_02db1`
+/// the handler D717h, `loc_0d95b` and [47A6h] FFh first): `loc_02d74`,
+/// the speaker and its flags dropped, the handler 2EB2h; at night ([2Bh])
+/// the night view (`loc_00acd`) and the head raised; else the room drawn
+/// (`loc_05ba0`, `loc_037b2`, `loc_0c412` outside the map modes), with
+/// the light changed ([46DFh] to [46E0h]) a fade (10h, F66h) unless the
+/// palettes match, and the scene refreshed (`loc_02e52`).
+pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    let mut c = Ctx::new(m);
+    match start {
+        0x2db1 => {
+            c.run(0x2db1, 2)?;
+            c.set_reg(BP, 0xd717);
+            c.call(0xc097, 0x2db7)?;
+            c.run(0x2db7, 1)?;
+            c.call(0xd95b, 0x2dba)?;
+            c.run(0x2dba, 2)?;
+            c.set_byte(0x47a6, 0xff);
+        }
+        0x2dbf => c.run(0x2dbf, 1)?,
+        _ => return Err(Bail),
+    }
+    c.call(0x2d74, 0x2dc2)?;
+    c.run(0x2dc2, 6)?;
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.set_byte(0xdce6, 0);
+    c.set_byte(0x47a4, 0);
+    c.set_word(0x47aa, 0);
+    c.set_reg(BP, 0x2eb2);
+    c.call(0xc097, 0x2dd3)?;
+    let k = c.byte(0x2b);
+    if k != 0 {
+        c.run(0x2dd3, 4)?;
+        c.cmp(B, k as u16, 0);
+        c.set_byte(0x4732, 0);
+        c.call(0x2d74, 0x2de2)?;
+        c.run(0x2de2, 3)?;
+        let v = c.byte(0x11bc);
+        let v = c.or(B, v as u16, 1);
+        c.set_byte(0x11bc, v as u8);
+        c.set_byte(0x46df, 0);
+        c.call(0x0acd, 0x2def)?;
+        for (at, to) in [(0x2defu16, 0x1797u16), (0x2df2, 0xc4cd), (0x2df5, 0xc0f4)] {
+            c.run(at, 1)?;
+            c.call(to, at + 3)?;
+        }
+        c.run(0x2df8, 1)?;
+        return super::ui::ui_head_animate_up(c.m, 0x17e6);
+    }
+    let f = c.byte(0x4732);
+    c.run(0x2dd3, 4 + (f & 1 != 0) as u32)?;
+    c.cmp(B, k as u16, 0);
+    c.test(B, f as u16, 1);
+    if f & 1 != 0 {
+        c.call(0x488a, 0x2e05)?;
+    }
+    c.run(0x2e05, 4)?;
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.set_word(0x14, 0);
+    c.set_byte(0x46df, 0);
+    c.call(0xc07c, 0x2e10)?;
+    for (at, to) in [(0x2e10u16, 0x5ba0u16), (0x2e13, 0x37b2)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    let mode = c.byte(0x11c9);
+    c.run(0x2e16, 2 + (mode & 3 == 0) as u32)?;
+    c.test(B, mode as u16, 3);
+    if mode & 3 == 0 {
+        c.call(0xc412, 0x2e20)?;
+    }
+    for (at, to) in [(0x2e20u16, 0xad5eu16), (0x2e23, 0x1834), (0x2e26, 0x1797)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    let a = c.byte(0x46df);
+    let old = c.byte(0x46e0);
+    let swap = |c: &mut Ctx| {
+        c.set_reg8(r8::AL, a);
+        c.set_reg8(r8::AH, a);
+        c.set_byte(0x46e0, a);
+        c.set_reg8(r8::AL, old);
+        c.cmp(B, old as u16, a as u16);
+    };
+    if old == a {
+        c.run(0x2e29, 6)?;
+        swap(&mut c);
+        c.call(0xc0f4, 0x2e4f)?;
+        c.run(0x2e4f, 1)?;
+        c.call(0xc4cd, 0x2e52)?;
+        return refresh_at(&mut c);
+    }
+    let (x, y) = (c.word(0xdbd6), c.word(0xdbd8));
+    c.run(0x2e29, if x == y { 8 } else { 11 })?;
+    swap(&mut c);
+    c.set_reg(AX, x);
+    c.cmp(W, x, y);
+    if x != y {
+        c.set_reg8(r8::AL, 0x10);
+        c.set_reg(BP, 0x0f66);
+        c.call(0xc108, 0x2e47)?;
+        c.run(0x2e47, 1)?;
+        c.call(0xae04, 0x2e4a)?;
+        c.run(0x2e4a, 1)?;
+    }
+    refresh_at(&mut c)
+}
+
+/// `loc_04057`: into the room DX (DL the room, DH the place type) at the
+/// position BX ([`loc_040c3`] first): [4] / [6] set, the previous room in
+/// [0Dh]; unless [46EBh] is negative the arrival (`loc_02dbf`). The room
+/// 3002h (the palace's first room) goes on at `loc_016fc` (not ported:
+/// bails there).
+pub fn enter_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4057)?;
+    let mut c = Ctx::new(m);
+    enter_room_at(&mut c)
+}
+
+fn enter_room_at(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x4057, 1)?;
+    c.call(0x40c3, 0x405a)?;
+    let dx = c.reg(DX);
+    let bx = c.reg(BX);
+    let f = c.byte(0x46eb);
+    if f & 0x80 == 0 && dx == 0x3002 {
+        c.m.cpu.ip = 0x405a;
+        return Err(Bail);
+    }
+    c.run(0x405a, if f & 0x80 != 0 { 8 } else { 10 })?;
+    c.set_word(4, dx);
+    let old = c.byte(0x0b);
+    c.set_byte(0x0b, dx as u8);
+    c.set_reg8(r8::AL, old);
+    c.set_byte(0x0d, old);
+    c.set_word(6, bx);
+    c.cmp(B, f as u16, 0);
+    if f & 0x80 != 0 {
+        return c.ret();
+    }
+    c.cmp(W, dx, 0x3002);
+    room_arrive(c.m, 0x2dbf)
+}
+
+/// `ui_click_room_up` / `_right` / `_down` (BP 1-3) and
+/// `ui_click_move_room` (BP the direction): the panel and the cursor
+/// reset (`loc_0d2bd`, `loc_0ac30`, `loc_0a7a5`). Outside a place ([6]
+/// low byte not 80h) a travel step: [4735h] counts up (bit 7 set) and
+/// [0F4h] to 14h. At a place the room's exit BP (`loc_03efe`): none
+/// returns; a room of the place (positive) is entered, first visits
+/// noted ([0Bh] 1 and the place's bit 10h: `loc_0b389` 2 / 3 with the
+/// counter [25h]), with the scene change (`loc_0a1c4`, `loc_036d3`,
+/// `loc_0a1e2`, `loc_0abd5`) before `loc_04057`; a negative exit leaves
+/// the place in that direction ([114Eh] dropped). A move looks up the
+/// neighbour (`loc_0b5cf`, `loc_0b532`, `loc_0409a`) and on a match
+/// enters that place (`loc_0503c`, `loc_0425b`, `loc_040ae`,
+/// `loc_02170`) before `loc_04057`.
+pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    let mut c = Ctx::new(m);
+    match start {
+        0x3f15 | 0x3f1a | 0x3f1f => {
+            c.run(start, 2)?;
+            c.set_reg(BP, (start - 0x3f15) / 5 + 1);
+        }
+        0x3f27 => {}
+        _ => return Err(Bail),
+    }
+    c.run(0x3f27, 2)?;
+    let bp = c.reg(BP);
+    c.push(bp);
+    c.call(0xd2bd, 0x3f2b)?;
+    c.run(0x3f2b, 1)?;
+    c.call(0xac30, 0x3f2e)?;
+    c.run(0x3f2e, 1)?;
+    c.call(0xa7a5, 0x3f31)?;
+    let dx = c.word(4);
+    let bx = c.word(6);
+    let start_ops = |c: &mut Ctx| {
+        let bp = c.pop();
+        c.set_reg(BP, bp);
+        c.set_byte(0x47a9, 0);
+        c.set_byte(0x26, 0);
+        c.set_reg(DX, dx);
+        c.set_reg(BX, bx);
+        c.cmp(B, bx & 0xff, 0x80);
+    };
+    if bx & 0xff != 0x80 {
+        let s = c.byte(0x4735);
+        let f4 = c.byte(0xf4);
+        let a = (s & 0x7f).wrapping_add(1);
+        let n = 7 + 4 + (a & 0x80 != 0) as u32 + 4 + (f4 < 0x14) as u32 + 1;
+        c.run(0x3f31, n)?;
+        start_ops(&mut c);
+        c.set_reg8(r8::AL, s);
+        let x = c.and(B, s as u16, 0x7f);
+        let mut x = c.inc(B, x);
+        if x & 0x80 != 0 {
+            x = c.dec(B, x);
+        }
+        let x = c.or(B, x, 0x80);
+        c.set_reg8(r8::AL, x as u8);
+        c.set_byte(0x4735, x as u8);
+        c.cmp(B, f4 as u16, 0x14);
+        if f4 < 0x14 {
+            let v = c.inc(B, f4 as u16);
+            c.set_byte(0xf4, v as u8);
+        }
+        return step_3ff5(&mut c);
+    }
+    c.run(0x3f31, 8)?;
+    start_ops(&mut c);
+    c.call(0x3efe, 0x3f6a)?;
+    let (bp, si) = (c.reg(BP), c.reg(SI));
+    let dl = c.byte_in(SS, bp.wrapping_add(si));
+    let pick = |c: &mut Ctx| {
+        c.set_reg8(r8::DL, dl);
+        c.or(B, dl as u16, dl as u16);
+    };
+    if dl == 0 {
+        c.run(0x3f6a, 4)?;
+        pick(&mut c);
+        return c.ret();
+    }
+    if dl & 0x80 != 0 {
+        c.run(0x3f6a, 4)?;
+        pick(&mut c);
+        return leave_place(&mut c);
+    }
+    let b = c.byte(0x0b);
+    if b == 1 {
+        c.run(0x3f6a, 7)?;
+        pick(&mut c);
+        c.cmp(B, 1, 1);
+        c.call(0xe270, 0x3f7c)?;
+        c.run(0x3f7c, 2)?;
+        c.set_reg8(r8::CL, 2);
+        c.call(0xb389, 0x3f81)?;
+        c.run(0x3f81, 1)?;
+        c.call(0xe283, 0x3f84)?;
+    } else {
+        c.run(0x3f6a, 6)?;
+        pick(&mut c);
+        c.cmp(B, b as u16, 1);
+    }
+    let si = c.word(0x114e);
+    let t = c.byte(si.wrapping_add(0x0a));
+    if t & 0x10 != 0 {
+        c.run(0x3f84, 3)?;
+        c.set_reg(SI, si);
+        c.test(B, t as u16, 0x10);
+    } else {
+        c.run(0x3f84, 8)?;
+        c.set_reg(SI, si);
+        c.test(B, t as u16, 0x10);
+        let v = c.or(B, t as u16, 0x10);
+        c.set_byte(si.wrapping_add(0x0a), v as u8);
+        let dh = c.reg8(r8::DH);
+        c.cmp(B, dh as u16, 0x20);
+        let k = c.byte(0x25);
+        let k = c.adc(B, k as u16, 0);
+        c.set_byte(0x25, k as u8);
+        c.set_byte(0x26, 0xff);
+        c.call(0xe270, 0x3fa2)?;
+        c.run(0x3fa2, 2)?;
+        c.set_reg8(r8::CL, 3);
+        c.call(0xb389, 0x3fa7)?;
+        c.run(0x3fa7, 1)?;
+        c.call(0xe283, 0x3faa)?;
+    }
+    c.run(0x3faa, 3)?;
+    let dl = c.reg8(r8::DL);
+    c.set_byte(0x0c, dl);
+    c.set_byte(0x23, 1);
+    c.call(0xa1c4, 0x3fb6)?;
+    c.run(0x3fb6, 3)?;
+    let (bx, dx) = (c.reg(BX), c.reg(DX));
+    c.push(bx);
+    c.push(dx);
+    c.call(0x36d3, 0x3fbb)?;
+    c.run(0x3fbb, 3)?;
+    let v = c.pop();
+    c.set_reg(DX, v);
+    let v = c.pop();
+    c.set_reg(BX, v);
+    c.call(0xa1e2, 0x3fc0)?;
+    if !c.flag(pc::cpu::ZF) {
+        c.run(0x3fc0, 2)?;
+        return c.ret();
+    }
+    c.run(0x3fc0, 4)?;
+    let (bx, dx) = (c.reg(BX), c.reg(DX));
+    c.push(bx);
+    c.push(dx);
+    c.call(0xabd5, 0x3fc8)?;
+    c.run(0x3fc8, 4)?;
+    let v = c.pop();
+    c.set_reg(DX, v);
+    let v = c.pop();
+    c.set_reg(BX, v);
+    c.set_byte(0x23, 5);
+    enter_room_at(&mut c)
+}
+
+/// `loc_03fd2`: out of the place by the exit -DL: [0E7h] 0, BP the
+/// direction, the place [114Eh] taken (0 left) and its position and
+/// map cell in DX / BX, [8] and [9] FFh; then the move (`loc_03ff5`).
+fn leave_place(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x3fd2, 11)?;
+    c.set_byte(0xe7, 0);
+    let dl = c.reg8(r8::DL);
+    let dh = c.reg8(r8::DH);
+    c.xor(B, dh as u16, dh as u16);
+    let n = c.neg(B, dl as u16);
+    c.set_reg(DX, n);
+    c.set_reg(BP, n);
+    c.xor(W, 0, 0);
+    let si = c.word(0x114e);
+    c.set_word(0x114e, 0);
+    c.set_reg(SI, si);
+    let dx = c.word(si.wrapping_add(2));
+    let bx = c.word(si.wrapping_add(4));
+    c.set_reg(DX, dx);
+    c.xor(B, bx >> 8, bx >> 8);
+    c.set_reg(BX, bx & 0xff);
+    c.set_byte(8, 0xff);
+    c.set_byte(9, 0xff);
+    step_3ff5(c)
+}
+
+/// `loc_03ff5`: the move BP from the position DX / BX: the target
+/// (`loc_0b5cf` with the direction's word at 1454h); a place of the
+/// map there (`loc_0b532` bit 40h, `loc_0409a`) at the same position
+/// becomes the current one ([114Eh], [1150h], `loc_0503c`, the counts
+/// [98h] / [9Ah] cleared, `loc_0425b`, `loc_040ae`; [8] / [9] its room
+/// and position, its bit 10h for the sietches and palaces, `loc_02170`);
+/// then `loc_04057`.
+fn step_3ff5(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x3ff5, 3)?;
+    let bp = c.reg(BP);
+    let bp = c.shl1(W, bp, 1);
+    c.set_reg(BP, bp);
+    let ax = c.word_in(SS, bp.wrapping_add(0x1454));
+    c.set_reg(AX, ax);
+    c.call(0xb5cf, 0x3ffe)?;
+    let bh = c.reg8(r8::BH);
+    if bh != 0 {
+        c.run(0x3ffe, 2)?;
+        c.or(B, bh as u16, bh as u16);
+        return enter_room_at(c);
+    }
+    c.run(0x3ffe, 6)?;
+    c.or(B, 0, 0);
+    let x = c.reg8(r8::BL) as i8 as i16 as u16;
+    c.set_reg(AX, x);
+    c.set_reg(BX, x);
+    c.call(0xb532, 0x400a)?;
+    let al = c.reg8(r8::AL);
+    let bx = c.reg(BX);
+    if al & 0x40 == 0 {
+        c.run(0x400a, 3)?;
+    } else {
+        c.run(0x400a, 4)?;
+    }
+    c.xor(B, bx >> 8, bx >> 8);
+    c.set_reg(BX, bx & 0xff);
+    c.test(B, al as u16, 0x40);
+    if al & 0x40 == 0 {
+        return enter_room_at(c);
+    }
+    c.call(0x409a, 0x4013)?;
+    if !c.flag(pc::cpu::ZF) {
+        c.run(0x4013, 1)?;
+        return enter_room_at(c);
+    }
+    let (dx, si) = (c.reg(DX), c.reg(SI));
+    let w = c.word(si.wrapping_add(2));
+    if dx != w {
+        c.run(0x4013, 3)?;
+        c.cmp(W, dx, w);
+        return enter_room_at(c);
+    }
+    c.run(0x4013, 11)?;
+    c.cmp(W, dx, w);
+    let x = c.reg8(r8::BL) as i8 as i16 as u16;
+    c.set_reg(AX, x);
+    c.set_reg(BX, x);
+    c.set_byte(0x4735, 0);
+    c.set_word(0x114e, si);
+    c.set_word(0x1150, si);
+    c.set_reg(DI, si);
+    c.call(0x503c, 0x4031)?;
+    c.run(0x4031, 3)?;
+    c.set_word(0x9a, 0);
+    c.set_word(0x98, 0);
+    c.call(0x425b, 0x4040)?;
+    c.run(0x4040, 1)?;
+    c.call(0x40ae, 0x4043)?;
+    let dh = c.reg8(r8::DH);
+    let bh = c.reg8(r8::BH);
+    let si = c.reg(SI);
+    c.run(0x4043, 4 + (dh >= 0x20) as u32 + 1)?;
+    c.set_byte(8, dh);
+    c.set_byte(9, bh);
+    c.cmp(B, dh as u16, 0x20);
+    if dh >= 0x20 {
+        let v = c.byte(si.wrapping_add(0x0a));
+        let v = c.or(B, v as u16, 0x10);
+        c.set_byte(si.wrapping_add(0x0a), v as u8);
+    }
+    c.call(0x2170, 0x4057)?;
+    enter_room_at(c)
+}
