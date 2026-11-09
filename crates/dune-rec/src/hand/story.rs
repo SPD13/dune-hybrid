@@ -5231,3 +5231,205 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x2013, 1)?;
     c.ret()
 }
+
+/// `sub_1dd4` (`loc_020a4`): the spice demand's day check, with bit 7 of
+/// [0BFh]. On the day [118Dh] (the day count from `get_ingame_day_q`):
+/// while one is pending ([0C2h]) or otherwise, the days left in [0CFh]
+/// (negated difference). With bit 4: the reminders 0..3 days late
+/// (`grade_be` and the table at CS:2161h) noted as event 0Bh + code,
+/// later ones and [11BBh] set [46D9h] 7. On the day itself a new demand:
+/// [0C3h] up, the amount 96h * count + 64h scaled by a random E0h..11Fh
+/// / 256 and by the stock factor ([0BEh] doubled, inverted, + 100h)
+/// (FFFFh on overflow) in [0BCh], [0CFh] 0, [0BFh] bits 90h, and the
+/// event 20Bh (30Bh with [0BEh] positive).
+pub fn spice_demand_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1dd4)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    let f = c.byte(0xbf);
+    if f & 0x80 == 0 {
+        c.run(0x20a4, 3)?;
+        c.test(B, f as u16, 0x80);
+        return c.ret();
+    }
+    c.run(0x20a4, 3)?;
+    c.test(B, f as u16, 0x80);
+    c.call(0x1ac5, 0x20ae)?;
+    let ax = c.reg(AX);
+    let day = c.word(0x118d);
+    let d = ax.wrapping_sub(day);
+    let pend = c.byte(0xc2);
+    let f = c.byte(0xbf);
+    let late = c.byte(0x11bb);
+    if pend != 0 || f & 0x10 == 0 && late == 0 {
+        // 2098h / 20C6h: the days left.
+        let n = if pend != 0 { 2 } else { 6 } + 2 + if d != 0 { 3 } else { 0 };
+        if pend == 0 && d == 0 {
+            return new_demand(&mut c, ax, day, f);
+        }
+        c.run(0x20ae, n + if d == 0 { 1 } else { 0 })?;
+        c.cmp(B, pend as u16, 0);
+        if pend == 0 {
+            c.test(B, f as u16, 0x10);
+            c.cmp(B, 0, 0);
+        }
+        let a = c.sub(W, ax, day);
+        c.set_reg(AX, a);
+        if d != 0 {
+            let a = c.neg(W, a);
+            c.set_reg(AX, a);
+            c.set_byte(0xcf, a as u8);
+        }
+        return c.ret();
+    }
+    if f & 0x10 == 0 {
+        // [11BBh] set: 215Fh.
+        c.run(0x20ae, 7 + 2)?;
+        c.cmp(B, 0, 0);
+        c.test(B, f as u16, 0x10);
+        c.cmp(B, late as u16, 0);
+        c.set_byte(0x46d9, 7);
+        return c.ret();
+    }
+    // 2131h: reminders.
+    if d == 0 {
+        c.run(0x20ae, 6 + 1)?;
+        c.cmp(B, 0, 0);
+        c.test(B, f as u16, 0x10);
+        let a = c.sub(W, ax, day);
+        c.set_reg(AX, a);
+        return c.ret();
+    }
+    if d >= 4 {
+        c.run(0x20ae, 8 + 2)?;
+        c.cmp(B, 0, 0);
+        c.test(B, f as u16, 0x10);
+        let a = c.sub(W, ax, day);
+        c.set_reg(AX, a);
+        c.cmp(W, a, 4);
+        c.set_byte(0x46d9, 7);
+        return c.ret();
+    }
+    c.run(0x20ae, 12)?;
+    c.cmp(B, 0, 0);
+    c.test(B, f as u16, 0x10);
+    let a = c.sub(W, ax, day);
+    c.set_reg(AX, a);
+    c.cmp(W, a, 4);
+    let a = c.shl1(B, a & 0xff, 2);
+    c.set_reg(AX, d & 0xff00 | a);
+    c.set_reg8(r8::BL, a as u8);
+    c.call(0x24d2, 0x2145)?;
+    let ah = (c.reg(AX) >> 8) as u8;
+    let g = if ah < 3 { ah } else { 2 };
+    let bl = c.reg8(r8::BL);
+    let idx = g.wrapping_add(bl);
+    let code = c.byte_in(pc::cpu::CS, 0x2161u16.wrapping_add(idx as u16));
+    c.run(0x2145, 3 + if ah >= 3 { 1 } else { 0 } + 5 + if code == 0 { 2 } else { 3 })?;
+    c.set_reg8(r8::AL, ah);
+    c.cmp(B, ah as u16, 3);
+    let a = c.add(B, g as u16, bl as u16);
+    c.set_reg(BX, 0x2161);
+    c.set_reg8(r8::AL, code);
+    let _ = a;
+    c.or(B, code as u16, code as u16);
+    if code == 0 {
+        c.set_byte(0x46d9, 7);
+        return c.ret();
+    }
+    c.set_reg(AX, (code as u16) << 8 | 0x0b);
+    note_event(c.m, 0x26da)
+}
+
+/// `loc_020d2` (after the day test, at 20AEh): the new demand.
+fn new_demand(c: &mut Ctx, ax: u16, day: u16, f: u8) -> Result<(), Bail> {
+    c.run(0x20ae, 6 + 2 + 11)?;
+    c.cmp(B, 0, 0);
+    c.test(B, f as u16, 0x10);
+    c.cmp(B, 0, 0);
+    let a = c.sub(W, ax, day);
+    c.set_reg(AX, a);
+    let k = c.byte(0xc3);
+    c.set_reg8(r8::AL, k);
+    let v = c.inc(B, k as u16);
+    c.set_byte(0xc3, v as u8);
+    c.set_reg(BX, 0x96);
+    c.mul16(0x96);
+    let (ax, dx) = (c.reg(AX), c.reg(DX));
+    c.or(W, dx, dx);
+    let cx = c.add(W, ax, 0x64);
+    c.set_reg(AX, cx);
+    c.set_reg(CX, cx);
+    c.set_reg(BX, 0x3f);
+    c.call(0xe3b7, 0x20ef)?;
+    let r = c.reg(AX).wrapping_add(0xe0);
+    let p = r as u32 * cx as u32;
+    let (pdx, pax) = ((p >> 16) as u16, p as u16);
+    let be = c.byte(0xbe);
+    let sh = be << 1;
+    let neg = be & 0x80 != 0;
+    let mut n = 4u32;
+    let mut ovf = false;
+    if pdx >> 8 != 0 {
+        ovf = true;
+    } else {
+        let d = (pdx & 0xff) << 8 | pax >> 8;
+        n += 5;
+        if !neg {
+            n += 7;
+            let a = (!sh) as u16 | 0x100;
+            let q = a as u32 * d as u32;
+            let (qdx, qax) = ((q >> 16) as u16, q as u16);
+            // xchg dl, dh; xchg dl, ah: DX = (qdx_lo << 8) | qax_hi; AH = qdx_hi.
+            let ah = qdx >> 8;
+            let _ = qax;
+            if ah != 0 {
+                ovf = true;
+            }
+        }
+    }
+    // Replay with the exact instruction sequence.
+    let pos = be & 0x80 == 0;
+    let total = n + if ovf { 1 } else { 0 } + 6 + if pos { 1 } else { 0 } + 1;
+    c.run(0x20ef, total)?;
+    c.set_reg(AX, r);
+    let a = c.add(W, r.wrapping_sub(0xe0), 0xe0);
+    c.set_reg(AX, a);
+    c.mul16(cx);
+    c.or(B, pdx >> 8, pdx >> 8);
+    if pdx >> 8 == 0 {
+        let d = (pdx & 0xff) << 8 | pax >> 8;
+        c.set_reg(DX, d);
+        c.set_reg8(r8::AL, be);
+        let s = c.shl1(B, be as u16, 1);
+        c.set_reg8(r8::AL, s as u8);
+        if !neg {
+            c.set_reg(AX, 0x100 | (!s as u8) as u16);
+            c.mul16(d);
+            let (qax, qdx) = (c.reg(AX), c.reg(DX));
+            let nd = (qdx & 0xff) << 8 | qax >> 8;
+            let ah = qdx >> 8;
+            c.set_reg(DX, nd);
+            c.set_reg(AX, ah << 8 | qax & 0xff);
+            c.or(B, ah, ah);
+        }
+    }
+    if ovf {
+        c.set_reg(DX, 0xffff);
+    }
+    let dx = c.reg(DX);
+    c.set_word(0xbc, dx);
+    c.set_byte(0xcf, 0);
+    let v = c.byte(0xbf);
+    let v = c.or(B, v as u16, 0x90);
+    c.set_byte(0xbf, v as u8);
+    let be2 = c.byte(0xbe);
+    c.cmp(B, be2 as u16, 0);
+    let mut ax = 0x20bu16;
+    if be2 & 0x80 == 0 {
+        let h = c.inc(B, 2);
+        ax = h << 8 | 0x0b;
+    }
+    c.set_reg(AX, ax);
+    note_event(c.m, 0x26da)
+}
