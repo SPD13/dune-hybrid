@@ -6,7 +6,7 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CS, CX, DI, DX, ES, SI, SP, SS},
+    cpu::{AX, BP, BX, CF, CS, CX, DI, DS, DX, ES, SI, SP, SS},
     rec::Bail,
 };
 
@@ -1440,4 +1440,197 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, 0x1f0e);
     c.set_reg(BX, 0x0f66);
     super::cursor::install_ui_list_d338(c.m, 0xd338)
+}
+
+/// `loc_02efb`: the action list 1F0Fh rebuilt (a 0 byte, then 4-byte
+/// entries copied from the templates around 21DCh..2218h, an entry's
+/// high byte 40h when disabled, a 0 word last), then the panel buttons
+/// (the buttons, `loc_02ffb`, follow). At a place ([6] 80h): its first action 220Ch;
+/// in a palace (place 1) the talk entries 2218h.. and 2214h (off from
+/// phase 4Fh) in a dialogue, else 21DCh (off without [46FFh], after
+/// `skill_needs_46fe`); at a sietch (BH 1) with troops [0C8h] in the
+/// eighth place the troop entries (21E8h: [1248h] the phrase 27h / 26h /
+/// 28h with [47A9h], off when [0C9h] is 0; the next off when [0C9h]
+/// reaches [0C8h]), in the ninth 21F0h; then 21F4h. Elsewhere outside the
+/// map modes 220Ch, 2214h and by the time of day 21E0h / 21E4h; in a map
+/// mode 21FCh (or with [11CBh] 2200h, and from phase 32h also 2204h),
+/// then 21F8h. Bails with DF set.
+pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2efb)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    let (bx, dx) = (c.word(6), c.word(4));
+    let place = bx as u8 == 0x80;
+    c.run(start, if place { 9 } else { 10 })?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(DI, 0x1f0f);
+    c.xor(B, 0, 0);
+    c.set_reg8(r8::AL, 0);
+    c.stos(B);
+    c.set_reg(BX, bx);
+    c.set_reg(DX, dx);
+    c.cmp(B, bx & 0xff, 0x80);
+    // After `lodsw; cmp ..`: `sbb ah, ah; and ah, 40h; stosw; movsw`, the
+    // entry's flag byte 40h when CF.
+    let flagged = |c: &mut Ctx, v: u16| {
+        let h = c.sbb(B, v >> 8, v >> 8);
+        let h = c.and(B, h, 0x40);
+        c.set_reg(AX, h << 8 | v & 0xff);
+        c.stos(W);
+        c.movs(W);
+    };
+    let copy = |c: &mut Ctx, si: u16, n: u32| {
+        c.set_reg(SI, si);
+        for _ in 0..n {
+            c.movs(W);
+        }
+    };
+    if place {
+        c.run(0x2f13, 5)?;
+        copy(&mut c, 0x220c, 2);
+        c.cmp(B, dx & 0xff, 1);
+        if dx as u8 == 1 {
+            let t = c.byte(0x2b);
+            if t != 0 {
+                c.run(0x2f1d, 15)?;
+                c.cmp(B, t as u16, 0);
+                copy(&mut c, 0x2218, 4);
+                c.set_reg(SI, 0x2214);
+                let p = c.byte(0x2a);
+                // `cmp` is between `lodsw` and `sbb`.
+                let v = c.lods(W, DS);
+                c.cmp(B, p as u16, 0x4f);
+                flagged(&mut c, v);
+            } else {
+                c.run(0x2f1d, 5)?;
+                c.cmp(B, 0, 0);
+                let di = c.reg(DI);
+                c.push(di);
+                let p = c.word(0x114e);
+                c.set_reg(DI, p);
+                c.call(0x7f27, 0x2f45)?;
+                c.run(0x2f45, 9)?;
+                let d = c.pop();
+                c.set_reg(DI, d);
+                c.set_reg(SI, 0x21dc);
+                let v = c.lods(W, DS);
+                let k = c.byte(0x46ff);
+                c.cmp(B, k as u16, 1);
+                flagged(&mut c, v);
+            }
+        } else {
+            let bh = (bx >> 8) as u8;
+            if bh != 1 {
+                c.run(0x2f58, 2)?;
+                c.cmp(B, bh as u16, 1);
+            } else if dx as u8 != 8 {
+                c.run(0x2f58, 4)?;
+                c.cmp(B, 1, 1);
+                c.cmp(B, dx & 0xff, 8);
+                let nine = dx as u8 == 9;
+                c.run(0x2f99, if nine { 5 } else { 2 })?;
+                c.cmp(B, dx & 0xff, 9);
+                if nine {
+                    copy(&mut c, 0x21f0, 2);
+                }
+            } else {
+                let c8 = c.byte(0xc8);
+                if c8 == 0 {
+                    c.run(0x2f58, 6)?;
+                    c.cmp(B, 1, 1);
+                    c.cmp(B, 8, 8);
+                    c.cmp(B, 0, 0);
+                } else {
+                    let cl = c.byte(0xc9);
+                    let a9 = c.byte(0x47a9);
+                    c.run(0x2f58, 15 + if a9 != 0 { 1 } else { 0 } + 11 + 2)?;
+                    c.cmp(B, 1, 1);
+                    c.cmp(B, 8, 8);
+                    c.cmp(B, c8 as u16, 0);
+                    c.set_reg(SI, 0x21e8);
+                    let v = c.lods(W, DS);
+                    c.set_reg8(r8::CL, cl);
+                    c.cmp(B, cl as u16, 1);
+                    let h = c.sbb(B, v >> 8, v >> 8);
+                    let ch = c.add(B, 0x27, h);
+                    c.cmp(B, a9 as u16, 0);
+                    let ch = if a9 != 0 { 0x28 } else { ch };
+                    c.set_reg8(r8::CH, ch as u8);
+                    c.set_byte(0x1248, ch as u8);
+                    let h = c.and(B, h, 0x40);
+                    c.set_reg(AX, h << 8 | v & 0xff);
+                    c.stos(W);
+                    c.movs(W);
+                    let v = c.lods(W, DS);
+                    c.cmp(B, cl as u16, c8 as u16);
+                    let cf = c.flag(CF);
+                    c.set_flag(CF, !cf);
+                    let h = c.sbb(B, v >> 8, v >> 8);
+                    let h = c.and(B, h, 0x40);
+                    c.set_reg(AX, h << 8 | v & 0xff);
+                    c.stos(W);
+                    c.movs(W);
+                    c.cmp(B, 8, 9);
+                }
+            }
+        }
+        c.run(0x2fa3, 4)?;
+        copy(&mut c, 0x21f4, 2);
+        return end_2ff7(&mut c);
+    }
+    let mode = c.byte(0x11c9);
+    if mode & 3 == 0 {
+        c.run(0x2faa, 13)?;
+        c.test(B, mode as u16, 3);
+        copy(&mut c, 0x220c, 2);
+        c.set_reg(SI, 0x2214);
+        let v = c.lods(W, DS);
+        let p = c.byte(0x2a);
+        c.cmp(B, p as u16, 0x4f);
+        flagged(&mut c, v);
+        c.call(0x1ae0, 0x2fc9)?;
+        let al = c.reg8(r8::AL);
+        c.run(0x2fc9, 3 + if al >= 0x0b { 1 } else { 0 } + 3)?;
+        c.set_reg(SI, 0x21e0);
+        c.cmp(B, al as u16, 0x0b);
+        let si = if al >= 0x0b { c.add(W, 0x21e0, 4) } else { 0x21e0 };
+        copy(&mut c, si, 2);
+        c.run(0x2fa3, 4)?;
+        copy(&mut c, 0x21f4, 2);
+        return end_2ff7(&mut c);
+    }
+    let cb = c.byte(0x11cb);
+    let p = c.byte(0x2a);
+    let n = if cb == 0 { 3 } else if p < 0x32 { 6 } else { 9 };
+    c.run(0x2faa, 2 + n + 5)?;
+    c.test(B, mode as u16, 3);
+    c.set_reg(SI, 0x21fc);
+    c.cmp(B, cb as u16, 0);
+    if cb != 0 {
+        c.set_reg(SI, 0x2200);
+        c.cmp(B, p as u16, 0x32);
+        if p >= 0x32 {
+            c.movs(W);
+            c.movs(W);
+            c.set_reg(SI, 0x2204);
+        }
+    }
+    c.movs(W);
+    c.movs(W);
+    copy(&mut c, 0x21f8, 2);
+    end_2ff7(&mut c)
+}
+
+/// From 2FF7h: the list's end word.
+fn end_2ff7(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x2ff7, 3)?;
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.stos(W);
+    c.ret()
 }

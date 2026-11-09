@@ -4876,3 +4876,80 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
         }
     }
 }
+
+/// `loc_088d2`: the phrase SI formatted into the text buffer A6B0h
+/// (`format_interpolated_string`); in the subtitle modes (from 2 of
+/// [28E7h]) outside a dialogue scene ([46D9h] 0) the speech record
+/// 1BE2h reset instead ([479Eh] 1, [1C06h] 80h unless [0FBh] is
+/// negative); else a phrase not starting with a code shown
+/// (`loc_08b11`). Bails with DF set.
+pub fn format_and_show(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x88d2)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    c.run(start, 3)?;
+    c.set_reg(DI, 0xa6b0);
+    c.push(0xa6b0);
+    c.call(0x8944, 0x88d9)?;
+    let mode = c.byte(0x28e7);
+    let scene = c.byte(0x46d9);
+    if mode >= 2 && scene == 0 {
+        if c.flag(pc::cpu::DF) {
+            c.m.cpu.ip = 0x88d9;
+            return Err(Bail);
+        }
+        c.run(0x88d9, 21)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+        c.cmp(B, mode as u16, 2);
+        c.cmp(B, 0, 0);
+        c.set_word(0x479e, 1);
+        let f = c.byte(0xfb);
+        c.set_reg8(r8::AL, !f);
+        let a = c.and(B, (!f) as u16, 0x80);
+        c.set_byte(0x1c06, a as u8);
+        let ds = c.sreg(DS);
+        c.push(ds);
+        let v = c.pop();
+        c.set_sreg(ES, v);
+        c.set_reg(DI, 0x1be2);
+        c.xor(W, 0, 0);
+        c.set_reg(AX, 0);
+        for _ in 0..4 {
+            c.stos(W);
+        }
+        c.set_reg8(r8::AL, 0x80);
+        c.stos(W);
+        return c.ret();
+    }
+    let si = c.word_in(SS, c.reg(SP));
+    let b = c.byte(si);
+    let pre = 3 + if mode >= 2 { 2 } else { 0 };
+    if b & 0x80 != 0 {
+        c.run(0x88d9, pre + 4)?;
+    } else {
+        c.run(0x88d9, pre + 5)?;
+    }
+    let s = c.pop();
+    c.set_reg(SI, s);
+    c.cmp(B, mode as u16, 2);
+    if mode >= 2 {
+        c.cmp(B, scene as u16, 0);
+    }
+    c.lods(B, DS);
+    c.or(B, b as u16, b as u16);
+    if b & 0x80 != 0 {
+        return c.ret();
+    }
+    let si = c.reg(SI);
+    let si = c.dec(W, si);
+    c.set_reg(SI, si);
+    c.call(0x8b11, 0x88ea)?;
+    let si = c.reg(SI);
+    let v = c.byte(si);
+    c.run(0x88ea, if v >= 0xfe { 3 } else { 4 })?;
+    c.cmp(B, v as u16, 0xfe);
+    c.ret()
+}
