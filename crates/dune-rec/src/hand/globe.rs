@@ -1713,3 +1713,26 @@ pub fn globe_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_flag(CF, true);
     c.ret()
 }
+
+/// `draw_globe_and_ui_to_front_buffer`: the globe screen: [0DD02h] 0,
+/// the blue background, [0DD0Fh] 0, the side decorations, `loc_01797`,
+/// the globe's list, the frieze, the buttons 1DC6h; then the music.
+pub fn draw_globe_and_ui(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb827)?;
+    let mut c = Ctx::new(m);
+    c.run(0xb827, 2)?;
+    c.set_byte(0xdd02, 0);
+    c.call(0xb84a, 0xb82f)?;
+    c.run(0xb82f, 2)?;
+    c.set_word(0xdd0f, 0);
+    c.call(0xb87e, 0xb838)?;
+    for (at, to) in [(0xb838u16, 0x1797u16), (0xb83b, 0xb941), (0xb83e, 0xd7b2)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    c.run(0xb841, 2)?;
+    c.set_reg(SI, 0x1dc6);
+    c.call(0xd72b, 0xb847)?;
+    c.run(0xb847, 1)?;
+    super::voice::pick_music(c.m, 0xad5e)
+}

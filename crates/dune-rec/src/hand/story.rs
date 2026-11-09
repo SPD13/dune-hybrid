@@ -7357,3 +7357,199 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x2c8f, 1)?;
     super::gfx::copy_active_framebuffer_to_framebuffer_2(c.m, 0xc412)
 }
+
+/// `draw_gradient_section_2`: the outline of a scene polygon's edge
+/// (BX, DX) from the pen ([47E8h] x, [47EAh] y) into the edge list
+/// [22D9h] (every other word): one point per row it crosses (rows
+/// change by the sign of BX). A flat edge (BX 0) moves x and notes its
+/// left end; a vertical one (DX 0) notes x for each of its BX + 1
+/// rows; else a midpoint walk along the longer axis notes x before
+/// each row step. Bails with DF set.
+pub fn edge_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x3e80)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    let (bx, dx) = (c.reg(BX), c.reg(DX));
+    let (di0, si0) = (c.reg(DI), c.reg(SI));
+    let x = c.word(0x47e8);
+    if bx == 0 {
+        let (s, cf) = x.overflowing_add(dx);
+        c.run(0x3e80, 4 + 5 + cf as u32 + 8)?;
+        c.push(di0);
+        c.push(si0);
+        c.or(W, 0, 0);
+        let y = c.word(0x47ea);
+        c.set_reg(BX, y);
+        c.set_reg(CX, dx);
+        c.add(W, x, dx);
+        c.set_word(0x47e8, s);
+        let mut left = x;
+        if cf {
+            left = c.add(W, x, dx);
+        }
+        c.set_reg(DX, left);
+        let p = c.word(0x22d9);
+        c.set_reg(DI, p);
+        c.set_reg(AX, left);
+        c.stos(W);
+        let p = c.reg(DI);
+        let p = c.add(W, p, 2);
+        c.set_reg(DI, p);
+        c.set_word(0x22d9, p);
+        let v = c.pop();
+        c.set_reg(SI, v);
+        let v = c.pop();
+        c.set_reg(DI, v);
+        return c.ret();
+    }
+    let bneg = bx & 0x8000 != 0;
+    let (bxa, ax) = if bneg { (bx.wrapping_neg(), 0xffffu16) } else { (bx, 1) };
+    let head = |c: &mut Ctx| {
+        c.push(di0);
+        c.push(si0);
+        c.or(W, bx, bx);
+        c.set_reg(AX, 1);
+        if bneg {
+            let b = c.neg(W, bx);
+            c.set_reg(BX, b);
+            c.neg(W, 1);
+            c.set_reg(AX, 0xffff);
+        }
+    };
+    if dx == 0 {
+        let y = c.word(0x47ea);
+        c.run(0x3e80, 4 + 2 + 2 * bneg as u32 + 2 + 5 + if bneg { 3 } else { 1 } + 3)?;
+        head(&mut c);
+        c.or(W, 0, 0);
+        c.set_reg(CX, bxa);
+        c.set_reg(BX, y);
+        c.set_reg(DX, x);
+        c.or(W, ax, ax);
+        if bneg {
+            let v = c.sub(W, y, bxa);
+            c.set_word(0x47ea, v);
+            let b = c.sub(W, y, bxa);
+            c.set_reg(BX, b);
+        } else {
+            let v = c.add(W, y, bxa);
+            c.set_word(0x47ea, v);
+        }
+        let n = c.inc(W, bxa);
+        c.set_reg(CX, n);
+        let p = c.word(0x22d9);
+        c.set_reg(DI, p);
+        c.set_reg(AX, x);
+        let mut cx = n;
+        loop {
+            c.run(0x3e73, 3)?;
+            c.stos(W);
+            let p = c.reg(DI);
+            let p = c.add(W, p, 2);
+            c.set_reg(DI, p);
+            cx = cx.wrapping_sub(1);
+            c.set_reg(CX, cx);
+            if cx == 0 {
+                break;
+            }
+        }
+        c.run(0x3e79, 4)?;
+        let p = c.reg(DI);
+        c.set_word(0x22d9, p);
+        let v = c.pop();
+        c.set_reg(SI, v);
+        let v = c.pop();
+        c.set_reg(DI, v);
+        return c.ret();
+    }
+    let dneg = dx & 0x8000 != 0;
+    let (dxa, cx) = if dneg { (dx.wrapping_neg(), 0xffffu16) } else { (dx, 1) };
+    let steep = dxa > bxa;
+    c.run(0x3e80, 4 + 2 + 2 * bneg as u32 + 2 + 2 + 2 * dneg as u32 + 10 + if steep { 2 } else { 4 } + 3)?;
+    head(&mut c);
+    c.or(W, dx, dx);
+    c.set_reg(CX, 1);
+    if dneg {
+        c.neg(W, 1);
+        c.set_reg(CX, 0xffff);
+        c.neg(W, dx);
+        c.set_reg(DX, dxa);
+    }
+    c.push(ax);
+    c.push(cx);
+    c.push(ax);
+    c.push(cx);
+    let bp = c.reg(SP);
+    c.set_reg(BP, bp);
+    let (mut si, mut di) = (bxa, dxa);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.cmp(W, dxa, bxa);
+    if steep {
+        c.set_word_in(SS, bp.wrapping_add(2), 0);
+    } else {
+        c.or(W, bxa, bxa);
+        std::mem::swap(&mut si, &mut di);
+        c.set_word_in(SS, bp, 0);
+    }
+    c.set_reg(SI, si);
+    c.set_reg(DI, di);
+    c.set_reg(AX, di);
+    c.set_reg(CX, di);
+    let mut acc = c.shr1(W, di, 1);
+    c.set_reg(AX, acc);
+    let mut n = di;
+    loop {
+        // 3EC0h
+        let a = acc.wrapping_add(si);
+        let below = a < di;
+        let (sx, sy) = if below {
+            (c.word_in(SS, bp), c.word_in(SS, bp.wrapping_add(2)))
+        } else {
+            (c.word_in(SS, bp.wrapping_add(4)), c.word_in(SS, bp.wrapping_add(6)))
+        };
+        let row = sy == 1;
+        c.run(0x3ec0, 3 + if below { 2 } else { 4 } + 3 + if row { 9 } else { 0 } + 2)?;
+        c.add(W, acc, si);
+        c.cmp(W, a, di);
+        acc = if below { a } else { c.sub(W, a, di) };
+        c.set_reg(AX, acc);
+        c.set_reg(DX, sx);
+        c.set_reg(BX, sy);
+        let x = c.word(0x47e8);
+        let nx = c.add(W, sx, x);
+        c.set_reg(DX, nx);
+        c.cmp(W, sy, 1);
+        if row {
+            c.push(di);
+            c.push(acc);
+            let p = c.word(0x22d9);
+            c.set_reg(DI, p);
+            c.set_reg(AX, x);
+            c.stos(W);
+            let p = c.reg(DI);
+            let p = c.add(W, p, 2);
+            c.set_word(0x22d9, p);
+            let v = c.pop();
+            c.set_reg(AX, v);
+            let v = c.pop();
+            c.set_reg(DI, v);
+        }
+        c.set_word(0x47e8, nx);
+        n = n.wrapping_sub(1);
+        c.set_reg(CX, n);
+        if n == 0 {
+            break;
+        }
+    }
+    c.run(0x3ef8, 4)?;
+    let sp = c.reg(SP);
+    let sp = c.add(W, sp, 8);
+    c.set_reg(SP, sp);
+    let v = c.pop();
+    c.set_reg(SI, v);
+    let v = c.pop();
+    c.set_reg(DI, v);
+    c.ret()
+}
