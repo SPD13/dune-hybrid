@@ -1754,3 +1754,99 @@ pub fn draw_character(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, r);
     super::resources::open_resource_by_index(c.m, 0xc13e)
 }
+
+/// `loc_0d48a`: the button CL's label (AX the phrase with flags, from
+/// `font_select_small_font`) on the screen ([0DBDAh] kept; the back
+/// buffer when [0DCE6h] is positive): at (5Dh, the button's +2 + 1) of
+/// the button 1B48h + 0Eh * CL, in F3h on F5h, or with bit 14 clear
+/// highlighted (+8 bit 7) in FAh, swapped when bit 15 is set; then a
+/// space, the string, and the box (5Dh..E3h, 7 high) drawn by the
+/// driver (far [38DDh]) in the background colour.
+pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd48a)?;
+    let mut c = Ctx::new(m);
+    c.run(0xd48a, 2)?;
+    let fb = c.word(0xdbda);
+    c.push(fb);
+    c.call(0xc08e, 0xd491)?;
+    let k = c.byte(0xdce6);
+    let back = (k as i8) > 0;
+    c.run(0xd491, 2 + back as u32)?;
+    c.cmp(B, k as u16, 0);
+    if back {
+        c.call(0xc07c, 0xd49b)?;
+    }
+    c.run(0xd49b, 1)?;
+    c.call(0xd075, 0xd49e)?;
+    c.run(0xd49e, 9)?;
+    let ax = c.reg(AX);
+    c.set_reg(SI, ax);
+    c.set_reg8(r8::AL, 0x0e);
+    let cl = c.reg8(r8::CL);
+    c.mul8(cl);
+    let p = c.reg(AX);
+    c.set_reg(DI, p);
+    let di = c.add(W, p, 0x1b48);
+    c.set_reg(DI, di);
+    let bx = c.word(di.wrapping_add(2));
+    let bx = c.inc(W, bx);
+    c.set_reg(BX, bx);
+    c.set_reg(DX, 0x5d);
+    c.call(0xd04e, 0xd4b4)?;
+    let text = ax & 0x3fff;
+    let ah = (ax >> 8) as u8;
+    let lit = ah & 0x40 == 0;
+    let swap = lit && ah & 0x80 != 0;
+    c.run(0xd4b4, 5 + if text == 0 { 0 } else { 3 + if lit { 4 + swap as u32 } else { 0 } + 2 })?;
+    c.set_byte(0xdbe5, 0xf3);
+    let f = c.byte(di.wrapping_add(8));
+    let f = c.and(B, f as u16, 0x7f);
+    c.set_byte(di.wrapping_add(8), f as u8);
+    c.set_reg(AX, ax);
+    c.and(W, ax, 0x3fff);
+    c.set_reg(SI, text);
+    if text != 0 {
+        c.set_reg8(r8::AL, 0xf5);
+        c.test(B, ah as u16, 0x40);
+        if lit {
+            let f = c.or(B, f, 0x80);
+            c.set_byte(di.wrapping_add(8), f as u8);
+            c.set_reg8(r8::AL, 0xfa);
+            c.or(B, ah as u16, ah as u16);
+            if swap {
+                let old = c.byte(0xdbe5);
+                c.set_byte(0xdbe5, 0xfa);
+                c.set_reg8(r8::AL, old);
+            }
+        }
+        let al = c.reg8(r8::AL);
+        c.set_byte(0xdbe4, al);
+        c.call(0xcf70, 0xd4e0)?;
+        c.run(0xd4e0, 2)?;
+        c.set_reg8(r8::AL, 0x20);
+        let to = c.word(0x2518);
+        c.call(to, 0xd4e6)?;
+        c.run(0xd4e6, 1)?;
+        c.call(0xd1bb, 0xd4e9)?;
+    }
+    c.run(0xd4e9, 1)?;
+    c.call(0xd05f, 0xd4ec)?;
+    c.run(0xd4ec, 8)?;
+    c.set_reg(SI, 0xdce9);
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    c.set_word(0xdce9, dx);
+    c.set_word(0xdceb, bx);
+    c.set_word(0xdced, 0xe3);
+    let b = c.add(W, bx, 7);
+    c.set_reg(BX, b);
+    c.set_word(0xdcef, b);
+    let bg = c.byte(0xdbe5);
+    c.set_reg8(r8::AL, bg);
+    let es = c.word(0xdbda);
+    c.set_sreg(pc::cpu::ES, es);
+    c.interp(0xd506, 0xd50a)?;
+    c.run(0xd50a, 2)?;
+    let v = c.pop();
+    c.set_word(0xdbda, v);
+    c.ret()
+}

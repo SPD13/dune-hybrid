@@ -1073,6 +1073,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xa5df, panels::settings_drag, "sub_a5df"),
     (0x9d16, dialogue::draw_talking_head, "copy_non_pcm_lip_sync_data_and_draw_talking_head"),
     (0xa7c2, voice::lip_sync_frame_task, "lip_sync_frame_task"),
+    (0xd48a, ui::button_label, "loc_0d48a"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),
