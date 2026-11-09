@@ -1035,6 +1035,9 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x5944, map::place_view_click, "loc_05944"),
     (0x35ad, story::scene_start, "loc_035ad"),
     (0x5c76, map::map_view_click, "sub_5c76"),
+    (0x90bd, dialogue::speaker_list_item, "loc_090bd"),
+    (0xb941, globe::globe_list, "loc_0b941"),
+    (0xbc1f, globe::globe_or_map_list, "sub_bc1f"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];

@@ -3971,3 +3971,103 @@ fn lip_sync_setup_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_word(0x47d2, di);
     c.ret()
 }
+
+/// `loc_090bd`: the dialogue list 1F7Eh's second item (+6 the phrase,
+/// +8 its handler) for the speaker SI (+0Eh): with bit 12 of [12h] (not
+/// for 0Ch) and bit 4 of [10A7h] 9Ch / 9584h; 0Fh 93h / 5A03h; 0Eh 96h
+/// (97h with bit 4 of [0Ah]) / 95C1h; others by their flags +0Fh: 4091h
+/// moving (bit 7), else 0091h / 95E2h, with bit 6 0092h / 9533h; then a
+/// redraw asked and the list installed with the handler 97CFh.
+pub fn speaker_list_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x90bd)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let al = c.byte(si.wrapping_add(0x0e));
+    let w12 = c.word(0x12);
+    let f7 = c.byte(0x10a7);
+    let fa = c.byte(0x0a);
+    let cl = c.byte(si.wrapping_add(0x0f));
+    let (mut bx, mut dx) = (c.reg(BX), c.reg(DX));
+    // The path's count; its flag ops replayed after the run.
+    let mut n = 3u32;
+    let special = al != 0x0c && w12 & 0x1000 != 0;
+    if al != 0x0c {
+        n += 2;
+        if special {
+            n += 4;
+            bx = 0x9c;
+            dx = 0x9584;
+        }
+    }
+    let done_9c = special && f7 & 0x10 == 0;
+    if !done_9c {
+        n += 4;
+        bx = 0x93;
+        dx = 0x5a03;
+        if al != 0x0f {
+            n += 2;
+            if al == 0x0e {
+                n += 4;
+                bx = 0x96;
+                dx = 0x95c1;
+                if fa & 0x10 != 0 {
+                    n += 2;
+                    bx = 0x97;
+                }
+            } else {
+                n += 4;
+                bx = 0x4091;
+                if cl & 0x80 == 0 {
+                    n += 4;
+                    bx = 0x0091;
+                    dx = 0x95e2;
+                    if cl & 0x40 != 0 {
+                        n += 2;
+                        bx = 0x0092;
+                        dx = 0x9533;
+                    }
+                }
+            }
+        }
+    }
+    c.run(start, n + 4)?;
+    c.set_reg8(r8::AL, al);
+    c.cmp(B, al as u16, 0x0c);
+    if al != 0x0c {
+        c.test(W, w12, 0x1000);
+        if special {
+            c.test(B, f7 as u16, 0x10);
+        }
+    }
+    if !done_9c {
+        c.cmp(B, al as u16, 0x0f);
+        if al != 0x0f {
+            c.cmp(B, al as u16, 0x0e);
+            if al == 0x0e {
+                c.test(B, fa as u16, 0x10);
+                if fa & 0x10 != 0 {
+                    c.inc(W, 0x96);
+                }
+            } else {
+                c.set_reg8(r8::CL, cl);
+                c.test(B, cl as u16, 0x80);
+                if cl & 0x80 == 0 {
+                    c.and(B, 0x40, 0xbf);
+                    c.test(B, cl as u16, 0x40);
+                    if cl & 0x40 != 0 {
+                        c.inc(W, 0x91);
+                    }
+                }
+            }
+        }
+    }
+    c.set_reg(BX, bx);
+    c.set_reg(DX, dx);
+    c.set_reg(BP, 0x1f7e);
+    c.set_word_in(SS, 0x1f84, bx);
+    c.set_word_in(SS, 0x1f86, dx);
+    c.call(0xd316, 0x911d)?;
+    c.run(0x911d, 2)?;
+    c.set_reg(BX, 0x97cf);
+    super::cursor::install_ui_list_d338(c.m, 0xd338)
+}

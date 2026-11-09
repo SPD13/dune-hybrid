@@ -1437,3 +1437,69 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
 }
+
+/// `loc_0b941`: the globe's UI list 204Ah with its button B1h / B96Bh
+/// (B2h / B961h with [0DD02h]) installed (handler D917h).
+pub fn globe_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb941)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0xdd02);
+    c.run(start, 5 + if k != 0 { 2 } else { 0 } + 4)?;
+    c.set_reg(BP, 0x204a);
+    let mut ax = 0xb1u16;
+    let mut bx = 0xb96bu16;
+    c.cmp(B, k as u16, 0);
+    if k != 0 {
+        ax = c.inc(W, ax);
+        bx = 0xb961;
+    }
+    c.set_reg(AX, ax);
+    c.set_word_in(SS, 0x2050, ax);
+    c.set_word_in(SS, 0x2052, bx);
+    c.set_reg(BX, 0xd917);
+    super::cursor::install_ui_list_d338(c.m, 0xd338)
+}
+
+/// `sub_bc1f`: with the globe's list (204Ah) or the map list (2062h)
+/// current (`loc_0d41b`), the one for the cursor ([`on_globe`], CF on
+/// the globe) installed when it changes.
+pub fn globe_or_map_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xbc1f)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xd41b, 0xbc22)?;
+    let bp = c.reg(BP);
+    if bp != 0x204a && bp != 0x2062 {
+        c.run(0xbc22, 5)?;
+        c.cmp(W, bp, 0x204a);
+        c.cmp(W, bp, 0x2062);
+        return c.ret();
+    }
+    c.run(0xbc22, if bp == 0x204a { 4 } else { 5 })?;
+    c.cmp(W, bp, 0x204a);
+    if bp != 0x204a {
+        c.cmp(W, bp, 0x2062);
+    }
+    c.call(0xbc4e, 0xbc31)?;
+    let bp = c.reg(BP);
+    if c.flag(CF) {
+        if bp == 0x2062 {
+            c.run(0xbc31, 4)?;
+            c.cmp(W, bp, 0x2062);
+            return c.ret();
+        }
+        c.run(0xbc31, 7)?;
+        c.cmp(W, bp, 0x2062);
+        c.set_reg(BP, 0x2062);
+        c.set_reg(BX, 0xd917);
+        c.xor(W, 0, 0);
+        c.set_reg(CX, 0);
+        return super::cursor::install_ui_list(c.m, 0xd33a);
+    }
+    c.run(0xbc31, 4)?;
+    c.cmp(W, bp, 0x204a);
+    if bp == 0x204a {
+        return c.ret();
+    }
+    globe_list(c.m, 0xb941)
+}
