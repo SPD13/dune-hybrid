@@ -986,6 +986,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x4586, map::message_subject, "loc_04586"),
     (0x445d, screens::place_map_pointer, "loc_0445d"),
     (0x4377, screens::redraw_map_frame, "sub_4377"),
+    (0x5ee4, map::marker_caption, "loc_05ee4"),
+    (0x60ac, map::location_panel_line, "loc_060ac"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];

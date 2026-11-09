@@ -5935,3 +5935,134 @@ fn subject_tail(c: &mut Ctx, at: u16, pre: u32, di: u16, ops: impl FnOnce(&mut C
     }
     super::story::redraw_message_line(c.m, 0x45de)
 }
+
+/// `loc_05ee4`: the caption of the map marker for the location DI
+/// ([`find_marker`]): its kind (`location_map_kind`) noted in [46F7h]
+/// (the same location and kind: the box just refilled,
+/// [`fill_and_outline`]; else the old marks dropped first), and for a
+/// marker shown (bit 7 of its y high byte) the box sized for the kind's
+/// text width (11D0h table) at it ([`caption_box`]).
+pub fn marker_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5ee4)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x5ed0, 0x5ee7)?;
+    if !c.flag(ZF) {
+        c.run(0x5ee7, 2)?;
+        return c.ret();
+    }
+    c.run(0x5ee7, 3)?;
+    c.set_reg(SI, 0x1668);
+    c.call(0x6252, 0x5eef)?;
+    let ax = c.reg(AX);
+    let (di, cur) = (c.reg(DI), c.word(0x46f8));
+    let al = (ax as u8).wrapping_add(1);
+    let kind = c.byte(0x46f7);
+    let ops = |c: &mut Ctx| {
+        c.set_reg(BX, ax);
+        let a = c.inc(W, ax);
+        c.set_reg(AX, a);
+        c.cmp(W, di, cur);
+    };
+    if di == cur {
+        if al == kind {
+            c.run(0x5eef, 7)?;
+            ops(&mut c);
+            c.cmp(B, al as u16, kind as u16);
+            return super::gfx::fill_and_outline(c.m, 0x7b1b);
+        }
+        c.run(0x5eef, 7)?;
+        ops(&mut c);
+        c.cmp(B, al as u16, kind as u16);
+        c.call(0xe270, 0x5f04)?;
+        c.run(0x5f04, 2)?;
+        c.set_byte(0x46d8, 1);
+        c.call(0x5f91, 0x5f0c)?;
+        c.run(0x5f0c, 1)?;
+        c.call(0xc08e, 0x5f0f)?;
+        c.run(0x5f0f, 1)?;
+        c.call(0xe283, 0x5f12)?;
+    } else {
+        c.run(0x5eef, 4)?;
+        ops(&mut c);
+    }
+    let al = c.reg8(r8::AL);
+    let bx = c.reg(BX);
+    let cl = c.byte(bx.wrapping_add(0x11d0));
+    let bp = c.reg(BP);
+    let (dx, by) = (c.word_in(SS, bp.wrapping_add(2)), c.word_in(SS, bp.wrapping_add(4)));
+    let shown = by & 0x8000 != 0;
+    c.run(0x5f12, 7 + if shown { 0 } else { 1 })?;
+    c.set_byte(0x46f7, al);
+    c.set_reg(CX, cl as u16);
+    c.xor(B, 0, 0);
+    c.set_reg(DX, dx);
+    c.set_reg(BX, by);
+    c.or(B, by >> 8, by >> 8);
+    if !shown {
+        return c.ret();
+    }
+    caption_box(c.m, 0x5f25)
+}
+
+/// `loc_060ac`: the location's panel line at (DX = [1668h] + 4, BX + 0Ch)
+/// in colour 9Ah: a location to show (`location_to_show`) its string 6Eh
+/// and the skill bars of its record (DI + 14h, [166Eh]); else the string
+/// 4Ch and the balance gauge sprite (8Eh + (balance + 0Fh) / 32).
+pub fn location_panel_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x60ac)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xc13b, 0x60af)?;
+    c.run(0x60af, 1)?;
+    c.call(0xd068, 0x60b2)?;
+    c.run(0x60b2, 5)?;
+    c.set_reg8(r8::CL, 0x9a);
+    let d = c.word(0x1668);
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 0x0c);
+    c.set_reg(BX, bx);
+    let d = c.add(W, d, 4);
+    c.set_reg(DX, d);
+    c.call(0x627e, 0x60c1)?;
+    if !c.flag(CF) {
+        c.run(0x60c1, 3)?;
+        c.set_reg(AX, 0x6e);
+        c.call(0xd194, 0x60c9)?;
+        c.run(0x60c9, 4)?;
+        let bx = c.reg(BX);
+        let bx = c.add(W, bx, 0x0a);
+        c.set_reg(BX, bx);
+        let di = c.reg(DI);
+        c.set_reg(SI, di.wrapping_add(0x14));
+        let bp = c.word(0x166e);
+        c.set_reg(BP, bp);
+        return skill_bars(c.m, 0x7e3d);
+    }
+    c.run(0x60c1, 3)?;
+    c.set_reg(AX, 0x4c);
+    c.call(0xd194, 0x60dc)?;
+    c.run(0x60dc, 5)?;
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 6);
+    c.set_reg(BX, bx);
+    let dx = c.reg(DX);
+    let dx = c.add(W, dx, 0x2f);
+    c.set_reg(DX, dx);
+    c.push(bx);
+    c.push(dx);
+    c.call(0x60f8, 0x60e7)?;
+    c.run(0x60e7, 8)?;
+    let al = c.reg8(r8::AL) as u16;
+    c.xor(B, 0, 0);
+    let a = c.add(W, al, 0x0f);
+    c.set_reg8(r8::CL, 5);
+    let a = c.m.cpu.shift(5, W, a as u32, 5) as u16;
+    let a = c.add(W, a, 0x8e);
+    c.set_reg(AX, a);
+    let d = c.pop();
+    c.set_reg(DX, d);
+    let b = c.pop();
+    c.set_reg(BX, b);
+    super::draw::draw_sprite_clobbering_bx_dx(c.m, 0xc22f)
+}
