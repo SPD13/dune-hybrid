@@ -10,7 +10,7 @@
 use super::{B, Ctx, W, entered, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DI, DX, SI, SS},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, SI, SP, SS},
     rec::Bail,
 };
 
@@ -842,4 +842,274 @@ fn highlight_pops(c: &mut Ctx) -> Result<(), Bail> {
         c.set_reg(r, v);
     }
     c.ret()
+}
+
+/// `loc_0d338`: [`install_ui_list`] with no item highlighted (CL FFh).
+pub fn install_ui_list_d338(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd338)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.set_reg8(r8::CL, 0xff);
+    install_from(&mut c, 0)
+}
+
+/// `loc_0d33a`: the UI list BP (on the stack segment; its level byte
+/// first, then 4-byte items to a 0 word) installed with its click
+/// handler BX on the stack of lists 21D6h.. ([21DAh] the top): lists of
+/// a higher level are closed first (their handlers +2 called), one of a
+/// lower level is pushed above; its items enabled (bit 15 cleared) and
+/// item CL (below 5) marked (bit 7 of +3); then the panel's 5 slots
+/// drawn from the list (`loc_0d48a`; [0DCE4h] its count byte, [0DCE8h]
+/// the slots used, [0DCE5h] the one with the more mark A0h) and the
+/// hover highlight redone at the mouse ([`highlight_hovered_text_action_item`]).
+pub fn install_ui_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd33a)?;
+    let mut c = Ctx::new(m);
+    install_from(&mut c, 0)
+}
+
+/// `loc_0d36d`: the list BP replacing the top one (see [`install_ui_list`]).
+pub fn replace_ui_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd36d)?;
+    let mut c = Ctx::new(m);
+    install_from(&mut c, 1)
+}
+
+/// `loc_0d397`: the panel's slots redrawn from the top list (see
+/// [`install_ui_list`]).
+pub fn redraw_ui_slots(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd397)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    install_from(&mut c, 2)
+}
+
+/// [`install_ui_list`] from D33Ah (0), D36Dh (1) or D397h (2).
+fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
+    if from == 0 {
+        let mut k = 0;
+        loop {
+            k += 1;
+            if k > 20 {
+                c.m.cpu.ip = 0xd33a;
+                return Err(Bail);
+            }
+            let si = c.word(0x21da);
+            let di = c.word(si);
+            let bp = c.reg(BP);
+            let lv = c.byte_in(SS, bp);
+            let top = c.byte(di);
+            if lv == top {
+                c.run(0xd33a, 5)?;
+                c.set_reg(SI, si);
+                c.set_reg(DI, di);
+                c.set_reg8(r8::AL, lv);
+                c.cmp(B, lv as u16, top as u16);
+                break;
+            }
+            if lv < top {
+                let full = si == 0x21d6;
+                c.run(0xd33a, 8 + if full { 0 } else { 2 })?;
+                c.set_reg(SI, si);
+                c.set_reg(DI, di);
+                c.set_reg8(r8::AL, lv);
+                c.cmp(B, lv as u16, top as u16);
+                c.cmp(W, si, 0x21d6);
+                if !full {
+                    let s = c.add(W, si, 4);
+                    c.set_reg(SI, s);
+                    c.set_word(0x21da, s);
+                }
+                break;
+            }
+            c.run(0xd33a, 11)?;
+            c.set_reg(SI, si);
+            c.set_reg(DI, di);
+            c.set_reg8(r8::AL, lv);
+            c.cmp(B, lv as u16, top as u16);
+            let (bx, cx) = (c.reg(BX), c.reg(CX));
+            c.push(bp);
+            c.push(bx);
+            c.push(cx);
+            let h = c.word(si.wrapping_add(2));
+            c.set_reg(AX, h);
+            c.call(h, 0xd351)?;
+            c.run(0xd351, 5)?;
+            let t = c.word(0x21da);
+            let t = c.sub(W, t, 4);
+            c.set_word(0x21da, t);
+            let v = c.pop();
+            c.set_reg(CX, v);
+            let v = c.pop();
+            c.set_reg(BX, v);
+            let v = c.pop();
+            c.set_reg(BP, v);
+        }
+        c.run(0xd368, 2)?;
+        let (si, bp, bx) = (c.reg(SI), c.reg(BP), c.reg(BX));
+        c.set_word(si, bp);
+        c.set_word(si.wrapping_add(2), bx);
+    }
+    if from <= 1 {
+        c.run(0xd36d, 4)?;
+        let si = c.word(0x21da);
+        let bp = c.reg(BP);
+        c.set_reg(SI, si);
+        c.set_word(si, bp);
+        c.set_reg(SI, bp);
+        let mut p = c.add(W, bp, 2);
+        c.set_reg(BP, p);
+        let mut k = 0;
+        loop {
+            k += 1;
+            if k > 200 {
+                c.m.cpu.ip = 0xd378;
+                return Err(Bail);
+            }
+            let w = c.word_in(SS, p);
+            if w == 0 {
+                c.run(0xd378, 2)?;
+                c.cmp(W, w, 0);
+                break;
+            }
+            c.run(0xd378, 5)?;
+            c.cmp(W, w, 0);
+            let w = c.and(W, w, 0x7fff);
+            c.set_word_in(SS, p, w);
+            p = c.add(W, p, 4);
+            c.set_reg(BP, p);
+        }
+        let cx = c.reg(CX);
+        let si = c.reg(SI);
+        if cx < 5 {
+            c.run(0xd388, 6)?;
+            c.cmp(W, cx, 5);
+            let b = c.shl1(W, cx, 2);
+            c.set_reg(CX, b);
+            c.set_reg(BX, b);
+            let a = b.wrapping_add(si).wrapping_add(3);
+            let v = c.byte(a);
+            let v = c.or(B, v as u16, 0x80);
+            c.set_byte(a, v as u8);
+        } else {
+            c.run(0xd388, 2)?;
+            c.cmp(W, cx, 5);
+        }
+        if c.flag(pc::cpu::DF) {
+            c.m.cpu.ip = 0xd397;
+            return Err(Bail);
+        }
+    }
+    // D397h: the slots.
+    c.run(0xd397, 11)?;
+    c.set_byte(0xdce7, 0xff);
+    let t = c.word(0x21da);
+    let l = c.word(t);
+    let si = c.inc(W, l);
+    c.set_reg(SI, si);
+    let n = c.lods(B, DS) as u8;
+    c.set_byte(0xdce4, n);
+    let si = c.reg(SI).wrapping_add(n as i8 as i16 as u16);
+    let ax = n as i8 as i16 as u16;
+    let si = c.add(W, si.wrapping_sub(ax), ax);
+    c.set_reg(SI, si);
+    c.xor(W, 0, 0);
+    c.set_reg(CX, 0);
+    c.set_byte(0xdce8, 0);
+    c.set_byte(0xdce5, 0xff);
+    let mut cl = 0u8;
+    loop {
+        let si = c.reg(SI);
+        let ax = c.word(si);
+        if ax == 0 {
+            break;
+        }
+        let cnt = c.byte(0xdce4);
+        let next = c.word(si.wrapping_add(4));
+        let more = cl >= 4 && (cnt != 0 || next != 0);
+        let n = 3 + if cl < 4 { 2 } else if cnt != 0 { 4 } else if next == 0 { 6 } else { 6 } + if more { 3 } else { 0 } + 5;
+        c.run(0xd3b5, n)?;
+        c.set_reg(AX, ax);
+        c.or(W, ax, ax);
+        c.cmp(B, cl as u16, 4);
+        if cl >= 4 {
+            c.cmp(B, cnt as u16, 0);
+            if cnt == 0 {
+                c.cmp(W, next, 0);
+            }
+        }
+        if more {
+            let v = c.or(B, cnt as u16, 0x80);
+            c.set_byte(0xdce4, v as u8);
+            c.set_reg(AX, 0xa0);
+            c.set_byte(0xdce5, cl);
+        }
+        let s = c.add(W, si, 4);
+        c.set_reg(SI, s);
+        let cx = c.reg(CX);
+        c.push(cx);
+        c.push(s);
+        let u = c.byte(0xdce8);
+        let u = c.inc(B, u as u16);
+        c.set_byte(0xdce8, u as u8);
+        c.call(0xd48a, 0xd3e5)?;
+        let cx = c.word_in(SS, c.reg(SP).wrapping_add(2)).wrapping_add(1);
+        let done = (cx as u8) >= 5;
+        c.run(0xd3e5, 5 + if done { 1 } else { 0 })?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+        let x = c.pop();
+        let x = c.inc(W, x);
+        c.set_reg(CX, x);
+        c.cmp(B, x & 0xff, 5);
+        cl = x as u8;
+        if done {
+            return slots_end(c);
+        }
+    }
+    // D3EFh: the empty slots.
+    let cnt = c.byte(0xdce4);
+    let n = 3 + 2 + if cnt != 0 { 4 } else { 1 } + 2;
+    c.run(0xd3b5, n)?;
+    c.set_reg(AX, 0);
+    c.or(W, 0, 0);
+    c.cmp(B, cnt as u16, 0);
+    if cnt != 0 {
+        c.set_reg(AX, 0xa0);
+        c.set_byte(0xdce5, cl);
+        let u = c.byte(0xdce8);
+        let u = c.inc(B, u as u16);
+        c.set_byte(0xdce8, u as u8);
+    } else {
+        c.xor(W, 0, 0);
+        c.set_reg(AX, 0);
+    }
+    loop {
+        let cx = c.reg(CX);
+        c.push(cx);
+        c.call(0xd48a, 0xd409)?;
+        let cx = c.word_in(SS, c.reg(SP)).wrapping_add(1);
+        let done = (cx as u8) >= 5;
+        c.run(0xd409, 4 + if done { 0 } else { 3 })?;
+        let x = c.pop();
+        let x = c.inc(W, x);
+        c.set_reg(CX, x);
+        c.cmp(B, x & 0xff, 5);
+        if done {
+            return slots_end(c);
+        }
+        c.xor(W, 0, 0);
+        c.set_reg(AX, 0);
+    }
+}
+
+/// D410h: the hover highlight at the mouse.
+fn slots_end(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0xd410, 3)?;
+    let (x, y) = (c.word(0xdc36), c.word(0xdc38));
+    c.set_reg(DX, x);
+    c.set_reg(BX, y);
+    highlight_hovered_text_action_item(c.m, 0xd50f)
 }
