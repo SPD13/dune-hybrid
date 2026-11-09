@@ -1351,3 +1351,16 @@ pub fn redraw_map_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x439c, 1)?;
     place_map_pointer_at(&mut c)
 }
+
+/// `loc_0d2e2`: a redraw asked ([`ask_redraw`]), the screen left
+/// ([`leave_screen`]), and the panel faded ([`fade_panel`]).
+pub fn leave_and_fade(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd2e2)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xd316, 0xd2e5)?;
+    c.run(0xd2e5, 1)?;
+    c.call(0xd2ea, 0xd2e8)?;
+    c.run(0xd2e8, 1)?;
+    fade_panel(c.m, 0xd280)
+}

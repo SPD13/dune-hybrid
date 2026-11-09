@@ -3322,3 +3322,164 @@ pub fn start_speaker_dialogue(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0x47c2, 0x80);
     say_dialogue_entry(c.m, 0x9f9e)
 }
+
+/// `sub_9468`: the dialogue's next line, unless the cursor's UI is the
+/// list 1FFEh (`loc_0d41b`): the text set up, [226Dh] 0Ah, [1Bh] 0; from
+/// the pending list [47BAh] (else entry [47BEh] of the table AA76h) the
+/// first sayable entry ([`say_dialogue_entry`]; the speaker's number
+/// told first), the list kept in [47BAh] and the panel faded; when a
+/// list runs out the next of its group of 4 ([47BEh] up); with none left
+/// the screen left (speaker 0Dh: from the group of 8 again, mask 20h).
+/// Bails while a phrase runs ([47B6h]).
+pub fn next_dialogue_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9468)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xd41b, 0x946b)?;
+    let bp = c.reg(BP);
+    if bp == 0x1ffe {
+        c.run(0x946b, 3)?;
+        c.cmp(W, bp, 0x1ffe);
+        return c.ret();
+    }
+    c.run(0x946b, 2)?;
+    c.cmp(W, bp, 0x1ffe);
+    next_line_from_9472(&mut c)
+}
+
+/// `sub_9468` from 9472h (see [`next_dialogue_line`]).
+fn next_line_from_9472(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x9472, 1)?;
+    c.call(0x9f40, 0x9475)?;
+    let busy = c.word(0x47b6);
+    if busy != 0 {
+        c.m.cpu.ip = 0x9475;
+        return Err(Bail);
+    }
+    let si = c.word(0x47ba);
+    c.run(0x9475, 7 + if si == 0 { 1 } else { 0 })?;
+    c.set_byte(0x226d, 0x0a);
+    c.set_byte(0x1b, 0);
+    c.cmp(W, 0, 0);
+    c.set_reg(SI, si);
+    c.or(W, si, si);
+    // 0: 9492h (the list of entry SI), 1: 949Ah (the list SI).
+    let mut at = 1;
+    if si == 0 {
+        let e = c.word(0x47be);
+        c.set_reg(SI, e);
+        at = 0;
+    }
+    let mut i = 0;
+    loop {
+        i += 1;
+        if i > 1000 {
+            c.m.cpu.ip = if at == 0 { 0x9492 } else { 0x949a };
+            return Err(Bail);
+        }
+        if at == 0 {
+            c.run(0x9492, 3)?;
+            let si = c.reg(SI);
+            c.set_reg(AX, si);
+            let s = c.shl1(W, si, 1);
+            let l = c.word(s.wrapping_sub(0x558a));
+            c.set_reg(SI, l);
+        }
+        let si = c.reg(SI);
+        if si != 0xffff {
+            c.run(0x949a, 3)?;
+            c.cmp(W, si, 0xffff);
+            c.call(0x9b49, 0x94a2)?;
+            c.run(0x94a2, 1)?;
+            c.call(0x9f9e, 0x94a5)?;
+            let si = c.reg(SI);
+            if !c.flag(pc::cpu::CF) {
+                c.run(0x94a5, 3)?;
+                c.set_word(0x47ba, si);
+                return fade_panel_tail(c.m);
+            }
+            let e = c.word(0x47be).wrapping_add(1);
+            c.run(0x94a5, 8)?;
+            c.set_word(0x47ba, si);
+            c.set_reg(AX, e.wrapping_sub(1));
+            let e = c.inc(W, e.wrapping_sub(1));
+            c.set_word(0x47be, e);
+            c.set_reg(SI, e);
+            let a = c.and(W, e, 3);
+            c.set_reg(AX, a);
+            if a != 0 {
+                at = 0;
+                continue;
+            }
+        } else {
+            c.run(0x949a, 2)?;
+            c.cmp(W, si, 0xffff);
+        }
+        // 94B9h: the group ran out.
+        let sp = c.word(0x47c4);
+        if sp != 0x0d {
+            c.run(0x94b9, 3)?;
+            c.cmp(W, sp, 0x0d);
+            return super::screens::leave_and_fade(c.m, 0xd2e2);
+        }
+        let si = c.reg(SI);
+        c.run(0x94b9, 2 + 2 + if si == 0xffff { 1 } else { 0 } + 4)?;
+        c.cmp(W, sp, 0x0d);
+        c.cmp(W, si, 0xffff);
+        let s = if si == 0xffff { c.word(0x47be) } else { si };
+        let s = c.and(W, s, 0xfff8);
+        c.set_reg(SI, s);
+        c.set_word(0x47be, s);
+        c.set_byte(0x47c2, 0x20);
+        at = 0;
+    }
+}
+
+/// `jmp loc_0d280` from 94DAh.
+fn fade_panel_tail(m: &mut Machine) -> Result<(), Bail> {
+    super::screens::fade_panel(m, 0xd280)
+}
+
+/// `sub_945b`: with [479Eh] the next line ([`next_dialogue_line`]); else
+/// the speaker [47C4h] started afresh (`loc_093aa`: lip sync, portrait,
+/// text box, its dialogue group by `loc_093df`) and its line from 9472h.
+pub fn dialogue_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x945b)?;
+    let mut c = Ctx::new(m);
+    let k = c.word(0x479e);
+    if k != 0 {
+        c.run(start, 2)?;
+        c.cmp(W, k, 0);
+        return next_dialogue_line(c.m, 0x9468);
+    }
+    c.run(start, 4 + 5)?;
+    c.cmp(W, 0, 0);
+    let sp = c.word(0x47c4);
+    c.set_reg(AX, sp);
+    c.xor(B, 0, 0);
+    let ax = sp & 0xff;
+    c.set_reg(AX, ax);
+    c.set_word(0x47e1, 0);
+    c.push(ax);
+    c.set_word(0x47c4, ax);
+    c.call(0x91a0, 0x93b9)?;
+    for (at, to) in [(0x93b9u16, 0x3af9u16), (0x93bc, 0x9197), (0x93bf, 0x9908)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    c.run(0x93c2, 3)?;
+    let si = c.word(0x47c8);
+    c.set_reg(SI, si);
+    c.set_word(0x4540, 0);
+    c.call(0x9bac, 0x93cf)?;
+    for (at, to) in [(0x93cfu16, 0x1834u16), (0x93d2, 0xc0f4), (0x93d5, 0xc4dd)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    c.run(0x93d8, 2)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    c.call(0x93df, 0x93dc)?;
+    c.run(0x93dc, 1)?;
+    next_line_from_9472(&mut c)
+}

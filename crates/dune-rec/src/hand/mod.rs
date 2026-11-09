@@ -992,6 +992,9 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x97cf, dialogue::line_done, "loc_097cf"),
     (0x9f9e, dialogue::say_dialogue_entry, "loc_09f9e"),
     (0x9761, dialogue::start_speaker_dialogue, "loc_09761"),
+    (0xd2e2, screens::leave_and_fade, "loc_0d2e2"),
+    (0x9468, dialogue::next_dialogue_line, "sub_9468"),
+    (0x945b, dialogue::dialogue_line, "sub_945b"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
