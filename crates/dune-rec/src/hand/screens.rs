@@ -1364,3 +1364,16 @@ pub fn leave_and_fade(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd2e8, 1)?;
     fade_panel(c.m, 0xd280)
 }
+
+/// `loc_0d32f`: a redraw asked, the UI handlers above the level BP
+/// unwound (`loc_0d33a`), the panel faded.
+pub fn unwind_and_fade(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd32f)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xd316, 0xd332)?;
+    c.run(0xd332, 1)?;
+    c.call(0xd33a, 0xd335)?;
+    c.run(0xd335, 1)?;
+    fade_panel(c.m, 0xd280)
+}

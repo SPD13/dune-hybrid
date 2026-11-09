@@ -1221,3 +1221,150 @@ pub fn scene_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0d44, 1)?;
     c.ret()
 }
+
+/// `settings_ui_draw`: the settings panel drawn on the screen (sprite 0
+/// of resource 55h at [2886h]; volume sliders, counters, language and
+/// other buttons, music buttons), then its handlers (BX A541h) and the
+/// fade ([`unwind_and_fade`](super::screens::unwind_and_fade)).
+pub fn settings_ui_draw(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa3f9)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let fb = c.word(0xdbda);
+    c.push(fb);
+    c.call(0xc08e, 0xa400)?;
+    c.run(0xa400, 2)?;
+    c.set_reg(AX, 0x55);
+    c.call(0xc13e, 0xa406)?;
+    c.run(0xa406, 4)?;
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    let (dx, bx) = (c.word(0x2886), c.word(0x2888));
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    c.call(0xc22f, 0xa413)?;
+    c.run(0xa413, 2)?;
+    let fb = c.pop();
+    c.set_word(0xdbda, fb);
+    c.call(0xa4c6, 0xa41a)?;
+    for (at, to) in [(0xa41au16, 0xa47du16), (0xa41d, 0xa42c), (0xa420, 0xa44c), (0xa423, 0xac3a)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    c.run(0xa426, 2)?;
+    c.set_reg(BX, 0xa541);
+    super::screens::unwind_and_fade(c.m, 0xd32f)
+}
+
+/// `loc_0a576`: a click in the settings panel ([2886h]; outside it the
+/// panel is left, `leave_and_fade`): on the voice test box (28BFh) a test
+/// voice (4 / 5) played when PCM is on; on the language row (28C7h) the
+/// language for the column (table 28CFh by (BX - top) / 7): above 7 the
+/// mode [28E7h] = it - 8, below 7 a new language [0CEEBh] (bit 1 of
+/// [28E7h] cleared, its resources reloaded), and the panel redrawn;
+/// else [28BEh] = 1 on a slider, 2 on a switch, 0.
+pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa576)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.set_reg(DI, 0x2886);
+    c.call(0xd6fe, 0xa57c)?;
+    if !c.flag(CF) {
+        c.run(0xa57c, 2)?;
+        return super::screens::leave_and_fade(c.m, 0xd2e2);
+    }
+    c.run(0xa57c, 2)?;
+    c.call(0xa453, 0xa584)?;
+    c.run(0xa584, 2)?;
+    c.set_reg(DI, 0x28bf);
+    c.call(0xd6fe, 0xa58a)?;
+    if c.flag(CF) {
+        c.run(0xa58a, 2)?;
+        c.call(0xae2f, 0xa556)?;
+        if c.flag(ZF) {
+            c.run(0xa556, 2)?;
+            return c.ret();
+        }
+        c.run(0xa556, 4)?;
+        c.set_reg(AX, 4);
+        c.set_reg(BX, 5);
+        c.call(0xa8bc, 0xa561)?;
+        c.run(0xa561, 1)?;
+        c.call(0xa83f, 0xa564)?;
+        c.run(0xa564, 1)?;
+        c.call(0xade0, 0xa567)?;
+        c.run(0xa567, 3)?;
+        c.set_byte(0xdc2b, 1);
+        c.set_reg(SI, 0x3811);
+        let to = c.word(0x3991);
+        c.call(to, 0xa573)?;
+        c.run(0xa573, 1)?;
+        return super::voice::wait_voice_done(c.m, 0xaba9);
+    }
+    c.run(0xa58a, 3)?;
+    c.set_reg(DI, 0x28c7);
+    c.call(0xd6fe, 0xa592)?;
+    if !c.flag(CF) {
+        c.run(0xa592, 2)?;
+        c.call(0xa672, 0xa597)?;
+        if c.flag(CF) {
+            c.run(0xa597, 3)?;
+            c.set_byte(0x28be, 1);
+            return c.ret();
+        }
+        c.run(0xa597, 2)?;
+        c.call(0xa69f, 0xa5a2)?;
+        let v = if c.flag(CF) { 2 } else { 0 };
+        c.run(0xa5a2, 3)?;
+        c.set_byte(0x28be, v);
+        return c.ret();
+    }
+    // The language row.
+    let (bx, di) = (c.reg(BX), c.reg(DI));
+    let top = c.word(di.wrapping_add(2));
+    let ax = bx.wrapping_sub(top);
+    if ax / 7 > 0xff {
+        c.m.cpu.ip = 0xa592;
+        return Err(Bail);
+    }
+    let q = (ax / 7) as u8;
+    let al = c.byte(0x28cfu16.wrapping_add(q as u16));
+    let lang = c.byte(0xceeb);
+    let n = 1 + 8 + if al > 7 {
+        5
+    } else if al == 7 {
+        2
+    } else if al == lang {
+        3
+    } else {
+        5
+    };
+    c.run(0xa592, n)?;
+    let ax = c.sub(W, bx, top);
+    c.set_reg(AX, ax);
+    c.set_reg8(r8::BL, 7);
+    c.m.cpu.mul_div(&mut c.m.hw, B, 6, 7); // div bl
+    c.set_reg(BX, 0x28cf);
+    c.set_reg8(r8::AL, al);
+    c.cmp(B, al as u16, 7);
+    if al == 7 {
+        return c.ret();
+    }
+    if al > 7 {
+        let m8 = c.sub(B, al as u16, 8);
+        c.set_reg8(r8::AL, m8 as u8);
+        c.set_byte(0x28e7, m8 as u8);
+        return settings_ui_draw(c.m, 0xa3f9);
+    }
+    c.cmp(B, al as u16, lang as u16);
+    if al == lang {
+        return c.ret();
+    }
+    let v = c.byte(0x28e7);
+    let v = c.and(B, v as u16, 0xfd);
+    c.set_byte(0x28e7, v as u8);
+    c.set_byte(0xceeb, al);
+    c.call(0xcfe4, 0xa5db)?;
+    c.run(0xa5db, 1)?;
+    settings_ui_draw(c.m, 0xa3f9)
+}
