@@ -6008,17 +6008,20 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_byte(0x47a6, 0xff);
         }
         0x2dbf => c.run(0x2dbf, 1)?,
+        0x2dd3 => {}
         _ => return Err(Bail),
     }
-    c.call(0x2d74, 0x2dc2)?;
-    c.run(0x2dc2, 6)?;
-    c.xor(W, 0, 0);
-    c.set_reg(AX, 0);
-    c.set_byte(0xdce6, 0);
-    c.set_byte(0x47a4, 0);
-    c.set_word(0x47aa, 0);
-    c.set_reg(BP, 0x2eb2);
-    c.call(0xc097, 0x2dd3)?;
+    if start != 0x2dd3 {
+        c.call(0x2d74, 0x2dc2)?;
+        c.run(0x2dc2, 6)?;
+        c.xor(W, 0, 0);
+        c.set_reg(AX, 0);
+        c.set_byte(0xdce6, 0);
+        c.set_byte(0x47a4, 0);
+        c.set_word(0x47aa, 0);
+        c.set_reg(BP, 0x2eb2);
+        c.call(0xc097, 0x2dd3)?;
+    }
     let k = c.byte(0x2b);
     if k != 0 {
         c.run(0x2dd3, 4)?;
@@ -6401,4 +6404,359 @@ fn step_3ff5(c: &mut Ctx) -> Result<(), Bail> {
     }
     c.call(0x2170, 0x4057)?;
     enter_room_at(c)
+}
+
+/// `loc_037b2` / `loc_037b5`: the room drawn (from `loc_037b2` the
+/// dialogue reset first): `loc_04d00`, [472Dh] 0, `loc_05ba8`,
+/// `loc_0c432`; at a place the room's scene byte (`loc_03efe`): a
+/// scene (positive) is drawn by `loc_039ec`. Else `loc_03ae9`, [47A4h]
+/// bit 0; outside the map modes the place's view (`loc_0380c`,
+/// `place_scene`, `loc_04d06`); in them the map ([4728h] 0, `loc_04988`,
+/// `loc_04a5a`, the resource [487Eh] through the driver) and the sky
+/// (`set_sky_palette`).
+pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    let mut c = Ctx::new(m);
+    match start {
+        0x37b2 => {
+            c.run(0x37b2, 1)?;
+            c.call(0x98e6, 0x37b5)?;
+        }
+        0x37b5 => {}
+        _ => return Err(Bail),
+    }
+    c.run(0x37b5, 1)?;
+    c.call(0x4d00, 0x37b8)?;
+    c.run(0x37b8, 2)?;
+    c.set_word(0x472d, 0);
+    c.call(0x5ba8, 0x37c1)?;
+    c.run(0x37c1, 1)?;
+    c.call(0xc432, 0x37c4)?;
+    let b8 = c.byte(8);
+    if b8 == 0xff {
+        c.run(0x37c4, 6)?;
+        c.set_reg(AX, 0xffff);
+        c.cmp(B, b8 as u16, 0xff);
+        c.or(W, 0xffff, 0xffff);
+    } else {
+        c.run(0x37c4, 5)?;
+        c.set_reg(AX, 0xffff);
+        c.cmp(B, b8 as u16, 0xff);
+        let dx = c.word(4);
+        c.set_reg(DX, dx);
+        c.call(0x3efe, 0x37d4)?;
+        let ah = c.reg8(r8::AH);
+        let si = c.reg(SI);
+        let al = c.byte(si);
+        let ax = (ah as u16) << 8 | al as u16;
+        c.run(0x37d4, 4)?;
+        c.lods(B, DS);
+        c.or(W, ax, ax);
+        if ax & 0x8000 == 0 {
+            return room_scene_39ec(&mut c);
+        }
+    }
+    c.call(0x3ae9, 0x37df)?;
+    let mode = c.byte(0x11c9);
+    let v = c.byte(0x47a4);
+    if mode & 3 == 0 {
+        c.run(0x37df, 4)?;
+        let v = c.or(B, v as u16, 1);
+        c.set_byte(0x47a4, v as u8);
+        c.test(B, mode as u16, 3);
+        c.call(0x380c, 0x37ee)?;
+        c.run(0x37ee, 1)?;
+        c.call(0x4e12, 0x37f1)?;
+        c.run(0x37f1, 1)?;
+        return enemy_watch_4d06(&mut c);
+    }
+    c.run(0x37df, 5)?;
+    let v = c.or(B, v as u16, 1);
+    c.set_byte(0x47a4, v as u8);
+    c.test(B, mode as u16, 3);
+    c.set_byte(0x4728, 0);
+    c.call(0x4988, 0x37fc)?;
+    c.run(0x37fc, 1)?;
+    c.call(0x4a5a, 0x37ff)?;
+    c.run(0x37ff, 2)?;
+    let ax = c.word(0x487e);
+    c.set_reg(AX, ax);
+    c.call(0xca1b, 0x3805)?;
+    c.interp(0x3805, 0x3809)?;
+    c.run(0x3809, 1)?;
+    super::ui::set_sky_palette(c.m, 0x388d)
+}
+
+/// `loc_04d06`: [0F6h] 0; when the place [1150h] is here ([4], its +4
+/// against [6]) and [4734h] is set and not below the position's high
+/// byte, the troops' march shown ([0F6h] 1, `loc_04d57` with AH 1,
+/// `loc_04bdf`, `loc_0c412`) and past [4733h] the alarm (`loc_0ab15`
+/// with 5, `loc_04d57` with AH 0, the task 4BB9h every 10h).
+fn enemy_watch_4d06(c: &mut Ctx) -> Result<(), Bail> {
+    let di = c.word(0x1150);
+    let dx = c.word(di.wrapping_add(2));
+    let here = c.word(4);
+    let ax = c.word(0x4733);
+    let ah = (ax >> 8) as u8;
+    let bx = c.word(6);
+    let b4 = c.byte(di.wrapping_add(4));
+    let bh = (bx >> 8) as u8;
+    let n = if dx != here {
+        5
+    } else if ah == 0 {
+        8
+    } else if bx as u8 != b4 {
+        11
+    } else if bh > ah {
+        13
+    } else {
+        18
+    };
+    c.run(0x4d06, n + (n < 18) as u32)?;
+    c.set_byte(0xf6, 0);
+    c.set_reg(DI, di);
+    c.set_reg(DX, dx);
+    c.cmp(W, dx, here);
+    if n > 5 {
+        c.set_reg(AX, ax);
+        c.or(B, ah as u16, ah as u16);
+    }
+    if n > 8 {
+        c.set_reg(BX, bx);
+        c.cmp(B, bx & 0xff, b4 as u16);
+    }
+    if n > 11 {
+        c.cmp(B, bh as u16, ah as u16);
+    }
+    if n < 18 {
+        return c.ret();
+    }
+    c.push(ax);
+    c.push(bx);
+    let f = c.byte(0xf6);
+    let f = c.inc(B, f as u16);
+    c.set_byte(0xf6, f as u8);
+    c.set_reg8(r8::AH, 1);
+    c.call(0x4d57, 0x4d37)?;
+    c.run(0x4d37, 1)?;
+    c.call(0x4bdf, 0x4d3a)?;
+    c.run(0x4d3a, 1)?;
+    c.call(0xc412, 0x4d3d)?;
+    let sp = c.reg(SP);
+    let bx = c.word_in(SS, sp);
+    let ax = c.word_in(SS, sp.wrapping_add(2));
+    let (bh, al) = ((bx >> 8) as u8, ax as u8);
+    c.run(0x4d3d, if bh > al { 5 } else { 6 })?;
+    c.pop();
+    c.pop();
+    c.set_reg(BX, bx);
+    c.set_reg(AX, ax);
+    c.cmp(B, bh as u16, al as u16);
+    if bh > al {
+        return c.ret();
+    }
+    c.set_reg8(r8::AL, 5);
+    c.call(0xab15, 0x4d48)?;
+    c.run(0x4d48, 2)?;
+    c.xor(B, 0, 0);
+    c.set_reg8(r8::AH, 0);
+    c.call(0x4d57, 0x4d4d)?;
+    c.run(0x4d4d, 3)?;
+    c.set_reg(SI, 0x4bb9);
+    c.set_reg(BP, 0x10);
+    c.call(0xda25, 0x4d56)?;
+    c.run(0x4d56, 1)?;
+    c.ret()
+}
+
+/// `loc_039ec`: the room's scene AX: [22E3h] 1, `loc_03ae9`; the room
+/// [4] 2005h draws the sky (`draw_sky`), 1005h too without [22E3h];
+/// the first room of a place ([4] low 1) with the place's view
+/// (`loc_037eb`), in a palace (21h) with the place's own scene; then
+/// the scene (`draw_SAL`). In a lit first room with [4731h] not FFh
+/// and [46FFh] figures: [4731h] 0 and, unless [47A4h] & 81h, the figures
+/// drawn (`loc_0c13e` 33h, `loc_03a95`, `loc_03aa9` each 46h / 0Ah on)
+/// before the sky (`set_sky_palette`); else the room frame task removed
+/// and in a sietch's room 4 the task C0B6h every 0Ch.
+fn room_scene_39ec(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x39ec, 3)?;
+    c.set_byte(0x22e3, 1);
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.call(0x3ae9, 0x39f5)?;
+    let r = c.word(4);
+    let mut n = 3u32;
+    let mut redo = false;
+    let mut sky = false;
+    let mut eb = false;
+    let mut clear = false;
+    if r == 0x2005 {
+        sky = true;
+    } else {
+        n += 2;
+        if r == 0x1005 {
+            clear = true;
+            sky = true;
+        } else {
+            n += 2;
+            if (r as u8).wrapping_sub(1) == 0 {
+                n += 2;
+                eb = true;
+                if (r >> 8) as u8 == 0x21 {
+                    n += 4;
+                    redo = true;
+                }
+            }
+        }
+    }
+    n += if eb { 1 } else if clear { 2 } else if sky { 1 } else { 0 };
+    c.run(0x39f5, n)?;
+    c.set_reg(AX, r);
+    c.cmp(W, r, 0x2005);
+    if r != 0x2005 {
+        c.cmp(W, r, 0x1005);
+        if r != 0x1005 {
+            let al = c.dec(B, r & 0xff);
+            c.set_reg8(r8::AL, al as u8);
+            if al == 0 {
+                c.cmp(B, r >> 8, 0x21);
+            }
+        }
+    }
+    if redo {
+        let mut v = c.pop();
+        let di = c.word(0x114e);
+        c.set_reg(DI, di);
+        v = (v & 0xff00) | c.byte(di) as u16;
+        c.set_reg(AX, v);
+        c.push(v);
+    }
+    if eb {
+        c.call(0x37eb, 0x3a16)?;
+        c.run(0x3a16, 1)?;
+    } else if sky {
+        if clear {
+            c.set_byte(0x22e3, 0);
+        }
+        c.call(0x38b4, 0x3a20)?;
+    }
+    c.run(0x3a20, 2)?;
+    let v = c.pop();
+    c.set_reg(AX, v);
+    c.call(0x3b59, 0x3a24)?;
+    figures_3a24(c)
+}
+
+fn figures_3a24(c: &mut Ctx) -> Result<(), Bail> {
+    let lit = c.byte(0x46df);
+    let r = c.byte(4);
+    if lit == 0 || r != 1 {
+        c.run(0x3a24, if lit == 0 { 3 } else { 5 })?;
+        c.cmp(B, lit as u16, 0);
+        if lit != 0 {
+            c.cmp(B, r as u16, 1);
+        }
+        c.call(0x39e6, 0x3a7f)?;
+        let ax = c.word(4);
+        let (al, ah) = (ax as u8, (ax >> 8) as u8);
+        let go = al == 4 && ah < 0x20;
+        c.run(0x3a7f, if al != 4 { 4 } else if !go { 6 } else { 8 })?;
+        c.set_reg(AX, ax);
+        c.cmp(B, al as u16, 4);
+        if al == 4 {
+            c.cmp(B, ah as u16, 0x20);
+        }
+        if !go {
+            return c.ret();
+        }
+        c.set_reg(SI, 0xc0b6);
+        c.set_reg(BP, 0x0c);
+        c.call(0xda25, 0x3a94)?;
+        c.run(0x3a94, 1)?;
+        return c.ret();
+    }
+    let k = c.byte(0x4731);
+    if k == 0xff {
+        c.run(0x3a24, 7)?;
+        c.cmp(B, lit as u16, 0);
+        c.cmp(B, r as u16, 1);
+        c.cmp(B, k as u16, 0xff);
+        return c.ret();
+    }
+    let cl = c.byte(0x46ff);
+    if cl == 0 {
+        c.run(0x3a24, 10)?;
+        c.cmp(B, lit as u16, 0);
+        c.cmp(B, r as u16, 1);
+        c.cmp(B, k as u16, 0xff);
+        c.set_reg(CX, 0);
+        c.xor(B, 0, 0);
+        return c.ret();
+    }
+    let f = c.byte(0x47a4);
+    let skip = f & 0x81 != 0;
+    c.run(0x3a24, 6 + 3 + 5 + if skip { 1 } else { 2 })?;
+    c.cmp(B, lit as u16, 0);
+    c.cmp(B, r as u16, 1);
+    c.cmp(B, k as u16, 0xff);
+    c.set_reg(CX, cl as u16);
+    c.xor(B, 0, 0);
+    c.set_reg(AX, 0x388d);
+    c.push(0x388d);
+    c.set_byte(0x4731, 0);
+    c.test(B, f as u16, 0x81);
+    if skip {
+        c.pop();
+        return super::ui::set_sky_palette(c.m, 0x388d);
+    }
+    c.set_reg(AX, 0x33);
+    c.call(0xc13e, 0x3a57)?;
+    c.run(0x3a57, 1)?;
+    c.call(0x3a95, 0x3a5a)?;
+    c.run(0x3a5a, 6)?;
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    let a = c.add(W, dx, 0x0c);
+    c.set_word(0x472d, a);
+    let a = c.add(W, bx, 8);
+    c.set_reg(AX, a);
+    c.set_word(0x472f, a);
+    loop {
+        c.run(0x3a6a, 4)?;
+        let (cx, bx, dx) = (c.reg(CX), c.reg(BX), c.reg(DX));
+        c.push(cx);
+        c.push(bx);
+        c.push(dx);
+        c.call(0x3aa9, 0x3a70)?;
+        let sp = c.reg(SP);
+        let dx = c.word_in(SS, sp);
+        let cx = c.word_in(SS, sp.wrapping_add(4));
+        c.run(0x3a70, 6 + (cx == 1) as u32)?;
+        let dx2 = c.pop();
+        let bx = c.pop();
+        let cx = c.pop();
+        let _ = dx;
+        let d = c.add(W, dx2, 0x46);
+        c.set_reg(DX, d);
+        let b = c.add(W, bx, 0x0a);
+        c.set_reg(BX, b);
+        let cx = cx.wrapping_sub(1);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    c.pop();
+    super::ui::set_sky_palette(c.m, 0x388d)
+}
+
+/// `loc_037eb`: the place's view (`loc_0380c`, `place_scene`) and the
+/// troops' watch (`loc_04d06`).
+pub fn place_view_37eb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x37eb)?;
+    let mut c = Ctx::new(m);
+    c.run(0x37eb, 1)?;
+    c.call(0x380c, 0x37ee)?;
+    c.run(0x37ee, 1)?;
+    c.call(0x4e12, 0x37f1)?;
+    c.run(0x37f1, 1)?;
+    enemy_watch_4d06(&mut c)
 }
