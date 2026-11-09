@@ -3857,3 +3857,117 @@ fn box_8ddb(c: &mut Ctx) -> Result<(), Bail> {
     c.set_flag(pc::cpu::CF, false);
     c.ret()
 }
+
+/// `setup_lip_sync_data_from_current`: [`setup_lip_sync_data_from_sprite_sheet`]
+/// for the speaker [47C4h], if any.
+pub fn setup_lip_sync_data_from_current(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9197)?;
+    let mut c = Ctx::new(m);
+    let sp = c.word(0x47c4);
+    if sp == 0xffff {
+        c.run(start, 4)?;
+        c.set_reg(AX, sp);
+        c.cmp(W, sp, 0xffff);
+        return c.ret();
+    }
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    c.run(start, 3)?;
+    c.set_reg(AX, sp);
+    c.cmp(W, sp, 0xffff);
+    lip_sync_setup_at(&mut c)
+}
+
+/// `setup_lip_sync_data_from_sprite_sheet`: the talking head for the
+/// speaker AX ([0F0h] 0, 0Ah for 0Ch with bit 10h of [10A7h]): its
+/// sentence set (`pick_sentence`); a new head ([22A6h]) closes the text
+/// first and opens its resource ([`open_talking_head_resource`]), its
+/// text width (22A8h table) into the three boxes 2224h.., the speaker
+/// box 1BF0h from the sheet's first sprite, and the lip sync tables
+/// ([47CCh], [47CAh], [47D2h]). Bails with DF set.
+pub fn setup_lip_sync_data_from_sprite_sheet(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x91a0)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    lip_sync_setup_at(&mut c)
+}
+
+fn lip_sync_setup_at(c: &mut Ctx) -> Result<(), Bail> {
+    let ax = c.reg(AX);
+    let f = c.byte(0x10a7);
+    let n = if ax != 0x0c { 3 } else if f & 0x10 == 0 { 5 } else { 6 };
+    c.run(0x91a0, n + 1)?;
+    c.set_word(0xf0, 0);
+    c.cmp(W, ax, 0x0c);
+    if ax == 0x0c {
+        c.test(B, f as u16, 0x10);
+        if f & 0x10 != 0 {
+            c.set_word(0xf0, 0x0a);
+        }
+    }
+    c.call(0x9123, 0x91bb)?;
+    let ax = c.reg(AX);
+    let cur = c.word(0x22a6);
+    if ax == cur {
+        c.run(0x91bb, 2)?;
+        c.cmp(W, ax, cur);
+        return open_talking_head_resource(c.m, 0x920f);
+    }
+    c.run(0x91bb, 4)?;
+    c.cmp(W, ax, cur);
+    c.push(ax);
+    c.call(0x98b2, 0x91c5)?;
+    c.run(0x91c5, 4)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    c.set_word(0x22a6, a);
+    c.set_reg(SI, a);
+    c.call(0x920f, 0x91ce)?;
+    c.run(0x91ce, 28)?;
+    let si = c.reg(SI);
+    let w = c.byte(si.wrapping_add(0x22a8));
+    c.xor(B, 0, 0);
+    c.set_reg(AX, w as u16);
+    for a in [0x2224u16, 0x222c, 0x2234] {
+        c.set_word(a, w as u16);
+    }
+    let ds = c.sreg(DS);
+    c.push(ds);
+    c.push(ds);
+    let e = c.pop();
+    c.set_sreg(ES, e);
+    let (p, s) = (c.word(0xdbb0), c.word(0xdbb2));
+    c.set_reg(SI, p);
+    c.set_sreg(DS, s);
+    let bx = c.word(p);
+    c.set_reg(BX, bx);
+    let o = c.word(bx.wrapping_add(p).wrapping_sub(2));
+    let si = c.add(W, p, o);
+    let si = c.add(W, si, 4);
+    c.set_reg(SI, si);
+    c.set_reg(DI, 0x1bf0);
+    for _ in 0..4 {
+        c.movs(W);
+    }
+    let si = c.reg(SI);
+    c.set_reg(AX, si);
+    let a = c.add(W, si, 2);
+    c.set_reg(AX, a);
+    c.set_word_in(SS, 0x47cc, a);
+    let o = c.word(si);
+    let si = c.add(W, si, o);
+    c.set_reg(SI, si);
+    let bx = c.word(si);
+    c.set_reg(BX, bx);
+    let o = c.word(bx.wrapping_add(si).wrapping_sub(2));
+    let di = c.add(W, si, o);
+    c.set_reg(DI, di);
+    let d = c.pop();
+    c.set_sreg(DS, d);
+    c.set_word(0x47ca, si);
+    c.set_word(0x47d2, di);
+    c.ret()
+}

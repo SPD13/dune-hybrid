@@ -1017,6 +1017,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x78e9, troops::troop_panel, "loc_078e9"),
     (0xd50f, cursor::highlight_hovered_text_action_item, "highlight_hovered_text_action_item"),
     (0x0b45, story::scene_particles_step, "sub_0b45"),
+    (0x9197, dialogue::setup_lip_sync_data_from_current, "setup_lip_sync_data_from_current"),
+    (0x91a0, dialogue::setup_lip_sync_data_from_sprite_sheet, "setup_lip_sync_data_from_sprite_sheet"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
