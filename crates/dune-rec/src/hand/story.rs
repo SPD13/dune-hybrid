@@ -5016,3 +5016,218 @@ fn palette_after_2eb2(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x4792, 1)?;
     super::gfx::update_screen_palette(c.m, 0xc0f4)
 }
+
+/// `sub_1dd7` (`loc_01f64`): the Harkonnen take a location: from phase
+/// 3Ch, or 70h days after [1154h], unless [2] bit 10h or [11BCh] was set
+/// (cleared), on the carry out of rotating [0] left: the target
+/// (`ui_comm`, ZF: none); [0C4h] up; twice the troops at the location BP
+/// (+9, chained by +1) with bit 80h of +10h are taken (+3 8Dh, `loc_084a6`,
+/// bit 10h of +10h cleared, `loc_08357`); the location DI flagged 2, its
+/// troops (`for_location_troops_8403`), the place records at 0FD8h (9 of
+/// 10h) of the place BX moved to DX, the event 0Ch (0Dh for the troop
+/// 8E0h's location) noted (`call_29f0_f`); for the current place [6]
+/// its new id DX in [4] and [0Bh], [473Bh], [2Bh] and `note_60f8`, else
+/// the shown locations counted.
+pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1dd7)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    let ph = c.byte(0x2a);
+    if ph < 0x3c {
+        let d = c.word(2);
+        let t = c.word(0x1154);
+        let a = d.wrapping_sub(t);
+        if d < t || a < 0x70 {
+            c.run(0x1f64, if d < t { 6 } else { 8 })?;
+            c.cmp(B, ph as u16, 0x3c);
+            let a = c.sub(W, d, t);
+            c.set_reg(AX, a);
+            if d >= t {
+                c.cmp(W, a, 0x70);
+            }
+            return c.ret();
+        }
+        c.run(0x1f64, 7)?;
+        c.cmp(B, ph as u16, 0x3c);
+        let a = c.sub(W, d, t);
+        c.set_reg(AX, a);
+        c.cmp(W, a, 0x70);
+    } else {
+        c.run(0x1f64, 2)?;
+        c.cmp(B, ph as u16, 0x3c);
+    }
+    let d = c.word(2);
+    if d & 0x10 != 0 {
+        c.run(0x1f79, 3)?;
+        c.test(W, d, 0x10);
+        return c.ret();
+    }
+    let k = c.byte(0x11bc);
+    if k != 0 {
+        c.run(0x1f79, 7)?;
+        c.test(W, d, 0x10);
+        c.xor(B, 0, 0);
+        c.set_byte(0x11bc, 0);
+        c.set_reg8(r8::AL, k);
+        c.or(B, k as u16, k as u16);
+        return c.ret();
+    }
+    let w = c.word(0);
+    let carry = w & 0x8000 != 0;
+    c.run(0x1f79, if carry { 9 } else { 9 })?;
+    c.test(W, d, 0x10);
+    c.xor(B, 0, 0);
+    c.set_byte(0x11bc, 0);
+    c.set_reg8(r8::AL, 0);
+    c.or(B, 0, 0);
+    let r = c.rol1(W, w);
+    c.set_word(0, r);
+    if !carry {
+        return c.ret();
+    }
+    c.call(0x2017, 0x1f95)?;
+    if c.flag(pc::cpu::ZF) {
+        c.run(0x1f95, 2)?;
+        return c.ret();
+    }
+    c.run(0x1f95, 3)?;
+    let v = c.byte(0xc4);
+    let v = c.inc(B, v as u16);
+    c.set_byte(0xc4, v as u8);
+    c.set_reg(CX, 2);
+    // Twice: the first troop of the chain with bit 80h of +10h taken.
+    loop {
+        let bp = c.reg(BP);
+        let al = c.byte_in(SS, bp.wrapping_add(9));
+        c.run(0x1f9e, 1)?;
+        c.set_reg8(r8::AL, al);
+        let mut found = false;
+        let mut i = 0;
+        loop {
+            i += 1;
+            if i > 300 {
+                c.m.cpu.ip = 0x1fa1;
+                return Err(Bail);
+            }
+            let al = c.reg8(r8::AL);
+            if al == 0 {
+                c.run(0x1fa1, 2)?;
+                c.or(B, 0, 0);
+                break;
+            }
+            c.run(0x1fa1, 3)?;
+            c.or(B, al as u16, al as u16);
+            c.call(0x6906, 0x1fa8)?;
+            let si = c.reg(SI);
+            let nx = c.byte(si.wrapping_add(1));
+            let f = c.byte(si.wrapping_add(0x10));
+            c.run(0x1fa8, if f & 0x80 != 0 { 9 } else { 3 })?;
+            c.set_reg8(r8::AL, nx);
+            c.test(B, f as u16, 0x80);
+            if f & 0x80 != 0 {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            break;
+        }
+        let (cx, bp, si, di) = (c.reg(CX), c.reg(BP), c.reg(SI), c.reg(DI));
+        c.push(cx);
+        c.push(bp);
+        c.push(si);
+        c.push(di);
+        c.set_byte(si.wrapping_add(3), 0x8d);
+        c.call(0x84a6, 0x1fbc)?;
+        c.run(0x1fbc, 5)?;
+        let d = c.pop();
+        c.set_reg(DI, d);
+        let s = c.pop();
+        c.set_reg(SI, s);
+        let f = c.byte(s.wrapping_add(0x10));
+        let f = c.and(B, f as u16, 0xef);
+        c.set_byte(s.wrapping_add(0x10), f as u8);
+        c.push(d);
+        c.call(0x8357, 0x1fc6)?;
+        c.run(0x1fc6, 4)?;
+        let d = c.pop();
+        c.set_reg(DI, d);
+        let b = c.pop();
+        c.set_reg(BP, b);
+        let cx = c.pop().wrapping_sub(1);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    c.run(0x1fcb, 2)?;
+    let di = c.reg(DI);
+    let f = c.byte(di.wrapping_add(0x0a));
+    let f = c.or(B, f as u16, 2);
+    c.set_byte(di.wrapping_add(0x0a), f as u8);
+    c.call(0x83fd, 0x1fd2)?;
+    c.run(0x1fd2, 1)?;
+    c.call(0x40ae, 0x1fd5)?;
+    let (bx, dx) = (c.reg(BX), c.reg(DX));
+    let mut n = 2;
+    for i in 0..9u16 {
+        let p = 0xfd8 + 0x10 * i;
+        n += 4 + (c.word(p + 2) == bx) as u32;
+    }
+    let di = c.reg(DI);
+    let own = c.word(0x8e4) == di;
+    n += 4 + own as u32 + 3;
+    c.run(0x1fd5, n)?;
+    c.set_reg(SI, 0xfd8);
+    c.set_reg(CX, 9);
+    for i in 0..9u16 {
+        let p = 0xfd8 + 0x10 * i;
+        let v = c.word(p + 2);
+        c.cmp(W, bx, v);
+        if v == bx {
+            c.set_word(p, dx);
+        }
+        let s = c.add(W, p, 0x10);
+        c.set_reg(SI, s);
+        c.set_reg(CX, 8 - i);
+    }
+    c.set_reg8(r8::AL, 0x0c);
+    c.set_reg(SI, 0x8e0);
+    let o = c.word(0x8e4);
+    c.cmp(W, di, o);
+    if own {
+        let a = c.inc(B, 0x0c);
+        c.set_reg8(r8::AL, a as u8);
+    }
+    c.push(bx);
+    c.push(dx);
+    c.call(0x71b2, 0x1ff8)?;
+    let cur = c.word(6);
+    let bx = c.word_in(SS, c.reg(SP).wrapping_add(2));
+    if bx != cur {
+        c.run(0x1ff8, 5)?;
+        let d = c.pop();
+        c.set_reg(DX, d);
+        let b = c.pop();
+        c.set_reg(BX, b);
+        c.cmp(W, b, cur);
+        return super::map::count_shown_location(c.m, 0x5d50);
+    }
+    c.run(0x1ff8, 10)?;
+    let d = c.pop();
+    c.set_reg(DX, d);
+    let b = c.pop();
+    c.set_reg(BX, b);
+    c.cmp(W, b, cur);
+    c.set_word(4, d);
+    let al = d as u8;
+    c.set_reg8(r8::AL, al);
+    c.set_byte(0x0b, al);
+    let v = c.byte(0x473b);
+    let v = c.or(B, v as u16, al as u16);
+    c.set_byte(0x473b, v as u8);
+    c.set_byte(0x2b, al);
+    c.call(0x6144, 0x2013)?;
+    c.run(0x2013, 1)?;
+    c.ret()
+}

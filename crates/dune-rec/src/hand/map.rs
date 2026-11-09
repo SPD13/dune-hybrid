@@ -6371,3 +6371,125 @@ pub fn zoom_legend(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x81);
     super::draw::draw_sprite_clobbering_bx_dx(c.m, 0xc22f)
 }
+
+/// `loc_0878c`: the map panel's buttons (UI list 20F2h, on the stack
+/// segment): [47BAh] 0; its action button 40A7h, or A7h (enabled unless
+/// [46FFh]) when the troop [8] is a plain one (below 20h, or [0Bh] below
+/// 3, after `skill_needs` for the place [114Eh]); bit 40h of +0Bh and
+/// +12h 0 before phase 5, else cleared and 67h; the second button 62h
+/// (enabled without [3CBEh]) from [1176h] 2, else 4093h, disabled for a
+/// place with a troop +9 whose `loc_06906` sets CF; then installed
+/// (`loc_0d338`, BX F66h) and the map resource opened.
+pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x878c)?;
+    let mut c = Ctx::new(m);
+    let t = c.byte(8);
+    let b = c.byte(0x0b);
+    let plain = t != 0xff && (t < 0x20 || b < 3);
+    let mut ax = 0x40a7u16;
+    if plain {
+        c.run(start, if t < 0x20 { 6 } else { 8 } + 3)?;
+        c.set_word(0x47ba, 0);
+        c.set_reg(AX, ax);
+        c.cmp(B, t as u16, 0xff);
+        c.cmp(B, t as u16, 0x20);
+        if t >= 0x20 {
+            c.cmp(B, b as u16, 3);
+        }
+        let di = c.reg(DI);
+        c.push(di);
+        let p = c.word(0x114e);
+        c.set_reg(DI, p);
+        c.call(0x7f27, 0x87b2)?;
+        let k = c.byte(0x46ff);
+        c.run(0x87b2, 4 + if k == 0 { 1 } else { 0 })?;
+        let d = c.pop();
+        c.set_reg(DI, d);
+        ax = 0xa7;
+        c.cmp(B, k as u16, 0);
+        if k == 0 {
+            let h = c.or(B, 0, 0x40);
+            ax = h << 8 | 0xa7;
+        }
+        c.set_reg(AX, ax);
+    } else {
+        c.run(start, if t == 0xff { 4 } else { 8 })?;
+        c.set_word(0x47ba, 0);
+        c.set_reg(AX, ax);
+        c.cmp(B, t as u16, 0xff);
+        if t != 0xff {
+            c.cmp(B, t as u16, 0x20);
+            c.cmp(B, b as u16, 3);
+        }
+    }
+    let ph = c.byte(0x2a);
+    let n2 = c.word(0x1176);
+    let late = ph >= 5;
+    let mut n = 6 + if late { 2 } else { 0 } + 2;
+    let mut chk = None;
+    if n2 >= 2 {
+        let e = c.word(0x3cbe);
+        n += 4 + if e == 0 { 1 } else { 0 };
+    } else {
+        let di = c.word(0x114e);
+        n += 4;
+        if di != 0 {
+            let tr = c.byte(di.wrapping_add(9));
+            n += 3;
+            if tr != 0 {
+                n += 1;
+                chk = Some(tr);
+            }
+        }
+    }
+    c.run(0x87c0, n)?;
+    c.set_reg(BP, 0x20f2);
+    c.set_word_in(SS, 0x2100, ax);
+    let f = c.byte_in(SS, 0x20fd);
+    let f = c.or(B, f as u16, 0x40);
+    c.m.cpu.write8(&mut c.m.hw, SS, 0x20fd, f as u8);
+    c.set_word_in(SS, 0x2104, 0);
+    c.cmp(B, ph as u16, 5);
+    if late {
+        let f = c.and(B, f, 0xbf);
+        c.m.cpu.write8(&mut c.m.hw, SS, 0x20fd, f as u8);
+        c.set_word_in(SS, 0x2104, 0x67);
+    }
+    c.cmp(W, n2, 2);
+    if n2 >= 2 {
+        let e = c.word(0x3cbe);
+        let mut a = 0x62u16;
+        c.cmp(W, e, 0);
+        if e == 0 {
+            let h = c.or(B, 0, 0x40);
+            a |= h << 8;
+        }
+        c.set_reg(AX, a);
+        c.set_word_in(SS, 0x20f8, a);
+    } else {
+        c.set_word_in(SS, 0x20f8, 0x4093);
+        let di = c.word(0x114e);
+        c.set_reg(DI, di);
+        c.or(W, di, di);
+        if di != 0 {
+            let tr = c.byte(di.wrapping_add(9));
+            c.set_reg8(r8::AL, tr);
+            c.or(B, tr as u16, tr as u16);
+        }
+        if chk.is_some() {
+            c.call(0x6906, 0x87fd)?;
+            let cf = c.flag(CF);
+            c.run(0x87fd, if cf { 3 } else { 1 })?;
+            if cf {
+                let v = c.word_in(SS, 0x20f8);
+                let v = c.and(W, v, 0xbfff);
+                c.set_word_in(SS, 0x20f8, v);
+            }
+        }
+    }
+    c.run(0x8816, 2)?;
+    c.set_reg(BX, 0x0f66);
+    c.call(0xd338, 0x881c)?;
+    c.run(0x881c, 1)?;
+    super::resources::open_onmap_resource(c.m, 0xc13b)
+}
