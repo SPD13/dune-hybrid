@@ -1002,6 +1002,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x541f, map::open_place_view, "loc_0541f"),
     (0x5575, map::mouse_to_zoom_box, "loc_05575"),
     (0x5b05, map::map_list_or_zoom, "sub_5b05"),
+    (0x9f8b, dialogue::say_entry_mask_20, "loc_09f8b"),
+    (0x563e, map::zoom_legend, "loc_0563e"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];

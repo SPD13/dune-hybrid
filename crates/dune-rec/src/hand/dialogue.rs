@@ -3483,3 +3483,19 @@ pub fn dialogue_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x93dc, 1)?;
     next_line_from_9472(&mut c)
 }
+
+/// `loc_09f8b`: [`say_dialogue_entry`] with the mask [47C2h] 20h
+/// meanwhile.
+pub fn say_entry_mask_20(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9f8b)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 3)?;
+    let v = c.word(0x47c2);
+    c.push(v);
+    c.set_byte(0x47c2, 0x20);
+    c.call(0x9f9e, 0x9f97)?;
+    c.run(0x9f97, 2)?;
+    let v = c.pop();
+    c.set_word(0x47c2, v);
+    c.ret()
+}

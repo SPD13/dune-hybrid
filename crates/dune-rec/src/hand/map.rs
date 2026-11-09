@@ -6310,3 +6310,64 @@ pub fn map_list_or_zoom(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.ret()
 }
+
+/// `loc_0563e`: the zoomed map's legend under (DX + 6, BX + 62h) in the
+/// colour F5FEh ([4725h] FEh): with no place picked ([4722h] 0) the
+/// string 65h, a "-" and a "+" 41h apart from x + 53h, and the zoom
+/// buttons (sprites 80h, 81h) at the box's corner; else the string 68h.
+pub fn zoom_legend(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x563e)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x4722);
+    c.run(start, 6 + if k != 0 { 2 } else { 3 })?;
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 0x62);
+    c.set_reg(BX, bx);
+    let dx = c.reg(DX);
+    let dx = c.add(W, dx, 6);
+    c.set_reg(DX, dx);
+    c.set_reg(CX, 0xf5fe);
+    c.set_byte(0x4725, 0xfe);
+    c.cmp(B, k as u16, 0);
+    if k != 0 {
+        c.set_reg(AX, 0x68);
+        return super::text::font_draw_string_with_color_at_pos(c.m, 0xd194);
+    }
+    c.push(dx);
+    c.set_reg(AX, 0x65);
+    c.call(0xd194, 0x5659)?;
+    c.run(0x5659, 5)?;
+    let a = c.pop();
+    let a = c.add(W, a, 0x53);
+    c.set_reg(AX, a);
+    c.set_word(0xd82c, a);
+    c.set_reg8(r8::AL, 0x2d);
+    let to = c.word(0x2518);
+    c.call(to, 0x5666)?;
+    c.run(0x5666, 3)?;
+    let v = c.word(0xd82c);
+    let v = c.add(W, v, 0x41);
+    c.set_word(0xd82c, v);
+    c.set_reg8(r8::AL, 0x2b);
+    let to = c.word(0x2518);
+    c.call(to, 0x5671)?;
+    c.run(0x5671, 1)?;
+    c.call(0xc13b, 0x5674)?;
+    c.run(0x5674, 1)?;
+    c.call(0x557b, 0x5677)?;
+    c.run(0x5677, 4)?;
+    let dx = c.reg(DX);
+    let dx = c.add(W, dx, 0x5f);
+    c.set_reg(DX, dx);
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 0x63);
+    c.set_reg(BX, bx);
+    c.set_reg(AX, 0x80);
+    c.call(0xc2fd, 0x5683)?;
+    c.run(0x5683, 3)?;
+    let dx = c.reg(DX);
+    let dx = c.add(W, dx, 0x3c);
+    c.set_reg(DX, dx);
+    c.set_reg(AX, 0x81);
+    super::draw::draw_sprite_clobbering_bx_dx(c.m, 0xc22f)
+}
