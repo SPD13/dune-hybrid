@@ -6086,7 +6086,7 @@ pub fn open_place_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`open_place_view`], or from 542Fh (`from_542f`: the point [1980h]
 /// as it is).
-fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
+pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
     if !from_542f {
         c.run(0x541f, 4)?;
         let (p0, p1) = (c.word(0x197c), c.word(0x197e));
@@ -6689,4 +6689,81 @@ pub fn ui_click_map_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let w = c.add(W, w, a);
     c.set_word(0x197e, w);
     redraw_and_handle(c.m, 0x8850)
+}
+
+/// `loc_05944`: a click at (DX, BX) around the place view's box 4710h:
+/// below its top band (y from [4712h] + 7, under 59h more) nothing; past
+/// it the zoom toggled ([4722h]) and the view reopened from 542Fh; above
+/// it (the caller's frame dropped) left of the box's x + 0Ah the map list
+/// (`map_list_without_40`: none leaves and fades, else the point list
+/// dropped), right of it, with a list, the map point [11C1h] redrawn by
+/// the driver (far [3961h], 6Ch wide sprite AAh) and [4723h] 1.
+pub fn place_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5944)?;
+    let mut c = Ctx::new(m);
+    let (bx, dx) = (c.reg(BX), c.reg(DX));
+    let top = c.word(0x4712);
+    let a = bx.wrapping_sub(top);
+    let above = a < 7;
+    if !above {
+        let a2 = a.wrapping_sub(7);
+        let past = a2 >= 0x59;
+        c.run(start, if past { 9 } else { 7 })?;
+        c.set_reg(AX, bx);
+        let a = c.sub(W, bx, top);
+        let a = c.sub(W, a, 7);
+        let a = c.sub(W, a, 0x59);
+        c.set_reg(AX, a);
+        if !past {
+            return c.ret();
+        }
+        let sp = c.reg(SP);
+        let sp = c.add(W, sp, 2);
+        c.set_reg(SP, sp);
+        let v = c.byte(0x4722);
+        let v = c.xor(B, v as u16, 0xff);
+        c.set_byte(0x4722, v as u8);
+        return place_view_at(&mut c, true);
+    }
+    let left = c.word(0x4710);
+    let right = dx.wrapping_sub(left) >= 0x0a;
+    c.run(start, 10)?;
+    c.set_reg(AX, bx);
+    let a = c.sub(W, bx, top);
+    c.sub(W, a, 7);
+    let sp = c.reg(SP);
+    let sp = c.add(W, sp, 2);
+    c.set_reg(SP, sp);
+    let a = c.sub(W, dx, left);
+    let a = c.sub(W, a, 0x0a);
+    c.set_reg(AX, a);
+    if !right {
+        c.call(0x82a0, 0x5966)?;
+        c.run(0x5966, 2)?;
+        if c.flag(ZF) {
+            return super::screens::leave_and_fade(c.m, 0xd2e2);
+        }
+        return drop_point_list(c.m, 0x58fa);
+    }
+    c.call(0x82a0, 0x597b)?;
+    if c.flag(ZF) {
+        c.run(0x597b, 2)?;
+        return c.ret();
+    }
+    c.run(0x597b, 3)?;
+    c.set_byte(0x4723, 1);
+    c.call(0xe270, 0x5985)?;
+    c.run(0x5985, 5)?;
+    let (x, y) = (c.word(0x11c1), c.word(0x11c3));
+    c.set_reg(DX, x);
+    c.set_reg(BX, y);
+    c.set_reg(SI, 0xaa);
+    c.set_reg(CX, 0x6c);
+    let es = c.word(0xdbd8);
+    c.set_sreg(ES, es);
+    c.interp(0x5997, 0x599b)?;
+    c.run(0x599b, 1)?;
+    c.call(0xe283, 0x599e)?;
+    c.run(0x599e, 1)?;
+    c.ret()
 }
