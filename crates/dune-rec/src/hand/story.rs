@@ -5663,3 +5663,156 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
 }
+
+/// `loc_035ad`: a scene starts once ([47A6h], cleared; [1Ah] and [47A7h]
+/// 0). At a place: [1Ah] 1, in place 8 with the flags [0C0h] & [1158h]
+/// and bit 3 of [12h] `loc_02566`, then each record here gets
+/// `scene_sentence` ([`for_records_here_bp`] with BP 3520h). In a map
+/// mode (stage [23h] 0): with a place [1152h] its encounters and watch,
+/// and for a stage the picked record (`pick_1152`) shown with its voice
+/// after a wait of 4Bh, its sentence (`loc_096d8`) and record
+/// (`loc_03551`); without one the watch, and for a stage the scene 24h
+/// with the phrase BFh, the panel 1F9Eh (bit 40h) and its buttons.
+pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x35ad)?;
+    let mut c = Ctx::new(m);
+    let mode = c.byte(0x11c9);
+    let was = c.byte(0x47a6);
+    if mode == 0 {
+        if was != 0 {
+            c.run(start, 9)?;
+            scene_flags(&mut c, mode, was, false);
+            return c.ret();
+        }
+        let k = c.byte(0x0b);
+        let f = c.word(0xc0) & c.word(0x1158);
+        let t = c.word(0x12);
+        let call = k == 8 && f != 0 && t & 8 != 0;
+        let n = 11 + if k != 8 { 0 } else if f == 0 { 3 } else { 5 } + call as u32;
+        c.run(start, n)?;
+        scene_flags(&mut c, mode, was, false);
+        let v = c.byte(0x1a);
+        let v = c.inc(B, v as u16);
+        c.set_byte(0x1a, v as u8);
+        c.cmp(B, k as u16, 8);
+        if k == 8 {
+            let (a, b) = (c.word(0xc0), c.word(0x1158));
+            c.set_reg(AX, a);
+            let x = c.and(W, a, b);
+            c.set_reg(AX, x);
+            if x != 0 {
+                c.test(W, t, 8);
+            }
+        }
+        if call {
+            c.call(0x2566, 0x35e3)?;
+        }
+        c.run(0x35e3, 2)?;
+        c.set_reg(BP, 0x3520);
+        return for_records_here_bp(c.m, 0x36ee);
+    }
+    if was != 0 {
+        c.run(start, 10)?;
+        scene_flags(&mut c, mode, was, true);
+        return c.ret();
+    }
+    let p = c.word(0x1152);
+    c.run(start, 12)?;
+    scene_flags(&mut c, mode, was, true);
+    c.cmp(W, p, 0xffff);
+    if p != 0xffff {
+        c.call(0x40f9, 0x3606)?;
+        c.run(0x3606, 1)?;
+        c.call(0x4182, 0x3609)?;
+        let st = c.byte(0x23);
+        if st == 0 {
+            c.run(0x3609, 3)?;
+            c.cmp(B, 0, 0);
+            return c.ret();
+        }
+        c.run(0x3609, 3)?;
+        c.cmp(B, st as u16, 0);
+        c.call(0x366f, 0x3613)?;
+        if c.flag(pc::cpu::SF) {
+            c.run(0x3613, 2)?;
+            return c.ret();
+        }
+        c.run(0x3613, 2)?;
+        c.call(0xdbb2, 0x3618)?;
+        c.run(0x3618, 1)?;
+        c.call(0x368b, 0x361b)?;
+        c.run(0x361b, 3)?;
+        let ax = c.reg(AX);
+        c.push(ax);
+        c.set_reg(AX, 0x4b);
+        c.call(0xe387, 0x3622)?;
+        c.run(0x3622, 3)?;
+        let a = c.pop();
+        c.set_reg(AX, a);
+        c.push(a);
+        c.call(0x96d8, 0x3627)?;
+        let cf = c.flag(CF);
+        c.run(0x3627, if cf { 3 } else { 7 })?;
+        let a = c.pop();
+        c.set_reg(AX, a);
+        if cf {
+            return c.ret();
+        }
+        c.set_reg8(r8::CL, 0x10);
+        c.mul8(0x10);
+        let a = c.reg(AX);
+        let a = c.add(W, a, 0xfd8);
+        c.set_reg(AX, a);
+        c.set_reg(SI, a);
+        c.call(0x3551, 0x3636)?;
+        c.run(0x3636, 1)?;
+        return c.ret();
+    }
+    c.call(0x4182, 0x363a)?;
+    let st = c.byte(0x23);
+    if st == 0 {
+        c.run(0x363a, 3)?;
+        c.cmp(B, 0, 0);
+        return c.ret();
+    }
+    c.run(0x363a, 3)?;
+    c.cmp(B, st as u16, 0);
+    c.call(0xdbb2, 0x3644)?;
+    c.run(0x3644, 1)?;
+    c.call(0x439f, 0x3647)?;
+    c.run(0x3647, 5)?;
+    c.set_reg(CX, 0x200c);
+    c.set_reg(DX, 0x66);
+    c.set_reg(BX, 0x4e);
+    c.set_reg(AX, 0xbf);
+    c.call(0xd194, 0x3656)?;
+    for (at, to) in [(0x3656u16, 0xc0f4u16), (0x3659, 0xc4dd), (0x365c, 0x4aca)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    c.run(0x365f, 4)?;
+    c.set_reg(BP, 0x1f9e);
+    let v = c.byte_in(SS, 0x1fa9);
+    let v = c.or(B, v as u16, 0x40);
+    c.m.cpu.write8(&mut c.m.hw, SS, 0x1fa9, v as u8);
+    c.set_reg(BX, 0x4abe);
+    c.call(0xd323, 0x366c)?;
+    c.run(0x366c, 1)?;
+    super::screens::panel_buttons(c.m, 0x2ffb)
+}
+
+/// `loc_035ad`'s start: [1Ah], [47A7h] (and in a map mode [23h]) 0,
+/// [47A6h] taken.
+fn scene_flags(c: &mut Ctx, mode: u8, was: u8, map: bool) {
+    c.cmp(B, mode as u16, 0);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.set_byte(0x1a, 0);
+    c.set_byte(0x47a7, 0);
+    if map {
+        c.set_byte(0x23, 0);
+    }
+    c.set_byte(0x47a6, 0);
+    c.set_reg8(r8::AL, was);
+    c.or(B, was as u16, was as u16);
+}

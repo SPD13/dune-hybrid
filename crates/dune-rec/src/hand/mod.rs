@@ -1033,6 +1033,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x2ebf, screens::install_list_2220, "loc_02ebf"),
     (0x2eb2, screens::place_panel_back, "loc_02eb2"),
     (0x5944, map::place_view_click, "loc_05944"),
+    (0x35ad, story::scene_start, "loc_035ad"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
