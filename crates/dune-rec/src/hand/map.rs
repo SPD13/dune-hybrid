@@ -6493,3 +6493,112 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x881c, 1)?;
     super::resources::open_onmap_resource(c.m, 0xc13b)
 }
+
+/// `sub_6b34`: the animated map sprites' step, frame [46F6h] up: every
+/// fourth frame all of the list [3CBEh] (count, then 11h-byte entries),
+/// else just the entry [4752h]. An entry with bit 0 of +0Ch takes its
+/// next frame from the script +0Dh (back at +0Fh after a 0, unless bit
+/// 1 stops it there): the sprite in +8, the offset (DX, BX) by the next
+/// two signed bytes, drawn by `loc_0c661`. Bails with DF set.
+pub fn animate_map_sprites(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6b34)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    let f = c.byte(0x46f6).wrapping_add(1);
+    if f & 3 != 0 {
+        let di = c.word(0x4752);
+        c.run(start, if di == 0 { 9 } else { 8 })?;
+        let v = c.inc(B, (f.wrapping_sub(1)) as u16);
+        c.set_byte(0x46f6, v as u8);
+        let a = c.and(B, v, 3);
+        c.set_reg8(r8::AL, a as u8);
+        c.set_reg(CX, 1);
+        c.set_reg(DI, di);
+        c.or(W, di, di);
+        if di == 0 {
+            return c.ret();
+        }
+    } else {
+        let n = c.word(0x3cbe);
+        c.run(start, if n == 0 { 9 } else { 9 })?;
+        let v = c.inc(B, (f.wrapping_sub(1)) as u16);
+        c.set_byte(0x46f6, v as u8);
+        let a = c.and(B, v, 3);
+        c.set_reg8(r8::AL, a as u8);
+        c.set_reg(SI, 0x3cbe);
+        c.lods(W, DS);
+        c.set_reg(CX, n);
+        if n == 0 {
+            return c.ret();
+        }
+        c.set_reg(DI, 0x3cc0);
+    }
+    loop {
+        let di = c.reg(DI);
+        let fl = c.byte(di.wrapping_add(0x0c));
+        let mut draw = false;
+        if fl & 1 == 0 {
+            c.run(0x6b55, 2)?;
+            c.test(B, fl as u16, 1);
+        } else {
+            let mut si = c.word(di.wrapping_add(0x0d));
+            let b = c.byte(si);
+            let restart = b == 0;
+            let b = if restart {
+                si = c.word(di.wrapping_add(0x0f));
+                c.byte(si)
+            } else {
+                b
+            };
+            let stop = restart && fl & 2 != 0;
+            c.run(0x6b55, 6 + if restart { 4 } else { 0 } + if stop { 0 } else { 12 })?;
+            c.test(B, fl as u16, 1);
+            let s0 = c.word(di.wrapping_add(0x0d));
+            c.set_reg(SI, s0);
+            let a = c.lods(B, DS);
+            c.or(B, a, a);
+            if restart {
+                let s1 = c.word(di.wrapping_add(0x0f));
+                c.set_reg(SI, s1);
+                c.lods(B, DS);
+                c.test(B, fl as u16, 2);
+            }
+            if !stop {
+                c.xor(B, 0, 0);
+                c.set_reg(AX, b as u16);
+                c.set_word(di.wrapping_add(8), b as u16);
+                let d = c.lods(B, DS) as u8 as i8 as i16 as u16;
+                c.set_reg(AX, d);
+                c.set_reg(DX, d);
+                let y = c.lods(B, DS) as u8 as i8 as i16 as u16;
+                c.set_reg(AX, y);
+                c.set_reg(BX, y);
+                let si = c.reg(SI);
+                c.set_word(di.wrapping_add(0x0d), si);
+                let cx = c.reg(CX);
+                c.push(cx);
+                c.push(di);
+                draw = true;
+            }
+        }
+        if draw {
+            c.call(0xc661, 0x6b82)?;
+            c.run(0x6b82, 2)?;
+            let d = c.pop();
+            c.set_reg(DI, d);
+            let x = c.pop();
+            c.set_reg(CX, x);
+        }
+        let cx = c.reg(CX).wrapping_sub(1);
+        c.run(0x6b84, if cx == 0 { 3 } else { 2 })?;
+        let di = c.reg(DI);
+        let d = c.add(W, di, 0x11);
+        c.set_reg(DI, d);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            return c.ret();
+        }
+    }
+}
