@@ -3,7 +3,7 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DS, DX, ES, SI},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI},
     rec::Bail,
 };
 
@@ -354,5 +354,41 @@ pub fn hnm_note_video_and_frame(m: &mut Machine, start: u16) -> Result<(), Bail>
     let (bx, ax) = (c.reg(BX), c.reg(AX));
     c.set_word(g::HNM_VIDEO_2, bx);
     c.set_word(g::HNM_FRAME_4, ax);
+    c.ret()
+}
+
+/// `IRULx_draw_or_clear_subtitle`: the subtitle entry SI ([3622h]) of the
+/// table 35A8h (4 bytes each): an odd half-entry draws its sprite
+/// ((SI - 35A8h) / 4) at (0, BEh); else the subtitle strip ED80h of the
+/// buffer [0DBD8h] cleared (B40h words). Bails with DF set.
+pub fn irulx_draw_or_clear_subtitle(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xcf4b)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let d = si.wrapping_sub(0x35a8);
+    let draw = d & 2 != 0;
+    if !draw && c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    c.run(start, 6 + if draw { 3 } else { 5 })?;
+    c.set_reg(AX, si);
+    c.set_word(0x3622, si);
+    let a = c.sub(W, si, 0x35a8);
+    let a = c.shr1(W, a, 2);
+    c.set_reg(AX, a);
+    if draw {
+        c.set_reg(BX, 0xbe);
+        c.xor(W, 0, 0);
+        c.set_reg(DX, 0);
+        return super::draw::draw_sprite_clobbering_bx_dx(c.m, 0xc22f);
+    }
+    c.set_reg(DI, 0xed80);
+    let es = c.word(0xdbd8);
+    c.set_sreg(pc::cpu::ES, es);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.set_reg(CX, 0xb40);
+    c.rep(0xab);
+    c.run(0xcf6f, 1)?;
     c.ret()
 }

@@ -1025,6 +1025,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x8824, map::ui_click_map_buttons, "ui_click_map_right"),
     (0x8829, map::ui_click_map_buttons, "ui_click_map_up"),
     (0x882e, map::ui_click_map_buttons, "ui_click_map_down"),
+    (0xcf4b, hnm::irulx_draw_or_clear_subtitle, "IRULx_draw_or_clear_subtitle"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
