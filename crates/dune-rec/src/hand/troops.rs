@@ -5191,6 +5191,11 @@ pub fn troop_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if fast {
         c.set_reg8(r8::CL, 8);
     }
+    steps_8313(&mut c)
+}
+
+/// `loc_08313`: the troop SI's CX steps (see [`troop_move`]).
+fn steps_8313(c: &mut Ctx) -> Result<(), Bail> {
     loop {
         c.run(0x8313, 2)?;
         let cx = c.reg(CX);
@@ -5206,7 +5211,7 @@ pub fn troop_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, bx);
             c.or(W, bx, dx);
             c.set_reg(AX, 0);
-            return troop_arrived_at(&mut c);
+            return troop_arrived_at(c);
         }
         c.run(0x8317, 7)?;
         c.pop();
@@ -5501,4 +5506,134 @@ fn figure_gone_848b(c: &mut Ctx) -> Result<(), Bail> {
     let si = c.pop();
     c.set_reg(SI, si);
     c.ret()
+}
+
+/// `loc_084a6`: the troop SI sets out for the place DI: the followed
+/// troop stops here unless still followed (`loc_0848f`). Already on its
+/// way (bit 6 of +3) it just takes the new target (a move order, 3,
+/// cleared) and is shown (`loc_08461`). Else it leaves its place
+/// (`loc_06ebf`, `loc_0858c`); a harvesting troop (order 6) whose place
+/// is known leaves it to the enemy when it was the last there
+/// (`loc_05098`, `loc_074b6`), and a camp below 28h not secret loses
+/// motivation (`decrease_troop_motivation` 3). Then on its way (+4 the
+/// target, bit 6, +2 0, `loc_07f75`, `loc_08461`) and, unless it waits
+/// (bit 4 of +10h), seven steps (`loc_08313`).
+pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x84a6)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    if si == 0x08e0 {
+        c.run(0x84a6, 3)?;
+        c.cmp(W, si, 0x08e0);
+        c.call(0x848f, 0x84af)?;
+        if c.flag(ZF) {
+            c.run(0x84af, 2)?;
+            return c.ret();
+        }
+        c.run(0x84af, 1)?;
+    } else {
+        c.run(0x84a6, 2)?;
+        c.cmp(W, si, 0x08e0);
+    }
+    let si = c.reg(SI);
+    let o = c.byte(si.wrapping_add(3));
+    if o & 0x40 != 0 {
+        let a = o & 3;
+        c.run(0x84b2, 2 + 5 + (a == 3) as u32 + 1)?;
+        c.test(B, o as u16, 0x40);
+        let di = c.reg(DI);
+        c.set_word(si.wrapping_add(4), di);
+        c.set_reg8(r8::AL, 3);
+        c.and(B, 3, o as u16);
+        c.set_reg8(r8::AL, a);
+        c.cmp(B, a as u16, 3);
+        if a == 3 {
+            let v = c.and(B, o as u16, 0xfc);
+            c.set_byte(si.wrapping_add(3), v as u8);
+        }
+        return drop_troop_particle(c.m, 0x8461);
+    }
+    c.run(0x84b2, 3)?;
+    c.test(B, o as u16, 0x40);
+    c.call(0x6ebf, 0x84cd)?;
+    c.run(0x84cd, 2)?;
+    let di = c.reg(DI);
+    c.push(di);
+    c.call(0x858c, 0x84d1)?;
+    let sp = c.reg(SP);
+    let di = c.word_in(SS, sp);
+    let si = c.reg(SI);
+    let o = c.byte(si.wrapping_add(3));
+    c.run(0x84d1, 3)?;
+    c.pop();
+    c.set_reg(DI, di);
+    c.cmp(B, o as u16, 6);
+    if o == 6 {
+        let p = c.word(si.wrapping_add(4));
+        let f = c.byte(p.wrapping_add(0x0a));
+        c.run(0x84d8, 4 + (f & 2 != 0) as u32)?;
+        c.push(di);
+        c.set_reg(DI, p);
+        c.test(B, f as u16, 2);
+        if f & 2 != 0 {
+            c.call(0x5098, 0x84e5)?;
+            let cx = c.reg(CX);
+            let dx = c.reg(DX);
+            let last = cx != 0 && (dx.wrapping_sub(1) as i16) <= 0;
+            c.run(0x84e5, if cx == 0 { 1 } else { 3 + if last { 2 } else { 0 } })?;
+            if cx != 0 {
+                let d = c.dec(W, dx);
+                c.set_reg(DX, d);
+            }
+            if last {
+                let si = c.reg(SI);
+                c.push(si);
+                c.call(0x74b6, 0x84ee)?;
+                c.run(0x84ee, 1)?;
+                let si = c.pop();
+                c.set_reg(SI, si);
+            }
+        }
+        let sp = c.reg(SP);
+        let di = c.word_in(SS, sp);
+        let k = c.byte(di.wrapping_add(8));
+        let f = c.byte(di.wrapping_add(0x0a));
+        let n = if k >= 0x28 { 3 } else if f & 2 != 0 { 6 } else { 7 };
+        c.run(0x84ef, n)?;
+        c.pop();
+        c.set_reg(DI, di);
+        c.cmp(B, k as u16, 0x28);
+        if k < 0x28 {
+            c.test(B, f as u16, 2);
+            if f & 2 != 0 {
+                return c.ret();
+            }
+            c.set_reg8(r8::AL, 3);
+            c.call(0x6f93, 0x8501)?;
+        }
+    }
+    c.run(0x8501, 4)?;
+    let si = c.reg(SI);
+    let di = c.reg(DI);
+    let old = c.word(si.wrapping_add(4));
+    c.set_word(si.wrapping_add(4), di);
+    c.set_reg(DI, old);
+    let v = c.byte(si.wrapping_add(3));
+    let v = c.or(B, v as u16, 0x40);
+    c.set_byte(si.wrapping_add(3), v as u8);
+    c.set_byte(si.wrapping_add(2), 0);
+    c.call(0x7f75, 0x850f)?;
+    c.run(0x850f, 1)?;
+    c.call(0x8461, 0x8512)?;
+    let si = c.reg(SI);
+    let w = c.byte(si.wrapping_add(0x10));
+    if w & 0x10 != 0 {
+        c.run(0x8512, 3)?;
+        c.test(B, w as u16, 0x10);
+        return c.ret();
+    }
+    c.run(0x8512, 4)?;
+    c.test(B, w as u16, 0x10);
+    c.set_reg(CX, 7);
+    steps_8313(&mut c)
 }
