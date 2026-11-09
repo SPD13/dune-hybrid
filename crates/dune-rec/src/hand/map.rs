@@ -7168,3 +7168,155 @@ pub fn circle_walk(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
 }
+
+/// `loc_05274`: the places nearest to the place DI, by the distance
+/// max(|dx| / 100h, |dy| low byte; |dy| when larger): the nearest of all
+/// in [0CAh] (place [0CCh]) and per kind (distance, place): sietches
+/// from 28h ([si+8]) in E2h when found (bit 7 of +0Ah), else DCh;
+/// others in D0h unseen, D6h seen when the hour [2Ah] has reached their
+/// +0Bh (else skipped). Then each slot's direction (`loc_05323` for DEh,
+/// E4h, D8h; [11FDh] that result + DAh; then CCh, D2h).
+pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5274)?;
+    let mut c = Ctx::new(m);
+    c.run(0x5274, 10)?;
+    let di = c.reg(DI);
+    let dx = c.word(di.wrapping_add(2));
+    let bx = c.word(di.wrapping_add(4));
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    let si = c.reg(SI);
+    c.push(si);
+    c.set_reg(AX, 0xffff);
+    for a in [0xcau16, 0xd0, 0xd6, 0xdc, 0xe2] {
+        c.set_word(a, 0xffff);
+    }
+    c.set_reg(SI, 0x100);
+    loop {
+        let si = c.reg(SI);
+        let w = c.word(si);
+        if w == 0xffff {
+            c.run(0x5290, 2)?;
+            c.cmp(W, w, 0xffff);
+            break;
+        }
+        if si == di {
+            c.run(0x5290, 6)?;
+            c.cmp(W, w, 0xffff);
+            c.cmp(W, si, di);
+            let s = c.add(W, si, 0x1c);
+            c.set_reg(SI, s);
+            continue;
+        }
+        let px = c.word(si.wrapping_add(2));
+        let py = c.word(si.wrapping_add(4));
+        let x = px.wrapping_sub(dx);
+        let y = py.wrapping_sub(bx);
+        let (xneg, yneg) = (x & 0x8000 != 0, y & 0x8000 != 0);
+        let xa = if xneg { x.wrapping_neg() } else { x };
+        let ya = if yneg { y.wrapping_neg() } else { y };
+        let cl = (xa >> 8) as u8;
+        let al = ya as u8;
+        let take_y = cl < al;
+        let d = if take_y { ya } else { cl as u16 };
+        let k8 = c.byte(si.wrapping_add(8));
+        let f = c.byte(si.wrapping_add(0x0a));
+        let hour = c.byte(0x2a);
+        let due = c.byte(si.wrapping_add(0x0b));
+        let (bp, skip, nsel) = if k8 >= 0x28 {
+            if f & 0x80 != 0 { (0xe2u16, false, 5u32) } else { (0xdc, false, 7) }
+        } else if f & 0x80 == 0 {
+            (0xd0, false, 5)
+        } else if hour < due {
+            (0xd0, true, 8)
+        } else {
+            (0xd6, false, 9)
+        };
+        let slot = if skip { 0 } else { c.word_in(SS, bp) };
+        let better = !skip && d < slot;
+        let best = c.word(0xca);
+        let better2 = !skip && d < best;
+        let n = 4 + 3 + xneg as u32 + 3 + yneg as u32 + 4 + take_y as u32 + nsel
+            + if skip { 0 } else { 2 + 2 * better as u32 + 2 + 2 * better2 as u32 }
+            + 2;
+        c.run(0x5290, n)?;
+        c.cmp(W, w, 0xffff);
+        c.cmp(W, si, di);
+        c.set_reg(CX, px);
+        let mut cx = c.sub(W, px, dx);
+        if xneg {
+            cx = c.neg(W, cx);
+        }
+        c.set_reg(AX, py);
+        let mut ax = c.sub(W, py, bx);
+        if yneg {
+            ax = c.neg(W, ax);
+        }
+        c.set_reg(AX, ax);
+        c.set_reg(CX, (cx & 0xff00) | (cx >> 8));
+        c.xor(B, cx >> 8, cx >> 8);
+        c.set_reg(CX, cx >> 8);
+        c.cmp(B, cx >> 8, ax & 0xff);
+        if take_y {
+            c.set_reg(CX, ax);
+        }
+        c.cmp(B, k8 as u16, 0x28);
+        if k8 >= 0x28 {
+            c.set_reg(BP, 0xe2);
+            c.test(B, f as u16, 0x80);
+            if f & 0x80 == 0 {
+                c.set_reg(BP, 0xdc);
+            }
+        } else {
+            c.set_reg(BP, 0xd0);
+            c.test(B, f as u16, 0x80);
+            if f & 0x80 != 0 {
+                c.set_reg8(r8::AL, hour);
+                c.cmp(B, hour as u16, due as u16);
+                if !skip {
+                    c.set_reg(BP, 0xd6);
+                }
+            }
+        }
+        if !skip {
+            c.cmp(W, d, slot);
+            if better {
+                c.set_word_in(SS, bp, d);
+                c.set_word_in(SS, bp.wrapping_add(2), si);
+            }
+            c.cmp(W, d, best);
+            if better2 {
+                c.set_word(0xca, d);
+                c.set_word(0xcc, si);
+            }
+        }
+        let s = c.add(W, si, 0x1c);
+        c.set_reg(SI, s);
+    }
+    c.run(0x52fb, 3)?;
+    let di = c.reg(DI);
+    c.push(di);
+    for (bp, at, ret) in [(0xdeu16, 0x52ffu16, 0x5302u16), (0xe4, 0x5305, 0x5308), (0xd8, 0x530b, 0x530e)] {
+        if at != 0x52ff {
+            c.run(at - 3, 2)?;
+        }
+        c.set_reg(BP, bp);
+        c.call(0x5323, ret)?;
+    }
+    c.run(0x530e, 4)?;
+    let ax = c.reg(AX);
+    let ax = c.add(W, ax, 0xda);
+    c.set_reg(AX, ax);
+    c.set_word(0x11fd, ax);
+    c.set_reg(BP, 0xcc);
+    c.call(0x5323, 0x531a)?;
+    c.run(0x531a, 2)?;
+    c.set_reg(BP, 0xd2);
+    c.call(0x5323, 0x5320)?;
+    c.run(0x5320, 3)?;
+    let di = c.pop();
+    c.set_reg(DI, di);
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.ret()
+}

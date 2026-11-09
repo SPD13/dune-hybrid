@@ -1505,3 +1505,211 @@ pub fn globe_or_map_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     globe_list(c.m, 0xb941)
 }
+
+/// `loc_0bd25`: the screen point (DX, BX) on the globe, centred at
+/// (40h, 36h): the row |BX - 36h| found in the row table 4C60h (each
+/// row's bytes after a -(n + 1) length byte); outside the row's width
+/// it returns with CF clear. Else the column's longitude byte (signed
+/// by the side) gives, through the tables 8C3Bh, 593Ah (C8h a row) and
+/// 494Ah (four bytes a latitude: the circle's length and offset), the
+/// map position: DX the column within the circle's length (CX twice
+/// it), AX the fraction (`div`), BX the latitude halved; CF set. Bails
+/// with DF set or a zero length.
+pub fn globe_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::ES;
+    entered(start, 0xbd25)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    let bx0 = c.reg(BX);
+    let b = bx0.wrapping_sub(0x36);
+    let bneg = b & 0x8000 != 0;
+    c.run(0xbd25, 3 + bneg as u32)?;
+    let b = c.sub(W, bx0, 0x36);
+    c.set_reg(BX, b);
+    c.set_reg(CX, b);
+    let mut cx = b;
+    if bneg {
+        cx = c.neg(W, b);
+        c.set_reg(CX, cx);
+    }
+    c.run(0xbd2e, 5)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(SI, 0x4c60);
+    let cx = c.inc(W, cx);
+    c.set_reg(CX, cx);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    let mut ax = 0u16;
+    loop {
+        c.run(0xbd36, 5)?;
+        let si = c.reg(SI);
+        let si = c.add(W, si, ax);
+        c.set_reg(SI, si);
+        let v = c.lods(B, DS);
+        let v = c.inc(B, v);
+        let v = c.neg(B, v);
+        c.set_reg8(r8::AL, v as u8);
+        ax = v;
+        let cx = c.reg(CX).wrapping_sub(1);
+        c.set_reg(CX, cx);
+        if !(cx != 0 && v != 0) {
+            break;
+        }
+    }
+    // From BD3Fh to the `ret` there is no call: the branches first, for
+    // the count, then the instructions.
+    let si = c.reg(SI);
+    let di = si.wrapping_add(ax);
+    let dx0 = c.reg(DX);
+    let d = dx0.wrapping_sub(0x40);
+    let dneg = d & 0x8000 != 0;
+    let dabs = if dneg { d.wrapping_neg() } else { d };
+    let si2 = si.wrapping_add(dabs);
+    if si2 >= di {
+        c.run(0xbd3f, 5 + dneg as u32 + 4)?;
+        let di = c.add(W, si, ax);
+        c.set_reg(DI, di);
+        let d = c.sub(W, dx0, 0x40);
+        c.set_reg(DX, d);
+        c.set_reg(AX, d);
+        if dneg {
+            let n = c.neg(W, d);
+            c.set_reg(DX, n);
+        }
+        let s = c.add(W, si, dabs);
+        c.set_reg(SI, s);
+        c.cmp(W, s, di);
+        return c.ret();
+    }
+    let lon = c.byte(si2) as u16;
+    let a1 = if bneg { lon } else { lon.wrapping_neg() };
+    let t = 0x8c3bu16.wrapping_add(a1).wrapping_add(a1);
+    let w = c.word(t);
+    let a = (w as u8 as i8) as i16 as u16;
+    let aneg = a & 0x8000 != 0;
+    let bp = if aneg { a.wrapping_neg() } else { a };
+    let prod = 0xc8u32 * dabs as u32;
+    let row = 0x593au16.wrapping_add(prod as u16);
+    let bl = c.byte_in(SS, bp.wrapping_add(row)) as u16;
+    let al = c.byte_in(SS, bp.wrapping_add(row).wrapping_add(0x64)) as u16;
+    let di2 = bl * 4;
+    let len = c.word(di2.wrapping_add(0x494a));
+    let off = c.word(di2.wrapping_add(0x494c));
+    let (dh_neg, dl_neg) = (w & 0x8000 != 0, w & 0x80 != 0);
+    let ax3 = if dl_neg { al.wrapping_neg().wrapping_add(len) } else { al };
+    let cx2 = len.wrapping_add(len);
+    let ax4 = if dneg { ax3.wrapping_neg() } else { ax3 };
+    let x = off.wrapping_add(ax4);
+    let xneg = x & 0x8000 != 0;
+    let x2 = if xneg { x.wrapping_add(cx2) } else { x };
+    let below = x2 < cx2;
+    if cx2 == 0 || (!below && x2.wrapping_sub(cx2) >= cx2) {
+        c.m.cpu.ip = 0xbd3f;
+        return Err(Bail);
+    }
+    let n = 5 + dneg as u32 + 3
+        + 5 + (!bneg) as u32
+        + 10 + aneg as u32
+        + 14 + dh_neg as u32
+        + 2 + 2 * dl_neg as u32
+        + 5 + dneg as u32
+        + 2 + xneg as u32
+        + 2 + (!below) as u32
+        + 5;
+    c.run(0xbd3f, n)?;
+    let di = c.add(W, si, ax);
+    c.set_reg(DI, di);
+    let d = c.sub(W, dx0, 0x40);
+    c.set_reg(AX, d);
+    let mut dxr = d;
+    if dneg {
+        dxr = c.neg(W, d);
+    }
+    c.set_reg(DX, dxr);
+    let s = c.add(W, si, dabs);
+    c.cmp(W, s, di);
+    c.push(d);
+    c.set_reg(SI, s);
+    c.lods(B, DS);
+    c.xor(B, 0, 0);
+    c.set_reg(AX, lon);
+    c.or(W, b, b);
+    if !bneg {
+        c.neg(W, lon);
+        c.set_reg(AX, a1);
+    }
+    let s = c.add(W, 0x8c3b, a1);
+    let s = c.add(W, s, a1);
+    c.set_reg(SI, s);
+    c.lods(W, DS);
+    c.push(w);
+    c.set_reg(SI, 0x593a);
+    c.set_reg(AX, a);
+    c.set_reg(BP, a);
+    c.or(W, a, a);
+    if aneg {
+        c.neg(W, a);
+        c.set_reg(BP, bp);
+    }
+    c.set_reg(AX, 0xc8);
+    c.mul16(dabs);
+    let p = c.reg(AX);
+    let s = c.add(W, 0x593a, p);
+    c.set_reg(SI, s);
+    c.set_reg8(r8::BL, bl as u8);
+    c.set_reg8(r8::AL, al as u8);
+    c.xor(B, 0, 0);
+    c.set_reg8(r8::AH, 0);
+    c.xor(B, 0, 0);
+    c.set_reg8(r8::BH, 0);
+    c.set_reg(DI, bl);
+    let x1 = c.add(W, bl, bl);
+    let x1 = c.add(W, x1, x1);
+    c.set_reg(DI, x1);
+    c.set_reg(CX, len);
+    let dxw = c.pop();
+    c.set_reg(DX, dxw);
+    c.or(B, w >> 8, w >> 8);
+    let mut bxr = bl;
+    if dh_neg {
+        bxr = c.neg(W, bl);
+        c.set_reg(BX, bxr);
+    }
+    c.or(B, w & 0xff, w & 0xff);
+    if dl_neg {
+        let v = c.neg(W, al);
+        c.add(W, v, len);
+    }
+    c.set_reg(AX, ax3);
+    let cx = c.add(W, len, len);
+    c.set_reg(CX, cx);
+    c.set_reg(DX, off);
+    let dip = c.pop();
+    c.set_reg(DI, dip);
+    c.or(W, dip, dip);
+    if dneg {
+        c.neg(W, ax3);
+    }
+    c.set_reg(AX, ax4);
+    let mut x = c.add(W, off, ax4);
+    if xneg {
+        x = c.add(W, x, cx2);
+    }
+    c.cmp(W, x, cx2);
+    if !below {
+        x = c.sub(W, x, cx2);
+    }
+    c.set_reg(DX, x);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 6, cx2 as u32);
+    let s = c.m.cpu.shift(7, W, bxr as u32, 1) as u16;
+    c.set_reg(BX, s);
+    c.set_flag(CF, true);
+    c.ret()
+}
