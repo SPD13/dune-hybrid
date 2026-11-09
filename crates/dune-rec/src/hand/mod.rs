@@ -1049,6 +1049,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x1b23, story::time_step, "loc_01b23"),
     (0x3551, story::scene_record, "loc_03551"),
     (0x2b2a, story::clock_step, "loc_02b2a"),
+    (0x4f09, map::flight_step, "sub_4f09"),
+    (0x4f0c, map::flight_step, "loc_04f0c"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),

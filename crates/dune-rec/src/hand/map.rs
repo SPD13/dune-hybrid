@@ -6860,3 +6860,279 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5ce3, 1)?;
     c.ret()
 }
+
+/// `sub_4f09` / `loc_04f0c`: the flight's step (from `sub_4f09` [11CAh]
+/// cleared first): flying ([4727h]) and not stopped ([11CAh]), with the
+/// mouse redrawn after it ([1C06h] 80h, `loc_0ca60`), every 300h ticks
+/// ([4729h]) the ring of points moves (`loc_04b3b`, `loc_04a1a`,
+/// `get_map_position`, `loc_04a00`, `loc_0b58b`). Not yet at the target
+/// ([11C5h] +6, DI): the scene refreshed; unless it took over, the
+/// marker shown ([4728h]: 1 hides it, `loc_05b5d` / `loc_049d9` when
+/// set) at the position (`loc_062d6`) within D6h-131h x 0Ah-35h
+/// (`loc_0c137`, `loc_0c085` 30h, `loc_0c22f`, `loc_0c07c`), and the
+/// speed set (`loc_04e8e`). The landing (at the target) is not ported:
+/// bails there.
+pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    let mut c = Ctx::new(m);
+    match start {
+        0x4f09 => {
+            c.run(0x4f09, 1)?;
+            c.call(0x4ac4, 0x4f0c)?;
+        }
+        0x4f0c => {}
+        _ => return Err(Bail),
+    }
+    let f = c.byte(0x4727);
+    let stop = c.byte(0x11ca);
+    if f == 0 || stop != 0 {
+        c.run(0x4f0c, if f == 0 { 3 } else { 5 })?;
+        c.cmp(B, f as u16, 0);
+        if f != 0 {
+            c.cmp(B, stop as u16, 0);
+        }
+        return c.ret();
+    }
+    c.run(0x4f0c, 8)?;
+    c.cmp(B, f as u16, 0);
+    c.cmp(B, 0, 0);
+    c.set_word(0x1c06, 0x80);
+    c.set_reg(AX, 0xdbec);
+    c.push(0xdbec);
+    c.call(0xca60, 0x4f27)?;
+    let t = c.word(0xce7a);
+    let last = c.word(0x4729);
+    let d = t.wrapping_sub(last);
+    c.run(0x4f27, if d < 0x300 { 5 } else { 4 })?;
+    c.set_reg(AX, t);
+    c.sub(W, t, last);
+    c.set_reg(AX, d);
+    c.cmp(W, d, 0x300);
+    if d < 0x300 {
+        return ret_mouse(&mut c);
+    }
+    c.run(0x4f34, 3)?;
+    c.set_reg(AX, t);
+    c.set_word(0x4729, t);
+    c.call(0x4b3b, 0x4f3d)?;
+    for (at, to) in [(0x4f3du16, 0x4a1au16), (0x4f40, 0x407e), (0x4f43, 0x4a00), (0x4f46, 0xb58b)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    let si = c.word(0x11c5);
+    let di = c.reg(DI);
+    let w = c.word(si.wrapping_add(6));
+    if di == w {
+        c.m.cpu.ip = 0x4f49;
+        return Err(Bail);
+    }
+    c.run(0x4f49, 4)?;
+    c.set_reg(SI, si);
+    c.cmp(W, di, w);
+    c.call(0x2e52, 0x4f55)?;
+    let k = c.byte(0x47a7);
+    if k != 0 {
+        c.run(0x4f55, 3)?;
+        c.cmp(B, k as u16, 0);
+        return ret_mouse(&mut c);
+    }
+    let mk = c.byte(0x4728);
+    if mk & 0x80 != 0 {
+        c.run(0x4f55, 5)?;
+        c.cmp(B, 0, 0);
+        c.cmp(B, mk as u16, 0);
+        return speed_4e8e(&mut c);
+    }
+    if mk != 0 {
+        c.run(0x4f55, 7)?;
+        c.cmp(B, 0, 0);
+        c.cmp(B, mk as u16, 0);
+        c.set_byte(0x4728, 0);
+        c.call(0x5b5d, 0x4f6d)?;
+        c.run(0x4f6d, 1)?;
+        c.call(0x49d9, 0x4f70)?;
+    } else {
+        c.run(0x4f55, 5)?;
+        c.cmp(B, 0, 0);
+        c.cmp(B, 0, 0);
+    }
+    c.run(0x4f70, 1)?;
+    c.call(0x407e, 0x4f73)?;
+    c.run(0x4f73, 1)?;
+    c.call(0x62d6, 0x4f76)?;
+    if c.flag(CF) {
+        c.run(0x4f76, 2)?;
+        return speed_4e8e(&mut c);
+    }
+    let dx = c.reg(DX) as i16;
+    let bx = c.reg(BX) as i16;
+    // The checks in order, each one ending the test when it fails.
+    let mut n = 1u32;
+    let inside = {
+        n += 2;
+        if dx < 0xd6 {
+            false
+        } else {
+            n += 2;
+            if bx < 0x0a {
+                false
+            } else {
+                n += 2;
+                if dx >= 0x132 {
+                    false
+                } else {
+                    n += 2;
+                    bx < 0x36
+                }
+            }
+        }
+    };
+    if !inside {
+        c.run(0x4f76, n + 3)?;
+        test_box(&mut c, dx, bx);
+        c.set_byte(0x4728, 1);
+        return speed_4e8e(&mut c);
+    }
+    let stop = c.byte(0x11ca);
+    if stop != 0 {
+        c.run(0x4f76, n + 3)?;
+        test_box(&mut c, dx, bx);
+        c.cmp(B, stop as u16, 0);
+        return speed_4e8e(&mut c);
+    }
+    c.run(0x4f76, n + 5)?;
+    test_box(&mut c, dx, bx);
+    c.cmp(B, 0, 0);
+    let b = c.dec(W, bx as u16);
+    c.set_reg(BX, b);
+    let d = c.dec(W, dx as u16);
+    c.set_reg(DX, d);
+    c.call(0xc137, 0x4fa1)?;
+    c.run(0x4fa1, 2)?;
+    c.set_reg(AX, 0x30);
+    c.call(0xc085, 0x4fa7)?;
+    c.run(0x4fa7, 1)?;
+    c.call(0xc22f, 0x4faa)?;
+    c.run(0x4faa, 1)?;
+    c.call(0xc07c, 0x4fad)?;
+    c.run(0x4fad, 1)?;
+    speed_4e8e(&mut c)
+}
+
+/// `loc_04f78`'s compares of the marker's position DX / BX.
+fn test_box(c: &mut Ctx, dx: i16, bx: i16) {
+    c.cmp(W, dx as u16, 0xd6);
+    if dx < 0xd6 {
+        return;
+    }
+    c.cmp(W, bx as u16, 0x0a);
+    if bx < 0x0a {
+        return;
+    }
+    c.cmp(W, dx as u16, 0x132);
+    if dx >= 0x132 {
+        return;
+    }
+    c.cmp(W, bx as u16, 0x36);
+}
+
+/// A `ret` that may land on `draw_mouse` (DBECh, pushed by
+/// `flight_step` so the mouse is redrawn on the way out).
+fn ret_mouse(c: &mut Ctx) -> Result<(), Bail> {
+    c.ret()?;
+    if c.m.cpu.ip == 0xdbec {
+        return super::mouse::draw_mouse(c.m, 0xdbec);
+    }
+    Ok(())
+}
+
+/// `loc_04e8e`: the flight's speed [0DC02h] from the terrain ahead: the
+/// cells along the heading (`heading_step` six times, then `loc_0b532`
+/// against one more step's, [11CCh] kept) averaged, the low nibble
+/// against 8 with the zoom [0DC00h]: over flat ground ([487Eh] from 2)
+/// 5 / 2 by the zoom (2 kept in [487Eh]), over rough ground 3 / 4
+/// (3 at zoom 5 or up to 2).
+fn speed_4e8e(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x4e8e, 4)?;
+    let dx = c.word(4);
+    let bx = c.word(6);
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    let h = c.word(0x11cc);
+    c.push(h);
+    c.call(0x5206, 0x4e9d)?;
+    for at in [0x4e9du16, 0x4ea0, 0x4ea3, 0x4ea6, 0x4ea9] {
+        c.run(at, 1)?;
+        c.call(0x5206, at + 3)?;
+    }
+    c.run(0x4eac, 1)?;
+    c.call(0xb532, 0x4eaf)?;
+    c.run(0x4eaf, 2)?;
+    let a = c.reg(AX);
+    c.push(a);
+    c.call(0x5206, 0x4eb3)?;
+    c.run(0x4eb3, 4)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    let h = c.pop();
+    c.set_word(0x11cc, h);
+    c.push(a);
+    c.call(0xb532, 0x4ebc)?;
+    c.run(0x4ebc, 2)?;
+    let a = c.reg(AX);
+    c.push(a);
+    c.call(0x41e1, 0x4ec0)?;
+    let sp = c.reg(SP);
+    let ax = c.word_in(SS, sp);
+    let b1 = c.word_in(SS, sp.wrapping_add(2));
+    let al = ((ax as u8).wrapping_add(b1 as u8)) >> 1;
+    let kind = c.word(0x487e);
+    let zoom = c.word(0xdc00);
+    let rough = al & 0x0f >= 8;
+    let n = 8 + if kind < 2 {
+        0
+    } else if rough {
+        4 + 3 + if zoom <= 2 { 0 } else { 2 + (zoom != 5) as u32 }
+    } else {
+        4 + 2 + if zoom <= 2 { 0 } else { 3 + if zoom <= 4 { 0 } else { 2 } }
+    } + 3;
+    c.run(0x4ec0, n)?;
+    let ax = c.pop();
+    let bx = c.pop();
+    let s = c.add(B, ax & 0xff, bx & 0xff);
+    let s = c.shr1(B, s, 1);
+    c.set_reg(AX, (ax & 0xff00) | s);
+    c.push(bx);
+    c.set_reg(BX, kind);
+    c.cmp(W, kind, 2);
+    let mut out = kind;
+    if kind >= 2 {
+        let v = c.and(B, s, 0x0f);
+        c.cmp(B, v, 8);
+        c.set_reg(AX, zoom);
+        if rough {
+            out = 3;
+            c.cmp(W, zoom, 2);
+            if zoom > 2 {
+                c.cmp(W, zoom, 5);
+                if zoom != 5 {
+                    out = 4;
+                }
+            }
+        } else {
+            c.cmp(W, zoom, 2);
+            if zoom > 2 {
+                out = 5;
+                c.cmp(W, zoom, 4);
+                if zoom > 4 {
+                    out = 2;
+                    c.set_word(0x487e, 2);
+                }
+            }
+        }
+    }
+    c.set_reg(BX, out);
+    c.set_word(0xdc02, out);
+    let bx = c.pop();
+    c.set_reg(BX, bx);
+    ret_mouse(c)
+}
