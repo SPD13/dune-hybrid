@@ -1368,3 +1368,104 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xa5db, 1)?;
     settings_ui_draw(c.m, 0xa3f9)
 }
+
+/// `sub_a5df`: a drag in the settings panel: the offset and hovered item
+/// (`settings_ui_sub_global_offset`, BX - CX, `settings_hover`). In mode
+/// 2 ([28BEh]) the counter SI steps by 0Ah (down by the drag's sign:
+/// CX flipped below item 6, DI from item 5) unless it would reach F1h,
+/// then is redrawn (`loc_0a49c`); in mode 1 a drag sets the slider to
+/// ~((x - 22h) * 4) within 40h and redraws it
+/// (`settings_ui_draw_slider`). Both return to the item's handler
+/// (+6, pushed).
+pub fn settings_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa5df)?;
+    let mut c = Ctx::new(m);
+    c.run(0xa5df, 1)?;
+    c.call(0xa453, 0xa5e2)?;
+    c.run(0xa5e2, 2)?;
+    let (bx, cx) = (c.reg(BX), c.reg(CX));
+    let b = c.sub(W, bx, cx);
+    c.set_reg(BX, b);
+    c.call(0xa594, 0xa5e7)?;
+    let mode = c.byte(0x28be);
+    let si = c.reg(SI);
+    let cx = c.reg(CX);
+    if mode == 1 {
+        if cx == 0 {
+            c.run(0xa5e7, 4)?;
+            c.cmp(B, 1, 1);
+            return c.ret();
+        }
+        let x = c.word(si.wrapping_add(4));
+        let a = x.wrapping_add(cx).wrapping_sub(0x22);
+        if a >= 0x40 {
+            c.run(0xa5e7, 2 + 1 + 5 + 1)?;
+        } else {
+            c.run(0xa5e7, 2 + 1 + 5 + 6)?;
+        }
+        c.cmp(B, 1, 1);
+        c.set_reg(AX, x);
+        let v = c.add(W, x, cx);
+        let v = c.sub(W, v, 0x22);
+        c.set_reg(AX, v);
+        c.cmp(W, v, 0x40);
+        if a >= 0x40 {
+            return c.ret();
+        }
+        let v = c.shl1(W, v, 2);
+        let v = !v;
+        c.set_reg(AX, v);
+        c.set_byte(si, v as u8);
+        let h = c.word(si.wrapping_add(6));
+        c.push(h);
+        return c.jump(0xa502);
+    }
+    if mode != 2 {
+        c.run(0xa5e7, 5)?;
+        c.cmp(B, mode as u16, 1);
+        c.cmp(B, mode as u16, 2);
+        return c.ret();
+    }
+    let (ax, bp, di) = (c.reg(AX), c.reg(BP), c.reg(DI));
+    let cx2 = if ax < 6 { cx.wrapping_neg() } else { cx };
+    let di2 = if bp >= 5 { di.wrapping_neg() } else { di };
+    let s = cx2.wrapping_add(di2);
+    let al = if s & 0x8000 != 0 { 0xf6u8 } else { 0x0a };
+    let cur = c.byte(si);
+    let v = al.wrapping_add(cur);
+    let ok = v < 0xf1;
+    c.run(
+        0xa5e7,
+        4 + 2 + (ax < 6) as u32 + 2 + (bp >= 5) as u32 + 3 + (s & 0x8000 != 0) as u32 + 3
+            + if ok { 3 } else { 1 },
+    )?;
+    c.cmp(B, 2, 1);
+    c.cmp(B, 2, 2);
+    c.cmp(W, ax, 6);
+    if ax < 6 {
+        c.neg(W, cx);
+        c.set_reg(CX, cx2);
+    }
+    c.cmp(W, bp, 5);
+    if bp >= 5 {
+        c.neg(W, di);
+        c.set_reg(DI, di2);
+    }
+    c.set_reg8(r8::AL, 0x0a);
+    c.add(W, cx2, di2);
+    c.set_reg(CX, s);
+    if s & 0x8000 != 0 {
+        c.neg(B, 0x0a);
+        c.set_reg8(r8::AL, 0xf6);
+    }
+    c.add(B, al as u16, cur as u16);
+    c.set_reg8(r8::AL, v);
+    c.cmp(B, v as u16, 0xf1);
+    if !ok {
+        return c.ret();
+    }
+    c.set_byte(si, v);
+    let h = c.word(si.wrapping_add(6));
+    c.push(h);
+    c.jump(0xa49c)
+}

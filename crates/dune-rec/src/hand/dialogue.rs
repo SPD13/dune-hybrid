@@ -5055,3 +5055,91 @@ fn end_893d(c: &mut Ctx) -> Result<(), Bail> {
     c.set_sreg(DS, v);
     c.ret()
 }
+
+/// `copy_non_pcm_lip_sync_data_and_draw_talking_head`: the head's
+/// sprite list 4608h (a count, then sprite, x, y bytes) kept in 4540h,
+/// and each sprite drawn at (x + [1BF0h], y + [1BF2h]) from the sprite
+/// sheet [0DBB0h] into the back buffer [0DBDAh] (the driver's far
+/// [38CDh], clipped to D834h). Bails with DF set or no sprites.
+pub fn draw_talking_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::ES;
+    entered(start, 0x9d16)?;
+    let mut c = Ctx::new(m);
+    let n = c.word(0x4608);
+    if c.flag(pc::cpu::DF) || n == 0 {
+        return Err(Bail);
+    }
+    c.run(0x9d16, 11)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(DI, 0x4540);
+    c.set_reg(SI, 0x4608);
+    c.set_reg(CX, n);
+    c.push(0x4608);
+    c.set_reg(AX, n);
+    let x = c.shl1(W, n, 1);
+    let x = c.add(W, x, n);
+    let x = c.add(W, x, 2);
+    c.set_reg(CX, x);
+    c.rep(0xa4);
+    c.run(0x9d2c, 3)?;
+    let si = c.pop();
+    c.set_reg(SI, si);
+    let cnt = c.lods(W, DS);
+    c.set_reg(CX, cnt);
+    loop {
+        c.run(0x9d30, 22)?;
+        let cx = c.reg(CX);
+        c.push(cx);
+        let sp = c.lods(B, DS);
+        c.xor(B, 0, 0);
+        c.set_reg(AX, sp);
+        let x = c.lods(B, DS);
+        c.set_reg(DX, x);
+        let y = c.lods(B, DS);
+        c.set_reg(BX, y);
+        let ox = c.word(0x1bf0);
+        let x = c.add(W, x, ox);
+        c.set_reg(DX, x);
+        let oy = c.word(0x1bf2);
+        let y = c.add(W, y, oy);
+        c.set_reg(BX, y);
+        let si = c.reg(SI);
+        c.push(si);
+        let bp = c.dec(W, sp);
+        let es = c.word(0xdbda);
+        c.set_sreg(ES, es);
+        let s0 = c.word(0xdbb0);
+        let seg = c.word(0xdbb2);
+        c.set_reg(SI, s0);
+        c.set_sreg(DS, seg);
+        let bp = c.shl1(W, bp, 1);
+        let o = c.word(bp.wrapping_add(s0));
+        let s1 = c.add(W, s0, o);
+        c.set_reg(SI, s1);
+        let a = c.lods(W, DS);
+        c.set_reg(DI, a);
+        let a = c.lods(W, DS);
+        c.xor(B, a >> 8, a >> 8);
+        c.set_reg(AX, a & 0xff);
+        c.set_reg(CX, a & 0xff);
+        c.set_reg(BP, 0xd834);
+        c.interp(0x9d5e, 0x9d63)?;
+        let sp = c.reg(SP);
+        let left = c.word_in(SS, sp.wrapping_add(2)).wrapping_sub(1);
+        c.run(0x9d63, 5 + (left == 0) as u32)?;
+        let ss = c.sreg(SS);
+        c.push(ss);
+        let v = c.pop();
+        c.set_sreg(DS, v);
+        let v = c.pop();
+        c.set_reg(SI, v);
+        c.pop();
+        c.set_reg(CX, left);
+        if left == 0 {
+            return c.ret();
+        }
+    }
+}

@@ -1070,6 +1070,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xbaf2, globe::globe_cell_at, "loc_0baf2"),
     (0xb6c3, globe::draw_zoomed_globe, "map_draw_zoomed_globe"),
     (0xb7d2, globe::globe_row, "loc_0b7d2"),
+    (0xa5df, panels::settings_drag, "sub_a5df"),
+    (0x9d16, dialogue::draw_talking_head, "copy_non_pcm_lip_sync_data_and_draw_talking_head"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),
