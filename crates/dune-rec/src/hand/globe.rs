@@ -2253,3 +2253,102 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xb7d1, 1)?;
     c.ret()
 }
+
+/// `loc_0b7d2`: one row of the zoomed globe: the map row CX of the far
+/// image [0DCFEh] (2*BX bytes around the globe, DX the longitude
+/// scaled by BX: [bp+6] the start) copied to SS:DI, centred in the
+/// width [0DCF2h] when narrower, wrapping around the row's end; DI
+/// then on the next screen row (+C8h).
+pub fn globe_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb7d2)?;
+    let mut c = Ctx::new(m);
+    let (dx0, di0, cx0, bx0, bp) = (c.reg(DX), c.reg(DI), c.reg(CX), c.reg(BX), c.reg(BP));
+    let ds0 = c.sreg(DS);
+    let si0 = c.word(0xdcfe);
+    let seg = c.word(0xdd00);
+    let bx2 = bx0.wrapping_add(bx0);
+    let prod = dx0 as u32 * bx2 as u32;
+    let hi = (prod >> 16) as u16;
+    let width = c.word_in(SS, 0xdcf2);
+    let narrow = bx2 < width;
+    let dx = if narrow { bx2 } else { width };
+    let half = dx >> 1;
+    let a0 = hi.wrapping_sub(half);
+    let aneg = a0 & 0x8000 != 0;
+    let ax = if aneg { a0.wrapping_add(bx2) } else { a0 };
+    let rest = bx2.wrapping_sub(ax);
+    let cxr = dx.wrapping_sub(rest);
+    let split = cxr & 0x8000 == 0;
+    c.run(0xb7d2, 15 + 5 * narrow as u32 + 4 + aneg as u32 + 4 + 4)?;
+    c.push(dx0);
+    c.push(di0);
+    c.push(ds0);
+    c.set_reg(SI, si0);
+    c.set_sreg(DS, seg);
+    let ss = c.sreg(SS);
+    c.push(ss);
+    let v = c.pop();
+    c.set_sreg(pc::cpu::ES, v);
+    let si = c.add(W, si0, cx0);
+    c.set_reg(SI, si);
+    let b = c.add(W, bx0, bx0);
+    c.set_reg(BX, b);
+    c.set_reg(AX, dx0);
+    c.mul16(b);
+    c.set_word_in(SS, bp.wrapping_add(6), hi);
+    c.set_reg(AX, hi);
+    c.set_reg(DX, width);
+    c.cmp(W, b, width);
+    if narrow {
+        let t = c.sub(W, width, b);
+        let t = c.shr1(W, t, 1);
+        c.set_reg(CX, t);
+        let di = c.add(W, di0, t);
+        c.set_reg(DI, di);
+        c.set_reg(DX, b);
+    }
+    let h = c.shr1(W, dx, 1);
+    c.set_reg(CX, h);
+    let mut a = c.sub(W, hi, h);
+    if aneg {
+        a = c.add(W, a, b);
+    }
+    c.set_reg(AX, a);
+    c.set_reg(CX, dx);
+    let r = c.sub(W, b, a);
+    c.set_reg(BX, r);
+    let cr = c.sub(W, dx, r);
+    c.set_reg(CX, cr);
+    if !split {
+        let n = c.add(W, cr, r);
+        c.set_reg(CX, n);
+        let s = c.add(W, si, a);
+        c.set_reg(SI, s);
+        c.rep(0xa4);
+    } else {
+        c.set_reg(CX, r);
+        c.set_reg(BX, cr);
+        c.push(si);
+        let s = c.add(W, si, a);
+        c.set_reg(SI, s);
+        c.rep(0xa4);
+        c.run(0xb81a, 3)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+        let (x, y) = (c.reg(CX), c.reg(BX));
+        c.set_reg(CX, y);
+        c.set_reg(BX, x);
+        c.rep(0xa4);
+    }
+    c.run(0xb81f, 5)?;
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    let v = c.pop();
+    c.set_reg(DI, v);
+    let v = c.pop();
+    c.set_reg(DX, v);
+    let di = c.reg(DI);
+    let di = c.add(W, di, 0xc8);
+    c.set_reg(DI, di);
+    c.ret()
+}
