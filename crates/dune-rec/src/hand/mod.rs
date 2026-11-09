@@ -998,6 +998,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xd32f, screens::unwind_and_fade, "loc_0d32f"),
     (0xa3f9, panels::settings_ui_draw, "settings_ui_draw"),
     (0xa576, panels::settings_click, "sub_a576"),
+    (0x450e, story::map_pick_place, "sub_450e"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];

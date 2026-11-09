@@ -4783,3 +4783,236 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x35ac, 1)?;
     c.ret()
 }
+
+/// `sub_450e`: in a map mode, a click at (DX, BX): the message subject
+/// updated (`message_subject`); a place picked (DI, not the current one
+/// [114Eh] in mode 0) is announced (`place_phrase`, its voice), its name
+/// blinked 9 times on the message line, and the troop sent there
+/// ([4732h] 80h, [`arrive_from_4703`]).
+pub fn map_pick_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x450e)?;
+    let mut c = Ctx::new(m);
+    let mode = c.byte(0x11c9);
+    if mode & 0x0f == 0 {
+        c.run(start, 3)?;
+        c.test(B, mode as u16, 0x0f);
+        return c.ret();
+    }
+    c.run(start, 5)?;
+    c.test(B, mode as u16, 0x0f);
+    let (bx, dx) = (c.reg(BX), c.reg(DX));
+    c.push(bx);
+    c.push(dx);
+    c.call(0x4586, 0x451a)?;
+    let di = c.word(0x46fc);
+    let mode = c.byte(0x11c9);
+    let cur = c.word(0x114e);
+    let ops = |c: &mut Ctx| {
+        let d = c.pop();
+        c.set_reg(DX, d);
+        let b = c.pop();
+        c.set_reg(BX, b);
+        c.set_reg(DI, di);
+        c.or(W, di, di);
+    };
+    if di == 0 {
+        c.run(0x451a, 6)?;
+        ops(&mut c);
+        return c.ret();
+    }
+    if di & 0x8000 == 0 {
+        if mode & 3 == 0 && di == cur {
+            c.run(0x451a, 11)?;
+            ops(&mut c);
+            c.test(B, mode as u16, 3);
+            c.cmp(W, di, cur);
+            return c.ret();
+        }
+        c.run(0x451a, if mode & 3 != 0 { 8 } else { 10 } + 4)?;
+        ops(&mut c);
+        c.test(B, mode as u16, 3);
+        if mode & 3 == 0 {
+            c.cmp(W, di, cur);
+        }
+    } else {
+        c.run(0x451a, 6 + 4)?;
+        ops(&mut c);
+    }
+    let (bx, dx) = (c.reg(BX), c.reg(DX));
+    c.push(bx);
+    c.push(dx);
+    c.push(di);
+    c.call(0x456c, 0x453a)?;
+    c.run(0x453a, 1)?;
+    c.call(0xab45, 0x453d)?;
+    c.run(0x453d, 2)?;
+    let di = c.pop();
+    c.set_reg(DI, di);
+    c.set_reg(CX, 9);
+    let mut k = 0;
+    loop {
+        k += 1;
+        if k > 9 {
+            c.m.cpu.ip = 0x4541;
+            return Err(Bail);
+        }
+        c.run(0x4541, 4)?;
+        let (cx, di) = (c.reg(CX), c.reg(DI));
+        c.push(cx);
+        c.push(di);
+        c.set_reg(AX, 0x14);
+        c.call(0xe3a0, 0x4549)?;
+        c.run(0x4549, 3)?;
+        let di = c.reg(DI);
+        c.push(di);
+        c.xor(W, 0, 0);
+        c.set_reg(DI, 0);
+        c.call(0x45de, 0x454f)?;
+        c.run(0x454f, 3)?;
+        let d = c.pop();
+        c.set_reg(DI, d);
+        c.set_reg(AX, 0x0a);
+        c.call(0xe3a0, 0x4556)?;
+        c.run(0x4556, 1)?;
+        c.call(0x45de, 0x4559)?;
+        c.run(0x4559, 3)?;
+        let d = c.pop();
+        c.set_reg(DI, d);
+        let cx = c.pop().wrapping_sub(1);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    c.run(0x455d, 2)?;
+    let di = c.reg(DI);
+    c.push(di);
+    c.call(0xaba9, 0x4561)?;
+    c.run(0x4561, 5)?;
+    let d = c.pop();
+    c.set_reg(DI, d);
+    let d = c.pop();
+    c.set_reg(DX, d);
+    let b = c.pop();
+    c.set_reg(BX, b);
+    c.set_byte(0x4732, 0x80);
+    arrive_from_4703(&mut c)
+}
+
+/// `loc_04703`: arrival at the place picked: `loc_04944`, the sky,
+/// the map mode's bits 2..3 set from its low ones, the music, out of a
+/// dialogue (`loc_00b21`), the screen left, `stop_task_4d00`; from a map
+/// mode (low 2 bits of the old mode) `loc_02eb2` and the palette; else
+/// [472Bh] 0, `loc_041c5` (the head down in mode 1), the game rect to
+/// the screen, the place's records, `loc_04795` with the heading [11C7h]
+/// kept, [8] FFh, `loc_04b3b`, [114Eh] and [4729h] 0, `loc_02dbf`
+/// outside the map views, `loc_04ab8`; then in mode 1 the troop's
+/// counter [[1150h] + 15h] down and the voice stopped, else `loc_02eb2`
+/// and the palette.
+pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x4703, 1)?;
+    c.call(0x4944, 0x4706)?;
+    c.run(0x4706, 1)?;
+    c.call(0x38e1, 0x4709)?;
+    c.run(0x4709, 6)?;
+    let m0 = c.byte(0x11c9);
+    c.set_reg8(r8::AL, m0);
+    let ax = c.reg(AX);
+    c.push(ax);
+    let a = c.shr1(B, m0 as u16, 2);
+    c.set_reg8(r8::AL, a as u8);
+    let v = c.or(B, m0 as u16, a);
+    c.set_byte(0x11c9, v as u8);
+    c.call(0xad5e, 0x4718)?;
+    let t = c.byte(0x2b);
+    c.run(0x4718, if t != 0 { 4 } else { 3 })?;
+    c.cmp(B, t as u16, 0);
+    if t != 0 {
+        c.set_byte(0x2b, 0);
+        c.call(0x0b21, 0x4727)?;
+        c.run(0x4727, 1)?;
+    }
+    c.call(0xd2ea, 0x472a)?;
+    c.run(0x472a, 1)?;
+    c.call(0x4d00, 0x472d)?;
+    let ax = c.word_in(SS, c.reg(SP));
+    if ax & 3 != 0 {
+        c.run(0x472d, 3)?;
+        let a = c.pop();
+        c.set_reg(AX, a);
+        c.test(B, a & 0xff, 3);
+        return palette_after_2eb2(c);
+    }
+    c.run(0x472d, 6)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    c.test(B, a & 0xff, 3);
+    c.set_word(0x472b, 0);
+    c.push(a);
+    c.call(0x41c5, 0x473c)?;
+    let m1 = c.byte(0x11c9);
+    let d = (m1 & 3).wrapping_sub(1);
+    c.run(0x473c, 5)?;
+    let a = c.and(B, m1 as u16, 3);
+    let a = c.dec(B, a);
+    c.set_reg8(r8::AL, a as u8);
+    if d == 0 {
+        c.call(0x181e, 0x4748)?;
+        c.run(0x4748, 1)?;
+    }
+    c.call(0xc474, 0x474b)?;
+    c.run(0x474b, 1)?;
+    c.call(0x40d5, 0x474e)?;
+    c.run(0x474e, 4)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    let h = c.byte(0x11c7);
+    c.set_reg8(r8::BL, h);
+    let bx = c.reg(BX);
+    c.push(bx);
+    c.call(0x4795, 0x4757)?;
+    c.run(0x4757, 4)?;
+    let a = c.pop();
+    c.set_reg(AX, a);
+    c.set_byte(0x11c7, a as u8);
+    c.set_byte(8, 0xff);
+    c.call(0x4b3b, 0x4763)?;
+    let v = c.byte(0x46eb);
+    let neg = v & 0x80 != 0;
+    c.run(0x4763, if neg { 5 } else { 5 })?;
+    c.set_word(0x114e, 0);
+    c.set_word(0x4729, 0);
+    c.cmp(B, v as u16, 0);
+    if !neg {
+        c.call(0x2dbf, 0x4779)?;
+        c.run(0x4779, 1)?;
+    }
+    c.call(0x4ab8, 0x477c)?;
+    let m2 = c.byte(0x11c9);
+    let d = (m2 & 3).wrapping_sub(1);
+    if d != 0 {
+        c.run(0x477c, 4)?;
+        let a = c.and(B, m2 as u16, 3);
+        let a = c.dec(B, a);
+        c.set_reg8(r8::AL, a as u8);
+        return palette_after_2eb2(c);
+    }
+    c.run(0x477c, 7)?;
+    let a = c.and(B, m2 as u16, 3);
+    let a = c.dec(B, a);
+    c.set_reg8(r8::AL, a as u8);
+    let di = c.word(0x1150);
+    c.set_reg(DI, di);
+    let v = c.byte(di.wrapping_add(0x15));
+    let v = c.dec(B, v as u16);
+    c.set_byte(di.wrapping_add(0x15), v as u8);
+    super::audio::pcm_stop_voc(c.m, 0xac14)
+}
+
+/// From 478Fh: `loc_02eb2`, then the palette.
+fn palette_after_2eb2(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x478f, 1)?;
+    c.call(0x2eb2, 0x4792)?;
+    c.run(0x4792, 1)?;
+    super::gfx::update_screen_palette(c.m, 0xc0f4)
+}
