@@ -507,3 +507,339 @@ pub fn dialogue_hit(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.ret()
 }
+
+/// `highlight_hovered_text_action_item`: the hovered item CL of the
+/// current UI list (FFh none) found for the cursor (DX, BX) and, when it
+/// changes [0DCE7h], the old one drawn plain and the new one highlighted
+/// (`item_place`, `loc_0d48a` with bit 7 of AH), then the mouse. Fixed
+/// with [4774h] ([4775h]). In the dialogue list 1F0Eh outside the map
+/// modes: the speaker box 1BF0h (the speaker [47C4h]) or the speaker hit
+/// (`dialogue_hit`; an extra speaker as 17h), its item 78h + speaker.
+/// In the list 1F7Eh: the boxes 1BE2h (0), 1BF0h (1), with [1BF8h] the
+/// box 1BFEh (3), a dialogue rect of the speaker (2). Else in the button
+/// row (from y 98h) the column of 1B48h's boxes (0Eh apart). All
+/// registers but AX kept.
+pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd50f)?;
+    let mut c = Ctx::new(m);
+    let fixed = c.byte(0x4774);
+    c.run(start, if fixed != 0 { 10 } else { 9 })?;
+    for r in [BX, CX, DX, SI, DI, BP] {
+        let v = c.reg(r);
+        c.push(v);
+    }
+    c.cmp(B, fixed as u16, 0);
+    // The blocks: 0 D5DDh (CL found), 1 D575h, 2 D5B1h, 3 D5DBh,
+    // 4 D55Dh (CX the speaker), 5 D545h, 6 D593h.
+    let mut at;
+    if fixed != 0 {
+        let cl = c.byte(0x4775);
+        c.set_reg8(r8::CL, cl);
+        at = 0;
+    } else {
+        c.call(0xd41b, 0xd526)?;
+        let bp = c.reg(BP);
+        let mode = c.byte(0x11c9);
+        if bp != 0x1f0e || mode != 0 {
+            c.run(0xd526, if bp != 0x1f0e { 2 } else { 4 })?;
+            c.cmp(W, bp, 0x1f0e);
+            if bp == 0x1f0e {
+                c.cmp(B, mode as u16, 0);
+            }
+            at = 1;
+        } else {
+            let f = c.byte(0x1bf8);
+            if f & 0x80 != 0 {
+                c.run(0xd526, 8)?;
+                c.cmp(W, bp, 0x1f0e);
+                c.cmp(B, 0, 0);
+                c.set_reg(DI, 0x1bf0);
+                c.cmp(B, f as u16, 0);
+                c.call(0xd6fe, 0xd53f)?;
+                let cf = c.flag(CF);
+                c.run(0xd53f, 2)?;
+                let sp = c.word(0x47c4);
+                c.set_reg(CX, sp);
+                at = if cf { 4 } else { 5 };
+            } else {
+                c.run(0xd526, 7)?;
+                c.cmp(W, bp, 0x1f0e);
+                c.cmp(B, 0, 0);
+                c.set_reg(DI, 0x1bf0);
+                c.cmp(B, f as u16, 0);
+                at = 5;
+            }
+        }
+    }
+    loop {
+        match at {
+            5 => {
+                c.run(0xd545, 2)?;
+                let bp = c.reg(BP);
+                c.push(bp);
+                c.call(0x9285, 0xd549)?;
+                let cf = c.flag(CF);
+                let cl = c.reg8(r8::CL);
+                if !cf {
+                    c.run(0xd549, 2)?;
+                    let b = c.pop();
+                    c.set_reg(BP, b);
+                    at = 1;
+                    continue;
+                }
+                let a = cl.wrapping_sub(0x0f);
+                let extra = c.byte(0x476b);
+                let n = if cl < 0x0f { 5 } else if a.wrapping_add(1) != extra { 8 } else { 9 };
+                c.run(0xd549, n)?;
+                let b = c.pop();
+                c.set_reg(BP, b);
+                c.set_reg8(r8::AL, cl);
+                let a = c.sub(B, cl as u16, 0x0f);
+                c.set_reg8(r8::AL, a as u8);
+                if cl >= 0x0f {
+                    let a = c.inc(B, a);
+                    c.set_reg8(r8::AL, a as u8);
+                    c.cmp(B, a, extra as u16);
+                    if a as u8 == extra {
+                        c.set_reg(CX, 0x17);
+                    }
+                }
+                at = 4;
+            }
+            4 => {
+                c.run(0xd55d, 3)?;
+                let cx = c.reg(CX);
+                let bp = c.add(W, cx, 0x78);
+                c.set_reg(BP, bp);
+                c.xor(W, 0, 0);
+                c.set_reg(CX, 0);
+                loop {
+                    c.run(0xd565, 1)?;
+                    c.call(0xd454, 0xd568)?;
+                    let ax = c.reg(AX);
+                    let bp = c.reg(BP);
+                    if ax == bp {
+                        c.run(0xd568, 2)?;
+                        c.cmp(W, ax, bp);
+                        at = 0;
+                        break;
+                    }
+                    let cx = c.reg(CX).wrapping_add(1);
+                    let n = c.byte(0xdce8);
+                    let more = (cx as u8) < n;
+                    c.run(0xd568, if more { 5 } else { 6 })?;
+                    c.cmp(W, ax, bp);
+                    let cx = c.inc(W, cx.wrapping_sub(1));
+                    c.set_reg(CX, cx);
+                    c.cmp(B, cx & 0xff, n as u16);
+                    if !more {
+                        at = 3;
+                        break;
+                    }
+                }
+            }
+            1 => {
+                let bp = c.reg(BP);
+                if bp != 0x1f7e {
+                    c.run(0xd575, 2)?;
+                    c.cmp(W, bp, 0x1f7e);
+                    at = 2;
+                    continue;
+                }
+                let f = c.byte(0x1bea);
+                if f & 0x80 == 0 {
+                    c.run(0xd575, 5)?;
+                    c.cmp(W, bp, 0x1f7e);
+                    c.set_reg(DI, 0x1be2);
+                    c.cmp(B, f as u16, 0);
+                    at = 6;
+                    continue;
+                }
+                c.run(0xd575, 7)?;
+                c.cmp(W, bp, 0x1f7e);
+                c.set_reg(DI, 0x1be2);
+                c.cmp(B, f as u16, 0);
+                c.xor(W, 0, 0);
+                c.set_reg(CX, 0);
+                c.call(0xd6fe, 0xd589)?;
+                if c.flag(CF) {
+                    c.run(0xd589, 1)?;
+                    at = 0;
+                    continue;
+                }
+                c.run(0xd589, 3)?;
+                c.set_reg(DI, 0x1bf0);
+                c.call(0xd6fe, 0xd591)?;
+                c.run(0xd591, 1)?;
+                at = if c.flag(CF) { 0 } else { 6 };
+            }
+            6 => {
+                let f = c.byte(0x1bf8);
+                if f & 0x80 == 0 {
+                    c.run(0xd593, 2)?;
+                    c.cmp(B, f as u16, 0);
+                    at = 2;
+                    continue;
+                }
+                c.run(0xd593, 4)?;
+                c.cmp(B, f as u16, 0);
+                c.set_reg(DI, 0x1bfe);
+                c.call(0xd6fe, 0xd5a0)?;
+                let cf = c.flag(CF);
+                if cf {
+                    c.run(0xd5a0, 2)?;
+                    c.set_reg8(r8::CL, 3);
+                    at = 0;
+                    continue;
+                }
+                c.run(0xd5a0, 3)?;
+                c.set_reg8(r8::CL, 3);
+                c.call(0x92c9, 0xd5a7)?;
+                if !c.flag(CF) {
+                    c.run(0xd5a7, 1)?;
+                    at = 2;
+                    continue;
+                }
+                let (cx, sp) = (c.reg(CX), c.word(0x47c4));
+                c.run(0xd5a7, 4)?;
+                c.cmp(W, cx, sp);
+                c.set_reg8(r8::CL, 2);
+                at = if cx == sp { 0 } else { 2 };
+            }
+            2 => {
+                let (bx, dx) = (c.reg(BX), c.reg(DX));
+                if bx < 0x98 {
+                    c.run(0xd5b1, 2)?;
+                    c.cmp(W, bx, 0x98);
+                    at = 3;
+                    continue;
+                }
+                let (l, r) = (c.word(0x1b48), c.word(0x1b4c));
+                if dx < l || dx >= r {
+                    c.run(0xd5b1, if dx < l { 6 } else { 8 })?;
+                    c.cmp(W, bx, 0x98);
+                    c.set_reg8(r8::CL, 0xff);
+                    c.set_reg(DI, 0x1b48);
+                    c.cmp(W, dx, l);
+                    if dx >= l {
+                        c.cmp(W, dx, r);
+                    }
+                    at = 0;
+                    continue;
+                }
+                c.run(0xd5b1, 9)?;
+                c.cmp(W, bx, 0x98);
+                c.set_reg8(r8::CL, 0xff);
+                c.set_reg(DI, 0x1b48);
+                c.cmp(W, dx, l);
+                c.cmp(W, dx, r);
+                c.xor(W, 0, 0);
+                c.set_reg(CX, 0);
+                loop {
+                    let di = c.reg(DI);
+                    let (t, b) = (c.word(di.wrapping_add(2)), c.word(di.wrapping_add(6)));
+                    if bx <= t {
+                        c.run(0xd5c7, 2)?;
+                        c.cmp(W, bx, t);
+                        at = 3;
+                        break;
+                    }
+                    if bx <= b {
+                        c.run(0xd5c7, 4)?;
+                        c.cmp(W, bx, t);
+                        c.cmp(W, bx, b);
+                        at = 0;
+                        break;
+                    }
+                    let cx = c.reg(CX).wrapping_add(1);
+                    let n = c.byte(0xdce8);
+                    c.run(0xd5c7, 8)?;
+                    c.cmp(W, bx, t);
+                    c.cmp(W, bx, b);
+                    let d = c.add(W, di, 0x0e);
+                    c.set_reg(DI, d);
+                    let cx = c.inc(W, cx.wrapping_sub(1));
+                    c.set_reg(CX, cx);
+                    c.cmp(B, cx & 0xff, n as u16);
+                    if (cx as u8) >= n {
+                        at = 3;
+                        break;
+                    }
+                }
+            }
+            3 => {
+                c.run(0xd5db, 1)?;
+                c.set_reg8(r8::CL, 0xff);
+                at = 0;
+            }
+            _ => break,
+        }
+    }
+    // D5DDh: the change.
+    let cl = c.reg8(r8::CL);
+    let old = c.byte(0xdce7);
+    if cl == old {
+        c.run(0xd5dd, 4 + 7)?;
+        c.set_reg8(r8::AL, cl);
+        c.set_reg8(r8::CL, old);
+        c.cmp(B, cl as u16, old as u16);
+        return highlight_pops(&mut c);
+    }
+    c.run(0xd5dd, 5)?;
+    c.set_reg8(r8::AL, cl);
+    c.set_byte(0xdce7, cl);
+    c.set_reg8(r8::CL, old);
+    c.cmp(B, cl as u16, old as u16);
+    c.call(0xdbb2, 0xd5ea)?;
+    let n = c.byte(0xdce8);
+    let cl = c.reg8(r8::CL);
+    if cl & 0x80 != 0 || cl >= n {
+        c.run(0xd5ea, if cl & 0x80 != 0 { 2 } else { 4 })?;
+        c.or(B, cl as u16, cl as u16);
+        if cl & 0x80 == 0 {
+            c.cmp(B, cl as u16, n as u16);
+        }
+    } else {
+        c.run(0xd5ea, 6)?;
+        c.or(B, cl as u16, cl as u16);
+        c.cmp(B, cl as u16, n as u16);
+        let ax = c.reg(AX);
+        c.push(ax);
+        c.call(0xd454, 0xd5f8)?;
+        c.run(0xd5f8, 1)?;
+        c.call(0xd48a, 0xd5fb)?;
+        c.run(0xd5fb, 1)?;
+        let a = c.pop();
+        c.set_reg(AX, a);
+    }
+    let al = c.reg8(r8::AL);
+    let n = c.byte(0xdce8);
+    if al >= n {
+        c.run(0xd5fc, 3)?;
+        c.cmp(B, al as u16, n as u16);
+    } else {
+        c.run(0xd5fc, 4)?;
+        c.cmp(B, al as u16, n as u16);
+        let ax = c.reg(AX);
+        c.set_reg(CX, ax);
+        c.call(0xd454, 0xd607)?;
+        c.run(0xd607, 2)?;
+        let ah = (c.reg(AX) >> 8) as u8;
+        let h = c.or(B, ah as u16, 0x80);
+        c.set_reg8(r8::AH, h as u8);
+        c.call(0xd48a, 0xd60d)?;
+        c.run(0xd60d, 1)?;
+    }
+    c.call(0xdbec, 0xd610)?;
+    c.run(0xd610, 7)?;
+    highlight_pops(&mut c)
+}
+
+/// D610h: the saved registers back (the run already counted).
+fn highlight_pops(c: &mut Ctx) -> Result<(), Bail> {
+    for r in [BP, DI, SI, DX, CX, BX] {
+        let v = c.pop();
+        c.set_reg(r, v);
+    }
+    c.ret()
+}
