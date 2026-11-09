@@ -1377,3 +1377,67 @@ pub fn unwind_and_fade(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd335, 1)?;
     fade_panel(c.m, 0xd280)
 }
+
+/// `loc_02ebf`: the UI list [2220h] installed with the handler F66h
+/// (`install_ui_list_d338`).
+pub fn install_list_2220(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2ebf)?;
+    let mut c = Ctx::new(m);
+    list_2220_at(&mut c)
+}
+
+fn list_2220_at(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x2ebf, 3)?;
+    let bp = c.word(0x2220);
+    c.set_reg(BP, bp);
+    c.set_reg(BX, 0x0f66);
+    super::cursor::install_ui_list_d338(c.m, 0xd338)
+}
+
+/// `loc_02eb2`: the place's panel back: with [4774h] `loc_0301a`, the
+/// dialogue reset and the list [2220h]; else the place's actions
+/// (`loc_02e98` for [114Eh], `loc_02efb`, `setup_3090` outside the map
+/// modes), the buttons, `loc_0d763` and the action list 1F0Eh installed.
+/// Bails when the mouse is low (y from 74h: the original then returns
+/// through `draw_mouse`).
+pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2eb2)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x4774);
+    if k != 0 {
+        c.run(start, 3)?;
+        c.cmp(B, k as u16, 0);
+        c.call(0x301a, 0x2ebc)?;
+        c.run(0x2ebc, 1)?;
+        c.call(0x98e6, 0x2ebf)?;
+        return list_2220_at(&mut c);
+    }
+    c.run(start, 4)?;
+    c.cmp(B, 0, 0);
+    let di = c.word(0x114e);
+    c.set_reg(DI, di);
+    c.call(0x2e98, 0x2ed0)?;
+    c.run(0x2ed0, 1)?;
+    c.call(0x2efb, 0x2ed3)?;
+    let mode = c.byte(0x11c9);
+    c.run(0x2ed3, if mode == 0 { 3 } else { 2 })?;
+    c.cmp(B, mode as u16, 0);
+    if mode == 0 {
+        c.call(0x3090, 0x2edd)?;
+    }
+    let y = c.word(0xdc38);
+    if y >= 0x74 {
+        c.m.cpu.ip = 0x2edd;
+        return Err(Bail);
+    }
+    c.run(0x2edd, 4)?;
+    c.set_reg(AX, y);
+    c.cmp(W, y, 0x74);
+    c.call(0x2ffb, 0x2eef)?;
+    c.run(0x2eef, 1)?;
+    c.call(0xd763, 0x2ef2)?;
+    c.run(0x2ef2, 3)?;
+    c.set_reg(BP, 0x1f0e);
+    c.set_reg(BX, 0x0f66);
+    super::cursor::install_ui_list_d338(c.m, 0xd338)
+}

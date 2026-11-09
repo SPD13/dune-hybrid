@@ -1030,6 +1030,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xd33a, cursor::install_ui_list, "loc_0d33a"),
     (0xd36d, cursor::replace_ui_list, "loc_0d36d"),
     (0xd397, cursor::redraw_ui_slots, "loc_0d397"),
+    (0x2ebf, screens::install_list_2220, "loc_02ebf"),
+    (0x2eb2, screens::place_panel_back, "loc_02eb2"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
