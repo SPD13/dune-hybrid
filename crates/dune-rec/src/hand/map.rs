@@ -6767,3 +6767,96 @@ pub fn place_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x599e, 1)?;
     c.ret()
 }
+
+/// `sub_5c76`: a click on the map view: the sprite list dropped, the map
+/// resource opened; clicks in the first or second box ([0DBE0h],
+/// [0DBE2h]), with [46F5h], on a troop (`particle_at`) or near another
+/// location go on elsewhere (not ported: bails at their jumps); else the
+/// caption and the troop panel dropped, the point list dropped, and with
+/// [1954h] a redraw asked, the map toggled and the panel faded.
+pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5c76)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x5beb, 0x5c79)?;
+    c.run(0x5c79, 1)?;
+    c.call(0xc13b, 0x5c7c)?;
+    let b1 = c.word(0xdbe0);
+    if b1 != 0 {
+        c.run(0x5c7c, 4)?;
+        c.set_reg(DI, b1);
+        c.or(W, b1, b1);
+        c.call(0xd6fe, 0x5c87)?;
+        if c.flag(CF) {
+            c.m.cpu.ip = 0x5c87;
+            return Err(Bail);
+        }
+        c.run(0x5c87, 1)?;
+    } else {
+        c.run(0x5c7c, 3)?;
+        c.set_reg(DI, 0);
+        c.or(W, 0, 0);
+    }
+    let b2 = c.word(0xdbe2);
+    if b2 != 0 {
+        c.run(0x5c95, 4)?;
+        c.set_reg(DI, b2);
+        c.or(W, b2, b2);
+        c.call(0xd6fe, 0x5ca0)?;
+        if c.flag(CF) {
+            c.m.cpu.ip = 0x5ca0;
+            return Err(Bail);
+        }
+        c.run(0x5ca0, 1)?;
+    } else {
+        c.run(0x5c95, 3)?;
+        c.set_reg(DI, 0);
+        c.or(W, 0, 0);
+    }
+    let f = c.byte(0x46f5);
+    if f != 0 {
+        c.run(0x5ca5, 3)?;
+        c.cmp(B, f as u16, 0);
+        return super::screens::leave_and_fade(c.m, 0xd2e2);
+    }
+    c.run(0x5ca5, 3)?;
+    c.cmp(B, 0, 0);
+    c.call(0x6946, 0x5cb2)?;
+    if c.flag(CF) {
+        c.m.cpu.ip = 0x5cb2;
+        return Err(Bail);
+    }
+    c.run(0x5cb2, 3)?;
+    c.set_reg8(r8::AL, 0x31);
+    c.call(0x5e6d, 0x5cbc)?;
+    let ax = c.reg(AX);
+    let di = c.reg(DI);
+    let cur = c.word(0x46f8);
+    if ax < 0x14 && di != cur {
+        c.m.cpu.ip = 0x5cbc;
+        return Err(Bail);
+    }
+    c.run(0x5cbc, if ax < 0x14 { 5 } else { 3 })?;
+    c.cmp(W, ax, 0x14);
+    if ax < 0x14 {
+        c.cmp(W, di, cur);
+    }
+    c.call(0x5f79, 0x5ccd)?;
+    c.run(0x5ccd, 1)?;
+    c.call(0x79de, 0x5cd0)?;
+    c.run(0x5cd0, 1)?;
+    c.call(0x58fa, 0x5cd3)?;
+    let k = c.byte(0x1954);
+    c.run(0x5cd3, if k != 0 { 3 } else { 3 })?;
+    c.cmp(B, k as u16, 0);
+    if k == 0 {
+        return c.ret();
+    }
+    c.call(0xd316, 0x5cdd)?;
+    c.run(0x5cdd, 1)?;
+    c.call(0x8763, 0x5ce0)?;
+    c.run(0x5ce0, 1)?;
+    c.call(0xd280, 0x5ce3)?;
+    c.run(0x5ce3, 1)?;
+    c.ret()
+}
