@@ -6760,3 +6760,600 @@ pub fn place_view_37eb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x37f1, 1)?;
     enemy_watch_4d06(&mut c)
 }
+
+/// `loc_01b0d`: the clock's step: with no voice playing
+/// (`is_voc_pcm_playing`), [2788h] clear and [2Ah] below C8h the time
+/// moves (`loc_02b2a`); then `loc_01b23`.
+pub fn time_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    let mut c = Ctx::new(m);
+    if start == 0x1b23 {
+        return new_time_1b23(&mut c);
+    }
+    entered(start, 0x1b0d)?;
+    c.run(0x1b0d, 1)?;
+    c.call(0xabcc, 0x1b10)?;
+    if !c.flag(pc::cpu::ZF) {
+        c.run(0x1b10, 2)?;
+        return c.ret();
+    }
+    let k = c.byte(0x2788);
+    let t = c.byte(0x2a);
+    if k != 0 {
+        c.run(0x1b10, 4)?;
+        c.cmp(B, k as u16, 0);
+        return c.ret();
+    }
+    if t >= 0xc8 {
+        c.run(0x1b10, 6)?;
+        c.cmp(B, 0, 0);
+        c.cmp(B, t as u16, 0xc8);
+        return c.ret();
+    }
+    c.run(0x1b10, 6)?;
+    c.cmp(B, 0, 0);
+    c.cmp(B, t as u16, 0xc8);
+    c.call(0x2b2a, 0x1b23)?;
+    new_time_1b23(&mut c)
+}
+
+/// `loc_01b23`: on a new time slot ([46DDh], cleared): [0F4h] counts
+/// down (from 10h on; below it 0, and [0F5h] 0), the date panel and the
+/// sky (`loc_01a0f`, `loc_038e1`); the hour [2] noted in [1174h], its
+/// change ([46DEh]) handled (`loc_01c46`). Before the stage 7 ([0C2h])
+/// the day's events: `loc_01d9f`, `loc_06c6f`, `loc_063f0`, the
+/// handler for `loc_01ae0` (the word table 1DB3h), `loc_01c18`,
+/// `loc_0331e` with the saved [11CEh] ([11F7h] kept), `loc_01bec`;
+/// unless [46D9h] the map view refreshed ([46ECh]) and at a place
+/// [473Bh] acted on: positive (and [0FBh] not negative, no [46DAh]) the
+/// room left and redrawn (`loc_00b21`, `loc_02db1`); negative the map
+/// refreshed, or the view rebuilt (`loc_0d2bd`, the gauges). [473Bh] 0.
+fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
+    let f = c.byte(0x46dd);
+    if f == 0 {
+        c.run(0x1b23, 3)?;
+        c.cmp(B, 0, 0);
+        return c.ret();
+    }
+    let a = c.byte(0xf4).wrapping_sub(1);
+    let low = (a as i8) < 0x10;
+    c.run(0x1b23, 7 + if low { 2 } else { 0 } + 2)?;
+    c.cmp(B, f as u16, 0);
+    c.set_byte(0x46dd, 0);
+    let f4 = c.byte(0xf4);
+    let a = c.dec(B, f4 as u16) as u8;
+    c.cmp(B, a as u16, 0x10);
+    let a = if low {
+        c.xor(B, a as u16, a as u16);
+        c.set_byte(0xf5, 0);
+        0
+    } else {
+        a
+    };
+    c.set_reg8(r8::AL, a);
+    c.set_byte(0xf4, a);
+    c.call(0x1a0f, 0x1b43)?;
+    c.run(0x1b43, 1)?;
+    c.call(0x38e1, 0x1b46)?;
+    let now = c.word(2);
+    let old = c.word(0x1174);
+    let d = (old as u8 & 0xf0).wrapping_sub(now as u8 & 0xf0);
+    c.run(0x1b46, 8 + (d != 0) as u32)?;
+    c.set_word(0x1174, now);
+    c.and(B, old & 0xff, 0xf0);
+    let cl = c.and(B, now & 0xff, 0xf0);
+    c.set_reg(CX, (now & 0xff00) | cl);
+    c.sub(B, (old & 0xf0) as u16, cl);
+    c.set_reg(AX, (old & 0xff00) | d as u16);
+    c.set_byte(0x46de, d);
+    if d != 0 {
+        c.call(0x1c46, 0x1b5e)?;
+    }
+    let st = c.byte(0xc2);
+    if st >= 7 {
+        c.run(0x1b5e, 2)?;
+        c.cmp(B, st as u16, 7);
+        return clear_473b(c);
+    }
+    c.run(0x1b5e, 3)?;
+    c.cmp(B, st as u16, 7);
+    c.call(0x1d9f, 0x1b68)?;
+    c.run(0x1b68, 3)?;
+    let (a, b) = (c.word(0x11f7), c.word(0x11ce));
+    c.push(a);
+    c.push(b);
+    c.call(0x6c6f, 0x1b73)?;
+    c.run(0x1b73, 1)?;
+    c.call(0x63f0, 0x1b76)?;
+    c.run(0x1b76, 1)?;
+    c.call(0x1ae0, 0x1b79)?;
+    c.run(0x1b79, 3)?;
+    let ax = c.reg(AX);
+    let si = c.shl1(W, ax, 1);
+    c.set_reg(AX, si);
+    c.set_reg(SI, si);
+    let to = c.code_word(si.wrapping_add(0x1db3));
+    c.call(to, 0x1b82)?;
+    c.run(0x1b82, 1)?;
+    c.call(0x1c18, 0x1b85)?;
+    c.run(0x1b85, 2)?;
+    let di = c.pop();
+    c.set_reg(DI, di);
+    c.call(0x331e, 0x1b89)?;
+    c.run(0x1b89, 2)?;
+    let v = c.pop();
+    c.set_word(0x11f7, v);
+    c.call(0x1bec, 0x1b90)?;
+    let k = c.byte(0x46d9);
+    if k != 0 {
+        c.run(0x1b90, 2)?;
+        c.cmp(B, k as u16, 0);
+        return clear_473b(c);
+    }
+    let e = c.byte(0x46ec);
+    c.run(0x1b90, 4 + (e != 0) as u32)?;
+    c.cmp(B, 0, 0);
+    c.cmp(B, e as u16, 0);
+    if e != 0 {
+        c.call(0x5d6d, 0x1ba1)?;
+    }
+    let di = c.word(0x114e);
+    if di == 0 {
+        c.run(0x1ba1, 3)?;
+        c.set_reg(DI, 0);
+        c.or(W, 0, 0);
+        return clear_473b(c);
+    }
+    let v = c.byte(0x473b);
+    c.run(0x1ba1, 3 + if v & 0x80 != 0 { 2 } else { 3 })?;
+    c.set_reg(DI, di);
+    c.or(W, di, di);
+    c.cmp(B, v as u16, 0);
+    if v == 0 {
+        return clear_473b(c);
+    }
+    let fb = c.byte(0xfb);
+    if v & 0x80 != 0 {
+        c.run(0x1bd2, 1)?;
+        c.call(0x1bb2, 0x1bd5)?;
+        let fb = c.byte(0xfb);
+        if fb & 0x80 != 0 {
+            c.run(0x1bd5, 3)?;
+            c.cmp(B, fb as u16, 0);
+            return super::map::refresh_map_view(c.m, 0x5d6d);
+        }
+        let da = c.byte(0x46da);
+        if da != 0 {
+            c.run(0x1bd5, 4)?;
+            c.cmp(B, fb as u16, 0);
+            c.cmp(B, da as u16, 0);
+            return clear_473b(c);
+        }
+        c.run(0x1bd5, 5)?;
+        c.cmp(B, fb as u16, 0);
+        c.cmp(B, 0, 0);
+        c.call(0xd2bd, 0x1be6)?;
+        c.run(0x1be6, 1)?;
+        c.run(0x0fa7, 1)?;
+        c.call(0xdbb2, 0x0faa)?;
+        c.run(0x0faa, 2)?;
+        c.set_reg8(r8::AL, 0x2a);
+        c.call(0x189a, 0x0faf)?;
+        c.run(0x0faf, 1)?;
+        return super::screens::draw_gauges(c.m, 0xd763);
+    }
+    if fb & 0x80 != 0 {
+        c.run(0x1bb8, 2)?;
+        c.cmp(B, fb as u16, 0);
+        return clear_473b(c);
+    }
+    let da = c.byte(0x46da);
+    if da != 0 {
+        c.run(0x1bb8, 4)?;
+        c.cmp(B, fb as u16, 0);
+        c.cmp(B, da as u16, 0);
+        return clear_473b(c);
+    }
+    c.run(0x1bb8, 5)?;
+    c.cmp(B, fb as u16, 0);
+    c.cmp(B, 0, 0);
+    c.call(0xdbb2, 0x1bc9)?;
+    c.run(0x1bc9, 1)?;
+    c.call(0x1bb2, 0x1bcc)?;
+    c.run(0x1bcc, 1)?;
+    c.call(0x0b21, 0x1bcf)?;
+    c.run(0x1bcf, 1)?;
+    room_arrive(c.m, 0x2db1)
+}
+
+/// `loc_01bb2` reached by a jump: [473Bh] 0, `ret`.
+fn clear_473b(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x1bb2, 2)?;
+    c.set_byte(0x473b, 0);
+    c.ret()
+}
+
+/// `loc_03542` / `loc_03551`: the scene's record (from `loc_03542` the
+/// events for [47C4h] at the place dropped, `loc_02a51`, and [0E7h] 0):
+/// [47A7h] counts; stage 3 ([23h]) installs the list 1F92h (handler
+/// 97CFh), stage 4 the list 1F9Eh (bit 40h dropped) and the place's
+/// buttons, both with [1BEAh] / [1BF8h] 0; else outside [4774h] and
+/// below stage 64h the phrase [47C4h] (`loc_093df`) and the fade.
+pub fn scene_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    let mut c = Ctx::new(m);
+    match start {
+        0x3542 => scene_record_3542(&mut c),
+        0x3551 => scene_record_3551(&mut c),
+        _ => Err(Bail),
+    }
+}
+
+fn scene_record_3542(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x3542, 3)?;
+    let ax = c.word(0x47c4);
+    c.set_reg(AX, ax);
+    let di = c.word(0x114e);
+    c.set_reg(DI, di);
+    c.call(0x2a51, 0x354c)?;
+    c.run(0x354c, 1)?;
+    c.set_byte(0xe7, 0);
+    scene_record_3551(c)
+}
+
+fn scene_record_3551(c: &mut Ctx) -> Result<(), Bail> {
+    let n = c.byte(0x47a7);
+    let st = c.byte(0x23);
+    let count = |c: &mut Ctx| {
+        let v = c.inc(B, n as u16);
+        c.set_byte(0x47a7, v as u8);
+        c.cmp(B, st as u16, 3);
+    };
+    if st == 3 {
+        c.run(0x3551, 6)?;
+        count(c);
+        c.set_reg(BP, 0x1f92);
+        c.set_reg(BX, 0x97cf);
+        c.call(0xd323, 0x3565)?;
+        c.run(0x3565, 3)?;
+        c.set_word(0x1bea, 0);
+        c.set_word(0x1bf8, 0);
+        return c.ret();
+    }
+    if st == 4 {
+        c.run(0x3551, 9)?;
+        count(c);
+        c.cmp(B, 4, 4);
+        c.set_reg(BP, 0x1f9e);
+        let v = c.byte_in(SS, 0x1fa9);
+        let v = c.and(B, v as u16, 0xbf);
+        c.m.cpu.write8(&mut c.m.hw, SS, 0x1fa9, v as u8);
+        c.set_reg(BX, 0x97cf);
+        c.call(0xd323, 0x3586)?;
+        c.run(0x3586, 3)?;
+        c.set_word(0x1bea, 0);
+        c.set_word(0x1bf8, 0);
+        return super::screens::panel_buttons(c.m, 0x2ffb);
+    }
+    let k = c.byte(0x4774);
+    let go = k == 0 && st < 0x64;
+    c.run(0x3551, 5 + if k != 0 { 3 } else if !go { 5 } else { 6 })?;
+    count(c);
+    c.cmp(B, st as u16, 4);
+    c.cmp(B, k as u16, 0);
+    if k == 0 {
+        c.cmp(B, st as u16, 0x64);
+    }
+    if !go {
+        return c.ret();
+    }
+    let ax = c.word(0x47c4);
+    c.set_reg(AX, ax);
+    c.call(0x93df, 0x35a9)?;
+    c.run(0x35a9, 1)?;
+    c.call(0xd280, 0x35ac)?;
+    c.run(0x35ac, 1)?;
+    c.ret()
+}
+
+/// `loc_02b2a`: the clock in the room view (nothing on [46D9h], [4774h]
+/// or a map mode; the list 1F0Eh current, [0FBh] not negative): AX the
+/// time [0CE7Ah]. Past the hour 14h ([2Ah]) with events ([1190h]) and
+/// 32h since [0DC5Ah]: an event to tell (`loc_02ad8`, CF) starts its
+/// scene (`loc_03542`, stage 0); else by day the light dims (28h from
+/// 96h, 26h from 15Eh) and from 1C2h (or at night) the next event is
+/// shown. At 14h exactly, outside a place and with [10h] 0, every 3E8h
+/// the time moves on 3B6h (`loc_01071`, `loc_0b17a`) and the clock steps
+/// again until [0EAh] is FFh. An event ([1191h]): its kind in [0EAh]
+/// ([0EBh] for 1), its phrase below 10h (0Eh needs a speaker), the
+/// speaker [1193h] placed (`loc_0331e`, `loc_02e98`; from phrase 0Eh
+/// with a figure `loc_06906`), the talk (`loc_02c92`, `loc_09ef1`), the
+/// list shifted, and the view reset before `loc_0c412`.
+pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2b2a)?;
+    let mut c = Ctx::new(m);
+    let (a, b, d) = (c.byte(0x46d9), c.byte(0x4774), c.byte(0x11c9));
+    if a | b | d != 0 {
+        c.run(0x2b2a, 5)?;
+        flags_2b2a(&mut c, a, b, d);
+        return c.ret();
+    }
+    c.run(0x2b2a, 5)?;
+    flags_2b2a(&mut c, a, b, d);
+    c.call(0xd41b, 0x2b3a)?;
+    let bp = c.reg(BP);
+    if bp != 0x1f0e {
+        c.run(0x2b3a, 3)?;
+        c.cmp(W, bp, 0x1f0e);
+        return c.ret();
+    }
+    let fb = c.byte(0xfb);
+    if fb & 0x80 != 0 {
+        c.run(0x2b3a, 5)?;
+        c.cmp(W, bp, 0x1f0e);
+        c.cmp(B, fb as u16, 0);
+        return c.ret();
+    }
+    let t = c.word(0xce7a);
+    let h = c.byte(0x2a);
+    let pre = |c: &mut Ctx| {
+        c.cmp(W, bp, 0x1f0e);
+        c.cmp(B, fb as u16, 0);
+        c.set_reg(AX, t);
+        c.cmp(B, h as u16, 0x14);
+    };
+    if h < 0x14 {
+        c.run(0x2b3a, 8)?;
+        pre(&mut c);
+        return c.ret();
+    }
+    let last = c.word(0xdc5a);
+    if h == 0x14 {
+        let w10 = c.word(0x10);
+        let b8 = c.byte(8);
+        let dt = t.wrapping_sub(last);
+        let n = if w10 != 0 { 2 } else if b8 != 0xff { 4 } else if dt < 0x3e8 { 7 } else { 9 };
+        c.run(0x2b3a, 8 + n + (n < 9) as u32)?;
+        pre(&mut c);
+        c.cmp(W, w10, 0);
+        if w10 == 0 {
+            c.cmp(B, b8 as u16, 0xff);
+            if b8 == 0xff {
+                c.sub(W, t, last);
+                c.set_reg(AX, dt);
+                c.cmp(W, dt, 0x3e8);
+            }
+        }
+        if n < 9 {
+            return c.ret();
+        }
+        let v = c.add(W, last, 0x3b6);
+        c.set_word(0xdc5a, v);
+        c.call(0x1071, 0x2bc1)?;
+        c.run(0x2bc1, 1)?;
+        c.call(0xb17a, 0x2bc4)?;
+        loop {
+            c.run(0x2bc4, 1)?;
+            c.call(0x2b2a, 0x2bc7)?;
+            let e = c.byte(0xea);
+            c.run(0x2bc7, 2 + (e == 0xff) as u32)?;
+            c.cmp(B, e as u16, 0xff);
+            if e == 0xff {
+                return c.ret();
+            }
+        }
+    }
+    let ev = c.byte(0x1190);
+    if ev == 0 {
+        c.run(0x2b3a, 11)?;
+        pre(&mut c);
+        c.cmp(B, 0, 0);
+        return c.ret();
+    }
+    let dt = t.wrapping_sub(last);
+    if dt < 0x32 {
+        c.run(0x2b3a, 14)?;
+        pre(&mut c);
+        c.cmp(B, ev as u16, 0);
+        c.sub(W, t, last);
+        c.set_reg(AX, dt);
+        c.cmp(W, dt, 0x32);
+        return c.ret();
+    }
+    c.run(0x2b3a, 14)?;
+    pre(&mut c);
+    c.cmp(B, ev as u16, 0);
+    c.sub(W, t, last);
+    c.set_reg(AX, dt);
+    c.cmp(W, dt, 0x32);
+    c.call(0x2ad8, 0x2b66)?;
+    if c.flag(CF) {
+        c.run(0x2b66, 3)?;
+        c.set_byte(0x23, 0);
+        return scene_record(c.m, 0x3542);
+    }
+    let night = c.byte(0x2b);
+    let ax = c.reg(AX);
+    if night == 0 {
+        // The dimming steps: 28h from 96h, 26h from 15Eh, both below
+        // the next.
+        let (n, bl) = if ax < 0x96 {
+            (5, Some(0x28u8))
+        } else if ax < 0xfa {
+            (8, None)
+        } else if ax < 0x15e {
+            (10, Some(0x26))
+        } else if ax >= 0x1c2 {
+            (12, None)
+        } else {
+            (13, None)
+        };
+        let ret_here = n == 8 || n == 13;
+        c.run(0x2b66, 1 + n)?;
+        c.cmp(B, 0, 0);
+        c.set_reg8(r8::BL, 0x28);
+        c.cmp(W, ax, 0x96);
+        if ax >= 0x96 {
+            c.cmp(W, ax, 0xfa);
+            if ax >= 0xfa {
+                c.cmp(W, ax, 0x15e);
+                c.set_reg8(r8::BL, 0x26);
+                if ax >= 0x15e {
+                    c.cmp(W, ax, 0x1c2);
+                }
+            }
+        }
+        if ret_here {
+            return c.ret();
+        }
+        if let Some(bl) = bl {
+            c.run(0x2b90, 2)?;
+            let bx = (c.reg(BX) & 0xff00) | bl as u16;
+            c.push(bx);
+            c.call(0xdbb2, 0x2b94)?;
+            c.run(0x2b94, 1)?;
+            c.call(0xc49a, 0x2b97)?;
+            c.run(0x2b97, 3)?;
+            let v = c.pop();
+            c.set_reg(AX, v);
+            c.set_reg(BP, 0x0f66);
+            c.call(0xc108, 0x2b9e)?;
+            c.run(0x2b9e, 1)?;
+            return super::mouse::draw_mouse(c.m, 0xdbec);
+        }
+    } else {
+        c.run(0x2b66, 3)?;
+        c.cmp(B, night as u16, 0);
+    }
+    next_event_2bd2(&mut c)
+}
+
+fn flags_2b2a(c: &mut Ctx, a: u8, b: u8, d: u8) {
+    c.set_reg8(r8::AL, a);
+    let x = c.or(B, a as u16, b as u16);
+    let x = c.or(B, x, d as u16);
+    c.set_reg8(r8::AL, x as u8);
+}
+
+/// `loc_02bd2`: the next event ([1191h]) shown; see [`clock_step`].
+fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x2bd2, 1)?;
+    c.call(0xdbb2, 0x2bd5)?;
+    c.run(0x2bd5, 1)?;
+    c.call(0xad5e, 0x2bd8)?;
+    let di = c.word(0x1193);
+    if di == 0 {
+        c.run(0x2bd8, 3)?;
+        c.set_reg(DI, 0);
+        c.or(W, 0, 0);
+    } else {
+        let a = di.wrapping_sub(0x100);
+        let far = a >= 0x7aa;
+        c.run(0x2bd8, 7 + if far { 2 } else { 1 })?;
+        c.set_reg(DI, di);
+        c.or(W, di, di);
+        c.set_reg(AX, di);
+        c.sub(W, di, 0x100);
+        c.set_reg(AX, a);
+        c.cmp(W, a, 0x7aa);
+        if far {
+            c.set_byte(0x1193, 0);
+        } else {
+            c.call(0x331e, 0x2bf4)?;
+        }
+    }
+    let ev = c.word(0x1191);
+    let (al, ah) = (ev as u8, (ev >> 8) as u8);
+    let di = c.word(0x1193);
+    let skip = ah >= 0x10 || (ah == 0x0e && di == 0);
+    let n = 4 + (al == 1) as u32 + 5 + if ah >= 0x10 { 0 } else if ah != 0x0e { 2 } else { 4 };
+    c.run(0x2bf4, n + if skip { 1 } else if di != 0 { 4 } else { 3 })?;
+    c.set_reg(AX, ev);
+    c.set_byte(0xea, al);
+    c.cmp(B, al as u16, 1);
+    if al == 1 {
+        c.set_byte(0xeb, al);
+    }
+    c.set_reg(AX, ev & 0xff00 | ah as u16);
+    c.xor(B, ah as u16, ah as u16);
+    let ax = ah as u16;
+    c.set_reg(AX, ax);
+    c.set_reg(DI, di);
+    c.cmp(W, ax, 0x10);
+    if ah < 0x10 {
+        c.cmp(B, ax, 0x0e);
+        if ah == 0x0e {
+            c.or(W, di, di);
+        }
+    }
+    if skip {
+        return shift_list_1191(c.m, 0x2a34);
+    }
+    c.set_word(0x47c4, ax);
+    c.or(W, di, di);
+    if di != 0 {
+        c.call(0x331e, 0x2c20)?;
+        c.run(0x2c20, 1)?;
+        c.call(0x2e98, 0x2c23)?;
+        let p = c.word(0x47c4);
+        if p < 0x0e {
+            c.run(0x2c23, 2)?;
+            c.cmp(W, p, 0x0e);
+        } else {
+            let k = c.byte(0xea);
+            let di = c.reg(DI);
+            let f = c.byte(di.wrapping_add(9));
+            let call = k == 0x0e || f != 0;
+            c.run(0x2c23, 5 + if k == 0x0e { 0 } else { 3 } + call as u32)?;
+            c.cmp(W, p, 0x0e);
+            c.set_reg8(r8::AL, 3);
+            c.cmp(B, k as u16, 0x0e);
+            if k != 0x0e {
+                c.set_reg8(r8::AL, f);
+                c.or(B, f as u16, f as u16);
+            }
+            if call {
+                c.call(0x6906, 0x2c3d)?;
+                c.run(0x2c3d, 2)?;
+                c.set_word(0x47c4, 0x0e);
+                let si = c.reg(SI);
+                c.set_word(0x4756, si);
+            }
+        }
+    }
+    c.run(0x2c47, 1)?;
+    c.call(0x2c92, 0x2c4a)?;
+    c.run(0x2c4a, 2)?;
+    c.set_reg8(r8::AL, 1);
+    c.call(0x9ef1, 0x2c4f)?;
+    c.run(0x2c4f, 1)?;
+    c.call(0x2a34, 0x2c52)?;
+    c.run(0x2c52, 4)?;
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.set_byte(0x1f0f, 0);
+    c.set_word(0x1f10, 0);
+    c.call(0xd397, 0x2c5d)?;
+    c.run(0x2c5d, 1)?;
+    c.call(0xb2b9, 0x2c60)?;
+    c.run(0x2c60, 2)?;
+    c.set_reg(AX, 0x0bb8);
+    c.call(0xddb0, 0x2c66)?;
+    c.run(0x2c66, 1)?;
+    c.call(0xb2b3, 0x2c69)?;
+    c.run(0x2c69, 2)?;
+    c.set_reg(SI, 0x2cc7);
+    c.call(0xda5f, 0x2c6f)?;
+    c.run(0x2c6f, 1)?;
+    c.call(0x98e6, 0x2c72)?;
+    c.run(0x2c72, 8)?;
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.set_word(0x479e, 0);
+    c.set_word(0x4540, 0);
+    c.set_byte(0xea, 0xff);
+    c.set_byte(0xe8, 0x0a);
+    c.set_word(0xdc30, 0);
+    c.set_reg8(r8::AL, 6);
+    c.call(0x189a, 0x2c8f)?;
+    c.run(0x2c8f, 1)?;
+    super::gfx::copy_active_framebuffer_to_framebuffer_2(c.m, 0xc412)
+}
