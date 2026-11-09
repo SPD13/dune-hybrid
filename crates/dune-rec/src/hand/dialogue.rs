@@ -3348,7 +3348,7 @@ pub fn next_dialogue_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `sub_9468` from 9472h (see [`next_dialogue_line`]).
-fn next_line_from_9472(c: &mut Ctx) -> Result<(), Bail> {
+pub(super) fn next_line_from_9472(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x9472, 1)?;
     c.call(0x9f40, 0x9475)?;
     let busy = c.word(0x47b6);
@@ -4070,4 +4070,200 @@ pub fn speaker_list_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x911d, 2)?;
     c.set_reg(BX, 0x97cf);
     super::cursor::install_ui_list_d338(c.m, 0xd338)
+}
+
+/// `loc_09215`: a click in the dialogue: in the action list 1F0Eh (room
+/// mode) on a speaker (`loc_09285`, CF; CL its record) its record's
+/// handler (+4 of the record FD8h + 10h * CL), from 0Fh the phrase
+/// CL - 0Fh (`loc_09381`); 2Fh goes on at `loc_042e9` (not ported:
+/// bails). Off the speakers in the first room of a place (not a
+/// palace's, by day) below y 98h the move up (`ui_click_room_up`). In the
+/// speaker list 1F7Eh (`loc_092c9`): the current phrase [47C4h] again
+/// goes to the next line (`sub_945b`); another the panel reset and its
+/// handler.
+pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9215)?;
+    let mut c = Ctx::new(m);
+    c.run(0x9215, 1)?;
+    c.call(0xd41b, 0x9218)?;
+    let bp = c.reg(BP);
+    if bp == 0x1f0e {
+        let mode = c.byte(0x11c9);
+        c.run(0x9218, 5)?;
+        c.cmp(W, bp, 0x1f0e);
+        c.cmp(B, mode as u16, 0);
+        if mode != 0 {
+            return c.ret();
+        }
+        c.call(0x9285, 0x9228)?;
+        if !c.flag(pc::cpu::CF) {
+            let b = c.byte(0x0b);
+            let bx = c.reg(BX);
+            let b8 = c.byte(8);
+            let night = c.byte(0x2b);
+            let n = if b != 1 {
+                4
+            } else if bx >= 0x98 {
+                6
+            } else if b8 == 0x21 {
+                8
+            } else {
+                10
+            };
+            c.run(0x9228, n)?;
+            c.cmp(B, b as u16, 1);
+            if b == 1 {
+                c.cmp(W, bx, 0x98);
+                if bx < 0x98 {
+                    c.cmp(B, b8 as u16, 0x21);
+                    if b8 != 0x21 {
+                        c.cmp(B, night as u16, 0);
+                        if night == 0 {
+                            return super::story::room_move(c.m, 0x3f15);
+                        }
+                    }
+                }
+            }
+            return c.ret();
+        }
+        let cl = c.reg8(r8::CL);
+        if cl == 0x2f {
+            c.m.cpu.ip = 0x9228;
+            return Err(Bail);
+        }
+        if cl < 0x0f {
+            c.run(0x9228, 5)?;
+            c.cmp(B, cl as u16, 0x2f);
+            c.cmp(B, cl as u16, 0x0f);
+            return record_handler_9234(&mut c);
+        }
+        c.run(0x9228, 8)?;
+        c.cmp(B, cl as u16, 0x2f);
+        c.cmp(B, cl as u16, 0x0f);
+        let v = c.sub(B, cl as u16, 0x0f) as u8;
+        c.set_reg8(r8::CL, v);
+        c.set_reg8(r8::AL, v);
+        return phrase_9381(&mut c);
+    }
+    if bp != 0x1f7e {
+        c.run(0x9218, 5)?;
+        c.cmp(W, bp, 0x1f0e);
+        c.cmp(W, bp, 0x1f7e);
+        return c.ret();
+    }
+    c.run(0x9218, 5)?;
+    c.cmp(W, bp, 0x1f0e);
+    c.cmp(W, bp, 0x1f7e);
+    c.call(0x92c9, 0x9251)?;
+    if !c.flag(pc::cpu::CF) {
+        c.run(0x9251, 2)?;
+        return c.ret();
+    }
+    let cx = c.reg(CX);
+    let p = c.word(0x47c4);
+    if cx == p {
+        c.run(0x9251, 4)?;
+        c.cmp(W, cx, p);
+        return dialogue_line(c.m, 0x945b);
+    }
+    c.run(0x9251, 5)?;
+    c.cmp(W, cx, p);
+    c.push(cx);
+    c.call(0xd2bd, 0x9260)?;
+    c.run(0x9260, 2)?;
+    let cx = c.pop();
+    c.set_reg(CX, cx);
+    record_handler_9234(&mut c)
+}
+
+/// `loc_09234`: the handler of the record CL (+4 of FD8h + 10h * CL).
+fn record_handler_9234(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x9234, 5)?;
+    let cl = c.reg8(r8::CL);
+    c.set_reg8(r8::AL, 0x10);
+    c.mul8(cl);
+    let ax = c.reg(AX);
+    let si = c.add(W, ax, 0x0fd8);
+    c.set_reg(AX, si);
+    c.set_reg(SI, si);
+    let to = c.word(si.wrapping_add(4));
+    c.jump(to)
+}
+
+/// `loc_09381`: the phrase AL (0 from 9; 8 is the one before [476Bh],
+/// 0 when none) of the table 4758h: [476Ch] noted, its record's phase
+/// (`loc_01ebe`) and the troop described (`loc_031f6`), then the
+/// phrase 0Fh said (`loc_093aa`).
+fn phrase_9381(c: &mut Ctx) -> Result<(), Bail> {
+    let al = c.reg8(r8::AL);
+    let a1 = if al >= 9 { 0 } else { al };
+    let k = c.byte(0x476b);
+    let v = k.wrapping_sub(1);
+    let a2 = if a1 != 8 { a1 } else if v & 0x80 != 0 { 0 } else { v };
+    let n = 2 + (al >= 9) as u32 + 2 + if a1 == 8 { 3 + (v & 0x80 != 0) as u32 } else { 0 } + 7;
+    c.run(0x9381, n)?;
+    c.cmp(B, al as u16, 9);
+    if al >= 9 {
+        c.xor(W, 0, 0);
+        c.set_reg(AX, 0);
+    }
+    c.cmp(B, a1 as u16, 8);
+    if a1 == 8 {
+        c.set_reg8(r8::AL, k);
+        c.dec(B, k as u16);
+        c.set_reg8(r8::AL, v);
+        if v & 0x80 != 0 {
+            c.xor(W, 0, 0);
+            c.set_reg(AX, 0);
+        }
+    }
+    c.set_byte(0x476c, a2);
+    c.xor(B, 0, 0);
+    let ax = a2 as u16;
+    let ax2 = c.add(W, ax, ax);
+    c.set_reg(AX, ax2);
+    let si = c.add(W, 0x4758, ax2);
+    let si = c.word(si);
+    c.set_reg(SI, si);
+    c.call(0x1ebe, 0x93a5)?;
+    c.run(0x93a5, 1)?;
+    c.call(0x31f6, 0x93a8)?;
+    c.run(0x93a8, 1)?;
+    c.set_reg8(r8::AL, 0x0f);
+    phrase_93aa(c)
+}
+
+/// `loc_093aa`: the phrase AL said: [47E1h] 0, [47C4h] the phrase, the
+/// speaker's lips and head (`setup_lip_sync_data_from_sprite_sheet`,
+/// `loc_03af9`, `..._from_current`, `loc_09908`), the text [47C8h]
+/// (`loc_09bac`, [4540h] 0), the frame (`loc_01834`, `loc_0c0f4`,
+/// `loc_0c4dd`), the phrase's line (`loc_093df`); then the next line.
+fn phrase_93aa(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x93aa, 5)?;
+    c.xor(B, 0, 0);
+    let ax = c.reg8(r8::AL) as u16;
+    c.set_reg(AX, ax);
+    c.set_word(0x47e1, 0);
+    c.push(ax);
+    c.set_word(0x47c4, ax);
+    c.call(0x91a0, 0x93b9)?;
+    for (at, to) in [(0x93b9u16, 0x3af9u16), (0x93bc, 0x9197), (0x93bf, 0x9908)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    c.run(0x93c2, 3)?;
+    let si = c.word(0x47c8);
+    c.set_reg(SI, si);
+    c.set_word(0x4540, 0);
+    c.call(0x9bac, 0x93cf)?;
+    for (at, to) in [(0x93cfu16, 0x1834u16), (0x93d2, 0xc0f4), (0x93d5, 0xc4dd)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    c.run(0x93d8, 2)?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.call(0x93df, 0x93dc)?;
+    c.run(0x93dc, 1)?;
+    next_line_from_9472(c)
 }

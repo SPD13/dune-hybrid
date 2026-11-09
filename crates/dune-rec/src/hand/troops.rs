@@ -5172,3 +5172,333 @@ fn skills_79bc(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x79db, 1)?;
     super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
 }
+
+/// `loc_08308`: the troop SI moves: 4 steps (8 when fast, bit 40h of
+/// +19h) of `loc_08604` added to its position (+6, +8); a still step
+/// means it arrived (`loc_08357`). Then its sprite: on the map
+/// (`loc_0686e`, no CF) shown (`loc_06917`; updated at `loc_0c653`, or
+/// placed: `loc_06827`, `loc_0c5cf`, `particles_update_dirty_rect`);
+/// off it removed when shown (`particles_remove_particle`).
+pub fn troop_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8308)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let f = c.byte(si.wrapping_add(0x19));
+    let fast = f & 0x40 != 0;
+    c.run(0x8308, 3 + fast as u32)?;
+    c.set_reg(CX, 4);
+    c.test(B, f as u16, 0x40);
+    if fast {
+        c.set_reg8(r8::CL, 8);
+    }
+    loop {
+        c.run(0x8313, 2)?;
+        let cx = c.reg(CX);
+        c.push(cx);
+        c.call(0x8604, 0x8317)?;
+        let (bx, dx) = (c.reg(BX), c.reg(DX));
+        let sp = c.reg(SP);
+        let cx = c.word_in(SS, sp);
+        if bx | dx == 0 {
+            c.run(0x8317, 4)?;
+            c.pop();
+            c.set_reg(CX, cx);
+            c.set_reg(AX, bx);
+            c.or(W, bx, dx);
+            c.set_reg(AX, 0);
+            return troop_arrived_at(&mut c);
+        }
+        c.run(0x8317, 7)?;
+        c.pop();
+        c.set_reg(CX, cx);
+        c.set_reg(AX, bx | dx);
+        c.or(W, bx, dx);
+        let si = c.reg(SI);
+        let v = c.word(si.wrapping_add(6));
+        let v = c.add(W, v, dx);
+        c.set_word(si.wrapping_add(6), v);
+        let v = c.word(si.wrapping_add(8));
+        let v = c.add(W, v, bx);
+        c.set_word(si.wrapping_add(8), v);
+        let cx = cx.wrapping_sub(1);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    c.run(0x8326, 1)?;
+    c.call(0x686e, 0x8329)?;
+    if c.flag(CF) {
+        c.run(0x8329, 2)?;
+        c.call(0x6917, 0x8336)?;
+        if c.flag(ZF) {
+            c.run(0x8336, 2)?;
+            return super::saves::particles_remove_particle(c.m, 0xc58a);
+        }
+        c.run(0x8336, 2)?;
+        return c.ret();
+    }
+    c.run(0x8329, 2)?;
+    c.call(0x6917, 0x832e)?;
+    if c.flag(ZF) {
+        c.run(0x832e, 2)?;
+        return c.jump(0xc653);
+    }
+    c.run(0x832e, 2)?;
+    c.call(0x6827, 0x833f)?;
+    c.run(0x833f, 1)?;
+    c.call(0xc5cf, 0x8342)?;
+    c.run(0x8342, 2)?;
+    let di = c.reg(DI);
+    c.set_reg(SI, di);
+    c.jump(0xc6ad)
+}
+
+/// `loc_08357`: the troop SI arrived at its place (+4): the followed
+/// troop's ([11D3h], troop 8E0h) note shifted (`loc_08347`); its
+/// position the place's; then by its order (+3 low nibble): where the
+/// place is not secret (bit 2 of +0Ah) or found (`loc_05d36`, CF) the
+/// troop updated (`loc_083bc`); spice harvesting (5) shows a newly
+/// found place (bit 7, `note_shown_location`), others meeting the
+/// place's own troop (+9) go on at `loc_07429` (not ported: the
+/// interpreter); otherwise the troops told (`loc_0661d`, BP 8403h).
+/// Hidden: orders 5 / 6 drop their figure (`loc_06ac5`); a move (3)
+/// goes on to the next place (`loc_0841f`), others update the troop.
+pub fn troop_arrived(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8357)?;
+    let mut c = Ctx::new(m);
+    troop_arrived_at(&mut c)
+}
+
+fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
+    let si = c.reg(SI);
+    let p = c.word(si.wrapping_add(4));
+    if si != 0x08e0 {
+        c.run(0x8357, 2)?;
+        c.cmp(W, si, 0x08e0);
+    } else {
+        let f = c.word(0x11d3);
+        c.run(0x8357, 5 + (f == p) as u32)?;
+        c.cmp(W, si, 0x08e0);
+        c.set_reg(AX, f);
+        c.cmp(W, f, p);
+        if f == p {
+            c.call(0x8347, 0x8368)?;
+        }
+    }
+    let si = c.reg(SI);
+    let o = c.byte(si.wrapping_add(3));
+    let di = c.word(si.wrapping_add(4));
+    let dx = c.word(di.wrapping_add(2));
+    let bx = c.word(di.wrapping_add(4));
+    let fl = c.byte(di.wrapping_add(0x0a));
+    let shown = fl & 2 != 0;
+    c.run(0x8368, 9 + (!shown) as u32)?;
+    c.set_reg8(r8::AL, o);
+    let al = c.and(B, o as u16, 0x0f) as u8;
+    c.set_reg8(r8::AL, al);
+    c.set_reg(DI, di);
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    c.set_word(si.wrapping_add(6), dx);
+    c.set_word(si.wrapping_add(8), bx);
+    c.test(B, fl as u16, 2);
+    let mut found = true;
+    if !shown {
+        c.call(0x5d36, 0x8385)?;
+        found = !c.flag(CF);
+        c.run(0x8385, 1)?;
+    }
+    if found {
+        c.run(0x8387, 2)?;
+        let ax = c.reg(AX);
+        c.push(ax);
+        c.call(0x83bc, 0x838b)?;
+        let sp = c.reg(SP);
+        let ax = c.word_in(SS, sp);
+        let al = ax as u8;
+        let (si, di) = (c.reg(SI), c.reg(DI));
+        if al == 5 {
+            let f = c.byte(di.wrapping_add(0x0a));
+            c.run(0x838b, 3 + 2 + if f & 0x80 != 0 { 2 } else { 0 })?;
+            c.pop();
+            c.set_reg(AX, ax);
+            c.cmp(B, 5, 5);
+            c.test(B, f as u16, 0x80);
+            if f & 0x80 != 0 {
+                let v = c.and(B, f as u16, 0x7f);
+                c.set_byte(di.wrapping_add(0x0a), v as u8);
+                return super::map::note_shown_location(c.m, 0x5d44);
+            }
+            return tell_troops_83fd(c);
+        }
+        let own = c.byte(si);
+        let place = c.byte(di.wrapping_add(9));
+        c.run(0x838b, 3 + 3 + if own == place { 1 } else { 0 })?;
+        c.pop();
+        c.set_reg(AX, ax);
+        c.cmp(B, al as u16, 5);
+        c.set_reg8(r8::AL, own);
+        c.cmp(B, own as u16, place as u16);
+        if own == place {
+            return c.jump(0x7429);
+        }
+        return tell_troops_83fd(c);
+    }
+    let al = c.reg8(r8::AL);
+    let drop = (5..=6).contains(&al);
+    let a = if drop { 0 } else { al } & 3;
+    c.run(0x83a7, 2 + if al < 5 { 0 } else { 2 } + if drop { 2 } else { 0 })?;
+    c.cmp(B, al as u16, 5);
+    if al >= 5 {
+        c.cmp(B, al as u16, 6);
+    }
+    if drop {
+        let di = c.reg(DI);
+        c.push(di);
+        c.call(0x6ac5, 0x83b3)?;
+        c.run(0x83b3, 2)?;
+        let di = c.pop();
+        c.set_reg(DI, di);
+        c.xor(B, 0, 0);
+        c.set_reg8(r8::AL, 0);
+    }
+    c.run(0x83b6, 3)?;
+    let al = c.reg8(r8::AL);
+    c.and(B, al as u16, 3);
+    c.set_reg8(r8::AL, a);
+    c.cmp(B, a as u16, 3);
+    if a == 3 {
+        return next_place_841f(c);
+    }
+    update_troop_83bc(c.m, 0x83bc)
+}
+
+/// `loc_083fd`: the troops told (`loc_0661d` with BP 8403h).
+fn tell_troops_83fd(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x83fd, 2)?;
+    c.set_reg(BP, 0x8403);
+    for_each_troop_below_80(c.m, 0x661d)
+}
+
+/// `loc_0841f`: the troop SI goes on to its next place (+0Ch): the old
+/// one left (`loc_07f27`; a carried item, +0Eh, given back to it: its
+/// count +14h + item down, the item's flag into +19h); then shown on
+/// the map (`loc_06917`): the old sprite removed and, unless hidden
+/// (bit 6 of +3, or the place unseen: `loc_05ed0`), the troop's figure
+/// (`loc_06757`) placed (`particles_update_dirty_rect`). The same place
+/// clears the order's move bits and updates the troop.
+fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
+    let si = c.reg(SI);
+    let di = c.word(si.wrapping_add(4));
+    let nx = c.word(si.wrapping_add(0x0c));
+    if di == nx {
+        c.run(0x841f, 5)?;
+        c.set_reg(DI, di);
+        c.cmp(W, di, nx);
+        let v = c.byte(si.wrapping_add(3));
+        let v = c.and(B, v as u16, 0xfc);
+        c.set_byte(si.wrapping_add(3), v as u8);
+        return update_troop_83bc(c.m, 0x83bc);
+    }
+    c.run(0x841f, 5)?;
+    c.set_reg(DI, di);
+    c.cmp(W, di, nx);
+    c.push(si);
+    c.call(0x7f27, 0x842b)?;
+    let sp = c.reg(SP);
+    let si = c.word_in(SS, sp);
+    let cx = c.word(si.wrapping_add(0x0e));
+    let bx = cx & 0xff;
+    let k = c.byte(bx.wrapping_add(0x46fe));
+    c.run(0x842b, 6 + if k != 0 { 3 } else { 0 } + 4)?;
+    c.pop();
+    c.set_reg(SI, si);
+    c.set_reg(BX, cx);
+    c.set_reg(CX, cx);
+    c.xor(B, cx >> 8, cx >> 8);
+    c.set_reg(BX, bx);
+    c.cmp(B, k as u16, 0);
+    let mut cx = cx;
+    if k != 0 {
+        let di = c.reg(DI);
+        let at = bx.wrapping_add(di).wrapping_add(0x14);
+        let v = c.byte(at);
+        let v = c.dec(B, v as u16);
+        c.set_byte(at, v as u8);
+        let f = c.byte(si.wrapping_add(0x19));
+        let f = c.or(B, f as u16, cx >> 8);
+        c.set_byte(si.wrapping_add(0x19), f as u8);
+        c.xor(B, cx >> 8, cx >> 8);
+        cx &= 0xff;
+        c.set_reg(CX, cx);
+    }
+    c.set_word(si.wrapping_add(0x0e), cx);
+    let nx = c.word(si.wrapping_add(0x0c));
+    c.set_reg(DI, nx);
+    c.set_word(si.wrapping_add(4), nx);
+    c.run(0x8461, 1)?;
+    c.call(0x6917, 0x8464)?;
+    if !c.flag(ZF) {
+        c.run(0x8464, 2)?;
+        return c.ret();
+    }
+    c.run(0x8464, 3)?;
+    let si = c.reg(SI);
+    c.push(si);
+    c.call(0xc58a, 0x846b)?;
+    let sp = c.reg(SP);
+    let si = c.word_in(SS, sp);
+    let o = c.byte(si.wrapping_add(3));
+    if o & 0x40 != 0 {
+        c.run(0x846b, 4)?;
+        c.pop();
+        c.set_reg(SI, si);
+        c.push(si);
+        c.test(B, o as u16, 0x40);
+    } else {
+        c.run(0x846b, 6)?;
+        c.pop();
+        c.set_reg(SI, si);
+        c.push(si);
+        c.test(B, o as u16, 0x40);
+        let di = c.word(si.wrapping_add(4));
+        c.set_reg(DI, di);
+        c.call(0x5ed0, 0x8479)?;
+        if !c.flag(ZF) {
+            c.run(0x8479, 3)?;
+            return figure_gone_848b(c);
+        }
+        c.run(0x8479, 1)?;
+    }
+    c.run(0x847b, 2)?;
+    let si = c.reg(SI);
+    let al = c.byte(si);
+    c.set_reg8(r8::AL, al);
+    c.call(0x6757, 0x8480)?;
+    if c.flag(CF) {
+        c.run(0x8480, 3)?;
+        return figure_gone_848b(c);
+    }
+    c.run(0x8480, 4)?;
+    let di = c.reg(DI);
+    c.set_reg(SI, di);
+    c.push(di);
+    c.call(0xc6ad, 0x8488)?;
+    c.run(0x8488, 3)?;
+    let di = c.pop();
+    c.set_reg(DI, di);
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.ret()
+}
+
+/// `loc_0848b` (counted by the caller with its jump): DI 0, SI back.
+fn figure_gone_848b(c: &mut Ctx) -> Result<(), Bail> {
+    c.xor(W, 0, 0);
+    c.set_reg(DI, 0);
+    c.run(0x8489, 2)?;
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.ret()
+}

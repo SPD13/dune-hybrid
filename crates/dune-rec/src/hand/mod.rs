@@ -1051,6 +1051,9 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x2b2a, story::clock_step, "loc_02b2a"),
     (0x4f09, map::flight_step, "sub_4f09"),
     (0x4f0c, map::flight_step, "loc_04f0c"),
+    (0x9215, dialogue::dialogue_click, "loc_09215"),
+    (0x8308, troops::troop_move, "loc_08308"),
+    (0x8357, troops::troop_arrived, "loc_08357"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),
@@ -1356,6 +1359,17 @@ impl Ctx<'_> {
     /// tables). It counts itself.
     fn interp(&mut self, ip: u16, next: u16) -> Result<(), Bail> {
         self.m.rec_interp(ip, next)
+    }
+
+    /// A computed `JMP` to `target` (counted by the caller's run): the
+    /// routine there when the table has one, else the interpreter from
+    /// there.
+    fn jump(&mut self, target: u16) -> Result<(), Bail> {
+        self.m.cpu.ip = target;
+        match self.m.rec.as_ref().and_then(|r| r.table[target as usize]) {
+            Some(f) => f(self.m, target),
+            None => Err(Bail),
+        }
     }
 
     /// `RET`.
