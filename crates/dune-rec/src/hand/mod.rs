@@ -1019,6 +1019,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x0b45, story::scene_particles_step, "sub_0b45"),
     (0x9197, dialogue::setup_lip_sync_data_from_current, "setup_lip_sync_data_from_current"),
     (0x91a0, dialogue::setup_lip_sync_data_from_sprite_sheet, "setup_lip_sync_data_from_sprite_sheet"),
+    (0x0169, globe::map2_resource_func, "map2_resource_func"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];

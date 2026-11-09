@@ -1325,3 +1325,115 @@ pub fn enter_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, 1);
     super::tasks::add_frame_task(c.m, 0xda25)
 }
+
+/// `map2_resource_func` (start-up): the map resource 3Ah's histogram of
+/// its C5F9h cell bytes (256 words at 4C60h, from 7); each location
+/// (from 100h, 1Ch apart, to an FFh) placed on the map (`map_cell_scaled`:
+/// its x, its cell +6, the cell marked 40h), its terrain +10h (the cell
+/// byte of [0DBB2h]) and the terrain's rarity +11h (its count / 16);
+/// then for each location `loc_06603` with the callback 01E0h. Bails with
+/// DF set.
+pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0169)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    c.run(start, 2)?;
+    c.set_reg(AX, 0x3a);
+    c.call(0xc13e, 0x016f)?;
+    if c.flag(pc::cpu::DF) {
+        c.m.cpu.ip = 0x016f;
+        return Err(Bail);
+    }
+    c.run(0x016f, 7)?;
+    let ds = c.sreg(DS);
+    c.set_sreg(ES, ds);
+    c.set_reg(DI, 0x4c60);
+    c.push(0x4c60);
+    c.set_reg(AX, 7);
+    c.set_reg(CX, 0x100);
+    c.rep(0xab);
+    c.run(0x017d, 3)?;
+    let d = c.pop();
+    c.set_reg(DI, d);
+    let (p, s) = (c.word(0xdbb0), c.word(0xdbb2));
+    c.set_reg(SI, p);
+    c.set_sreg(ES, s);
+    c.set_reg(CX, 0xc5f9);
+    c.run(0x0185, 5 * 0xc5f9)?;
+    for i in 0..0xc5f9u16 {
+        let v = c.lods(B, ES);
+        let bx = c.shl1(W, v, 1);
+        c.set_reg(BX, bx);
+        let a = bx.wrapping_add(d);
+        let w = c.word(a);
+        let w = c.inc(W, w);
+        c.set_word(a, w);
+        c.set_reg(CX, 0xc5f8 - i);
+    }
+    c.run(0x018f, 1)?;
+    c.set_reg(SI, 0x100);
+    let mut k = 0;
+    loop {
+        k += 1;
+        if k > 400 {
+            c.m.cpu.ip = 0x0192;
+            return Err(Bail);
+        }
+        c.run(0x0192, 3)?;
+        let si = c.reg(SI);
+        let (dx, bx) = (c.word(si.wrapping_add(2)), c.word(si.wrapping_add(4)));
+        c.set_reg(DX, dx);
+        c.set_reg(BX, bx);
+        c.call(0xb5c5, 0x019b)?;
+        let si = c.reg(SI);
+        let nx = c.byte(si.wrapping_add(0x1c));
+        c.run(0x019b, 16)?;
+        let (dx, di) = (c.reg(DX), c.reg(DI));
+        c.set_word(si.wrapping_add(2), dx);
+        c.set_word(si.wrapping_add(6), di);
+        let v = c.byte_in(ES, di);
+        let v = c.or(B, v as u16, 0x40);
+        c.m.cpu.write8(&mut c.m.hw, ES, di, v as u8);
+        let es = c.word(0xdbb2);
+        c.set_sreg(ES, es);
+        let t = c.byte_in(ES, di);
+        c.set_reg8(r8::AL, t);
+        c.set_byte(si.wrapping_add(0x10), t);
+        c.xor(W, 0, 0);
+        let bx = c.shl1(W, t as u16, 1);
+        c.set_reg(BX, bx);
+        let n = c.word(bx.wrapping_add(0x4c60));
+        c.set_reg8(r8::CL, 4);
+        let n = c.m.cpu.shift(5, W, n as u32, 4) as u16;
+        c.set_reg(AX, n);
+        c.set_byte(si.wrapping_add(0x11), n as u8);
+        let s = c.add(W, si, 0x1c);
+        c.set_reg(SI, s);
+        c.cmp(B, nx as u16, 0xff);
+        if nx == 0xff {
+            break;
+        }
+    }
+    c.run(0x01c8, 1)?;
+    c.set_reg(DI, 0x100);
+    loop {
+        c.run(0x01cb, 4)?;
+        c.set_reg(BP, 0x01e0);
+        let di = c.reg(DI);
+        let (dx, bx) = (c.word(di.wrapping_add(2)), c.word(di.wrapping_add(4)));
+        c.set_reg(DX, dx);
+        c.set_reg(BX, bx);
+        c.call(0x6603, 0x01d7)?;
+        let di = c.reg(DI);
+        let nx = c.byte(di.wrapping_add(0x1c));
+        c.run(0x01d7, if nx == 0xff { 4 } else { 3 })?;
+        let d = c.add(W, di, 0x1c);
+        c.set_reg(DI, d);
+        c.cmp(B, nx as u16, 0xff);
+        if nx == 0xff {
+            return c.ret();
+        }
+    }
+}
