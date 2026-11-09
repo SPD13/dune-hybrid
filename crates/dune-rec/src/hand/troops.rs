@@ -4843,3 +4843,332 @@ fn sprite_list_walk(c: &mut Ctx, write: bool) -> (u32, bool) {
     }
     (n, tail)
 }
+
+/// `loc_05ce4`: a click on the map's troops: the sprite list dropped,
+/// the map resource opened; with no second place picked ([0DBE2h]) and
+/// the first one none or the troop panel 18DFh: inside that panel
+/// (`point_in_rect`, CF) the panel redrawn ([`redraw_panel_18df`]); else
+/// the troop under the cursor (`particle_at`, CF): the one shown already
+/// ([46FAh]) redrawn the same way, another one drawn first
+/// (`redraw_7b36`); then its caption and panel ([`troop_caption`]).
+pub fn map_troop_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5ce4)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x5beb, 0x5ce7)?;
+    c.run(0x5ce7, 1)?;
+    c.call(0xc13b, 0x5cea)?;
+    let p2 = c.word(0xdbe2);
+    if p2 != 0 {
+        c.run(0x5cea, 3)?;
+        c.cmp(W, p2, 0);
+        return c.ret();
+    }
+    let di = c.word(0xdbe0);
+    if di != 0 && di != 0x18df {
+        c.run(0x5cea, 8)?;
+        c.cmp(W, 0, 0);
+        c.set_reg(DI, di);
+        c.or(W, di, di);
+        c.cmp(W, di, 0x18df);
+        return c.ret();
+    }
+    if di != 0 {
+        c.run(0x5cea, 8)?;
+        c.cmp(W, 0, 0);
+        c.set_reg(DI, di);
+        c.or(W, di, di);
+        c.cmp(W, di, 0x18df);
+        c.call(0xd6fe, 0x5d02)?;
+        if c.flag(CF) {
+            c.run(0x5d02, 2)?;
+            return redraw_panel_18df(c.m, 0x79de);
+        }
+        c.run(0x5d02, 2)?;
+    } else {
+        c.run(0x5cea, 6)?;
+        c.cmp(W, 0, 0);
+        c.set_reg(DI, 0);
+        c.or(W, 0, 0);
+    }
+    c.call(0x6946, 0x5d07)?;
+    if !c.flag(CF) {
+        c.run(0x5d07, 2)?;
+        return c.ret();
+    }
+    let si = c.reg(SI);
+    let t = c.word(si.wrapping_add(0x0a));
+    let cur = c.word(0x46fa);
+    if t == cur {
+        c.run(0x5d07, 5)?;
+        c.set_reg(SI, t);
+        c.cmp(W, t, cur);
+        return redraw_panel_18df(c.m, 0x79de);
+    }
+    c.run(0x5d07, 6)?;
+    c.set_reg(SI, t);
+    c.cmp(W, t, cur);
+    c.push(t);
+    c.call(0x7b36, 0x5d16)?;
+    c.run(0x5d16, 2)?;
+    let s = c.pop();
+    c.set_reg(SI, s);
+    troop_caption(c.m, 0x78bc)
+}
+
+/// `loc_078bc`: for the troop SI within reach ([`troop_map_distance`] of
+/// its location +4 below [1176h]) and shown ([`troop_particle`], ZF):
+/// on the screen, [46FAh] = SI, its caption box 18DFh (64h wide) at the
+/// location, [1955h] its id, then its panel ([`troop_panel`]).
+pub fn troop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x78bc)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    let si = c.reg(SI);
+    let di = c.word(si.wrapping_add(4));
+    c.set_reg(DI, di);
+    c.call(0x7c63, 0x78c2)?;
+    let ax = c.reg(AX);
+    let lim = c.word(0x1176);
+    if ax >= lim {
+        c.run(0x78c2, 3)?;
+        c.cmp(W, ax, lim);
+        return c.ret();
+    }
+    c.run(0x78c2, 3)?;
+    c.cmp(W, ax, lim);
+    c.call(0x6917, 0x78cb)?;
+    if !c.flag(ZF) {
+        c.run(0x78cb, 2)?;
+        return c.ret();
+    }
+    c.run(0x78cb, 2)?;
+    c.call(0xc08e, 0x78d0)?;
+    c.run(0x78d0, 7)?;
+    let si = c.reg(SI);
+    c.set_word(0x46fa, si);
+    c.push(si);
+    c.set_reg(SI, 0x18df);
+    let di = c.reg(DI);
+    let (y, x) = (c.word(di.wrapping_add(2)), c.word(di));
+    c.set_reg(BX, y);
+    c.set_reg(DX, x);
+    c.set_reg(CX, 0x64);
+    c.call(0x5f25, 0x78e3)?;
+    c.run(0x78e3, 3)?;
+    let s = c.pop();
+    c.set_reg(SI, s);
+    let id = c.byte(s);
+    c.set_reg8(r8::AL, id);
+    c.set_byte(0x1955, id);
+    troop_panel_at(&mut c)
+}
+
+/// `loc_078e9`: the troop panel 18DFh for the troop SI shown
+/// ([`troop_particle`], ZF; else [`redraw_panel_18df`]): on the screen,
+/// its description (`describe_troop`), the box filled (its bottom
+/// [11F3h] 0Ch lower), then at its corner: the title 3Ah (3Bh for a
+/// troop moving, bit 6 of [30h]), the place's name, its job (41h / 42h
+/// for the specialised ones 20h..22h, else 3Ch and the activity
+/// [2Fh] phrase from 11F7h unless in place 2, and a status 3Fh / 40h /
+/// 3Dh / 43h / 3Eh by [32h], [34h], [2Fh], [30h]), the skills heading
+/// 6Eh, the troop's bits (`spread_location_bits`) and skill bars; back
+/// to the front buffer.
+pub fn troop_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x78e9)?;
+    let mut c = Ctx::new(m);
+    troop_panel_at(&mut c)
+}
+
+fn troop_panel_at(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x78e9, 1)?;
+    c.call(0x6917, 0x78ec)?;
+    if !c.flag(ZF) {
+        c.run(0x78ec, 2)?;
+        return redraw_panel_18df(c.m, 0x79de);
+    }
+    c.run(0x78ec, 2)?;
+    c.call(0xc08e, 0x78f4)?;
+    c.run(0x78f4, 1)?;
+    c.call(0x31f6, 0x78f7)?;
+    c.run(0x78f7, 3)?;
+    let v = c.word(0x11f3);
+    let v = c.add(W, v, 0x0c);
+    c.set_word(0x11f3, v);
+    c.set_reg(SI, 0x18df);
+    c.call(0x7b1b, 0x7902)?;
+    c.run(0x7902, 1)?;
+    c.call(0xd075, 0x7905)?;
+    let f30 = c.byte(0x30);
+    c.run(0x7905, 9 + if f30 & 0x40 != 0 { 1 } else { 0 } + 1)?;
+    c.set_reg8(r8::CL, 0x9a);
+    let ch = c.byte(0x18e8);
+    c.set_reg8(r8::CH, ch);
+    let (x, y) = (c.word(0x18df), c.word(0x18e1));
+    let dx = c.add(W, x, 0x0c);
+    c.set_reg(DX, dx);
+    let bx = c.add(W, y, 4);
+    c.set_reg(BX, bx);
+    c.set_reg(AX, 0x3a);
+    c.test(B, f30 as u16, 0x40);
+    if f30 & 0x40 != 0 {
+        let a = c.inc(W, 0x3a);
+        c.set_reg(AX, a);
+    }
+    c.call(0x8865, 0x7927)?;
+    c.run(0x7927, 5)?;
+    c.set_reg8(r8::CL, 0x96);
+    let dx = c.reg(DX);
+    let dx = c.sub(W, dx, 8);
+    c.set_reg(DX, dx);
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 9);
+    c.set_reg(BX, bx);
+    let di = c.word(0x2c);
+    c.set_reg(DI, di);
+    c.call(0x62a6, 0x7936)?;
+    let al = c.byte(0x30);
+    let spec = al & 0x20 != 0;
+    // `status`: the status phrase by the flags (None: none).
+    if spec {
+        let n = if al != 0x22 { 8 } else { 10 };
+        c.run(0x7936, n)?;
+        c.set_reg8(r8::CL, 0x9a);
+        let bx = c.reg(BX);
+        let bx = c.add(W, bx, 0x0a);
+        c.set_reg(BX, bx);
+        c.set_reg8(r8::AL, al);
+        c.test(B, al as u16, 0x20);
+        c.cmp(B, al as u16, 0x22);
+        let mut ax = 0x41u16;
+        if al == 0x22 {
+            ax = c.inc(W, ax);
+        }
+        c.set_reg(AX, ax);
+        return status_79b6(c);
+    }
+    c.run(0x7936, 7)?;
+    c.set_reg8(r8::CL, 0x9a);
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 0x0a);
+    c.set_reg(BX, bx);
+    c.set_reg8(r8::AL, al);
+    c.test(B, al as u16, 0x20);
+    c.set_reg(AX, 0x3c);
+    c.call(0x8865, 0x7952)?;
+    let p = c.byte(0x30);
+    if p == 2 {
+        c.run(0x7952, 3)?;
+        let bx = c.reg(BX);
+        let bx = c.add(W, bx, 0x0f);
+        c.set_reg(BX, bx);
+        c.cmp(B, 2, 2);
+        return skills_79bc(c);
+    }
+    c.run(0x7952, 10)?;
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 0x0f);
+    c.set_reg(BX, bx);
+    c.cmp(B, p as u16, 2);
+    let a2f = c.byte(0x2f);
+    let ax = c.reg(AX) & 0xff00 | a2f as u16;
+    c.set_reg(AX, ax);
+    let a = c.shr1(B, a2f as u16, 1);
+    let a = c.and(W, ax & 0xff00 | a, 6);
+    let a = c.add(W, a, 0x11f7);
+    c.set_reg(SI, a);
+    let ph = c.word(a);
+    c.set_reg(AX, ph);
+    c.call(0xd194, 0x796e)?;
+    let f30 = c.byte(0x30);
+    let w32 = c.word(0x32);
+    let w34 = c.word(0x34);
+    let a2f = c.byte(0x2f);
+    // The status chain from 7971h: (count, phrase or None).
+    let (n, ph) = if f30 & 0x40 != 0 {
+        (3, None)
+    } else if w32 & 0x200 != 0 {
+        (6, Some(0x3f))
+    } else if w32 & 0x100 == 0 {
+        (9, Some(0x40))
+    } else if w34 & 0x30 != 0 {
+        (11, Some(0x40))
+    } else if f30 == 0 {
+        (14, Some(0x3d))
+    } else if a2f == 1 {
+        (17, Some(0x43))
+    } else if f30 == 6 {
+        (20, Some(0x3e))
+    } else {
+        (21, None)
+    };
+    c.run(0x796e, n)?;
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 0x0a);
+    c.set_reg(BX, bx);
+    c.test(B, f30 as u16, 0x40);
+    if n >= 4 {
+        c.set_reg(AX, 0x3f);
+        c.test(W, w32, 0x200);
+    }
+    if n >= 7 {
+        c.set_reg(AX, 0x40);
+        c.test(W, w32, 0x100);
+    }
+    if n >= 10 {
+        c.test(W, w34, 0x30);
+    }
+    if n >= 12 {
+        c.set_reg(AX, 0x3d);
+        c.cmp(B, f30 as u16, 0);
+    }
+    if n >= 15 {
+        c.set_reg(AX, 0x43);
+        c.cmp(B, a2f as u16, 1);
+    }
+    if n >= 18 {
+        c.set_reg(AX, 0x3e);
+        c.cmp(B, f30 as u16, 6);
+    }
+    match ph {
+        Some(_) => status_79b6(c),
+        None => skills_79bc(c),
+    }
+}
+
+/// From 79B6h: the status phrase AX, 11h lower, then the skills.
+fn status_79b6(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x79b6, 1)?;
+    c.call(0x8865, 0x79b9)?;
+    c.run(0x79b9, 1)?;
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 0x11);
+    c.set_reg(BX, bx);
+    skills_79bc(c)
+}
+
+/// From 79BCh: the skills heading 6Eh, the troop [46FAh]'s bits and its
+/// skill bars (4705h, [18E5h]); back to the front buffer.
+fn skills_79bc(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x79bc, 4)?;
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 4);
+    c.set_reg(BX, bx);
+    c.set_reg(AX, 0x6e);
+    c.set_reg8(r8::CL, 0x96);
+    c.call(0xd194, 0x79c7)?;
+    c.run(0x79c7, 3)?;
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 8);
+    c.set_reg(BX, bx);
+    let si = c.word(0x46fa);
+    c.set_reg(SI, si);
+    c.call(0x7efb, 0x79d1)?;
+    c.run(0x79d1, 3)?;
+    c.set_reg(SI, 0x4705);
+    let bp = c.word(0x18e5);
+    c.set_reg(BP, bp);
+    c.call(0x7e3d, 0x79db)?;
+    c.run(0x79db, 1)?;
+    super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
+}

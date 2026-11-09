@@ -1012,6 +1012,9 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x1dd4, story::spice_demand_day, "sub_1dd4"),
     (0x8ccd, dialogue::text_box_for, "loc_08ccd"),
     (0x6b34, map::animate_map_sprites, "sub_6b34"),
+    (0x5ce4, troops::map_troop_click, "sub_5ce4"),
+    (0x78bc, troops::troop_caption, "loc_078bc"),
+    (0x78e9, troops::troop_panel, "loc_078e9"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
