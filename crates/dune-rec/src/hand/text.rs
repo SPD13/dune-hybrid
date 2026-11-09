@@ -3,7 +3,7 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BX, CX, DS, DX, ES, SI, ZF},
+    cpu::{AX, BP, BX, CX, DI, DS, DX, ES, SI, ZF},
     rec::Bail,
 };
 
@@ -457,5 +457,95 @@ pub fn word_width(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, si);
     let b = c.pop();
     c.set_reg(BX, b);
+    c.ret()
+}
+
+/// `font_draw_glyph_func`: the glyph AL in the tall font
+/// (`font_select_tall_font`): a font glyph (`loc_0d0e3` CF) drawn by the
+/// driver (far [38D1h], 9 rows, colour [0DBE4h], its width from the table
+/// CEECh added to the x [0D82Ch]); else (AH its sprite) a sprite of
+/// resource 32h at the draw position less 13h (from 0), the x moved by
+/// AL. All registers kept.
+pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xd0ff)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xd068, 0xd102)?;
+    c.run(0xd102, 1)?;
+    c.call(0xd0e3, 0xd105)?;
+    if c.flag(pc::cpu::CF) {
+        c.run(0xd105, 19)?;
+        let saved = [AX, BX, CX, DX, SI, DI, BP].map(|r| c.reg(r));
+        for v in saved {
+            c.push(v);
+        }
+        let es = c.sreg(ES);
+        c.push(es);
+        c.xor(B, 0, 0);
+        let ax = c.reg(AX) & 0xff;
+        c.set_reg(AX, ax);
+        let s = c.shl1(W, ax, 3);
+        let s = c.add(W, s, ax);
+        let t = c.word(0x2514);
+        let s = c.add(W, s, t);
+        c.set_reg(SI, s);
+        c.set_reg(BX, 0xceec);
+        let w = c.byte(0xceecu16.wrapping_add(ax));
+        c.set_reg8(r8::AL, w);
+        c.call(0xd05f, 0xd0b5)?;
+        c.run(0xd0b5, 5)?;
+        let ax = c.reg(AX);
+        let x = c.word(0xd82c);
+        let x = c.add(W, x, ax);
+        c.set_word(0xd82c, x);
+        c.set_reg8(r8::CL, ax as u8);
+        c.set_reg8(r8::CH, 9);
+        let col = c.word(0xdbe4);
+        c.set_reg(AX, col);
+        let fb = c.word(0xdbda);
+        c.set_sreg(ES, fb);
+        c.interp(0xd0c4, 0xd0c8)?;
+        c.run(0xd0c8, 9)?;
+        let es = c.pop();
+        c.set_sreg(ES, es);
+        for r in [BP, DI, SI, DX, CX, BX, AX] {
+            let v = c.pop();
+            c.set_reg(r, v);
+        }
+        return c.ret();
+    }
+    c.run(0xd105, 2)?;
+    c.call(0xe270, 0xd10a)?;
+    c.run(0xd10a, 4)?;
+    let es = c.sreg(ES);
+    c.push(es);
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.set_reg(AX, 0x32);
+    c.call(0xc13e, 0xd112)?;
+    c.run(0xd112, 1)?;
+    c.call(0xd05f, 0xd115)?;
+    let bx = c.reg(BX);
+    c.run(0xd115, 7 + if bx < 0x13 { 1 } else { 0 } + 1)?;
+    let ax = c.pop();
+    c.set_reg8(r8::CL, (ax >> 8) as u8);
+    c.xor(B, 0, 0);
+    let a = ax & 0xff;
+    let x = c.word(0xd82c);
+    let x = c.add(W, x, a);
+    c.set_word(0xd82c, x);
+    c.set_reg(AX, ax >> 8);
+    let b = c.sub(W, bx, 0x13);
+    c.set_reg(BX, b);
+    if bx < 0x13 {
+        c.xor(W, 0, 0);
+        c.set_reg(BX, 0);
+    }
+    c.call(0xc22f, 0xd12a)?;
+    c.run(0xd12a, 2)?;
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.call(0xe283, 0xd12e)?;
+    c.run(0xd12e, 1)?;
     c.ret()
 }
