@@ -1068,6 +1068,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xae3f, voice::alloc_music_buffer, "loc_0ae3f"),
     (0xae54, voice::alloc_voice_buffer, "loc_0ae54"),
     (0xbaf2, globe::globe_cell_at, "loc_0baf2"),
+    (0xb6c3, globe::draw_zoomed_globe, "map_draw_zoomed_globe"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),

@@ -2044,3 +2044,212 @@ fn found_bbec(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(SP, sp);
     c.ret()
 }
+
+/// `|[197Eh]|` kept below BX (its sign kept): `or ax, ax` .. `mov
+/// [197Eh], ax`, counted by the caller.
+fn clamp_197e(c: &mut Ctx, bx: u16) {
+    let ax = c.word(0x197e);
+    c.set_reg(AX, ax);
+    c.or(W, ax, ax);
+    c.set_reg(DX, ax);
+    let neg = ax & 0x8000 != 0;
+    let mut a = ax;
+    if neg {
+        a = c.neg(W, ax);
+        c.set_reg(AX, a);
+    }
+    c.cmp(W, a, bx);
+    if a >= bx {
+        c.set_reg(AX, bx);
+        c.or(W, ax, ax);
+        let mut v = bx;
+        if neg {
+            v = c.neg(W, bx);
+            c.set_reg(AX, v);
+        }
+        c.set_word(0x197e, v);
+    }
+}
+
+fn clamp_197e_count(c: &mut Ctx, bx: u16) -> u32 {
+    let ax = c.word(0x197e);
+    let neg = ax & 0x8000 != 0;
+    let a = if neg { ax.wrapping_neg() } else { ax };
+    neg as u32 + 2 + if a >= bx { 4 + neg as u32 } else { 0 }
+}
+
+/// `map_draw_zoomed_globe`: the globe drawn. Rotating ([46EBh] bit 7):
+/// centre (A0h, 4Ch), the tilt [197Eh] within 4Bh, the driver's globe
+/// (far [3929h]) with the rows 4C60h. Else in the box [46E3h]..[46E9h]
+/// (centre [0DCF6h] / [0DCF8h], size [0DCF2h] / [0DCF4h]) with the tilt
+/// within 56h less half the height: the rows' spans (`loc_0b7d2`, the
+/// table 4948h, 8 bytes a row; above the equator walked backwards until
+/// the first empty row) and, unless [46EBh] bit 6, the driver's blit
+/// (far [390Dh]).
+pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb6c3)?;
+    let mut c = Ctx::new(m);
+    let f = c.byte(0x46eb);
+    if f & 0x80 != 0 {
+        let n = clamp_197e_count(&mut c, 0x4b);
+        c.run(0xb6c3, 2 + 6 + 4 + n + 7)?;
+        c.test(B, f as u16, 0x80);
+        let ds = c.sreg(DS);
+        c.push(ds);
+        let v = c.pop();
+        c.set_sreg(ES, v);
+        c.set_word(0xdcf6, 0xa0);
+        c.set_word(0xdcf8, 0x4c);
+        c.set_reg(CX, 0x12);
+        c.set_reg(BX, 0x4b);
+        clamp_197e(&mut c, 0x4b);
+        c.set_reg(BP, 0x4948);
+        let dx = c.word(0x197c);
+        c.set_reg(DX, dx);
+        let t = c.word(0x197e);
+        let a = c.sub(W, t, 0x12);
+        c.set_reg(AX, a);
+        let di = c.word(0xdcfe);
+        let es = c.word(0xdd00);
+        c.set_reg(DI, di);
+        c.set_sreg(ES, es);
+        c.set_reg(SI, 0x4c60);
+        let bx = c.word(0xdbda);
+        c.set_reg(BX, bx);
+        c.interp(0xb70f, 0xb713)?;
+        c.run(0xb713, 1)?;
+        return c.ret();
+    }
+    let (e3, e5, e7, e9) = (c.word(0x46e3), c.word(0x46e5), c.word(0x46e7), c.word(0x46e9));
+    let h1 = e9.wrapping_sub(e5).wrapping_sub(1);
+    let half = h1 >> 1;
+    let lim = 0x56u16.wrapping_sub(half);
+    let n = clamp_197e_count(&mut c, lim);
+    let t_after = {
+        let ax = c.word(0x197e);
+        let neg = ax & 0x8000 != 0;
+        let a = if neg { ax.wrapping_neg() } else { ax };
+        if a >= lim { if neg { lim.wrapping_neg() } else { lim } } else { ax }
+    };
+    let a0 = t_after.wrapping_sub(half);
+    let back = (a0 << 3) & 0x8000 != 0;
+    c.run(0xb6c3, 2 + 22 + 4 + n + 10 + if back { 2 } else { 1 })?;
+    c.test(B, f as u16, 0x80);
+    c.set_reg(DI, 0x4c60);
+    c.set_reg(AX, e7);
+    let w = c.sub(W, e7, e3);
+    c.set_reg(AX, w);
+    let d = c.shr1(W, w, 1);
+    let d = c.add(W, d, e3);
+    c.set_reg(DX, d);
+    c.set_word(0xdcf6, d);
+    c.set_word(0xdcf2, w);
+    let a = c.sub(W, e9, e5);
+    let a = c.dec(W, a);
+    let b = c.shr1(W, a, 1);
+    let b = c.add(W, b, e5);
+    c.set_reg(BX, b);
+    c.set_word(0xdcf8, b);
+    let a = c.inc(W, a);
+    c.set_word(0xdcf4, a);
+    let a = c.dec(W, a);
+    let a = c.shr1(W, a, 1);
+    c.set_reg(AX, a);
+    c.set_reg(CX, a);
+    c.set_reg(BX, 0x56);
+    let l = c.sub(W, 0x56, a);
+    c.set_reg(BX, l);
+    clamp_197e(&mut c, lim);
+    c.set_reg(BP, 0x4948);
+    let dx = c.word(0x197c);
+    c.set_reg(DX, dx);
+    let a = c.sub(W, t_after, half);
+    c.set_reg(AX, a);
+    c.push(a);
+    let cnt = c.word(0xdcf4);
+    c.set_reg(CX, cnt);
+    let mut s = c.shl1(W, a, 3);
+    if back {
+        s = c.neg(W, s);
+    }
+    c.set_reg(AX, s);
+    let bp = c.add(W, 0x4948, s);
+    c.set_reg(BP, bp);
+    let mut backward = back;
+    let mut resume_b7a5 = false;
+    loop {
+        let bp = c.reg(BP);
+        let cx = c.reg(CX);
+        if !resume_b7a5 {
+            let w0 = c.word_in(SS, bp);
+            let w1 = c.word_in(SS, bp.wrapping_add(2));
+            if backward {
+                let empty = w0 == 0;
+                c.run(0xb786, 6)?;
+                c.push(cx);
+                c.set_reg(CX, w0);
+                c.set_reg(BX, w1);
+                let v = c.neg(W, w0);
+                c.set_reg(CX, v);
+                if empty {
+                    backward = false;
+                    c.call(0xb7d2, 0xb7a8)?;
+                    resume_b7a5 = true;
+                    continue;
+                }
+                c.call(0xb7d2, 0xb794)?;
+                let sp = c.reg(SP);
+                let cx = c.word_in(SS, sp).wrapping_sub(1);
+                c.run(0xb794, 3 + (cx == 0) as u32)?;
+                let bp = c.reg(BP);
+                let bp = c.sub(W, bp, 8);
+                c.set_reg(BP, bp);
+                c.pop();
+                c.set_reg(CX, cx);
+                if cx == 0 {
+                    break;
+                }
+                continue;
+            }
+            c.run(0xb79e, 4)?;
+            c.push(cx);
+            c.set_reg(CX, w0);
+            c.set_reg(BX, w1);
+            c.call(0xb7d2, 0xb7a8)?;
+        }
+        resume_b7a5 = false;
+        let sp = c.reg(SP);
+        let cx = c.word_in(SS, sp).wrapping_sub(1);
+        c.run(0xb7a8, 3)?;
+        let bp = c.reg(BP);
+        let bp = c.add(W, bp, 8);
+        c.set_reg(BP, bp);
+        c.pop();
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    let f = c.byte(0x46eb);
+    c.run(0xb7ae, 9 + (f & 0x40 != 0) as u32)?;
+    let es = c.word(0xdbda);
+    c.set_sreg(ES, es);
+    let di = c.word(0xdcf2);
+    c.set_reg(DI, di);
+    let cx = c.word(0xdcf4);
+    c.set_reg(CX, cx);
+    let dx = c.word(0x46e3);
+    c.set_reg(DX, dx);
+    let bx = c.word(0x46e5);
+    c.set_reg(BX, bx);
+    c.set_reg(SI, 0x4c60);
+    let a = c.pop();
+    c.set_reg(AX, a);
+    c.test(B, f as u16, 0x40);
+    if f & 0x40 != 0 {
+        return c.ret();
+    }
+    c.interp(0xb7cd, 0xb7d1)?;
+    c.run(0xb7d1, 1)?;
+    c.ret()
+}
