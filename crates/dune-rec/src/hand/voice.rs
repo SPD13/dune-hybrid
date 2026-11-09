@@ -1228,3 +1228,50 @@ fn song_list_at(c: &mut Ctx, at: u16, pre: u32, f: u8, ops: impl FnOnce(&mut Ctx
     c.set_word(0x380e, si);
     super::audio::play_music(c.m, 0xad95)
 }
+
+/// `loc_0ae3f`: with music on (`music_enabled`) and no music buffer yet
+/// (the far pointer at DBB6h 0) one of 9C40h bytes allocated into it
+/// (`bump_alloc_get_addr_in_di_and_bump`).
+pub fn alloc_music_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xae3f)?;
+    let mut c = Ctx::new(m);
+    c.run(0xae3f, 1)?;
+    c.call(0xae28, 0xae42)?;
+    if c.flag(ZF) {
+        c.run(0xae42, 2)?;
+        return c.ret();
+    }
+    let (a, b) = (c.word(0xdbb6), c.word(0xdbb8));
+    if a | b != 0 {
+        c.run(0xae42, 6)?;
+        c.set_reg(DI, 0xdbb6);
+        c.set_reg(AX, a);
+        let v = c.or(W, a, b);
+        c.set_reg(AX, v);
+        return c.ret();
+    }
+    c.run(0xae42, 7)?;
+    c.set_reg(DI, 0xdbb6);
+    c.set_reg(AX, a);
+    c.or(W, a, b);
+    c.set_reg(AX, 0);
+    c.set_reg(CX, 0x9c40);
+    c.jump(0xf0f6)
+}
+
+/// `loc_0ae54`: with voices on (`loc_0ae2f`) a voice buffer of 4E20h
+/// bytes allocated into the far pointer at 3811h.
+pub fn alloc_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xae54)?;
+    let mut c = Ctx::new(m);
+    c.run(0xae54, 1)?;
+    c.call(0xae2f, 0xae57)?;
+    if c.flag(ZF) {
+        c.run(0xae57, 2)?;
+        return c.ret();
+    }
+    c.run(0xae57, 4)?;
+    c.set_reg(DI, 0x3811);
+    c.set_reg(CX, 0x4e20);
+    c.jump(0xf0f6)
+}

@@ -4,7 +4,7 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, SS},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, SP, SS},
     rec::Bail,
 };
 
@@ -1735,4 +1735,312 @@ pub fn draw_globe_and_ui(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xd72b, 0xb847)?;
     c.run(0xb847, 1)?;
     super::voice::pick_music(c.m, 0xad5e)
+}
+
+/// `loc_0baf2`: the map position (`get_map_position`: DX, BX) as a
+/// point on the globe, for the cursor: DX 0 when not shown (with
+/// [227Dh], off the visible side, or not found), else DX / BX the screen
+/// point (around A0h, 4Fh). The latitude BX picks the circle (494Ah,
+/// 8 bytes a row): the longitude folded into a quarter (sign flags kept
+/// in a frame of 0Ah bytes); the column searched in the projection
+/// table 593Ah (`repne scasb` by rows of C8h), its angle in 8BBBh
+/// (`repne scasw`), then the nearest row of the row table 4C60h.
+/// Bails with DF set.
+pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::ES;
+    entered(start, 0xbaf2)?;
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    let k = c.byte(0x227d);
+    c.run(0xbaf2, 4)?;
+    c.xor(W, 0, 0);
+    c.set_reg(DX, 0);
+    c.cmp(B, k as u16, 0);
+    if k != 0 {
+        return c.ret();
+    }
+    c.call(0x407e, 0xbafe)?;
+    let bx0 = c.reg(BX);
+    let bneg = (bx0 << 3) & 0x8000 != 0;
+    c.run(0xbafe, 7 + 2 * bneg as u32)?;
+    let sp = c.reg(SP);
+    let sp = c.sub(W, sp, 0x0a);
+    c.set_reg(SP, sp);
+    c.set_reg(BP, sp);
+    c.set_word_in(SS, sp, 0);
+    let mut bx = c.shl1(W, bx0, 3);
+    c.set_reg(BX, bx);
+    if bneg {
+        c.m.cpu.write8(&mut c.m.hw, SS, sp.wrapping_add(1), 0xff);
+        bx = c.neg(W, bx);
+        c.set_reg(BX, bx);
+    }
+    // BB16h: the longitude folded.
+    let cx = c.word(bx.wrapping_add(0x494a));
+    let off = c.word(bx.wrapping_add(0x494c));
+    let dx = c.reg(DX);
+    let prod = (cx.wrapping_add(cx) as u32) * dx as u32;
+    let (lo, hi) = (prod as u16, (prod >> 16) as u16);
+    let carry = lo & 0x8000 != 0;
+    let d = hi.wrapping_add(carry as u16).wrapping_sub(off);
+    let dneg = d & 0x8000 != 0;
+    let d1 = if dneg { d.wrapping_neg() } else { d };
+    let wrap = d1 >= cx;
+    let d2 = if wrap { d1.wrapping_sub(cx).wrapping_sub(cx).wrapping_neg() } else { d1 };
+    let half = cx >> 1;
+    let back = d2 >= half;
+    c.run(0xbb16, 9 + 2 * dneg as u32 + 2 + 4 * wrap as u32 + 3 + 4 * back as u32)?;
+    c.set_reg(CX, cx);
+    c.set_reg(AX, cx);
+    let a = c.add(W, cx, cx);
+    c.set_reg(AX, a);
+    c.mul16(dx);
+    let a = c.reg(AX);
+    let a2 = c.add(W, a, a);
+    c.set_reg(AX, a2);
+    let h = c.reg(DX);
+    let h = c.adc(W, h, 0);
+    c.set_reg(DX, h);
+    c.xor(W, a2, a2);
+    let mut al = 0u8;
+    c.set_reg(AX, 0);
+    let mut dv = c.sub(W, h, off);
+    c.set_reg(DX, dv);
+    if dneg {
+        dv = c.neg(W, dv);
+        c.set_reg(DX, dv);
+        al = !al;
+        c.set_reg(AX, 0xffff);
+    }
+    c.cmp(W, dv, cx);
+    if wrap {
+        let t = c.sub(W, dv, cx);
+        let t = c.sub(W, t, cx);
+        dv = c.neg(W, t);
+        c.set_reg(DX, dv);
+        al = !al;
+        let ax = c.reg(AX);
+        c.set_reg(AX, !ax);
+    }
+    let hf = c.shr1(W, cx, 1);
+    c.set_reg(CX, hf);
+    c.cmp(W, dv, hf);
+    if back {
+        c.m.cpu.write8(&mut c.m.hw, SS, sp, 0x80);
+        let t = c.sub(W, dv, hf);
+        let t = c.sub(W, t, hf);
+        dv = c.neg(W, t);
+        c.set_reg(DX, dv);
+    }
+    // BB4Dh: the column searched.
+    c.run(0xbb4d, 9)?;
+    c.m.cpu.write8(&mut c.m.hw, SS, sp.wrapping_add(4), al);
+    let b2 = c.shr1(W, bx, 2);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(DI, 0x593a);
+    c.set_reg(AX, b2);
+    c.set_reg(CX, 0x64);
+    c.xor(W, b2, b2);
+    c.set_reg(BX, 0);
+    loop {
+        c.run(0xbb60, 1)?;
+        c.m.cpu.string_op(&mut c.m.hw, 0xae, None, 0xf2);
+        if !c.flag(pc::cpu::ZF) {
+            c.run(0xbb62, 2)?;
+            let v = c.word_in(SS, sp.wrapping_add(2));
+            c.set_reg(CX, v);
+            break;
+        }
+        let di = c.reg(DI);
+        let dl = c.reg8(r8::DL);
+        let t = c.byte(di.wrapping_add(0x63));
+        let cx = c.reg(CX);
+        if dl <= t {
+            c.run(0xbb62, 4)?;
+            let cx = c.inc(W, cx);
+            c.set_reg(CX, cx);
+            c.cmp(B, dl as u16, t as u16);
+            break;
+        }
+        let di2 = di.wrapping_add(0xc7);
+        let more = di2 < 0x8b3b;
+        c.run(0xbb62, 9 + (!more) as u32)?;
+        let cx = c.inc(W, cx);
+        c.set_reg(CX, cx);
+        c.cmp(B, dl as u16, t as u16);
+        c.set_word_in(SS, sp.wrapping_add(2), cx);
+        let b = c.reg(BX);
+        let b = c.inc(W, b);
+        c.set_reg(BX, b);
+        let d = c.add(W, di, 0xc7);
+        c.set_reg(DI, d);
+        c.cmp(W, d, 0x8b3b);
+        if !more {
+            return end_bbe6(&mut c);
+        }
+    }
+    // BB7Dh: its angle.
+    let cx = c.reg(CX);
+    let bxv = c.reg(BX);
+    let f = c.word_in(SS, sp);
+    let (fl, fh) = (f as u8, (f >> 8) as u8);
+    let nal = fl & 0x80 != 0;
+    c.run(0xbb7d, 7 + nal as u32)?;
+    c.set_reg(AX, 0x64);
+    let a = c.sub(W, 0x64, cx);
+    c.set_reg(AX, a);
+    c.set_word_in(SS, sp.wrapping_add(2), bxv);
+    c.set_reg(CX, f);
+    c.set_reg8(r8::AH, fh);
+    c.or(B, fl as u16, fl as u16);
+    if nal {
+        let v = c.neg(B, a & 0xff);
+        c.set_reg8(r8::AL, v as u8);
+    }
+    c.run(0xbb90, 3)?;
+    c.set_reg(DI, 0x8bbb);
+    c.set_reg(CX, 0x80);
+    c.m.cpu.string_op(&mut c.m.hw, 0xaf, None, 0xf2);
+    if !c.flag(pc::cpu::ZF) {
+        c.run(0xbb98, 1)?;
+        return end_bbe6(&mut c);
+    }
+    let di = c.reg(DI);
+    let t = di.wrapping_sub(0x8c3d);
+    let tneg = t & 0x8000 != 0;
+    c.run(0xbb98, 1 + 3 + 2 * tneg as u32 + 9)?;
+    c.xor(B, 0, 0);
+    let mut al = 0u8;
+    let mut dv = c.sub(W, di, 0x8c3d);
+    c.set_reg(DI, dv);
+    if tneg {
+        dv = c.neg(W, dv);
+        c.set_reg(DI, dv);
+        al = 0xff;
+    }
+    c.set_reg8(r8::AL, al);
+    c.m.cpu.write8(&mut c.m.hw, SS, sp.wrapping_add(5), al);
+    c.set_reg(BX, 0x36);
+    c.set_reg(AX, dv);
+    let a = c.shr1(W, dv, 1);
+    c.set_reg(AX, a);
+    c.set_reg(SI, 0x4c60);
+    let dx = c.word_in(SS, sp.wrapping_add(2));
+    c.set_reg(DX, dx);
+    c.set_reg8(r8::CL, a as u8);
+    c.set_reg8(r8::CH, 0xff);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    // BBBCh: the nearest row.
+    loop {
+        let si = c.reg(SI);
+        let b = c.byte(si);
+        let a1 = b.wrapping_add(1);
+        if a1 == 0 {
+            c.run(0xbbbc, 3)?;
+            c.lods(B, DS);
+            c.inc(B, b as u16);
+            c.set_reg8(r8::AL, 0);
+            break;
+        }
+        let nb = a1.wrapping_neg();
+        let dl = c.reg8(r8::DL);
+        if nb <= dl {
+            c.run(0xbbbc, 6)?;
+            c.lods(B, DS);
+            c.inc(B, b as u16);
+            c.neg(B, a1 as u16);
+            c.set_reg8(r8::AL, nb);
+            c.cmp(B, nb as u16, dl as u16);
+            break;
+        }
+        let di = si.wrapping_add(1);
+        let dx = c.reg(DX);
+        let v = c.byte(di.wrapping_add(dx));
+        let cl = c.reg8(r8::CL);
+        let ch = c.reg8(r8::CH);
+        let s = v.wrapping_sub(cl);
+        let better = s < ch;
+        let bxv = c.reg(BX);
+        let last = bxv.wrapping_sub(1) == 0;
+        let hit = better && s == 0;
+        c.run(0xbbbc, 6 + 7 + if better { 4 } else { 0 } + if hit { 0 } else { 2 })?;
+        c.lods(B, DS);
+        c.inc(B, b as u16);
+        c.neg(B, a1 as u16);
+        c.cmp(B, nb as u16, dl as u16);
+        c.set_reg(DI, di);
+        let s2 = c.add(W, di, nb as u16);
+        c.set_reg(SI, s2);
+        let d2 = c.add(W, di, dx);
+        c.set_reg(DI, d2);
+        c.set_reg8(r8::AL, v);
+        c.sub(B, v as u16, cl as u16);
+        c.set_reg8(r8::AL, s);
+        c.cmp(B, s as u16, ch as u16);
+        if better {
+            c.set_reg8(r8::CH, s);
+            c.set_word_in(SS, sp.wrapping_add(6), bxv);
+            c.or(B, s as u16, s as u16);
+            if hit {
+                return found_bbec(&mut c);
+            }
+        }
+        let b2 = c.dec(W, bxv);
+        c.set_reg(BX, b2);
+        if last {
+            break;
+        }
+    }
+    let ch = c.reg8(r8::CH);
+    c.run(0xbbe1, 2)?;
+    c.cmp(B, ch as u16, 2);
+    if ch <= 2 {
+        return found_bbec(&mut c);
+    }
+    end_bbe6(&mut c)
+}
+
+/// `loc_0bbe6`: not shown: the frame dropped, DX 0.
+fn end_bbe6(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0xbbe6, 3)?;
+    let sp = c.reg(SP);
+    let sp = c.add(W, sp, 0x0a);
+    c.set_reg(SP, sp);
+    c.xor(W, 0, 0);
+    c.set_reg(DX, 0);
+    c.ret()
+}
+
+/// `loc_0bbec`: the screen point from the frame's signs, row and column.
+fn found_bbec(c: &mut Ctx) -> Result<(), Bail> {
+    let sp = c.reg(SP);
+    let ax = c.word_in(SS, sp.wrapping_add(4));
+    let bx = c.word_in(SS, sp.wrapping_add(6));
+    let (al, ah) = (ax as u8, (ax >> 8) as u8);
+    c.run(0xbbec, 5 + (ah != 0) as u32 + 3 + (al != 0) as u32 + 3)?;
+    c.set_reg(AX, ax);
+    c.set_reg(BX, bx);
+    let mut b = c.sub(W, bx, 0x36);
+    c.or(B, ah as u16, ah as u16);
+    if ah != 0 {
+        b = c.neg(W, b);
+    }
+    let b = c.add(W, b, 0x4f);
+    c.set_reg(BX, b);
+    c.or(B, al as u16, al as u16);
+    let mut dx = c.reg(DX);
+    if al != 0 {
+        dx = c.neg(W, dx);
+    }
+    let dx = c.add(W, dx, 0xa0);
+    c.set_reg(DX, dx);
+    let sp = c.add(W, sp, 0x0a);
+    c.set_reg(SP, sp);
+    c.ret()
 }
