@@ -327,7 +327,9 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut bx = 0u16;
     c.set_reg(DI, 0xd7f4);
     let ds = c.sreg(DS);
-    c.set_sreg(ES, ds);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
     for si in ev {
         c.set_reg(SI, si);
         let w = c.word(si);
@@ -350,7 +352,9 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, if k == 6 { 0xc7 } else { 0xbb });
     c.cmp(B, k as u16, 6);
     c.set_reg(DI, 0xceec);
-    c.set_sreg(ES, ds);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
     c.call(0xf0b9, 0xcff9)?;
     c.run(0xcff9, 6)?;
     let k = c.byte(0xceeb);

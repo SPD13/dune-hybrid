@@ -1348,7 +1348,9 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x016f, 7)?;
     let ds = c.sreg(DS);
-    c.set_sreg(ES, ds);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
     c.set_reg(DI, 0x4c60);
     c.push(0x4c60);
     c.set_reg(AX, 7);
