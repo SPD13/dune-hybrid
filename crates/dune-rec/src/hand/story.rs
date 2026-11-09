@@ -4670,3 +4670,116 @@ pub fn redraw_message_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0xdbda, fb);
     super::mouse::draw_mouse(c.m, 0xdbec)
 }
+
+/// `sub_3520`: once per scene ([47A7h]), the troop SI's numbered
+/// sentence (+0Eh, `say_numbered`; when it is not, the event for the
+/// speaker [47C4h] and the place [114Eh] found and told, `loc_02b00`)
+/// and the events of that pair dropped; [0E7h] 0. Then by the stage
+/// [23h]: 3 and 4 install the panel 1F92h / 1F9Eh (4: its bit 40h
+/// cleared, the buttons redrawn) with the handler 97CFh and the counters
+/// [1BEAh], [1BF8h] 0; before stage 64h (with no [4774h]) the speaker
+/// started and the panel faded.
+pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x3520)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(0x47a7);
+    if k != 0 {
+        c.run(start, 3)?;
+        c.cmp(B, k as u16, 0);
+        return c.ret();
+    }
+    c.run(start, 6)?;
+    c.cmp(B, 0, 0);
+    let si = c.reg(SI);
+    let al = c.byte(si.wrapping_add(0x0e));
+    c.xor(B, 0, 0);
+    c.set_reg(AX, al as u16);
+    c.push(si);
+    c.call(0x96f1, 0x3530)?;
+    if c.flag(CF) {
+        c.run(0x3530, 5)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+        let (ax, di) = (c.word(0x47c4), c.word(0x114e));
+        c.set_reg(AX, ax);
+        c.set_reg(DI, di);
+        c.call(0x2aaf, 0x353d)?;
+        if !c.flag(CF) {
+            c.run(0x353d, 2)?;
+            return c.ret();
+        }
+        c.run(0x353d, 2)?;
+        c.call(0x2b00, 0x3542)?;
+    } else {
+        c.run(0x3530, 2)?;
+        let s = c.pop();
+        c.set_reg(SI, s);
+    }
+    c.run(0x3542, 3)?;
+    let (ax, di) = (c.word(0x47c4), c.word(0x114e));
+    c.set_reg(AX, ax);
+    c.set_reg(DI, di);
+    c.call(0x2a51, 0x354c)?;
+    let st = c.byte(0x23);
+    let ops = |c: &mut Ctx| {
+        c.set_byte(0xe7, 0);
+        let v = c.byte(0x47a7);
+        let v = c.inc(B, v as u16);
+        c.set_byte(0x47a7, v as u8);
+        c.cmp(B, st as u16, 3);
+    };
+    if st == 3 {
+        c.run(0x354c, 7)?;
+        ops(&mut c);
+        c.set_reg(BP, 0x1f92);
+        c.set_reg(BX, 0x97cf);
+        c.call(0xd323, 0x3565)?;
+        c.run(0x3565, 3)?;
+        c.set_word(0x1bea, 0);
+        c.set_word(0x1bf8, 0);
+        return c.ret();
+    }
+    if st == 4 {
+        c.run(0x354c, 10)?;
+        ops(&mut c);
+        c.cmp(B, 4, 4);
+        c.set_reg(BP, 0x1f9e);
+        let v = c.byte_in(SS, 0x1fa9);
+        let v = c.and(B, v as u16, 0xbf);
+        c.m.cpu.write8(&mut c.m.hw, SS, 0x1fa9, v as u8);
+        c.set_reg(BX, 0x97cf);
+        c.call(0xd323, 0x3586)?;
+        c.run(0x3586, 3)?;
+        c.set_word(0x1bea, 0);
+        c.set_word(0x1bf8, 0);
+        return super::screens::panel_buttons(c.m, 0x2ffb);
+    }
+    let w = c.byte(0x4774);
+    if w != 0 {
+        c.run(0x354c, 9)?;
+        ops(&mut c);
+        c.cmp(B, st as u16, 4);
+        c.cmp(B, w as u16, 0);
+        return c.ret();
+    }
+    if st >= 0x64 {
+        c.run(0x354c, 11)?;
+        ops(&mut c);
+        c.cmp(B, st as u16, 4);
+        c.cmp(B, 0, 0);
+        c.cmp(B, st as u16, 0x64);
+        return c.ret();
+    }
+    c.run(0x354c, 12)?;
+    ops(&mut c);
+    c.cmp(B, st as u16, 4);
+    c.cmp(B, 0, 0);
+    c.cmp(B, st as u16, 0x64);
+    let ax = c.word(0x47c4);
+    c.set_reg(AX, ax);
+    c.call(0x93df, 0x35a9)?;
+    c.run(0x35a9, 1)?;
+    c.call(0xd280, 0x35ac)?;
+    c.run(0x35ac, 1)?;
+    c.ret()
+}

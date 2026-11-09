@@ -2798,3 +2798,198 @@ pub fn two_heads_text_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x920f, 0x99da)?;
     dialogue_text_step(c.m, 0x99da)
 }
+
+/// `loc_097cf`: the end of a dialogue line (lip sync stopped). With a
+/// speaker ([47C4h] not FFFFh): the troop [47A2h] marked talked to (+0Fh
+/// bit 20h set, 4 cleared), [47E1h] 0, the dialogue box closed; in a map
+/// mode the panel redrawn on the front buffer and its buttons ([11CAh]
+/// 0 meanwhile), `loc_037f4`, `loc_0c4dd`, [11CAh] 0. Else by [47A4h]:
+/// bit 7 ends the dialogue (gauge dropped, state cleared, the text
+/// dropped; before stage 74h the view and head back up, from stage 64h
+/// to 73h `loc_036d3` and a wait, again); else the speaker's gauge (off
+/// with bit 40h of +0Fh), and in a dialogue the text redrawn, or with
+/// bit 0 of [47A4h] clear the view and head back up.
+pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x97cf)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xa7a5, 0x97d2)?;
+    let sp = c.word(0x47c4);
+    if sp == 0xffff {
+        c.run(0x97d2, 3)?;
+        c.cmp(W, sp, 0xffff);
+        return c.ret();
+    }
+    let mode = c.byte(0x11c9);
+    c.run(0x97d2, 9)?;
+    c.cmp(W, sp, 0xffff);
+    let si = c.word(0x47a2);
+    c.set_reg(SI, si);
+    let f = c.byte(si.wrapping_add(0x0f));
+    let f = c.or(B, f as u16, 0x20);
+    let f = c.and(B, f, 0xfb);
+    c.set_byte(si.wrapping_add(0x0f), f as u8);
+    c.set_word(0x47e1, 0);
+    c.cmp(B, mode as u16, 0);
+    c.call(0x8c8a, if mode != 0 { 0x97f5 } else { 0x980f })?;
+    if mode != 0 {
+        c.run(0x97f5, 2)?;
+        c.set_reg(BP, 0x98b2);
+        c.call(0xc097, 0x97fb)?;
+        c.run(0x97fb, 4)?;
+        c.xor(B, 0, 0);
+        let old = c.byte(0x11ca);
+        c.set_byte(0x11ca, 0);
+        let ax = c.reg(AX) & 0xff00 | old as u16;
+        c.set_reg(AX, ax);
+        c.push(ax);
+        c.call(0x2ffb, 0x9805)?;
+        c.run(0x9805, 4)?;
+        let a = c.pop();
+        c.set_reg(AX, a);
+        c.set_byte(0x11ca, a as u8);
+        c.call(0x37f4, 0x4ac1)?;
+        c.run(0x4ac1, 1)?;
+        c.call(0xc4dd, 0x4ac4)?;
+        c.run(0x4ac4, 2)?;
+        c.set_byte(0x11ca, 0);
+        return c.ret();
+    }
+    let st = c.byte(0x47a4);
+    let si = c.word(0x47a2);
+    if st & 0x80 != 0 {
+        let gauge = c.byte(si.wrapping_add(0x0f)) & 0x40 != 0;
+        c.run(0x980f, 3 + 3 + gauge as u32)?;
+        c.cmp(B, st as u16, 0);
+        c.set_reg(SI, si);
+        c.set_word(0x1c06, 0);
+        c.test(B, if gauge { 0x40 } else { 0 }, 0x40);
+        if gauge {
+            c.call(0x9673, 0x9858)?;
+        }
+        return line_end_9858(&mut c);
+    }
+    let talk = c.byte(0x2b);
+    let gauge = c.byte(si.wrapping_add(0x0f)) & 0x40 != 0;
+    c.run(0x980f, 5 + if talk != 0 { 2 } else { 0 } + 3)?;
+    c.cmp(B, st as u16, 0);
+    c.set_reg(SI, si);
+    c.cmp(B, talk as u16, 0);
+    if talk != 0 {
+        c.set_reg(AX, 0x9840);
+        c.push(0x9840);
+    }
+    c.test(B, if gauge { 0x40 } else { 0 }, 0x40);
+    if gauge {
+        if talk == 0 {
+            return add_speaker_gauge(c.m, 0x9673);
+        }
+        // The jump with 9840h pushed: its return lands there.
+        c.pop();
+        c.call(0x9673, 0x9840)?;
+        return text_redraw_9840(&mut c);
+    }
+    c.call(0x9655, 0x9831)?;
+    let t2 = c.byte(0x2b);
+    let b0 = c.byte(0x47a4) & 1 != 0;
+    if t2 != 0 || b0 {
+        c.run(0x9831, if t2 != 0 { 3 } else { 5 })?;
+        c.cmp(B, t2 as u16, 0);
+        if t2 == 0 {
+            c.test(B, b0 as u16, 1);
+        }
+        if talk == 0 {
+            return c.ret();
+        }
+        c.pop();
+        return text_redraw_9840(&mut c);
+    }
+    if talk != 0 {
+        c.m.cpu.ip = 0x9831;
+        return Err(Bail);
+    }
+    c.run(0x9831, 4)?;
+    c.cmp(B, 0, 0);
+    c.test(B, 0, 1);
+    view_back_9879(&mut c)
+}
+
+/// `loc_09840`: the text dropped, the game area to the screen,
+/// `loc_0c4dd`.
+fn text_redraw_9840(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x9840, 1)?;
+    c.call(0x9b8b, 0x9843)?;
+    c.run(0x9843, 1)?;
+    c.call(0xc43e, 0x9846)?;
+    c.run(0x9846, 1)?;
+    super::draw::sub_c4dd(c.m, 0xc4dd)
+}
+
+/// From 9858h: the dialogue state cleared and its text dropped; from
+/// stage 64h to 73h `loc_036d3` and a wait of C8h (again), else the view
+/// back ([`view_back_9879`]).
+fn line_end_9858(c: &mut Ctx) -> Result<(), Bail> {
+    let mut i = 0;
+    loop {
+        i += 1;
+        if i > 100 {
+            c.m.cpu.ip = 0x9858;
+            return Err(Bail);
+        }
+        c.run(0x9858, 7)?;
+        c.xor(W, 0, 0);
+        c.set_reg(AX, 0);
+        c.set_word(0x4540, 0);
+        c.set_word(0x479e, 0);
+        let v = c.byte(0x47d1);
+        let v = c.and(B, v as u16, 0x3f);
+        c.set_byte(0x47d1, v as u8);
+        c.set_word(0x47c8, 0);
+        let v = c.byte(0x47a4);
+        let v = c.and(B, v as u16, 0x7f);
+        c.set_byte(0x47a4, v as u8);
+        c.call(0x9b8b, 0x9870)?;
+        let st = c.byte(0x23);
+        let d = st.wrapping_sub(0x64);
+        c.run(0x9870, 4)?;
+        c.set_reg8(r8::AL, st);
+        let a = c.sub(B, st as u16, 0x64);
+        c.set_reg8(r8::AL, a as u8);
+        c.cmp(B, a, 0x10);
+        if d >= 0x10 {
+            return view_back_9879(c);
+        }
+        c.run(0x9898, 2)?;
+        c.set_reg(BP, 0x37b2);
+        c.call(0xc097, 0x989e)?;
+        c.run(0x989e, 1)?;
+        c.call(0x36d3, 0x98a1)?;
+        c.run(0x98a1, 2)?;
+        c.set_reg(AX, 0xc8);
+        c.call(0xe3a0, 0x98a7)?;
+        c.run(0x98a7, 2)?;
+        c.set_word(0x1c06, 0);
+    }
+}
+
+/// From 9879h: the view back: `loc_02efb`, outside the map modes
+/// `setup_3090`, `loc_037b2`, the buffers and palette, `gfx_call_25`,
+/// `loc_0c4dd`, the head up.
+fn view_back_9879(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x9879, 1)?;
+    c.call(0x2efb, 0x987c)?;
+    let k = c.byte(0x11c9);
+    c.run(0x987c, 3)?;
+    c.cmp(B, k as u16, 0);
+    if k == 0 {
+        c.call(0x3090, 0x9886)?;
+        c.run(0x9886, 1)?;
+    }
+    c.call(0x37b2, 0x9889)?;
+    for (at, to) in [(0x9889u16, 0xc412u16), (0x988c, 0xc0f4), (0x988f, 0x1834), (0x9892, 0xc4dd)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    c.run(0x9895, 1)?;
+    super::ui::ui_head_animate_up(c.m, 0x17e6)
+}
