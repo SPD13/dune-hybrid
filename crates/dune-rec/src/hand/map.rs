@@ -5849,3 +5849,89 @@ pub fn route_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, s);
     }
 }
+
+/// `loc_04586`: the message line's subject: in view (`in_view`) and near
+/// a shown location (`nearest_shown_location` 9 or more) the direction
+/// of the map pointer [4749h] (`direction_256`, by eighths: FFF0h + k,
+/// FFFFh off the eighth's middle or with no pointer), else 0; the line
+/// redrawn ([`redraw_message_line`]) when that changes [46FCh].
+pub fn message_subject(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4586)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x5d1d, 0x4589)?;
+    if !c.flag(CF) {
+        return subject_tail(&mut c, 0x4589, 2, 0, |c| c.set_reg(DI, 0));
+    }
+    c.run(0x4589, 4)?;
+    c.set_reg(DI, 0);
+    c.set_reg8(r8::AL, 0xff);
+    c.call(0x5e6d, 0x4593)?;
+    let ax = c.reg(AX);
+    if ax < 9 {
+        return subject_tail(&mut c, 0x4593, 2, 0, |c| c.cmp(W, ax, 9));
+    }
+    let p = c.word(0x4749);
+    if p == 0 {
+        return subject_tail(&mut c, 0x4593, 6, 0xffff, |c| {
+            c.cmp(W, ax, 9);
+            c.set_reg(DI, 0xffff);
+            c.set_reg(DX, 0);
+            c.or(W, 0, 0);
+        });
+    }
+    c.run(0x4593, 12)?;
+    c.cmp(W, ax, 9);
+    c.set_reg(DI, 0xffff);
+    let d = c.add(W, p, 0x0b);
+    let x = c.word(0xdc36);
+    let d = c.sub(W, d, x);
+    let d = c.neg(W, d);
+    c.set_reg(DX, d);
+    let (y, t) = (c.word(0xdc38), c.word(0x474f));
+    let b = c.sub(W, y, t);
+    c.set_reg(BX, b);
+    c.call(0x514e, 0x45b7)?;
+    let al = c.reg8(r8::AL).wrapping_add(3);
+    if al & 0x1f >= 6 {
+        return subject_tail(&mut c, 0x45b7, 6, 0xffff, |c| {
+            let a = c.add(B, (al.wrapping_sub(3)) as u16, 3);
+            let h = c.and(B, a, 0x1f);
+            c.set_reg(AX, h << 8 | a);
+            c.cmp(B, h, 6);
+            c.set_reg(DI, 0xffff);
+        });
+    }
+    let k = (al.rotate_left(3) & 7) as u16 | 0xfff0;
+    subject_tail(&mut c, 0x45b7, 12, k, |c| {
+        let a = c.add(B, (al.wrapping_sub(3)) as u16, 3);
+        let h = c.and(B, a, 0x1f);
+        c.set_reg(AX, h << 8 | a);
+        c.cmp(B, h, 6);
+        c.set_reg(DI, 0xffff);
+        let mut v = a as u8;
+        for _ in 0..3 {
+            v = c.m.cpu.shift(0, B, v as u32, 1) as u8;
+        }
+        let v = c.and(B, v as u16, 7);
+        let v = c.or(W, h << 8 | v, 0xfff0);
+        c.set_reg(AX, v);
+        c.set_reg(DI, v);
+    })
+}
+
+/// From 45D3h (after `pre` instructions from `at` with `ops`, DI then
+/// `di`): [46FCh] = DI; on a change the line redrawn.
+fn subject_tail(c: &mut Ctx, at: u16, pre: u32, di: u16, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
+    let old = c.word(0x46fc);
+    c.run(at, pre + 4 + if old == di { 1 } else { 0 })?;
+    ops(c);
+    c.set_reg(AX, di);
+    c.set_word(0x46fc, di);
+    c.set_reg(AX, old);
+    c.cmp(W, old, di);
+    if old == di {
+        return c.ret();
+    }
+    super::story::redraw_message_line(c.m, 0x45de)
+}

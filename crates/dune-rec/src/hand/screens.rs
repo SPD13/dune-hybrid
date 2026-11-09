@@ -1263,3 +1263,91 @@ pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ct
     c.set_reg(CX, 6);
     super::gfx::draw_ui_elements_list_at_ds_si(c.m, 0xd1f2)
 }
+
+/// `loc_0445d`: the map pointer re-placed: its blink task removed; at the
+/// map position (`get_map_position`) inside the view (not
+/// `outside_view_after_b647`) the pointer sprite 4Ch's box at 4749h (x
+/// less 0Dh, y less its height; right and bottom by its size), the blink
+/// task back (every 12Ch) and the first blink ([`blink_map_pointer`]
+/// with [4751h] 0); outside it [4749h] 0.
+pub fn place_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x445d)?;
+    let mut c = Ctx::new(m);
+    place_map_pointer_at(&mut c)
+}
+
+fn place_map_pointer_at(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x445d, 2)?;
+    c.set_reg(SI, 0x44ab);
+    c.call(0xda5f, 0x4463)?;
+    c.run(0x4463, 1)?;
+    c.call(0x407e, 0x4466)?;
+    c.run(0x4466, 1)?;
+    c.call(0x62d6, 0x4469)?;
+    if c.flag(CF) {
+        c.run(0x4469, 3)?;
+        c.set_word(0x4749, 0);
+        return c.ret();
+    }
+    c.run(0x4469, 2)?;
+    c.call(0xc137, 0x4475)?;
+    c.run(0x4475, 2)?;
+    c.set_reg(AX, 0x4c);
+    c.call(0xc1f4, 0x447b)?;
+    c.run(0x447b, 17)?;
+    let a = c.lods(W, ES);
+    let a = a & 0x0fff;
+    c.set_reg(AX, a);
+    c.and(B, a >> 8, 0x0f);
+    let mut bp = a;
+    let h = c.lods(W, ES) & 0xff;
+    c.xor(B, 0, 0);
+    c.set_reg(AX, h);
+    let bx = c.reg(BX);
+    let bx = c.sub(W, bx, h);
+    let dx = c.reg(DX);
+    let dx = c.sub(W, dx, 0x0d);
+    bp = c.add(W, bp, dx);
+    let ax = c.add(W, h, bx);
+    c.set_reg(AX, ax);
+    c.set_reg(BX, bx);
+    c.set_reg(DX, dx);
+    c.set_reg(DI, 0x4749);
+    c.set_word(0x4749, dx);
+    c.set_word(0x474b, bx);
+    c.set_word(0x474d, bp);
+    c.set_word(0x474f, ax);
+    c.set_reg(SI, 0x44ab);
+    c.set_reg(BP, 0x12c);
+    c.call(0xda25, 0x44a6)?;
+    c.run(0x44a6, 1)?;
+    c.set_byte(0x4751, 0);
+    blink_map_pointer(c.m, 0x44ab)
+}
+
+/// `sub_4377`: the map view's frame redrawn (`loc_05b93`, the zoomed
+/// globe, icons, the shown locations; with [473Eh] the icons 14C0h of
+/// resource 24h), the screen updated, and the map pointer re-placed
+/// ([`place_map_pointer`]).
+pub fn redraw_map_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4377)?;
+    let mut c = Ctx::new(m);
+    for (at, to) in [(start, 0xc07cu16), (0x437a, 0x5b93), (0x437d, 0xb6c3), (0x4380, 0xc137), (0x4383, 0x5dce)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    let f = c.byte(0x473e);
+    c.run(0x4386, if f != 0 { 4 } else { 3 })?;
+    c.cmp(B, f as u16, 0);
+    if f != 0 {
+        c.set_reg(AX, 0x24);
+        c.call(0xc13e, 0x4393)?;
+        c.run(0x4393, 2)?;
+        c.set_reg(SI, 0x14c0);
+        c.call(0xc21b, 0x4399)?;
+        c.run(0x4399, 1)?;
+    }
+    c.call(0xc4ed, 0x439c)?;
+    c.run(0x439c, 1)?;
+    place_map_pointer_at(&mut c)
+}

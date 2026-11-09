@@ -982,6 +982,10 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x45de, story::redraw_message_line, "loc_045de"),
     (0x5d6d, map::refresh_map_view, "loc_05d6d"),
     (0x813e, map::route_lines, "loc_0813e"),
+    (0x6770, troops::troop_sprite_list, "loc_06770"),
+    (0x4586, map::message_subject, "loc_04586"),
+    (0x445d, screens::place_map_pointer, "loc_0445d"),
+    (0x4377, screens::redraw_map_frame, "sub_4377"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];

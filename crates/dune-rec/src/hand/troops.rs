@@ -4631,3 +4631,215 @@ pub fn troop_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, s);
     c.ret()
 }
+
+/// `loc_06770`: the sprite list BP for the troop SI: none (0) when
+/// hidden (bit 10h of +10h) or a plain moving one whose location is not
+/// flagged 10h (else 181Fh); moving (bit 40h of +3) by its facing
+/// ([`troop_facing_sprite`]); busy (30h) the activity's (16B6h table, for
+/// activity 0 by the bits C0h of +19h: 1813h, 1817h, 181Bh); else the
+/// job's (179Ch table; 1732h becomes 16AAh at a location flagged 2) and
+/// for 1774h / 1732h the one for its heading (+2: 0Ah apart), or with
+/// no job by +19h (17BCh, 17C9h, 1806h).
+pub fn troop_sprite_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6770)?;
+    let mut c = Ctx::new(m);
+    let saved = c.m.cpu.flags();
+    let (n, _) = sprite_list_walk(&mut c, false);
+    c.m.cpu.set_flags(saved);
+    c.run(start, n)?;
+    let (_, tail) = sprite_list_walk(&mut c, true);
+    if tail {
+        return troop_facing_sprite(c.m, 0x6827);
+    }
+    c.ret()
+}
+
+/// The code of `loc_06770` (with `write`, AX and BP set): its count, and
+/// whether it ends in the jump to `troop_facing_sprite`.
+fn sprite_list_walk(c: &mut Ctx, write: bool) -> (u32, bool) {
+    let si = c.reg(SI);
+    let mut ax = c.reg(AX);
+    let mut bp = c.reg(BP);
+    let mut n = 2u32;
+    let mut tail = false;
+    let f10 = c.byte(si.wrapping_add(0x10));
+    c.test(B, f10 as u16, 0x10);
+    // 0: 678Fh (none), 1: ret, 2: 6792h, 3: 67C5h, 4: 67CAh, 5: 67EDh.
+    let mut at = if f10 & 0x10 != 0 { 0 } else { 9 };
+    if at == 9 {
+        let al = c.byte(si.wrapping_add(3));
+        ax = ax & 0xff00 | al as u16;
+        n += 3;
+        c.test(B, f10 as u16, 0x80);
+        at = if f10 & 0x80 != 0 {
+            2
+        } else {
+            n += 2;
+            c.or(B, al as u16, al as u16);
+            if al & 0x80 == 0 {
+                2
+            } else {
+                n += 4;
+                let p = c.word(si.wrapping_add(4));
+                let f = c.byte_in(SS, p.wrapping_add(0x0a));
+                c.test(B, f as u16, 0x10);
+                bp = 0x181f;
+                if f & 0x10 != 0 { 1 } else { 0 }
+            }
+        };
+    }
+    loop {
+        match at {
+            0 => {
+                n += 2;
+                bp = c.xor(W, bp, bp);
+                break;
+            }
+            1 => {
+                n += 1;
+                break;
+            }
+            2 => {
+                n += 2;
+                c.test(B, ax & 0xff, 0x40);
+                if ax & 0x40 != 0 {
+                    n += 1;
+                    tail = true;
+                    break;
+                }
+                n += 2;
+                c.test(B, ax & 0xff, 0x30);
+                if ax & 0x30 == 0 {
+                    at = 3;
+                    continue;
+                }
+                n += 6;
+                ax = c.and(W, ax, 0x0f);
+                let b = c.shl1(W, ax, 1);
+                bp = c.word_in(SS, b.wrapping_add(0x16b6));
+                c.or(W, ax, ax);
+                if ax != 0 {
+                    at = 1;
+                    continue;
+                }
+                n += 3;
+                let v = c.byte(si.wrapping_add(0x19));
+                let a = c.and(B, v as u16, 0xc0);
+                ax = ax & 0xff00 | a;
+                if a == 0 {
+                    at = 1;
+                    continue;
+                }
+                n += 3;
+                bp = 0x1813;
+                c.cmp(B, a, 0x80);
+                if a == 0x80 {
+                    at = 1;
+                    continue;
+                }
+                n += 3;
+                bp = 0x1817;
+                c.cmp(B, a, 0x40);
+                if a == 0x40 {
+                    at = 1;
+                    continue;
+                }
+                n += 1;
+                bp = 0x181b;
+                at = 1;
+            }
+            3 => {
+                n += 2;
+                ax = c.and(W, ax, 0x0f);
+                if ax != 0 {
+                    at = 4;
+                    continue;
+                }
+                n += 2;
+                let v = c.byte(si.wrapping_add(0x19));
+                c.test(B, v as u16, 0xc0);
+                if v & 0xc0 == 0 {
+                    at = 4;
+                    continue;
+                }
+                n += 5;
+                let a = c.and(B, v as u16, 0xc0);
+                ax = ax & 0xff00 | a;
+                bp = 0x17bc;
+                c.cmp(B, a, 0x80);
+                if a == 0x80 {
+                    at = 1;
+                    continue;
+                }
+                n += 3;
+                bp = 0x17c9;
+                c.cmp(B, a, 0x40);
+                if a == 0x40 {
+                    at = 1;
+                    continue;
+                }
+                n += 1;
+                bp = 0x1806;
+                at = 1;
+            }
+            4 => {
+                n += 5;
+                let b = c.shl1(W, ax, 1);
+                bp = c.word_in(SS, b.wrapping_add(0x179c));
+                c.cmp(W, bp, 0x1774);
+                if bp == 0x1774 {
+                    at = 5;
+                    continue;
+                }
+                n += 2;
+                c.cmp(W, bp, 0x1732);
+                if bp != 0x1732 {
+                    at = 1;
+                    continue;
+                }
+                n += 4;
+                let p = c.word(si.wrapping_add(4));
+                let f = c.byte_in(SS, p.wrapping_add(0x0a));
+                c.test(B, f as u16, 2);
+                bp = 0x16aa;
+                if f & 2 != 0 {
+                    at = 1;
+                    continue;
+                }
+                n += 1;
+                bp = 0x1732;
+                at = 5;
+            }
+            _ => {
+                n += 5;
+                let h = c.byte(si.wrapping_add(2));
+                let a = c.dec(B, h as u16);
+                let a = c.and(B, a, 7);
+                ax = ax & 0xff00 | a;
+                c.cmp(B, a, 3);
+                if a < 3 {
+                    at = 1;
+                    continue;
+                }
+                for k in [3u16, 4] {
+                    n += 3;
+                    bp = c.add(W, bp, 0x0a);
+                    c.cmp(B, a, k);
+                    if a == k {
+                        break;
+                    }
+                }
+                if a > 4 {
+                    n += 1;
+                    bp = c.add(W, bp, 0x0a);
+                }
+                at = 1;
+            }
+        }
+    }
+    if write {
+        c.set_reg(AX, ax);
+        c.set_reg(BP, bp);
+    }
+    (n, tail)
+}
