@@ -1679,3 +1679,78 @@ fn panel_with_head_at(c: &mut Ctx, at: u16) -> Result<(), Bail> {
     c.set_byte(0x1c30, 0);
     ui_draw_head_and_shoulders(c.m, 0x1797)
 }
+
+/// `loc_03d2f`: the character AL (AH: its sprite flags) drawn at (DX,
+/// BX) from resource 26h (the place kept at 47F8h + 4 * AL; from 0Fh up
+/// the extras as 0Fh with [476Ch] = AL - 0Fh): its sentence picked
+/// (`pick_sentence`); in phases 15h..1Fh with flag 4 (`loc_0127c`, CF)
+/// 11h, 35h lower; 0Ch with bit 10h of [10A7h] as 12h; sprites 2 * AL
+/// and the next one; the resource opened before back.
+pub fn draw_character(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x3d2f)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 10)?;
+    let r = c.word(0x2784);
+    c.push(r);
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.xor(B, 0, 0);
+    let a = ax & 0xff;
+    c.set_reg(AX, a);
+    let di = c.shl1(W, a, 2);
+    c.set_reg(DI, di);
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    c.set_word(di.wrapping_add(0x47f8), dx);
+    c.set_word(di.wrapping_add(0x47fa), bx);
+    c.set_reg(AX, 0x26);
+    c.call(0xc13e, 0x3d4a)?;
+    let ax = c.word_in(SS, c.reg(SP));
+    let al = ax as u8;
+    c.run(0x3d4a, 5 + if al >= 0x0f { 3 } else { 0 })?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.set_reg8(r8::CH, (ax >> 8) as u8);
+    c.cmp(B, al as u16, 0x0f);
+    if al >= 0x0f {
+        let e = c.sub(B, al as u16, 0x0f);
+        c.set_byte(0x476c, e as u8);
+        c.set_reg8(r8::AL, 0x0f);
+    }
+    c.call(0x9123, 0x3d5b)?;
+    c.run(0x3d5b, 1)?;
+    c.call(0x127c, 0x3d5e)?;
+    let cf = c.flag(CF);
+    let mut al = if cf { 0x11 } else { c.reg8(r8::AL) };
+    let f = c.byte(0x10a7);
+    let swap = al == 0x0c && f & 0x10 != 0;
+    let n = 1 + if cf { 2 } else { 0 } + 2 + if al == 0x0c { 2 + swap as u32 } else { 0 } + 4;
+    c.run(0x3d5e, n)?;
+    if cf {
+        c.set_reg8(r8::AL, 0x11);
+        let bx = c.reg(BX);
+        let bx = c.add(W, bx, 0x35);
+        c.set_reg(BX, bx);
+    }
+    c.cmp(B, al as u16, 0x0c);
+    if al == 0x0c {
+        c.test(B, f as u16, 0x10);
+        if swap {
+            al = 0x12;
+        }
+    }
+    let ch = c.reg8(r8::CH);
+    let a = c.shl1(B, al as u16, 1);
+    let ax = (ch as u16) << 8 | a;
+    c.set_reg(AX, ax);
+    c.push(ax);
+    c.call(0xc2fd, 0x3d7a)?;
+    c.run(0x3d7a, 3)?;
+    let a = c.pop();
+    let a = c.inc(W, a);
+    c.set_reg(AX, a);
+    c.call(0xc22f, 0x3d7f)?;
+    c.run(0x3d7f, 2)?;
+    let r = c.pop();
+    c.set_reg(AX, r);
+    super::resources::open_resource_by_index(c.m, 0xc13e)
+}
