@@ -1020,6 +1020,11 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x9197, dialogue::setup_lip_sync_data_from_current, "setup_lip_sync_data_from_current"),
     (0x91a0, dialogue::setup_lip_sync_data_from_sprite_sheet, "setup_lip_sync_data_from_sprite_sheet"),
     (0x0169, globe::map2_resource_func, "map2_resource_func"),
+    (0x8831, map::ui_click_map_buttons, "ui_click_map_buttons"),
+    (0x881f, map::ui_click_map_buttons, "ui_click_map_left"),
+    (0x8824, map::ui_click_map_buttons, "ui_click_map_right"),
+    (0x8829, map::ui_click_map_buttons, "ui_click_map_up"),
+    (0x882e, map::ui_click_map_buttons, "ui_click_map_down"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];

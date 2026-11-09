@@ -6081,10 +6081,23 @@ pub fn location_panel_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn open_place_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x541f)?;
     let mut c = Ctx::new(m);
-    c.run(start, 7)?;
-    let (p0, p1) = (c.word(0x197c), c.word(0x197e));
-    c.set_word(0x1982, p1);
-    c.set_word(0x1980, p0);
+    place_view_at(&mut c, false)
+}
+
+/// [`open_place_view`], or from 542Fh (`from_542f`: the point [1980h]
+/// as it is).
+fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
+    if !from_542f {
+        c.run(0x541f, 4)?;
+        let (p0, p1) = (c.word(0x197c), c.word(0x197e));
+        c.push(p0);
+        c.push(p1);
+        let v = c.pop();
+        c.set_word(0x1982, v);
+        let v = c.pop();
+        c.set_word(0x1980, v);
+    }
+    c.run(0x542f, 3)?;
     c.set_word(0x46fc, 0);
     c.set_word(0x479e, 0);
     c.call(0x557b, 0x543e)?;
@@ -6149,11 +6162,11 @@ pub fn open_place_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // registers and flags undone).
     let regs = c.m.cpu.regs;
     let flags = c.m.cpu.flags();
-    let (n, _) = point_rect_walk(&mut c);
+    let (n, _) = point_rect_walk(c);
     c.m.cpu.regs = regs;
     c.m.cpu.set_flags(flags);
     c.run(0x54be, n)?;
-    let (_, draw) = point_rect_walk(&mut c);
+    let (_, draw) = point_rect_walk(c);
     if draw {
         c.call(0xc560, 0x551d)?;
     }
@@ -6210,7 +6223,7 @@ pub fn open_place_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x5b99, 0x5572)?;
     c.run(0x5572, 1)?;
     c.call(0x5b8d, 0x5575)?;
-    mouse_rect_4710(&mut c)
+    mouse_rect_4710(c)
 }
 
 /// From 54BEh: the point's rect (BX - 14h..+13h, DX - 28h..+27h)
@@ -6601,4 +6614,79 @@ pub fn animate_map_sprites(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
     }
+}
+
+/// `ui_click_map_buttons` (and its entries `ui_click_map_left` / right /
+/// up / down with SI 146Ah, 1462h, 145Eh, 1466h): on a press (bit 0 of
+/// AL), the map point moved by the step at SI: in the place view (bit 6
+/// of [46EBh]) [1980h] and the view reopened from 542Fh; else [197Ch]
+/// (in the map view proper its sprite list dropped first), then
+/// `redraw_and_handle`.
+pub fn ui_click_map_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    let pre = match start {
+        0x881f => Some(0x146a),
+        0x8824 => Some(0x1462),
+        0x8829 => Some(0x145e),
+        0x882e => Some(0x1466),
+        _ => None,
+    };
+    if pre.is_none() {
+        entered(start, 0x8831)?;
+    }
+    let mut c = Ctx::new(m);
+    if c.flag(pc::cpu::DF) {
+        return Err(Bail);
+    }
+    let n0 = match (start, pre) {
+        (0x882e, Some(_)) => 1,
+        (_, Some(_)) => 2,
+        _ => 0,
+    };
+    if let Some(si) = pre {
+        c.run(start, n0)?;
+        c.set_reg(SI, si);
+    }
+    let al = c.reg8(r8::AL);
+    if al & 1 == 0 {
+        c.run(0x8831, 3)?;
+        c.test(B, al as u16, 1);
+        return c.ret();
+    }
+    let v = c.byte(0x46eb);
+    if v & 0x80 != 0 && v & 0x40 != 0 {
+        c.run(0x8831, 6 + 5)?;
+        c.test(B, al as u16, 1);
+        c.cmp(B, v as u16, 0);
+        c.test(B, v as u16, 0x40);
+        let a = c.lods(W, DS);
+        let w = c.word(0x1980);
+        let w = c.add(W, w, a);
+        c.set_word(0x1980, w);
+        let a = c.lods(W, DS);
+        let w = c.word(0x1982);
+        let w = c.add(W, w, a);
+        c.set_word(0x1982, w);
+        return place_view_at(&mut c, true);
+    }
+    if v & 0x80 != 0 {
+        c.run(0x8831, 7)?;
+        c.test(B, al as u16, 1);
+        c.cmp(B, v as u16, 0);
+        c.test(B, v as u16, 0x40);
+        c.call(0x5beb, 0x8846)?;
+    } else {
+        c.run(0x8831, 4)?;
+        c.test(B, al as u16, 1);
+        c.cmp(B, v as u16, 0);
+    }
+    c.run(0x8846, 4)?;
+    let a = c.lods(W, DS);
+    let w = c.word(0x197c);
+    let w = c.add(W, w, a);
+    c.set_word(0x197c, w);
+    let a = c.lods(W, DS);
+    let w = c.word(0x197e);
+    let w = c.add(W, w, a);
+    c.set_word(0x197e, w);
+    redraw_and_handle(c.m, 0x8850)
 }
