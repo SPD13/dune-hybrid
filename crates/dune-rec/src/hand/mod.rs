@@ -1016,6 +1016,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x78bc, troops::troop_caption, "loc_078bc"),
     (0x78e9, troops::troop_panel, "loc_078e9"),
     (0xd50f, cursor::highlight_hovered_text_action_item, "highlight_hovered_text_action_item"),
+    (0x0b45, story::scene_particles_step, "sub_0b45"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
