@@ -1010,6 +1010,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x1dd7, story::harkonnen_take, "sub_1dd7"),
     (0xd0ff, text::font_draw_glyph_func, "sub_d0ff"),
     (0x1dd4, story::spice_demand_day, "sub_1dd4"),
+    (0x8ccd, dialogue::text_box_for, "loc_08ccd"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];

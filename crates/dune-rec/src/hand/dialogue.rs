@@ -3637,3 +3637,223 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xb125, 1)?;
     c.ret()
 }
+
+/// `loc_08ccd`: the text box for the phrase SI: [4799h] 9, colour F0h,
+/// then the box (BP, on the stack segment) and its margins [4784h..478Ah]
+/// by the situation: the map views 2244h (the troop's description
+/// `loc_079ee` first unless [46EFh]); no speaker 224Ch; [0C6h] 2265h in
+/// colour 64h (`loc_0d082`); at night 2275h in colour 6, no margins;
+/// without subtitles ([28E7h] 0) 223Ch in colour 0Fh ([4799h] 1); else
+/// the first of the 3 boxes from 2224h whose height takes the broken
+/// lines (`break_lines`, [0A9D0h] lines of 0Ah plus the margins), a
+/// smaller one kept by a coin toss, and with none fitting (the last one,
+/// its margins dropped, ZF from the old [478Ah]) returning broken. The
+/// lines broken for the box's width less the margins ([478Fh]); CF clear.
+pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8ccd)?;
+    let mut c = Ctx::new(m);
+    let v = c.byte(0x46eb);
+    let head = |c: &mut Ctx| {
+        c.set_byte(0x4799, 9);
+        c.set_word(0xdbe4, 0xf0);
+    };
+    if v != 0 {
+        let t = c.word(0x46ef);
+        c.run(start, 6 + if t == 0 { 1 } else { 0 })?;
+        head(&mut c);
+        c.cmp(B, v as u16, 0);
+        c.cmp(W, t, 0);
+        if t == 0 {
+            c.call(0xe270, 0x8ce9)?;
+            c.run(0x8ce9, 3)?;
+            let es = c.sreg(ES);
+            c.push(es);
+            let si = c.word(0x46f1);
+            c.set_reg(SI, si);
+            c.call(0x79ee, 0x8cf1)?;
+            c.run(0x8cf1, 2)?;
+            let es = c.pop();
+            c.set_sreg(ES, es);
+            c.call(0xe283, 0x8cf5)?;
+        }
+        c.run(0x8cf5, 2)?;
+        c.set_reg(BP, 0x2244);
+        return box_8ddb(&mut c);
+    }
+    let sp = c.word(0x47c4);
+    if sp == 0xffff {
+        c.run(start, 15)?;
+        head(&mut c);
+        c.cmp(B, 0, 0);
+        c.cmp(W, sp, 0xffff);
+        margins(&mut c, 0x48, 0x10, 8, 8);
+        c.set_reg(BP, 0x224c);
+        return box_8ddb(&mut c);
+    }
+    let k = c.byte(0xc6);
+    if k != 0 {
+        c.run(start, 18)?;
+        head(&mut c);
+        c.cmp(B, 0, 0);
+        c.cmp(W, sp, 0xffff);
+        c.cmp(B, k as u16, 0);
+        c.set_reg(BP, 0x2265);
+        margins(&mut c, 0x3c, 0x32, 0x0a, 0x0a);
+        c.set_byte(0xdbe4, 0x64);
+        c.call(0xd082, 0x8d40)?;
+        c.run(0x8d40, 1)?;
+        return box_8ddb(&mut c);
+    }
+    let night = c.byte(0x227d);
+    if night != 0 {
+        c.run(start, 18)?;
+        head(&mut c);
+        c.cmp(B, 0, 0);
+        c.cmp(W, sp, 0xffff);
+        c.cmp(B, 0, 0);
+        c.cmp(B, night as u16, 0);
+        c.set_byte(0xdbe4, 6);
+        c.set_reg(BP, 0x2275);
+        c.xor(W, 0, 0);
+        c.set_reg(AX, 0);
+        for a in [0x4788u16, 0x478a, 0x4784, 0x4786] {
+            c.set_word(a, 0);
+        }
+        return box_8ddb(&mut c);
+    }
+    let sub = c.byte(0x28e7);
+    let pre = |c: &mut Ctx| {
+        head(c);
+        c.cmp(B, 0, 0);
+        c.cmp(W, sp, 0xffff);
+        c.cmp(B, 0, 0);
+        c.cmp(B, 0, 0);
+        c.cmp(B, sub as u16, 0);
+    };
+    if sub == 0 {
+        c.run(start, 23)?;
+        pre(&mut c);
+        c.set_byte(0x4799, 1);
+        c.set_byte(0xdbe4, 0x0f);
+        c.set_reg(BP, 0x223c);
+        c.xor(W, 0, 0);
+        c.set_word(0x478a, 0);
+        let a = c.inc(W, 0);
+        c.set_word(0x4788, a);
+        c.set_reg(AX, 0x10);
+        c.set_word(0x4784, 0x10);
+        c.set_word(0x4786, 0x10);
+        return box_8ddb(&mut c);
+    }
+    c.run(start, 14)?;
+    pre(&mut c);
+    c.set_reg(BP, 0x2224);
+    c.set_reg(CX, 3);
+    let mut at = 0x8d90u16;
+    loop {
+        let bp = c.reg(BP);
+        c.run(at, 7)?;
+        width_478f(&mut c, bp);
+        let (si, cx) = (c.reg(SI), c.reg(CX));
+        c.push(si);
+        c.push(cx);
+        c.call(0x8e16, 0x8da3)?;
+        let lines = c.word(0xa9d0) as u8;
+        let h = (lines as u16) * 10;
+        let (m1, m2) = (c.word(0x4788), c.word(0x478a));
+        let need = h.wrapping_add(m1).wrapping_add(m2);
+        let bp = c.reg(BP);
+        let cap = c.word_in(SS, bp.wrapping_add(6));
+        let fits = need < cap;
+        let cx = c.word_in(SS, c.reg(SP));
+        let last = !fits && cx.wrapping_sub(1) == 0;
+        c.run(0x8da3, 9 + if fits { 1 } else { 2 } + if last { 6 } else { 0 })?;
+        let cx = c.pop();
+        c.set_reg(CX, cx);
+        let s = c.pop();
+        c.set_reg(SI, s);
+        c.set_reg(AX, 0x0a00 | lines as u16);
+        c.mul8(0x0a);
+        let a = c.add(W, h, m1);
+        let a = c.add(W, a, m2);
+        c.set_reg(AX, a);
+        c.cmp(W, a, cap);
+        if fits {
+            let cx = c.dec(W, cx);
+            c.set_reg(CX, cx);
+            if cx == 0 {
+                c.run(0x8dce, 3)?;
+                c.set_flag(pc::cpu::CF, false);
+                return c.ret();
+            }
+            c.run(0x8dce, 3)?;
+            c.set_reg(BX, 1);
+            c.call(0xe3b7, 0x8dd6)?;
+            if c.flag(pc::cpu::ZF) {
+                c.run(0x8dd6, 3)?;
+                c.set_flag(pc::cpu::CF, false);
+                return c.ret();
+            }
+            c.run(0x8dd6, 2)?;
+            let bp = c.reg(BP);
+            let b = c.add(W, bp, 8);
+            c.set_reg(BP, b);
+            return box_8ddb(&mut c);
+        }
+        let b = c.add(W, bp, 8);
+        c.set_reg(BP, b);
+        let cx = cx.wrapping_sub(1);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            let b = c.sub(W, b, 8);
+            c.set_reg(BP, b);
+            c.xor(W, 0, 0);
+            c.set_word(0x4788, 0);
+            let old = c.word(0x478a);
+            c.set_word(0x478a, 0);
+            c.set_reg(AX, old);
+            c.or(W, old, old);
+            return c.ret();
+        }
+        at = 0x8d90;
+    }
+}
+
+/// The margins [4784h], [4786h], [4788h], [478Ah] (the `mov al` steps).
+fn margins(c: &mut Ctx, a: u16, b: u16, d: u16, e: u16) {
+    c.set_reg(AX, a);
+    c.set_word(0x4784, a);
+    let ax = c.reg(AX) & 0xff00 | b;
+    c.set_reg(AX, ax);
+    c.set_word(0x4786, ax);
+    let ax = ax & 0xff00 | d;
+    c.set_reg(AX, ax);
+    c.set_word(0x4788, ax);
+    let _ = e;
+    c.set_word(0x478a, ax);
+}
+
+/// The width for the box BP less the margins into [478Fh].
+fn width_478f(c: &mut Ctx, bp: u16) {
+    let w = c.word_in(SS, bp.wrapping_add(4));
+    let (a, b) = (c.word(0x4784), c.word(0x4786));
+    let x = c.sub(W, w, a);
+    let x = c.sub(W, x, b);
+    c.set_reg(AX, x);
+    c.set_word(0x478f, x);
+}
+
+/// From 8DDBh: the lines broken for the box BP; CF clear.
+fn box_8ddb(c: &mut Ctx) -> Result<(), Bail> {
+    let bp = c.reg(BP);
+    c.run(0x8ddb, 6)?;
+    width_478f(c, bp);
+    let si = c.reg(SI);
+    c.push(si);
+    c.call(0x8e16, 0x8ded)?;
+    c.run(0x8ded, 3)?;
+    let s = c.pop();
+    c.set_reg(SI, s);
+    c.set_flag(pc::cpu::CF, false);
+    c.ret()
+}
