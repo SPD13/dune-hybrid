@@ -1005,6 +1005,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x9f8b, dialogue::say_entry_mask_20, "loc_09f8b"),
     (0x563e, map::zoom_legend, "loc_0563e"),
     (0x3d2f, ui::draw_character, "loc_03d2f"),
+    (0xb039, dialogue::book_page, "loc_0b039"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];

@@ -3499,3 +3499,141 @@ pub fn say_entry_mask_20(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0x47c2, v);
     c.ret()
 }
+
+/// `loc_0b039`: the book page for the entry at CS:[11BFh]: [0C6h] bits 1,
+/// 2 cleared; into the text buffer A6B0h ([47BCh]) the heading
+/// (`find_in_2426` code's top 5 bits + F3h) and the entry's phrase
+/// (its record at AA7Ah + 4 * low 11 bits, kept in [477Ch]); the text
+/// ended and shown, its frame (2408h), the portrait; a mark (sprite 4 of
+/// 32h) when the text ends above 8Ah; except on the first page (AAh) the
+/// heading phrase 103h + bits 2..3 of the record; the page number
+/// ((entry - AAh) / 2 + 1, a leading 0 blank) at (132h, 3) in colour
+/// 53h; and with [243Eh] the icons 2412h at it - 0Bh ([1C30h] 80h, else
+/// 0).
+pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb039)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 8)?;
+    let v = c.byte(0xc6);
+    let v = c.and(B, v as u16, 0xf9);
+    c.set_byte(0xc6, v as u8);
+    c.set_reg(SI, 0xa6b0);
+    c.set_word(0x47bc, 0xa6b0);
+    c.push(0xa6b0);
+    let p = c.word(0x11bf);
+    let e = c.word_in(pc::cpu::CS, p);
+    c.set_reg(SI, e);
+    c.set_reg(AX, e);
+    c.call(0xb254, 0xb052)?;
+    c.run(0xb052, 7)?;
+    let ax = c.reg(AX);
+    let h = c.shr1(B, ax >> 8, 3);
+    c.xor(B, 0, 0);
+    let a = c.add(W, h, 0xf3);
+    c.set_reg(AX, a);
+    c.call(0xb126, 0xb062)?;
+    c.run(0xb062, 12)?;
+    let si = c.reg(SI);
+    let s = c.and(W, si, 0x7ff);
+    let s = c.shl1(W, s, 2);
+    let s = c.add(W, s, 0xaa7a);
+    c.set_reg(SI, s);
+    c.set_word(0x477c, s);
+    let r = c.lods(W, DS);
+    let s = c.pop();
+    c.set_reg(SI, s);
+    c.push(r);
+    let x = r.swap_bytes();
+    let h = c.and(B, x >> 8, 3);
+    let h = c.or(B, h, 8);
+    c.set_reg(AX, h << 8 | x & 0xff);
+    c.call(0xb126, 0xb080)?;
+    c.run(0xb080, 3)?;
+    let di = c.word(0x47bc);
+    c.set_reg(DI, di);
+    c.set_byte(di.wrapping_sub(1), 0xff);
+    c.call(0x88e1, 0xb08b)?;
+    c.run(0xb08b, 2)?;
+    c.set_reg(SI, 0x2408);
+    c.call(0xc551, 0xb091)?;
+    c.run(0xb091, 1)?;
+    c.call(0x1797, 0xb094)?;
+    let end = c.word(0xd82e);
+    let mid = 0x8cu16.wrapping_sub(end) >> 1;
+    let b = mid.wrapping_add(end);
+    let mark = b < 0x8a;
+    c.run(0xb094, 7 + if mark { 3 } else { 0 })?;
+    c.set_reg(AX, end);
+    let bx = c.sub(W, 0x8c, end);
+    let bx = c.shr1(W, bx, 1);
+    let bx = c.add(W, bx, end);
+    c.set_reg(BX, bx);
+    c.cmp(W, bx, 0x8a);
+    if mark {
+        c.set_reg(DX, 0x93);
+        c.set_reg(AX, 0x32);
+        c.call(0xc13e, 0xb0af)?;
+        c.run(0xb0af, 2)?;
+        c.set_reg(AX, 4);
+        c.call(0xc22f, 0xb0b5)?;
+    }
+    let page = c.word(0x11bf);
+    let first = page == 0xaa;
+    c.run(0xb0b5, 3 + if first { 0 } else { 8 })?;
+    let r = c.pop();
+    c.set_reg(AX, r);
+    c.cmp(W, page, 0xaa);
+    if !first {
+        let a = c.and(W, r, 0x0c);
+        let a = c.shr1(W, a, 2);
+        let a = c.add(W, a, 0x103);
+        c.set_reg(AX, a);
+        c.set_reg(BX, 0x8b);
+        c.set_reg(DX, 0xfa);
+        c.set_reg(CX, 0x64);
+        c.call(0xd194, 0xb0d4)?;
+    }
+    c.run(0xb0d4, 3)?;
+    c.set_reg(BX, 3);
+    c.set_reg(DX, 0x132);
+    c.call(0xd04e, 0xb0dd)?;
+    let page = c.word(0x11bf);
+    let n = (page.wrapping_sub(0xaa) >> 1).wrapping_add(1) as u8;
+    let tens = n / 10;
+    c.run(0xb0dd, 10 + if tens == 0 { 1 } else { 0 } + 2)?;
+    c.set_word(0xdbe4, 0x53);
+    let a = c.sub(W, page, 0xaa);
+    let a = c.shr1(W, a, 1);
+    let a = c.inc(W, a);
+    c.set_reg(AX, a);
+    c.aam(10);
+    let ax = c.reg(AX);
+    let ax = c.add(W, ax, 0x3030).swap_bytes();
+    c.cmp(B, ax & 0xff, 0x30);
+    let ax = if ax & 0xff == 0x30 { ax & 0xff00 | 0x20 } else { ax };
+    c.set_reg(AX, ax);
+    c.push(ax);
+    c.call(0xd12f, 0xb0fd)?;
+    c.run(0xb0fd, 3)?;
+    let ax = c.pop();
+    c.set_reg(AX, ax & 0xff00 | ax >> 8);
+    c.call(0xd12f, 0xb103)?;
+    let icons = c.word(0x243e);
+    c.run(0xb103, 4 + if icons != 0 { 7 } else { 1 })?;
+    c.set_byte(0x1c30, 0);
+    c.set_reg(AX, icons);
+    c.or(W, icons, icons);
+    if icons == 0 {
+        return c.ret();
+    }
+    c.set_byte(0x1c30, 0x80);
+    c.set_reg(SI, 0x2412);
+    let a = c.add(W, icons, 0xfff5);
+    c.set_reg(AX, a);
+    c.set_word(0x2412, a);
+    c.set_word(0x2418, a);
+    c.set_word(0x241e, a);
+    c.call(0xc21b, 0xb125)?;
+    c.run(0xb125, 1)?;
+    c.ret()
+}
