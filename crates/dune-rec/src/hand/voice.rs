@@ -4,7 +4,7 @@
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, SS, ZF},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, SP, SS, ZF},
     rec::Bail,
 };
 
@@ -1274,4 +1274,248 @@ pub fn alloc_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0x3811);
     c.set_reg(CX, 0x4e20);
     c.jump(0xf0f6)
+}
+
+/// `lip_sync_frame_task`: the speaking head's frame task. With a voice
+/// playing (`is_voc_pcm_playing`): without lip-sync timing ([0DC26h] 0)
+/// the mouth follows the sound (`loc_0a9e7`; at its end the next
+/// phrase); else the lip-sync frames due by the clock [0CE7Ah] (the
+/// 32-bit time [0DC2Ch]:[0DC2Eh] stepped by [2882h]:[2884h], frames
+/// read by `loc_0a814`, the last one shown by `loc_0a82e`; at the end
+/// the next phrase). Then the voice buffer kept fed (`loc_0a9b9`). The
+/// next phrase ([0DC30h], taken): the task stopped (`loc_0a7a5`) and
+/// a queued phrase loaded (`load_voc_and_lipsync_data` + [0D810h], BL
+/// 0Eh) and started (`loc_0a75c`).
+pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa7c2)?;
+    let mut c = Ctx::new(m);
+    c.run(0xa7c2, 1)?;
+    c.call(0xabcc, 0xa7c5)?;
+    if c.flag(ZF) {
+        c.run(0xa7c5, 2)?;
+        return c.ret();
+    }
+    let k = c.word(0xdc26);
+    if k == 0 {
+        c.run(0xa7c5, 4)?;
+        c.cmp(W, 0, 0);
+        c.call(0xa9e7, 0xa7d1)?;
+        if !c.flag(ZF) {
+            c.run(0xa7d1, 1)?;
+            return next_phrase_a789(&mut c);
+        }
+        c.run(0xa7d1, 3)?;
+        return feed_a9b9(&mut c);
+    }
+    let now = c.word(0xce7a);
+    let (t_hi, t_lo) = (c.word(0xdc2c), c.word(0xdc2e));
+    let (cx, si) = (c.word(0x2882), c.word(0x2884));
+    let (_, carry) = t_lo.overflowing_add(si);
+    let bx = t_hi.wrapping_add(cx).wrapping_add(carry as u16);
+    let dx = now.wrapping_sub(bx);
+    if dx & 0x8000 != 0 {
+        c.run(0xa7c5, 3 + 10 + 1)?;
+        frame_regs(&mut c, k, now, t_hi, t_lo, cx, si);
+        return feed_a9b9(&mut c);
+    }
+    c.run(0xa7c5, 3 + 10)?;
+    frame_regs(&mut c, k, now, t_hi, t_lo, cx, si);
+    loop {
+        c.run(0xa7f3, 2)?;
+        let di = c.reg(DI);
+        c.push(di);
+        c.call(0xa814, 0xa7f7)?;
+        let cf = c.flag(CF);
+        let sp = c.reg(SP);
+        let di = c.word_in(SS, sp);
+        if !cf {
+            c.run(0xa7f7, 2)?;
+            let v = c.pop();
+            c.set_reg(DI, v);
+            return next_phrase_a789(&mut c);
+        }
+        let (dx, cx, si, bp, bx) = (c.reg(DX), c.reg(CX), c.reg(SI), c.reg(BP), c.reg(BX));
+        // `sub di, si; sbb dx, cx`: below when DX:DI < CX:SI.
+        let b1 = di < si;
+        let (x, b2) = dx.overflowing_sub(cx);
+        let below = b2 || x < b1 as u16;
+        c.run(0xa7f7, 2 + 3 + if below { 0 } else { 3 })?;
+        let v = c.pop();
+        c.set_reg(DI, v);
+        let d = c.sub(W, di, si);
+        c.set_reg(DI, d);
+        let x = c.sbb(W, dx, cx);
+        c.set_reg(DX, x);
+        if below {
+            break;
+        }
+        let b = c.add(W, bp, si);
+        c.set_reg(BP, b);
+        let h = c.adc(W, bx, cx);
+        c.set_reg(BX, h);
+    }
+    c.run(0xa806, 3)?;
+    let (bx, bp) = (c.reg(BX), c.reg(BP));
+    c.set_word(0xdc2c, bx);
+    c.set_word(0xdc2e, bp);
+    c.call(0xa82e, 0xa811)?;
+    c.run(0xa811, 1)?;
+    feed_a9b9(&mut c)
+}
+
+/// From A7D5h: DX the time past the next frame, DI 0, BX:BP the next
+/// frame's time, CX:SI the step (counted by the caller).
+fn frame_regs(c: &mut Ctx, k: u16, now: u16, t_hi: u16, t_lo: u16, cx: u16, si: u16) {
+    c.cmp(W, k, 0);
+    c.set_reg(DX, now);
+    c.xor(W, 0, 0);
+    c.set_reg(DI, 0);
+    c.set_reg(BX, t_hi);
+    c.set_reg(BP, t_lo);
+    c.set_reg(CX, cx);
+    c.set_reg(SI, si);
+    let bp = c.add(W, t_lo, si);
+    c.set_reg(BP, bp);
+    let bx = c.adc(W, t_hi, cx);
+    c.set_reg(BX, bx);
+    let dx = c.sub(W, now, bx);
+    c.set_reg(DX, dx);
+}
+
+/// `loc_0a789`: the next phrase [0DC30h] (taken): none stops the task
+/// (`loc_0a7a5`); else after stopping it the phrase loaded
+/// (`load_voc_and_lipsync_data`, + [0D810h], BL 0Eh) and, when found,
+/// started (`loc_0a75c`).
+fn next_phrase_a789(c: &mut Ctx) -> Result<(), Bail> {
+    let p = c.word(0xdc30);
+    c.run(0xa789, 4)?;
+    c.xor(W, 0, 0);
+    c.set_word(0xdc30, 0);
+    c.set_reg(AX, p);
+    c.or(W, p, p);
+    if p == 0 {
+        return stop_a7a5(c);
+    }
+    c.run(0xa793, 2)?;
+    c.push(p);
+    c.call(0xa7a5, 0xa797)?;
+    c.run(0xa797, 4)?;
+    let p = c.pop();
+    let o = c.word(0xd810);
+    let a = c.add(W, p, o);
+    c.set_reg(AX, a);
+    c.set_reg8(r8::BL, 0x0e);
+    c.call(0xa6cc, 0xa7a1)?;
+    if !c.flag(CF) {
+        c.run(0xa7a1, 2)?;
+        return c.ret();
+    }
+    c.run(0xa7a1, 2)?;
+    c.run(0xa75c, 1)?;
+    c.call(0x9197, 0xa75f)?;
+    c.run(0xa75f, 3)?;
+    c.set_reg(BP, 0);
+    c.set_reg(SI, 0xa7c2);
+    c.call(0xda25, 0xa768)?;
+    c.run(0xa768, 2)?;
+    c.set_byte(0xdc2b, 1);
+    c.set_reg(SI, 0x3811);
+    c.interp(0xa770, 0xa774)?;
+    c.run(0xa774, 4)?;
+    let t = c.word(0xce7a);
+    c.set_reg(AX, t);
+    c.set_word(0xdc2c, t);
+    c.set_word(0xdc2e, 0x8000);
+    c.call(0xa814, 0xa783)?;
+    if !c.flag(CF) {
+        c.run(0xa783, 2)?;
+        return c.ret();
+    }
+    c.run(0xa783, 2)?;
+    c.call(0xa82e, 0xa788)?;
+    c.run(0xa788, 1)?;
+    c.ret()
+}
+
+/// `loc_0a7a5` reached by a jump: the task removed, [0DC26h] 0,
+/// `loc_0d61d`; with the voice still playing it is stopped (`loc_0abc6`,
+/// `loc_0a9a1`) and the music volume restored (`loc_0aded`).
+fn stop_a7a5(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0xa7a5, 2)?;
+    c.set_reg(SI, 0xa7c2);
+    c.call(0xda5f, 0xa7ab)?;
+    c.run(0xa7ab, 2)?;
+    c.set_word(0xdc26, 0);
+    c.call(0xd61d, 0xa7b4)?;
+    c.run(0xa7b4, 1)?;
+    c.call(0xabcc, 0xa7b7)?;
+    if c.flag(ZF) {
+        c.run(0xa7b7, 2)?;
+        return c.ret();
+    }
+    c.run(0xa7b7, 2)?;
+    c.call(0xabc6, 0xa7bc)?;
+    c.run(0xa7bc, 1)?;
+    c.call(0xa9a1, 0xa7bf)?;
+    let bl = c.byte(0x2896);
+    let bh = c.byte(0x28ae);
+    c.run(0xa7bf, 1 + 5 + (bl < 4) as u32)?;
+    c.set_reg(AX, 0x190);
+    c.set_reg8(r8::BL, bl);
+    c.set_reg8(r8::BH, bh);
+    c.cmp(B, bl as u16, 4);
+    if bl < 4 {
+        c.set_reg8(r8::BL, 4);
+    }
+    c.interp(0xadff, 0xae03)?;
+    c.run(0xae03, 1)?;
+    c.ret()
+}
+
+/// `loc_0a9b9`: with the voice buffer in use (`loc_0aba3`) its free half
+/// (3811h, or 3819h when the first is busy and the second free) refilled
+/// (`loc_0a93f` from its data + 6, BX [3821h]) and handed to the driver
+/// (far [39A1h]).
+fn feed_a9b9(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0xa9b9, 1)?;
+    c.call(0xaba3, 0xa9bc)?;
+    if c.flag(ZF) {
+        c.run(0xa9bc, 2)?;
+        return c.ret();
+    }
+    let (a, b) = (c.byte(0x3817), c.byte(0x381f));
+    if a != 0 && b != 0 {
+        c.run(0xa9bc, 7)?;
+        c.set_reg(SI, 0x3811);
+        c.cmp(B, a as u16, 0);
+        c.cmp(B, b as u16, 0);
+        return c.ret();
+    }
+    let si = if a == 0 { 0x3811u16 } else { 0x3819 };
+    c.run(0xa9bc, 4 + if a == 0 { 0 } else { 3 } + 5)?;
+    c.set_reg(SI, 0x3811);
+    c.cmp(B, a as u16, 0);
+    if a != 0 {
+        c.cmp(B, b as u16, 0);
+        c.set_reg(SI, 0x3819);
+    }
+    let bx = c.word(0x3821);
+    c.set_reg(BX, bx);
+    let dx = c.word(si);
+    let es = c.word(si.wrapping_add(2));
+    c.set_sreg(ES, es);
+    let dx = c.add(W, dx, 6);
+    c.set_reg(DX, dx);
+    c.push(si);
+    c.call(0xa93f, 0xa9df)?;
+    let cf = c.flag(CF);
+    c.run(0xa9df, 2 + (cf as u32))?;
+    let v = c.pop();
+    c.set_reg(SI, v);
+    if cf {
+        return c.ret();
+    }
+    c.interp(0xa9e2, 0xa9e6)?;
+    c.run(0xa9e6, 1)?;
+    c.ret()
 }
