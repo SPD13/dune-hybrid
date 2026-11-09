@@ -6066,3 +6066,247 @@ pub fn location_panel_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, b);
     super::draw::draw_sprite_clobbering_bx_dx(c.m, 0xc22f)
 }
+
+/// `loc_0541f`: the zoomed map view opened on the point [197Ch]: the
+/// point kept in [1980h], the message subject and [479Eh] cleared; the
+/// view's frame (46E3h) and its inner box (4710h) placed around the map
+/// position ([`get_point_4710`]), the frame sprite 8Dh, the zoomed globe
+/// drawn into the back buffer from resource 3Ah ([46EBh] 40h), the map
+/// layers, a rect FBh around the point's screen place (40h by 28h,
+/// clamped to the box; none when flat); the place [0DBE0h] / [0DBE2h]
+/// noted, the previous box [4720h] redrawn, as the second place the
+/// troop marker and its route lines, else the marker at DX, BX,
+/// the screen updated, [46EBh] C0h, the clip rect, `loc_05b8d`; then
+/// the mouse rect 4710h.
+pub fn open_place_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x541f)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 7)?;
+    let (p0, p1) = (c.word(0x197c), c.word(0x197e));
+    c.set_word(0x1982, p1);
+    c.set_word(0x1980, p0);
+    c.set_word(0x46fc, 0);
+    c.set_word(0x479e, 0);
+    c.call(0x557b, 0x543e)?;
+    c.run(0x543e, 15)?;
+    c.set_reg(DI, 0x46e3);
+    let dx = c.reg(DX);
+    let dx = c.add(W, dx, 5);
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 7);
+    c.set_word(0x46e3, dx);
+    c.set_word(0x46e5, bx);
+    let dx = c.add(W, dx, 0xa0);
+    c.set_word(0x46e7, dx);
+    let bx = c.add(W, bx, 0x59);
+    c.set_word(0x46e9, bx);
+    c.set_reg(SI, 0x4710);
+    let dx = c.add(W, dx, 5);
+    c.set_word(0x4714, dx);
+    let bx = c.add(W, bx, 0x0c);
+    c.set_word(0x4716, bx);
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    c.call(0xc13b, 0x546b)?;
+    c.run(0x546b, 1)?;
+    c.call(0x557b, 0x546e)?;
+    c.run(0x546e, 2)?;
+    c.set_reg(AX, 0x8d);
+    c.call(0xc22f, 0x5474)?;
+    c.run(0x5474, 1)?;
+    c.call(0xc07c, 0x5477)?;
+    c.run(0x5477, 1)?;
+    c.call(0x5b8d, 0x547a)?;
+    c.run(0x547a, 3)?;
+    let v = c.word(0xdd00);
+    c.push(v);
+    c.set_reg(AX, 0x3a);
+    c.call(0xc13e, 0x5484)?;
+    c.run(0x5484, 1)?;
+    c.call(0x5584, 0x5487)?;
+    c.run(0x5487, 4)?;
+    let v = c.word(0xdbb2);
+    c.set_word(0xdd00, v);
+    c.set_byte(0x46eb, 0x40);
+    c.call(0xb69a, 0x5497)?;
+    c.run(0x5497, 1)?;
+    c.call(0xb6c3, 0x549a)?;
+    c.run(0x549a, 2)?;
+    let v = c.pop();
+    c.set_word(0xdd00, v);
+    c.call(0x58e4, 0x54a1)?;
+    for (at, to) in [(0x54a1u16, 0xc137u16), (0x54a4, 0x5dce), (0x54a7, 0x5605), (0x54aa, 0x563e)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    c.run(0x54ad, 4)?;
+    c.set_word(0x2772, 0x5555);
+    let (dx, bx) = (c.word(0x1980), c.word(0x1982));
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    c.call(0xb647, 0x54be)?;
+    // The rect around the point, clamped to the box (counted first, its
+    // registers and flags undone).
+    let regs = c.m.cpu.regs;
+    let flags = c.m.cpu.flags();
+    let (n, _) = point_rect_walk(&mut c);
+    c.m.cpu.regs = regs;
+    c.m.cpu.set_flags(flags);
+    c.run(0x54be, n)?;
+    let (_, draw) = point_rect_walk(&mut c);
+    if draw {
+        c.call(0xc560, 0x551d)?;
+    }
+    let si = 0x4710u16;
+    let a = c.word(0xdbe0);
+    let second = a != 0 && a != si;
+    let prev = c.word(0x4720);
+    c.run(0x551d, 5 + if a == 0 { 0 } else if a == si { 2 } else { 3 } + 7 + if prev != 0 { 3 } else { 0 })?;
+    c.set_word(0x2772, 0xffff);
+    c.set_reg(SI, si);
+    c.set_reg(DI, 0xdbe0);
+    c.cmp(W, a, 0);
+    if a != 0 {
+        c.cmp(W, a, si);
+    }
+    let di = if second { 0xdbe2 } else { 0xdbe0 };
+    c.set_reg(DI, di);
+    c.set_word(di, si);
+    c.cmp(W, di, 0xdbe2);
+    let f = c.m.cpu.flags();
+    c.push(f);
+    c.xor(W, 0, 0);
+    c.set_word(0x4720, 0);
+    c.set_reg(DI, prev);
+    c.or(W, prev, prev);
+    if prev != 0 {
+        c.set_reg(SI, prev);
+        c.set_reg(DI, si);
+        c.set_reg8(r8::AL, 6);
+        c.call(0xc0e8, 0x554d)?;
+    }
+    let f = c.word_in(SS, c.reg(SP));
+    let zf = f & 0x40 != 0;
+    c.run(0x554d, 3)?;
+    let f = c.pop();
+    c.m.cpu.set_flags(f);
+    if zf {
+        c.call(0x62f2, 0x5553)?;
+        c.run(0x5553, 1)?;
+        c.call(0x813e, 0x5556)?;
+        c.run(0x5556, 1)?;
+    } else {
+        c.call(0x6314, 0x555b)?;
+    }
+    c.run(0x555b, 2)?;
+    c.set_reg(SI, 0x4710);
+    c.call(0xc4f0, 0x5561)?;
+    c.run(0x5561, 1)?;
+    c.call(0xb69a, 0x5564)?;
+    c.run(0x5564, 4)?;
+    c.set_byte(0x46eb, 0xc0);
+    c.set_reg(SI, 0x1482);
+    c.set_reg(DI, 0x46e3);
+    c.call(0x5b99, 0x5572)?;
+    c.run(0x5572, 1)?;
+    c.call(0x5b8d, 0x5575)?;
+    mouse_rect_4710(&mut c)
+}
+
+/// From 54BEh: the point's rect (BX - 14h..+13h, DX - 28h..+27h)
+/// clamped to the box [4710h] + 5..+A4h, [4712h] + 7..+5Fh; its count,
+/// and whether it is drawn (`draw_rect_outline`, AL FBh).
+fn point_rect_walk(c: &mut Ctx) -> (u32, bool) {
+    let (dx0, bx0) = (c.reg(DX), c.reg(BX));
+    let mut n = 8u32;
+    let mut cx = bx0;
+    let mut di = dx0;
+    let mut bx = c.sub(W, bx0, 0x14);
+    cx = c.add(W, cx, 0x13);
+    let mut dx = c.sub(W, dx0, 0x28);
+    di = c.add(W, di, 0x27);
+    let x = c.word(0x4710);
+    let mut ax = c.add(W, x, 5);
+    // `cmp r, ax`, then `jge` (signed) or `jbe` over `mov r, ax`.
+    let clamp = |c: &mut Ctx, r: &mut u16, ax: u16, low: bool, n: &mut u32| {
+        c.cmp(W, *r, ax);
+        *n += 2;
+        let keep = if low { (*r as i16) >= (ax as i16) } else { *r <= ax };
+        if !keep {
+            *r = ax;
+            *n += 1;
+        }
+    };
+    clamp(c, &mut dx, ax, true, &mut n);
+    clamp(c, &mut di, ax, true, &mut n);
+    ax = c.add(W, ax, 0x9f);
+    n += 1;
+    clamp(c, &mut dx, ax, false, &mut n);
+    clamp(c, &mut di, ax, false, &mut n);
+    let y = c.word(0x4712);
+    ax = c.add(W, y, 7);
+    n += 2;
+    clamp(c, &mut bx, ax, true, &mut n);
+    clamp(c, &mut cx, ax, true, &mut n);
+    ax = c.add(W, ax, 0x58);
+    n += 1;
+    clamp(c, &mut bx, ax, false, &mut n);
+    clamp(c, &mut cx, ax, false, &mut n);
+    c.set_reg(AX, ax);
+    c.set_reg(BX, bx);
+    c.set_reg(CX, cx);
+    c.set_reg(DX, dx);
+    c.set_reg(DI, di);
+    c.cmp(W, bx, cx);
+    n += 2;
+    if bx == cx {
+        return (n, false);
+    }
+    c.cmp(W, dx, di);
+    n += 2;
+    if dx == di {
+        return (n, false);
+    }
+    c.set_reg8(r8::AL, 0xfb);
+    (n + 2, true)
+}
+
+/// `loc_05575` (after the jump there): the mouse rect 4710h.
+fn mouse_rect_4710(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x5575, 2)?;
+    c.set_reg(SI, 0x4710);
+    super::input::set_some_mouse_rect(c.m, 0xdaaa)
+}
+
+/// `loc_05575`: the mouse rect set to the zoomed map's box 4710h.
+pub fn mouse_to_zoom_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5575)?;
+    let mut c = Ctx::new(m);
+    mouse_rect_4710(&mut c)
+}
+
+/// `sub_5b05`: the map list (`map_list_without_40`): empty (ZF) opens
+/// the place view ([`open_place_view`]); else the mark at the map
+/// position, `redraw_and_handle`, and in the zoomed view (bit 40h of
+/// [46EBh]) the mouse rect back on its box.
+pub fn map_list_or_zoom(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5b05)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x82a0, 0x5b08)?;
+    if c.flag(ZF) {
+        c.run(0x5b08, 2)?;
+        return open_place_view(c.m, 0x541f);
+    }
+    c.run(0x5b08, 2)?;
+    c.call(0x5b5d, 0x5b10)?;
+    c.run(0x5b10, 1)?;
+    c.call(0x8850, 0x5b13)?;
+    let v = c.byte(0x46eb);
+    c.run(0x5b13, 3)?;
+    c.test(B, v as u16, 0x40);
+    if v & 0x40 != 0 {
+        return mouse_rect_4710(&mut c);
+    }
+    c.ret()
+}

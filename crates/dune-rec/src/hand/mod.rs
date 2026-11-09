@@ -999,6 +999,9 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xa3f9, panels::settings_ui_draw, "settings_ui_draw"),
     (0xa576, panels::settings_click, "sub_a576"),
     (0x450e, story::map_pick_place, "sub_450e"),
+    (0x541f, map::open_place_view, "loc_0541f"),
+    (0x5575, map::mouse_to_zoom_box, "loc_05575"),
+    (0x5b05, map::map_list_or_zoom, "sub_5b05"),
     (0xbc0c, globe::draw_globe_cursor_at_dx_bx, "draw_globe_cursor_at_dx_bx"),
     (0x98af, dialogue::close_dialogue, "loc_098af"),
 ];
