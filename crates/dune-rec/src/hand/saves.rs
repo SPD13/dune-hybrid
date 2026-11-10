@@ -1082,3 +1082,279 @@ pub fn unrle_image_to_tmp_buffer(m: &mut Machine, start: u16) -> Result<(), Bail
     }
     c.ret()
 }
+
+/// `particles_update_dirty_rect` (C6AD): the rectangle at SI (x0 with
+/// flags in its top bits, y0, x1, y1) redrawn on screen. With the mouse
+/// shown over it, it is hidden first (`loc_0dbb2`) and drawn again on
+/// return (the return goes through DBECh). Clipped to the view at
+/// D83Ch (into D834h; nothing left: done). Then, on the background
+/// (`loc_0c443`), the live particles (3CC0h, [3CBEh] of 11h bytes)
+/// meeting it listed on the stack (up to 100h) and drawn in the order
+/// the sorter [2786h] gives (`loc_0c30d` each, taken from the list);
+/// the frieze (`loc_01797`) when the rectangle reaches it outside the
+/// intro; the two overlays [0DBE0h], [0DBE2h] (`loc_0c7d4`); and the
+/// rectangle copied to the screen (`loc_0c51e`).
+pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc6ad)?;
+    let mut c = Ctx::new(m);
+    c.run(0xc6ad, 1)?;
+    c.call(0xc13b, 0xc6b0)?;
+    let si = c.reg(SI);
+    let k = c.byte(0xdc46);
+    let (my, mx) = (c.word(0xdc44), c.word(0xdc42));
+    let r: Vec<u16> = (0..4).map(|i| c.word(si.wrapping_add(2 * i))).collect();
+    let bx0 = r[0] & 0x0fff;
+    let lt = |a: u16, b: u16| (a as i16) < (b as i16);
+    let mut n = 2;
+    let mut hit = false;
+    if k & 0x80 == 0 {
+        n += 3;
+        if lt(my, r[3]) {
+            n += 3;
+            if lt(r[1], my.wrapping_add(0x10)) {
+                n += 3;
+                if lt(mx, r[2]) {
+                    n += 5;
+                    if lt(bx0, mx.wrapping_add(0x10)) {
+                        n += 4;
+                        hit = true;
+                    }
+                }
+            }
+        }
+    }
+    c.run(0xc6b0, n)?;
+    c.cmp(B, k as u16, 0);
+    if k & 0x80 == 0 {
+        c.set_reg(AX, my);
+        c.cmp(W, my, r[3]);
+        if lt(my, r[3]) {
+            let a = c.add(W, my, 0x10);
+            c.set_reg(AX, a);
+            c.cmp(W, a, r[1]);
+            if lt(r[1], a) {
+                c.set_reg(AX, mx);
+                c.cmp(W, mx, r[2]);
+                if lt(mx, r[2]) {
+                    let a = c.add(W, mx, 0x10);
+                    c.set_reg(AX, a);
+                    c.set_reg(BX, r[0]);
+                    let bh = c.and(B, r[0] >> 8, 0xf);
+                    c.set_reg(BX, (bh << 8) | (r[0] & 0xff));
+                    c.cmp(W, a, bx0);
+                    if hit {
+                        c.set_reg(AX, 0xdbec);
+                        c.push(0xdbec);
+                        c.push(si);
+                        c.call(0xdbb2, 0xc6e3)?;
+                        c.run(0xc6e3, 1)?;
+                        let v = c.pop();
+                        c.set_reg(SI, v);
+                    }
+                }
+            }
+        }
+    }
+    // Clip to the view.
+    let si = c.reg(SI);
+    let r: Vec<u16> = (0..4).map(|i| c.word(si.wrapping_add(2 * i))).collect();
+    let v: Vec<u16> = (0..4).map(|i| c.word(0xd83c + 2 * i)).collect();
+    let x0 = if lt(r[0], v[0]) { v[0] } else { r[0] };
+    let y0 = if lt(r[1], v[1]) { v[1] } else { r[1] };
+    let x1 = if lt(v[2], r[2]) { v[2] } else { r[2] };
+    let y1 = if lt(v[3], r[3]) { v[3] } else { r[3] };
+    let mut n = 4 + 3 + lt(r[0], v[0]) as u32 + 1 + 3 + lt(r[1], v[1]) as u32 + 1;
+    n += 3 + lt(v[2], r[2]) as u32 + 2;
+    let empty_x = !lt(x0, x1);
+    let empty_y = !empty_x && !lt(y0, y1);
+    if empty_x {
+        n += 1;
+    } else {
+        n += 1 + 3 + lt(v[3], r[3]) as u32 + 2;
+        n += if empty_y { 1 } else { 2 };
+    }
+    c.run(0xc6e4, n)?;
+    let ds = c.sreg(DS);
+    c.set_reg(AX, ds);
+    c.set_sreg(ES, ds);
+    c.set_reg(DI, 0xd834);
+    c.set_reg(BX, 8);
+    let ops: [(u16, u16, bool); 4] = [(r[0], v[0], true), (r[1], v[1], true), (r[2], v[2], false), (r[3], v[3], false)];
+    for (i, (a, b, low)) in ops.into_iter().enumerate() {
+        c.lods(W, DS);
+        c.cmp(W, a, b);
+        let take = if low { lt(a, b) } else { lt(b, a) };
+        let val = if take { b } else { a };
+        c.set_reg(AX, val);
+        if i >= 2 {
+            let lo = if i == 2 { x0 } else { y0 };
+            c.cmp(W, val, lo);
+            if !lt(lo, val) {
+                c.ret()?;
+                return ret_mouse_tail(&mut c);
+            }
+        }
+        c.stos(W);
+    }
+    c.call(0xc443, 0xc71b)?;
+    // The particles meeting the rectangle, listed on the stack.
+    let count = c.word(0x3cbe);
+    c.run(0xc71b, 4)?;
+    let sp = c.reg(SP);
+    let sp = c.sub(W, sp, 0x200);
+    c.set_reg(SP, sp);
+    c.set_reg(DI, sp);
+    c.set_reg(CX, count);
+    if count != 0 {
+        c.run(0xc727, 9)?;
+        c.set_reg(SI, 0xd834);
+        let (dx, bx, bp, ax) = (c.word(0xd834), c.word(0xd836), c.word(0xd838), c.word(0xd83a));
+        c.set_reg(DX, dx);
+        c.set_reg(BX, bx);
+        c.set_reg(BP, bp);
+        c.set_reg(AX, ax);
+        c.set_reg(SI, 0xd83a);
+        let mut si = 0x3cc0u16;
+        c.set_reg(SI, si);
+        let mut di = sp;
+        for k in 0..count {
+            let f = c.byte(si.wrapping_add(0xc));
+            let p: Vec<u16> = (0..4).map(|i| c.word(si.wrapping_add(2 * i))).collect();
+            let mut n = 2;
+            let mut meets = false;
+            c.check(0xc738, 16)?;
+            c.cmp(B, f as u16, 0);
+            if f & 0x80 == 0 {
+                n += 2;
+                c.cmp(W, p[0], bp);
+                if lt(p[0], bp) {
+                    n += 2;
+                    c.cmp(W, p[1], ax);
+                    if lt(p[1], ax) {
+                        n += 2;
+                        c.cmp(W, p[2], dx);
+                        if lt(dx, p[2]) {
+                            n += 2;
+                            c.cmp(W, p[3], bx);
+                            if lt(bx, p[3]) {
+                                n += 2;
+                                meets = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if meets {
+                c.set_word(di, si);
+                di = c.add(W, di, 2);
+                c.set_reg(DI, di);
+            }
+            si = c.add(W, si, 0x11);
+            c.set_reg(SI, si);
+            c.set_reg(CX, count - 1 - k);
+            c.count(n + 2);
+        }
+        let len = di.wrapping_sub(sp) >> 1;
+        c.run(0xc75b, 4)?;
+        c.set_reg(CX, di);
+        let d = c.sub(W, di, sp);
+        let h = c.shr1(W, d, 1);
+        c.set_reg(CX, h);
+        if len != 0 {
+            loop {
+                c.run(0xc763, 3)?;
+                let sp0 = c.reg(SP);
+                c.set_reg(SI, sp0);
+                let cx = c.reg(CX);
+                c.push(cx);
+                let to = c.word(0x2786);
+                c.call(to, 0xc76a)?;
+                if c.flag(pc::cpu::SF) {
+                    c.run(0xc76a, 2)?;
+                    let v = c.pop();
+                    c.set_reg(CX, v);
+                    break;
+                }
+                c.run(0xc76a, 7)?;
+                let bx = c.reg(BX);
+                let s0 = c.reg(SI);
+                c.xor(W, s0, s0);
+                let s = c.word(bx.wrapping_sub(2));
+                c.set_word(bx.wrapping_sub(2), 0);
+                c.set_reg(SI, s);
+                let ax = c.word(s.wrapping_add(8));
+                c.set_reg(AX, ax);
+                let dx = c.word(s);
+                c.set_reg(DX, dx);
+                let b = c.word(s.wrapping_add(2));
+                c.set_reg(BX, b);
+                c.call(0xc30d, 0xc77c)?;
+                c.run(0xc77c, 2)?;
+                let v = c.pop();
+                c.set_reg(CX, v);
+            }
+        }
+    }
+    // The frieze, the overlays, the copy.
+    let f = c.byte(0x227d);
+    let (b, h, l) = (c.word(0xd83a), c.word(0xd838), c.word(0xd834));
+    let n = if f != 0 {
+        2
+    } else if lt(b, 0x89) {
+        4
+    } else if lt(h, 0x7e) {
+        6
+    } else if !lt(l, 0xc2) {
+        8
+    } else {
+        9
+    };
+    c.run(0xc780, n)?;
+    c.cmp(B, f as u16, 0);
+    if f == 0 {
+        c.cmp(W, b, 0x89);
+        if n > 4 {
+            c.cmp(W, h, 0x7e);
+        }
+        if n > 6 {
+            c.cmp(W, l, 0xc2);
+        }
+        if n == 9 {
+            c.call(0x1797, 0xc7a2)?;
+        }
+    }
+    for (at, ov, ret) in [(0xc7a2u16, 0xdbe0u16, 0xc7b0u16), (0xc7b0, 0xdbe2, 0xc7be)] {
+        let s = c.word(ov);
+        c.run(at, 3 + if s != 0 { 2 } else { 0 })?;
+        c.set_reg(SI, s);
+        c.or(W, s, s);
+        if s == 0 {
+            break;
+        }
+        c.set_reg(DI, 0xd834);
+        c.call(0xc7d4, ret)?;
+    }
+    c.run(0xc7be, 6)?;
+    c.set_reg(SI, 0xd834);
+    let (dx, bx, bp, ax) = (c.word(0xd834), c.word(0xd836), c.word(0xd838), c.word(0xd83a));
+    c.set_reg(DX, dx);
+    c.set_reg(BX, bx);
+    c.set_reg(BP, bp);
+    c.set_reg(AX, ax);
+    c.call(0xc51e, 0xc7cf)?;
+    c.run(0xc7cf, 2)?;
+    let sp = c.reg(SP);
+    let s = c.add(W, sp, 0x200);
+    c.set_reg(SP, s);
+    c.ret()?;
+    ret_mouse_tail(&mut c)
+}
+
+/// After a `ret`: landed on DBECh (pushed when the mouse was hidden),
+/// the mouse is drawn again there.
+fn ret_mouse_tail(c: &mut Ctx) -> Result<(), Bail> {
+    if c.m.cpu.ip == 0xdbec {
+        return super::mouse::draw_mouse(c.m, 0xdbec);
+    }
+    Ok(())
+}
