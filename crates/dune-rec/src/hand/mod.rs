@@ -1151,6 +1151,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xb389, tails::create_save_cl, "create_save_cl"),
     (0xa03f, tails::line_a03f, "loc_0a03f"),
     (0x79ee, tails::place_panel_79ee, "loc_079ee"),
+    (0x5692, tails::map_panel_5692, "loc_05692"),
+    (0x4795, tails::night_4795, "loc_04795"),
     (0xe675, dos::open_dune_dat, "open_dune_dat"),
     (0xb427, tails::create_save_in_memory, "create_save_in_memory"),
     (0x49d9, tails::head_49d9, "loc_049d9"),

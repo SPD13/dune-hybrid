@@ -2740,3 +2740,171 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0x567a);
     c.ret()
 }
+
+/// `loc_04795`: with a talking head (not [46EBh] negative): for AL 4
+/// (from 47CEh) the night's end: `loc_0ce53`, the flag [4732h] taken;
+/// when it was set, `loc_0181e`, [4731h] FFh, the screen saved, the room
+/// drawn (`loc_037b2`), `loc_0c412`, `loc_05ba0`, [4731h] 0, sound 6,
+/// then the steps (CL 1: `loc_047fb`). Else the dialogue closed
+/// (`loc_098af`), [0CEE8h] 0, phase 50h (`set_game_phase`), [0E8h] 0,
+/// the frieze, transition 10h with BP 4913h, the video (`loc_0491c`,
+/// [227Dh] 1 meanwhile), and the music stopped (`loc_0ac14`).
+pub fn night_4795(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4795)?;
+    let mut c = Ctx::new(m);
+    let f = c.byte(0x46eb);
+    if f & 0x80 != 0 {
+        c.run(0x4795, 3)?;
+        c.cmp(B, f as u16, 0);
+        return c.ret();
+    }
+    let al = c.reg8(r8::AL);
+    if al == 4 {
+        c.run(0x4795, 5)?;
+        c.cmp(B, f as u16, 0);
+        c.cmp(B, 4, 4);
+        c.call(0xce53, 0x47d1)?;
+        let old = c.byte(0x4732);
+        let set = old & 0x80 != 0;
+        c.run(0x47d1, 4 + if set { 1 } else { 1 })?;
+        let al = c.reg8(r8::AL);
+        c.xor(B, al as u16, al as u16);
+        c.set_byte(0x4732, 0);
+        let v = c.shl1(B, old as u16, 1);
+        c.set_reg8(r8::AL, v as u8);
+        if !set {
+            return c.ret();
+        }
+        c.call(0x181e, 0x47de)?;
+        c.run(0x47de, 2)?;
+        c.set_byte(0x4731, 0xff);
+        c.call(0xc07c, 0x47e6)?;
+        c.run(0x47e6, 1)?;
+        c.call(0x37b2, 0x47e9)?;
+        c.run(0x47e9, 1)?;
+        c.call(0xc412, 0x47ec)?;
+        c.run(0x47ec, 1)?;
+        c.call(0x5ba0, 0x47ef)?;
+        c.run(0x47ef, 3)?;
+        c.set_byte(0x4731, 0);
+        c.set_reg8(r8::AL, 6);
+        c.call(0xab15, 0x47f9)?;
+        c.run(0x47f9, 1)?;
+        c.set_reg8(r8::CL, 1);
+        return c.jump(0x47fb);
+    }
+    c.run(0x4795, 5)?;
+    c.cmp(B, f as u16, 0);
+    c.cmp(B, al as u16, 4);
+    c.call(0x98af, 0x47a3)?;
+    c.run(0x47a3, 3)?;
+    c.set_byte(0xcee8, 0);
+    c.set_reg8(r8::AL, 0x50);
+    c.call(0x121f, 0x47ad)?;
+    c.run(0x47ad, 2)?;
+    c.set_byte(0xe8, 0);
+    c.call(0x1797, 0x47b5)?;
+    c.run(0x47b5, 3)?;
+    c.set_reg8(r8::AL, 0x10);
+    c.set_reg(BP, 0x4913);
+    c.call(0xc108, 0x47bd)?;
+    c.run(0x47bd, 2)?;
+    c.set_byte(0x227d, 1);
+    c.call(0x491c, 0x47c5)?;
+    c.run(0x47c5, 2)?;
+    c.set_byte(0x227d, 0);
+    c.jump(0xac14)
+}
+
+/// `loc_05692`: the map's place panel: `loc_05605`; without a place (DI
+/// 0) on at 563Eh; else its type and name (`draw_string_location_type`,
+/// `draw_location_name`, colour F5FEh, 62h,6 further, `loc_0d05f`
+/// between); for a sietch (DI from 138h, not kind 21h) its troops counted
+/// (`loc_06639`, BP 5728h): none goes to 571Ah, else three figures
+/// (`loc_056ed` AX 0, 1, 2 with BL CH, CL) at [4710h] + 71h, the colour
+/// [0DBE4h] 3 less, after `open_onmap_resource`. Without them 5719h.
+pub fn map_panel_5692(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5692)?;
+    let mut c = Ctx::new(m);
+    c.run(0x5692, 2)?;
+    let di = c.reg(DI);
+    c.push(di);
+    c.call(0x5605, 0x5696)?;
+    let di = c.pop();
+    c.set_reg(DI, di);
+    if di == 0 {
+        c.run(0x5696, 3)?;
+        c.or(W, di, di);
+        return c.jump(0x563e);
+    }
+    c.run(0x5696, 3 + 4)?;
+    c.or(W, di, di);
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, 0x62);
+    c.set_reg(BX, bx);
+    let dx = c.reg(DX);
+    let dx = c.add(W, dx, 6);
+    c.set_reg(DX, dx);
+    c.set_reg(CX, 0xf5fe);
+    c.call(0x629d, 0x56a7)?;
+    c.run(0x56a7, 1)?;
+    c.call(0xd05f, 0x56aa)?;
+    c.run(0x56aa, 2)?;
+    c.set_reg(CX, 0xf5fe);
+    c.call(0x62a6, 0x56b0)?;
+    let di = c.reg(DI);
+    let kind = c.byte(di.wrapping_add(8));
+    if di < 0x138 {
+        c.run(0x56b0, 2)?;
+        c.cmp(W, di, 0x138);
+        return c.jump(0x5719);
+    }
+    if kind == 0x21 {
+        c.run(0x56b0, 4)?;
+        c.cmp(W, di, 0x138);
+        c.cmp(B, 0x21, 0x21);
+        return c.jump(0x5719);
+    }
+    c.run(0x56b0, 4 + 4)?;
+    c.cmp(W, di, 0x138);
+    c.cmp(B, kind as u16, 0x21);
+    let bx = c.reg(BX);
+    c.xor(W, bx, bx);
+    c.set_reg(BX, 0);
+    let cx = c.reg(CX);
+    c.xor(W, cx, cx);
+    c.set_reg(CX, 0);
+    c.set_reg(BP, 0x5728);
+    c.call(0x6639, 0x56c6)?;
+    let (cx, bx) = (c.reg(CX), c.reg(BX));
+    let none = cx | bx == 0;
+    c.run(0x56c6, 5 + if none { 0 } else { 1 })?;
+    let d = c.word(0x4710);
+    let d = c.add(W, d, 0x71);
+    c.set_reg(DX, d);
+    c.set_reg(AX, cx);
+    let a = c.or(W, cx, bx);
+    c.set_reg(AX, a);
+    if none {
+        return c.jump(0x571a);
+    }
+    c.call(0xc13b, 0x56d6)?;
+    c.run(0x56d6, 3)?;
+    let v = c.byte(0xdbe4);
+    let v = c.sub(B, v as u16, 3);
+    c.set_byte(0xdbe4, v as u8);
+    let ax = c.reg(AX);
+    c.xor(W, ax, ax);
+    c.set_reg(AX, 0);
+    c.call(0x56ed, 0x56e0)?;
+    c.run(0x56e0, 3)?;
+    let ch = c.reg8(r8::CH);
+    c.set_reg8(r8::BL, ch);
+    c.set_reg(AX, 1);
+    c.call(0x56ed, 0x56e8)?;
+    c.run(0x56e8, 2)?;
+    let cl = c.reg8(r8::CL);
+    c.set_reg8(r8::BL, cl);
+    c.set_reg(AX, 2);
+    c.jump(0x56ed)
+}
