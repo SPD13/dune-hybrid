@@ -1120,6 +1120,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xd439, screens::press_panel_button, "sub_d439"),
     (0xd43e, screens::press_panel_button, "sub_d43e"),
     (0xa6cc, voice::load_voc_and_lipsync_data, "load_voc_and_lipsync_data"),
+    (0xccf4, hnmload::hnm_decode_typed_chunk, "hnm_decode_typed_chunk_video_to_bp"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),

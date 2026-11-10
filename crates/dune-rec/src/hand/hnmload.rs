@@ -760,3 +760,168 @@ fn pop_ds_ret_cce1(c: &mut Ctx) -> Result<(), Bail> {
     c.set_sreg(DS, v);
     c.ret()
 }
+
+/// `hnm_decode_typed_chunk_video_to_bp` (CCF4): the frame at ES:SI (AX
+/// bytes; none when it would pass [0CE74h]) split into its chunks: "sd"
+/// a voice block ([0DC1Ch] its data, with PCM on: `check_pcm_enabled`),
+/// "pl" a palette ([0DC1Eh]), "mm" a reference to an earlier frame
+/// (followed when its tag matches, else the chunk is dropped:
+/// `loc_0cc4e`). The picture (tag word AX) goes to segment BP, or to the
+/// buffer [0DBDAh] with bit 10 ([0DC16h]:[0DC14h], [0DC24h] the tag):
+/// packed (bit 10, or a size with bit 9) it is unpacked
+/// (`hsq_decomp_skip_header_dssi_to_esdi`), else only its header copied
+/// and the frame left in place ([0DC14h]/[0DC16h] at its data).
+pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{DS, ZF};
+    entered(start, 0xccf4)?;
+    let mut c = Ctx::new(m);
+    let (ax, si) = (c.reg(AX), c.reg(SI));
+    let (sum, carry) = ax.overflowing_add(si);
+    let lim = c.word(0xce74);
+    let zero = carry || sum > lim;
+    c.run(0xccf4, 4 + if carry { 0 } else { 2 } + zero as u32)?;
+    c.set_word(0xdc1c, 0xffff);
+    c.set_word(0xdc1e, 0xffff);
+    let s = c.add(W, ax, si);
+    c.set_reg(AX, s);
+    if !carry {
+        c.cmp(W, s, lim);
+    }
+    if zero {
+        c.xor(W, si, si);
+        c.set_reg(SI, 0);
+    }
+    let mut ax;
+    loop {
+        let si = c.reg(SI);
+        let w = c.word_in(ES, si);
+        if w == 0x6473 {
+            c.run(0xcd0c, 4)?;
+            ax = c.lods(W, ES);
+            c.cmp(W, ax, 0x6473);
+            c.call(0xae2f, 0xcd16)?;
+            let z = c.flag(ZF);
+            c.run(0xcd16, 1 + (!z) as u32 + 4)?;
+            if !z {
+                let si = c.reg(SI);
+                c.set_word(0xdc1c, si);
+            }
+            let n = c.lods(W, ES);
+            let n = c.sub(W, n, 4);
+            c.set_reg(AX, n);
+            let si = c.reg(SI);
+            let s = c.add(W, si, n);
+            c.set_reg(SI, s);
+            ax = c.lods(W, ES);
+        } else {
+            c.run(0xcd0c, 3)?;
+            ax = c.lods(W, ES);
+            c.cmp(W, ax, 0x6473);
+        }
+        if ax == 0x6c70 {
+            c.run(0xcd25, 2 + 5)?;
+            c.cmp(W, ax, 0x6c70);
+            let n = c.lods(W, ES);
+            let si = c.reg(SI);
+            c.set_word(0xdc1e, si);
+            let n = c.sub(W, n, 4);
+            c.set_reg(AX, n);
+            let s = c.add(W, si, n);
+            c.set_reg(SI, s);
+            continue;
+        }
+        c.run(0xcd25, 2)?;
+        c.cmp(W, ax, 0x6c70);
+        break;
+    }
+    if ax == 0x6d6d {
+        let si = c.reg(SI);
+        let bx = c.word_in(ES, si.wrapping_add(4));
+        let (ns, ne) = (c.word_in(ES, si), c.word_in(ES, si.wrapping_add(2)));
+        let a1 = c.word_at(ne, ns);
+        let a2 = c.word_at(ne, ns.wrapping_add(2));
+        let same = a1 == bx;
+        c.run(0xcd37, 2 + 6 + (!same) as u32)?;
+        c.cmp(W, ax, 0x6d6d);
+        c.set_reg(BX, bx);
+        c.set_reg(SI, ns);
+        c.set_sreg(ES, ne);
+        c.lods(W, ES);
+        c.cmp(W, a1, bx);
+        c.lods(W, ES);
+        if !same {
+            return c.jump(0xcc4e);
+        }
+        ax = a2;
+    } else {
+        c.run(0xcd37, 2)?;
+        c.cmp(W, ax, 0x6d6d);
+    }
+    let big = ax & 0x400 != 0;
+    c.run(0xcd4e, 6 + big as u32 + 9)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.sreg(ES);
+    c.push(es);
+    let bp = c.reg(BP);
+    c.set_sreg(ES, bp);
+    let di = c.reg(DI);
+    c.xor(W, di, di);
+    c.set_reg(DI, 0);
+    c.test(B, ax >> 8, 4);
+    if big {
+        let b = c.word(0xdbda);
+        c.set_sreg(ES, b);
+    }
+    let es = c.sreg(ES);
+    c.set_word(0xdc16, es);
+    c.set_word(0xdc14, 0);
+    c.set_word(0xdc24, ax);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.set_reg(CX, ax);
+    let w = c.lods(W, DS);
+    c.set_reg(CX, w);
+    c.set_reg(AX, ax);
+    c.test(B, ax >> 8, 4);
+    if big {
+        c.run(0xcd7c, 1)?;
+        c.call(0xf403, 0xcd7f)?;
+        return pop_ds_ret_cd7f(&mut c);
+    }
+    c.run(0xcd72, 4)?;
+    c.stos(W);
+    c.set_reg(AX, w);
+    c.set_reg(CX, ax);
+    c.stos(W);
+    if ax == 0 {
+        return pop_ds_ret_cd7f(&mut c);
+    }
+    let two = ax & 0x200 != 0;
+    if two {
+        c.run(0xcd77, 3)?;
+        c.test(B, ax >> 8, 2);
+        c.call(0xf403, 0xcd7f)?;
+        return pop_ds_ret_cd7f(&mut c);
+    }
+    c.run(0xcd77, 2 + 6)?;
+    c.test(B, ax >> 8, 2);
+    let si = c.reg(SI);
+    let s = c.sub(W, si, 4);
+    c.set_reg(SI, s);
+    let seg = c.sreg(DS);
+    c.set_reg(AX, seg);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.set_word(0xdc14, s);
+    c.set_word(0xdc16, seg);
+    c.ret()
+}
+
+fn pop_ds_ret_cd7f(c: &mut Ctx) -> Result<(), Bail> {
+    use pc::cpu::DS;
+    c.run(0xcd7f, 2)?;
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.ret()
+}
