@@ -291,3 +291,235 @@ fn leg_ops(c: &mut Ctx, to: u16, from: u16, cx: u16) -> u16 {
         c.sub(W, d, a)
     }
 }
+
+/// `read_game_port` (DCE0): the joystick's two axes timed on the game
+/// port (201h, interrupts off): CX the count while X's bit stays set
+/// (returned in DX), BX the count for Y, up to 800h loops (then the
+/// joystick is marked absent, [2942h] bit 7 cleared). AL the buttons
+/// (the port read once more, inverted).
+pub fn read_game_port(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{DI, IF};
+    entered(start, 0xdce0)?;
+    let mut c = Ctx::new(m);
+    c.check(0xdce0, 7)?;
+    c.set_reg(DX, 0x201);
+    let f = c.m.cpu.flags();
+    c.push(f);
+    c.set_flag(IF, false);
+    c.count(3);
+    let al = c.reg8(r8::AL);
+    c.out(0x201, al);
+    c.count(4);
+    let bx = c.reg(BX);
+    c.xor(W, bx, bx);
+    c.set_reg(BX, 0);
+    c.set_reg(CX, 0);
+    c.set_reg(DI, 0x800);
+    let (mut bx, mut cx, mut di) = (0u16, 0u16, 0x800u16);
+    loop {
+        c.check(0xdced, 11)?;
+        let v = c.inp(0x201);
+        c.count(1);
+        c.set_reg8(r8::AL, v);
+        let ah = c.shr1(B, v as u16, 1);
+        let ax = c.and(W, (ah << 8) | v as u16, 0x101);
+        c.set_reg(AX, ax);
+        if ax == 0 {
+            c.count(4);
+            break;
+        }
+        let cl = c.add(B, cx & 0xff, ax & 0xff);
+        let ch = c.adc(B, cx >> 8, 0);
+        cx = ch << 8 | cl;
+        let bl = c.add(B, bx & 0xff, ax >> 8);
+        let bh = c.adc(B, bx >> 8, 0);
+        bx = bh << 8 | bl;
+        di = c.dec(W, di);
+        c.set_reg(CX, cx);
+        c.set_reg(BX, bx);
+        c.set_reg(DI, di);
+        c.count(10);
+        if di == 0 {
+            c.check(0xdd04, 6)?;
+            let f = c.byte(0x2942);
+            let f = c.and(B, f as u16, 0x7f);
+            c.set_byte(0x2942, f as u8);
+            c.count(1);
+            break;
+        }
+    }
+    let v = c.inp(0x201);
+    c.count(1);
+    let f = c.pop();
+    c.m.cpu.set_flags(f);
+    c.set_reg(DX, cx);
+    c.set_reg8(r8::AL, !v);
+    c.count(4);
+    c.ret()
+}
+
+/// `initialize_joystick` (EA32): without calibration (the four words at
+/// 39ABh all 0), the centre read (`read_game_port`) and, if both axes
+/// are within 4..403h, the thresholds set: 39ABh x/2, 39ADh x*3/2, 39AFh
+/// y/2, 39B1h y*3/2.
+pub fn initialize_joystick(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{DS, SI};
+    entered(start, 0xea32)?;
+    let mut c = Ctx::new(m);
+    c.run(0xea32, 3 + 12 + 2 + 1)?;
+    c.set_reg(SI, 0x39ab);
+    let mut acc = c.xor(W, 0, 0);
+    for _ in 0..4 {
+        let w = c.lods(W, DS);
+        acc = c.or(W, acc, w);
+    }
+    c.set_reg(CX, 0);
+    c.set_reg(BX, acc);
+    c.or(W, acc, acc);
+    if acc != 0 {
+        return c.ret();
+    }
+    c.call(0xdce0, 0xea46)?;
+    for (at, r) in [(0xea46u16, DX), (0xea50, BX)] {
+        let v = c.reg(r);
+        let a = v.wrapping_sub(4);
+        let bad = (a >> 8) >= 4;
+        c.run(at, 4 + bad as u32)?;
+        c.set_reg(AX, v);
+        let a = c.sub(W, v, 4);
+        c.set_reg(AX, a);
+        c.cmp(B, a >> 8, 4);
+        if bad {
+            return c.ret();
+        }
+    }
+    c.run(0xea5a, 12)?;
+    let dx = c.reg(DX);
+    let ax = c.shr1(W, dx, 1);
+    let dx = c.add(W, dx, ax);
+    c.set_reg(DX, dx);
+    c.set_reg(SI, 0x39ab);
+    c.set_word(0x39ab, ax);
+    c.set_word(0x39ad, dx);
+    let bx = c.reg(BX);
+    let ax = c.shr1(W, bx, 1);
+    let bx = c.add(W, bx, ax);
+    c.set_reg(AX, ax);
+    c.set_reg(BX, bx);
+    c.set_word(0x39af, ax);
+    c.set_word(0x39b1, bx);
+    c.ret()
+}
+
+/// `initialize_mouse`: with a mouse driver (INT 33h's vector set, reset
+/// AX 0 returning FFFFh), the cursor placed at 0,0 and the driver's
+/// coordinate scale found: [2580h] counts up while a move to (1 << n, 0)
+/// still reads back x 0, [2581h] the same for y; then the mickey ratio
+/// (AX 0Fh: 10h >> each) and AX 13h.
+pub fn initialize_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::ES;
+    entered(start, 0xe97a)?;
+    let mut c = Ctx::new(m);
+    c.run(0xe97a, 1)?;
+    c.set_reg(AX, 0x3533);
+    c.interp(0xe97d, 0xe97f)?;
+    let (es, bx) = (c.sreg(ES), c.reg(BX));
+    let none = es | bx == 0;
+    c.run(0xe97f, 3 + if none { 1 } else { 1 })?;
+    c.set_reg(AX, es);
+    c.or(W, es, bx);
+    c.set_reg(AX, es | bx);
+    if none {
+        return c.ret();
+    }
+    c.set_reg(AX, 0);
+    c.interp(0xe988, 0xe98a)?;
+    let ax = c.reg(AX);
+    let ok = ax == 0xffff;
+    c.run(0xe98a, 2 + if ok { 3 } else { 1 })?;
+    let ax = c.inc(W, ax);
+    c.set_reg(AX, ax);
+    if !ok {
+        return c.ret();
+    }
+    c.xor(W, 0, 0);
+    c.set_reg(CX, 0);
+    c.xor(W, 0, 0);
+    c.set_reg(DX, 0);
+    c.set_reg(AX, 4);
+    c.interp(0xe994, 0xe996)?;
+    loop {
+        let k = c.byte(0x2580).wrapping_add(1);
+        let neg = k & 0x80 != 0;
+        c.run(0xe996, 2 + if neg { 0 } else { 5 })?;
+        let k = c.byte(0x2580) as u16;
+        let k = c.inc(B, k);
+        c.set_byte(0x2580, k as u8);
+        if neg {
+            break;
+        }
+        c.set_reg8(r8::CL, k as u8);
+        c.set_reg(AX, 1);
+        let a = c.shl(W, 1, k as u8);
+        c.set_reg(AX, a);
+        c.set_reg(CX, a);
+        c.set_reg(AX, 4);
+        c.interp(0xe9aa, 0xe9ac)?;
+        c.run(0xe9ac, 1)?;
+        c.set_reg(AX, 3);
+        c.interp(0xe9af, 0xe9b1)?;
+        c.run(0xe9b1, 1)?;
+        if c.reg(CX) != 0 {
+            break;
+        }
+    }
+    loop {
+        let k = c.byte(0x2581).wrapping_add(1);
+        let neg = k & 0x80 != 0;
+        c.run(0xe9b3, 2 + if neg { 0 } else { 4 })?;
+        let k = c.byte(0x2581) as u16;
+        let k = c.inc(B, k);
+        c.set_byte(0x2581, k as u8);
+        if neg {
+            break;
+        }
+        c.set_reg8(r8::CL, k as u8);
+        c.set_reg(DX, 1);
+        let d = c.shl(W, 1, k as u8);
+        c.set_reg(DX, d);
+        c.set_reg(AX, 4);
+        c.interp(0xe9c5, 0xe9c7)?;
+        c.run(0xe9c7, 1)?;
+        c.set_reg(AX, 3);
+        c.interp(0xe9ca, 0xe9cc)?;
+        c.run(0xe9cc, 2)?;
+        let dx = c.reg(DX);
+        c.or(W, dx, dx);
+        if dx != 0 {
+            break;
+        }
+    }
+    c.run(0xe9d0, 10)?;
+    c.set_reg(AX, 0x10);
+    c.set_reg(DX, 0x10);
+    let v = c.word(0x2580);
+    let v = c.and(W, v, 0x7f7f);
+    c.set_word(0x2580, v);
+    c.set_reg(CX, v);
+    let ax = c.m.cpu.shift(5, W, 0x10, v as u32 & 0xff) as u16;
+    c.set_reg(AX, ax);
+    c.set_reg8(r8::CL, (v >> 8) as u8);
+    let dx = c.m.cpu.shift(5, W, 0x10, (v >> 8) as u32) as u16;
+    c.set_reg(DX, dx);
+    c.set_reg(CX, ax);
+    c.set_reg(AX, 0x0f);
+    c.push(dx);
+    c.interp(0xe9eb, 0xe9ed)?;
+    c.run(0xe9ed, 2)?;
+    let v = c.pop();
+    c.set_reg(DX, v);
+    c.set_reg(AX, 0x13);
+    c.interp(0xe9f1, 0xe9f3)?;
+    c.run(0xe9f3, 1)?;
+    c.ret()
+}

@@ -817,3 +817,174 @@ pub fn particles_move_particle(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.set_reg(SP, sp);
     c.ret()
 }
+
+/// `load_save_game_timestamp` (B30F): for each save slot (the file name
+/// at 38A8h, its digit at +7 from '1'; the records from SI, 4 bytes
+/// each, up to the word A3h) the file's first word read into [0D816h]
+/// (`loc_0b2c4` then marks it): the record's top bits become CX's (or,
+/// with CH 80h, their inverse) if the file was read, else they are
+/// cleared (or set).
+pub fn load_save_game_timestamp(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::CF;
+    entered(start, 0xb30f)?;
+    let mut c = Ctx::new(m);
+    c.run(0xb30f, 2)?;
+    c.set_reg(DI, 0x38a8);
+    c.set_byte(0x38af, 0x31);
+    loop {
+        c.run(0xb316, 2)?;
+        let di = c.reg(DI);
+        c.set_reg(DX, di);
+        c.call(0xf2fc, 0xb31b)?;
+        c.run(0xb31b, 1)?;
+        c.set_reg(AX, 0x3d00);
+        c.interp(0xb31e, 0xb320)?;
+        if c.flag(CF) {
+            c.run(0xb320, 1)?;
+        } else {
+            c.run(0xb320, 6)?;
+            let ax = c.reg(AX);
+            c.set_reg(BX, ax);
+            c.set_reg(DX, 0xd816);
+            let cx = c.reg(CX);
+            c.push(cx);
+            c.set_reg(CX, 2);
+            c.set_reg8(r8::AH, 0x3f);
+            c.interp(0xb32d, 0xb32f)?;
+            let ax = c.reg(AX);
+            c.run(0xb32f, 3 + if ax < 2 { 0 } else { 1 })?;
+            c.cmp(W, ax, 2);
+            let v = c.pop();
+            c.set_reg(CX, v);
+            if ax >= 2 {
+                c.set_reg8(r8::AH, 0x3e);
+                c.interp(0xb336, 0xb338)?;
+                c.run(0xb338, 1)?;
+                c.call(0xb2c4, 0xb33b)?;
+                c.run(0xb33b, 1)?;
+                c.set_flag(CF, false);
+            }
+        }
+        let (ax, cx, si) = (c.reg(AX), c.reg(CX), c.reg(SI));
+        let ch = cx >> 8;
+        let next = c.word(si.wrapping_add(4));
+        c.run(0xb33c, 3 + (ch == 0x80) as u32 + 7 + (next == 0xa3) as u32)?;
+        let mut ax = c.sbb(W, ax, ax);
+        c.cmp(B, ch, 0x80);
+        if ch == 0x80 {
+            ax = !ax;
+        }
+        let ax = c.and(W, ax, cx);
+        c.set_reg(AX, ax);
+        let v = c.word(si);
+        let v = c.and(W, v, 0x3fff);
+        let v = c.or(W, v, ax);
+        c.set_word(si, v);
+        let si = c.add(W, si, 4);
+        c.set_reg(SI, si);
+        let di = c.reg(DI);
+        let d = c.byte(di.wrapping_add(7));
+        let d = c.inc(B, d as u16);
+        c.set_byte(di.wrapping_add(7), d as u8);
+        let next = c.word(si);
+        c.cmp(W, next, 0xa3);
+        if next == 0xa3 {
+            return c.ret();
+        }
+    }
+}
+
+/// `compress_sav` (B4EA): CX bytes from DS:SI packed to ES:DI + 4: a
+/// run of up to FEh equal bytes as F7h, count, byte (and any F7h byte
+/// so), runs of 1 or 2 bytes as they are. Then a 0 word, and the header
+/// at ES:DI: DX (DL F7h, DH the last run's count) and the packed size
+/// (from DI + 4, the end word included).
+pub fn compress_sav(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb4ea)?;
+    let mut c = Ctx::new(m);
+    c.run(0xb4ea, 3)?;
+    c.set_reg8(r8::DL, 0xf7);
+    let di0 = c.reg(DI);
+    c.push(di0);
+    let d = c.add(W, di0, 4);
+    c.set_reg(DI, d);
+    loop {
+        c.run(0xb4f0, 1)?;
+        let dh0 = c.reg8(r8::DH);
+        c.xor(B, dh0 as u16, dh0 as u16);
+        let mut dh = 0u8;
+        c.set_reg8(r8::DH, 0);
+        let mut al;
+        loop {
+            let si = c.reg(SI);
+            let a = c.byte(si);
+            let nx = c.byte(si.wrapping_add(1));
+            let cx = c.reg(CX);
+            let ne = a != nx;
+            let full = !ne && dh.wrapping_add(1) == 0xff;
+            let end = !ne && !full && cx.wrapping_sub(1) == 0;
+            c.run(0xb4f2, if ne { 4 } else if full { 6 } else { 9 + end as u32 })?;
+            c.lods(B, DS);
+            al = a;
+            dh = c.inc(B, dh as u16) as u8;
+            c.set_reg8(r8::DH, dh);
+            c.cmp(B, a as u16, nx as u16);
+            if ne {
+                break;
+            }
+            c.cmp(B, dh as u16, 0xff);
+            if full {
+                break;
+            }
+            let cx = c.dec(W, cx);
+            c.set_reg(CX, cx);
+            c.or(W, cx, cx);
+            if cx == 0 {
+                let cx = c.inc(W, 0);
+                c.set_reg(CX, cx);
+                break;
+            }
+        }
+        let dl = c.reg8(r8::DL);
+        let esc = al == dl || (dh != 1 && dh != 2);
+        let cmps = if al == dl { 2 } else if dh == 1 { 4 } else { 6 };
+        let body = if esc { 6 } else if dh == 2 { 2 } else { 0 };
+        let left = c.reg(CX).wrapping_sub(1);
+        c.run(0xb504, cmps + body + 2 + if left == 0 { 8 } else { 0 })?;
+        c.cmp(B, al as u16, dl as u16);
+        if al != dl {
+            c.cmp(B, dh as u16, 1);
+            if dh != 1 {
+                c.cmp(B, dh as u16, 2);
+            }
+        }
+        if esc {
+            c.set_reg8(r8::AH, al);
+            c.set_reg8(r8::AL, dl);
+            c.stos(B);
+            c.set_reg8(r8::AL, dh);
+            c.stos(B);
+            c.set_reg8(r8::AL, al);
+        } else if dh == 2 {
+            c.stos(B);
+        }
+        c.stos(B);
+        c.set_reg(CX, left);
+        if left == 0 {
+            break;
+        }
+    }
+    let di = c.reg(DI);
+    c.set_reg(CX, di);
+    c.xor(W, 0, 0);
+    c.set_reg(AX, 0);
+    c.stos(W);
+    let d0 = c.pop();
+    c.set_reg(DI, d0);
+    let n = c.sub(W, di, d0);
+    c.set_reg(CX, n);
+    let dx = c.reg(DX);
+    c.set_word_in(ES, d0, dx);
+    c.set_word_in(ES, d0.wrapping_add(2), n);
+    c.ret()
+}

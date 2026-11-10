@@ -1519,3 +1519,77 @@ fn feed_a9b9(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xa9e6, 1)?;
     c.ret()
 }
+
+/// `decode_sd_block` (AA0F): with a voice file ([0DC1Ch] not FFFFh) the
+/// next block read (`loc_0ac14`), both half-buffers emptied, the first
+/// filled (`loc_0aa70`); its sound data less 20h bytes ([3815h], also
+/// [381Dh]) moved down over its 1Ah-byte header, the second half given
+/// the same 6-byte header and filled with silence (80h); then the
+/// driver started on the second (far [3991h], [3824h] 3819h) and fed
+/// the first (far [39A1h]).
+pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{DS, ES};
+    entered(start, 0xaa0f)?;
+    let mut c = Ctx::new(m);
+    let ax = c.word(0xdc1c);
+    c.run(0xaa0f, if ax == 0xffff { 4 } else { 5 })?;
+    c.set_reg(AX, ax);
+    let a = c.inc(W, ax);
+    c.set_reg(AX, a);
+    if ax == 0xffff {
+        return c.ret();
+    }
+    c.set_byte(0x376a, 0xff);
+    c.call(0xac14, 0xaa1d)?;
+    c.run(0xaa1d, 7)?;
+    let ax = c.reg(AX);
+    c.xor(W, ax, ax);
+    c.set_reg(AX, 0);
+    c.set_word(0x3811, 0);
+    c.set_word(0x3817, 0);
+    c.set_word(0x381f, 0);
+    c.set_reg(SI, 0x3811);
+    let (d, e) = (c.word(0x3811), c.word(0x3813));
+    c.set_reg(DI, d);
+    c.set_sreg(ES, e);
+    c.call(0xaa70, 0xaa30)?;
+    c.run(0xaa30, 7)?;
+    let v = c.word(0x3815);
+    let v = c.sub(W, v, 0x20);
+    c.set_word(0x3815, v);
+    c.set_reg(CX, v);
+    c.set_word(0x381d, v);
+    let n = c.add(W, v, 6);
+    c.set_reg(CX, n);
+    c.set_reg(SI, 0x1a);
+    let di = c.reg(DI);
+    c.xor(W, di, di);
+    c.set_reg(DI, 0);
+    c.m.cpu.string_op(&mut c.m.hw, 0xa4, Some(ES), 0xf3);
+    c.run(0xaa48, 12)?;
+    let (d, e) = (c.word(0x3819), c.word(0x381b));
+    c.set_reg(DI, d);
+    c.set_sreg(ES, e);
+    let n = c.word(0x3815);
+    c.set_reg(CX, n);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let (s, sg) = (c.word(0x3811), c.word(0x3813));
+    c.set_reg(SI, s);
+    c.set_sreg(DS, sg);
+    c.movs(W);
+    c.movs(W);
+    c.movs(W);
+    c.set_reg8(r8::AL, 0x80);
+    c.rep(0xaa);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.set_reg(SI, 0x3819);
+    c.set_word(0x3824, 0x3819);
+    c.interp(0xaa64, 0xaa68)?;
+    c.run(0xaa68, 1)?;
+    c.set_reg(SI, 0x3811);
+    c.interp(0xaa6b, 0xaa6f)?;
+    c.run(0xaa6f, 1)?;
+    c.ret()
+}

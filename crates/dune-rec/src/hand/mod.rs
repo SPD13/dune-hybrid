@@ -1074,6 +1074,21 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x9d16, dialogue::draw_talking_head, "copy_non_pcm_lip_sync_data_and_draw_talking_head"),
     (0xa7c2, voice::lip_sync_frame_task, "lip_sync_frame_task"),
     (0xd48a, ui::button_label, "loc_0d48a"),
+    (0xee02, dos::ems_copy, "ems_memory_func_2"),
+    (0xee46, dos::ems_copy, "ems_memory_func_1"),
+    (0xecec, dos::xms_move, "xms_memory_func_1"),
+    (0xedb9, dos::map_ems_for_midi_audio, "map_ems_for_midi_audio"),
+    (0xea7b, dos::init_extended_memory_allocator, "init_extended_memory_allocator"),
+    (0xe913, dos::install_interrupt_handlers, "install_interrupt_handlers"),
+    (0xdce0, input::read_game_port, "read_game_port"),
+    (0xea32, input::initialize_joystick, "initialize_joystick"),
+    (0xb30f, saves::load_save_game_timestamp, "load_save_game_timestamp"),
+    (0xebe3, dos::alloc_extended_memory, "alloc_extended_memory"),
+    (0xed4c, dos::ems_init, "loc_0ed4c"),
+    (0xe97a, input::initialize_mouse, "initialize_mouse"),
+    (0xb4ea, saves::compress_sav, "compress_sav"),
+    (0xaa0f, voice::decode_sd_block, "decode_sd_block"),
+    (0xe8d5, dos::uninitialize_memory_driver, "uninitialize_memory_driver"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),
@@ -1363,6 +1378,12 @@ impl Ctx<'_> {
     fn out(&mut self, port: u16, v: u8) {
         self.m.hw.now_ns = self.m.now_ns();
         self.m.hw.out8(port, v);
+    }
+
+    /// `in al, port`, at the time of its instruction.
+    fn inp(&mut self, port: u16) -> u8 {
+        self.m.hw.now_ns = self.m.now_ns();
+        self.m.hw.in8(port)
     }
 
     // --- Control --------------------------------------------------------
