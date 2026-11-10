@@ -1145,6 +1145,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x1707, tails::script_1707, "loc_01707"),
     (0x18ee, tails::palace_plan_18ee, "ui_draw_palace_plan"),
     (0x7c02, tails::place_7c02, "loc_07c02"),
+    (0xbed7, tails::results_bed7, "loc_0bed7"),
+    (0x380c, tails::sky_380c, "loc_0380c"),
     (0x0771, tails::intro_lady_jessica_2, "intro_lady_jessica_2"),
     (0x0995, tails::intro_duke_leto, "intro_duke_leto"),
     (0x07ee, tails::intro_paul_on_red_background, "intro_paul_on_red_background"),

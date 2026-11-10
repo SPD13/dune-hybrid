@@ -1598,3 +1598,196 @@ pub fn place_7c02(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.jump(0xc07c)
 }
+
+/// `loc_0bed7`: the results' figures: [115Ch] the day, the totals
+/// (`loc_0c02e`, `loc_0bf26`), then six bytes at DD11h: [0A4h] / 2 + 1,
+/// [0A2h] / 2 + 1, [0A8h] / 16 + 1, [0A6h] / 16 + 1, [0ACh] / 256 + 1,
+/// [0AAh] / 256 + 1.
+pub fn results_bed7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{DS, ES};
+    entered(start, 0xbed7)?;
+    let mut c = Ctx::new(m);
+    c.run(0xbed7, 4)?;
+    let d = c.word(2);
+    c.set_reg(AX, d);
+    let d = c.and(W, d, 0xfff0);
+    c.set_reg(AX, d);
+    c.set_word(0x115c, d);
+    c.call(0xc02e, 0xbee3)?;
+    c.run(0xbee3, 1)?;
+    c.call(0xbf26, 0xbee6)?;
+    c.run(0xbee6, 34)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(DI, 0xdd11);
+    for (at, sh, word) in [(0xa4u16, 1u32, true), (0xa2, 1, true), (0xa8, 4, false), (0xa6, 4, false)] {
+        let v = c.word(at);
+        c.set_reg(AX, v);
+        let v = c.shr1(W, v, sh);
+        c.set_reg(AX, v);
+        if word {
+            let v = c.inc(W, v);
+            c.set_reg(AX, v);
+        } else {
+            let l = c.inc(B, v & 0xff);
+            c.set_reg8(r8::AL, l as u8);
+        }
+        c.stos(B);
+    }
+    for at in [0xacu16, 0xaa] {
+        let v = c.word(at);
+        c.set_reg(AX, v);
+        c.set_reg8(r8::AL, (v >> 8) as u8);
+        let l = c.inc(B, v >> 8);
+        c.set_reg8(r8::AL, l as u8);
+        c.stos(B);
+    }
+    c.ret()
+}
+
+/// `loc_0380c`: the room's sky ([22E3h] 1, `loc_0388d`) and its palette
+/// (`loc_0c2f2` AL): the place [1150h]'s entry from the table 1972h
+/// (`loc_05e4f`, BX); in the room shown ([6] not 80h, or the place's
+/// own) a light by the room's number, past the entry's +5 the place's
+/// own light: 0Ah + ([4] ^ [6] swapped + 1) mod 0Ah ... from 88h for
+/// the palace (+0Ah bit 0) or where a troop is (`loc_0407e`,
+/// `loc_0b58b`: a cell of kind 10h), else 42h + mod 13h. AL 7Fh mixes
+/// in the place's +0 byte.
+pub fn sky_380c(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::ES;
+    entered(start, 0x380c)?;
+    let mut c = Ctx::new(m);
+    c.run(0x380c, 2)?;
+    c.set_byte(0x22e3, 1);
+    c.call(0x388d, 0x3814)?;
+    c.run(0x3814, 3)?;
+    let si = c.word(0x1150);
+    c.set_reg(SI, si);
+    c.set_reg(AX, 0x1972);
+    c.call(0x5e4f, 0x381e)?;
+    let ax = c.reg(AX);
+    let (dx, w6) = (c.word(4), c.word(6));
+    let si = c.reg(SI);
+    let p2 = c.word(si.wrapping_add(2));
+    let al6 = w6 as u8;
+    let ah6 = (w6 >> 8) as u8;
+    let lit_path = al6 == 0x80 || dx == p2;
+    if lit_path {
+        let a = if al6 == 0x80 { 0u8 } else { ah6 };
+        let lim = c.byte(ax.wrapping_add(5));
+        let in_range = a < lim;
+        let n = 6 + if al6 == 0x80 { 0 } else { 2 + 1 } + 2;
+        if in_range {
+            let b0 = c.byte(ax);
+            let v = a.wrapping_add(b0);
+            let mix = v == 0x7f;
+            c.run(0x381e, n + 3 + if mix { 4 } else { 0 } + 1)?;
+            c.set_reg(BX, ax);
+            c.set_reg(DX, dx);
+            c.set_reg(AX, w6);
+            c.cmp(B, al6 as u16, 0x80);
+            c.set_reg8(r8::AL, 0);
+            if al6 != 0x80 {
+                c.cmp(W, dx, p2);
+                c.set_reg8(r8::AL, ah6);
+            }
+            c.cmp(B, a as u16, lim as u16);
+            let v = c.add(B, a as u16, b0 as u16);
+            c.set_reg8(r8::AL, v as u8);
+            c.cmp(B, v, 0x7f);
+            if mix {
+                let h = c.byte(si);
+                c.set_reg8(r8::AH, h);
+                let h = c.shr1(B, h as u16, 1);
+                c.set_reg8(r8::AH, h as u8);
+                let v = c.add(B, v, h);
+                let v = c.sub(B, v, 5);
+                c.set_reg8(r8::AL, v as u8);
+            }
+            return c.jump(0xc2f2);
+        }
+        c.run(0x381e, n)?;
+        c.set_reg(BX, ax);
+        c.set_reg(DX, dx);
+        c.set_reg(AX, w6);
+        c.cmp(B, al6 as u16, 0x80);
+        c.set_reg8(r8::AL, 0);
+        if al6 != 0x80 {
+            c.cmp(W, dx, p2);
+            c.set_reg8(r8::AL, ah6);
+        }
+        c.cmp(B, a as u16, lim as u16);
+    } else {
+        c.run(0x381e, 6 + 2)?;
+        c.set_reg(BX, ax);
+        c.set_reg(DX, dx);
+        c.set_reg(AX, w6);
+        c.cmp(B, al6 as u16, 0x80);
+        c.set_reg8(r8::AL, 0);
+        c.cmp(W, dx, p2);
+    }
+    // 384Ah: the light's range by the place.
+    let di = c.word(0x1150);
+    let f = c.byte(di.wrapping_add(0xa));
+    let (bx, cx) = if f & 1 != 0 {
+        c.run(0x384a, 3 + 2)?;
+        c.set_reg(DI, di);
+        c.test(B, f as u16, 1);
+        (0xa, 0x88)
+    } else {
+        c.run(0x384a, 3 + 1)?;
+        c.set_reg(DI, di);
+        c.test(B, f as u16, 1);
+        c.call(0x407e, 0x3857)?;
+        c.run(0x3857, 1)?;
+        c.call(0xb58b, 0x385a)?;
+        c.run(0x385a, 2)?;
+        let di = c.reg(DI);
+        let mut di = c.dec(W, di);
+        c.set_reg(DI, di);
+        c.set_reg(CX, 4);
+        let mut hit = false;
+        for k in 0..4u16 {
+            let v = c.byte_in(ES, di);
+            let found = v & 0x30 == 0x10;
+            c.run(0x385e, 5 + if found { 0 } else { 1 })?;
+            c.set_reg8(r8::AL, v);
+            di = c.inc(W, di);
+            c.set_reg(DI, di);
+            let a = c.and(B, v as u16, 0x30);
+            c.set_reg8(r8::AL, a as u8);
+            c.cmp(B, a, 0x10);
+            if found {
+                hit = true;
+                break;
+            }
+            c.set_reg(CX, 3 - k);
+        }
+        if hit {
+            c.run(0x3872, 2)?;
+            (0xa, 0x88)
+        } else {
+            c.run(0x386a, 3)?;
+            (0x13, 0x42)
+        }
+    };
+    c.set_reg(BX, bx);
+    c.set_reg(CX, cx);
+    c.run(0x3878, 9)?;
+    let w6 = c.word(6);
+    c.set_reg(AX, w6);
+    let a = w6.swap_bytes();
+    let w4 = c.word(4);
+    let a = c.xor(W, a, w4);
+    let a = c.inc(W, a);
+    c.set_reg(AX, a);
+    c.xor(W, 0, 0);
+    c.set_reg(DX, 0);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 6, bx as u32);
+    let d = c.reg(DX);
+    let a = c.add(W, d, cx);
+    c.set_reg(AX, a);
+    c.jump(0xc2f2)
+}
