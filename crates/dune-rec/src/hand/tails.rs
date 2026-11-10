@@ -2106,3 +2106,179 @@ pub fn line_a03f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_flag(CF, false);
     c.ret()
 }
+
+/// `loc_079ee`: the panel of place SI ([46EFh]): its frame 18E9h (for an
+/// unvisited place, `loc_06917` ZF, sized by its height and the map
+/// centre [4710h] set) as the overlay [0DBE0h] (`loc_07b0f` AL 2); the
+/// text box from the frame (2244h; margins 0, 5, 0, 1; the picture box
+/// 18F3h 3Dh square), `loc_07b1b`. Then the speaker: the troop leader
+/// (0Ch) for a sietch (+3 bit 5) whose people are not all gone
+/// (+0Ah bit 1, or `loc_05d36` CF clear), else the place's own (0Fh,
+/// [4758h] SI, [476Ch] 0, by the head [22A6h] and pose [47D0h]); its
+/// head set up (`loc_091a0`, `loc_0c0f4`), its colours [46D2h]/[46D4h]
+/// from 22B9h, its face drawn in 47D4h (the sprite list [47CAh],
+/// `loc_09d6a`), the rect shown (`loc_0c4aa`), then `open_onmap_resource`.
+pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{CF as CARRY, SS, ZF};
+    entered(start, 0x79ee)?;
+    let mut c = Ctx::new(m);
+    c.run(0x79ee, 2)?;
+    let si = c.reg(SI);
+    c.set_word(0x46ef, si);
+    c.call(0x6917, 0x79f5)?;
+    let z = c.flag(ZF);
+    if z {
+        let di = c.reg(DI);
+        let h = c.word(di.wrapping_add(2));
+        let low = (h as i16) < 0x4c;
+        c.run(0x79f5, 2 + 4 + if low { 2 } else { 0 } + 5 + 3)?;
+        c.set_reg(SI, 0x18e9);
+        c.set_reg(AX, 0x1e);
+        c.set_reg(BX, 5);
+        c.cmp(W, h, 0x4c);
+        let (ax, bx) = if low { (0xe, 0x50) } else { (0x1e, 5) };
+        c.set_reg(AX, ax);
+        c.set_word(0x18eb, bx);
+        let b = c.add(W, bx, 0x43);
+        c.set_reg(BX, b);
+        c.set_word(0x18ef, b);
+        c.set_word(0x4710, 0x5c);
+        c.set_word(0x4712, ax);
+    } else {
+        c.run(0x79f5, 2 + 3)?;
+        c.set_reg(SI, 0x18e9);
+    }
+    c.set_word(0xdbe0, 0x18e9);
+    c.set_reg8(r8::AL, 2);
+    c.call(0x7b0f, 0x7a27)?;
+    c.run(0x7a27, 23)?;
+    c.set_reg(DI, 0x18e9);
+    c.set_reg(SI, 0x18f3);
+    let dx = c.word(0x18e9);
+    let bx = c.word(0x18eb);
+    c.set_reg(AX, dx);
+    let a = c.add(W, dx, 0x49);
+    c.set_reg(AX, a);
+    c.set_word(0x2244, a);
+    let bx = c.add(W, bx, 3);
+    c.set_reg(BX, bx);
+    c.set_word(0x2246, bx);
+    c.xor(W, 0, 0);
+    c.set_word(0x4784, 0);
+    c.set_word(0x4786, 5);
+    c.set_word(0x4788, 0);
+    let a = c.inc(W, 0);
+    c.set_reg(AX, a);
+    c.set_word(0x478a, 1);
+    let dx = c.add(W, dx, 4);
+    c.set_word(0x18f3, dx);
+    c.set_word(0x18f5, bx);
+    let dx = c.add(W, dx, 0x3d);
+    c.set_reg(DX, dx);
+    let bx = c.add(W, bx, 0x3d);
+    c.set_reg(BX, bx);
+    c.set_word(0x18f7, dx);
+    c.set_word(0x18f9, bx);
+    c.call(0x7b1b, 0x7a6a)?;
+    let si = c.word(0x46ef);
+    let k = c.byte(si.wrapping_add(3));
+    let sietch = k & 0x20 != 0;
+    let mut troop = false;
+    if sietch {
+        let di = c.word(si.wrapping_add(4));
+        let f = c.byte(di.wrapping_add(0xa));
+        if f & 2 != 0 {
+            c.run(0x7a6a, 3 + 3)?;
+            c.set_reg(SI, si);
+            c.test(B, k as u16, 0x20);
+            c.set_reg(DI, di);
+            c.test(B, f as u16, 2);
+            troop = true;
+        } else {
+            c.run(0x7a6a, 3 + 3 + 1)?;
+            c.set_reg(SI, si);
+            c.test(B, k as u16, 0x20);
+            c.set_reg(DI, di);
+            c.test(B, f as u16, 2);
+            c.call(0x5d36, 0x7a80)?;
+            let cf = c.flag(CARRY);
+            c.run(0x7a80, 1)?;
+            troop = !cf;
+        }
+    } else {
+        c.run(0x7a6a, 3)?;
+        c.set_reg(SI, si);
+        c.test(B, k as u16, 0x20);
+    }
+    let (ax, bp) = if troop {
+        c.run(0x7a82, 3)?;
+        c.set_reg(AX, 0xc);
+        c.set_word(0x47c4, 0xc);
+        c.call(0x91a0, 0x7a8b)?;
+        c.run(0x7a8b, 1)?;
+        c.call(0xc0f4, 0x7a8e)?;
+        c.run(0x7a8e, 3)?;
+        c.set_reg(AX, 0xc);
+        c.set_reg(BP, 0);
+        (0xcu16, 0u16)
+    } else {
+        c.run(0x7a96, 5)?;
+        c.set_reg(AX, 0xf);
+        c.set_word(0x47c4, 0xf);
+        let si = c.reg(SI);
+        c.set_word(0x4758, si);
+        c.set_byte(0x476c, 0);
+        c.call(0x91a0, 0x7aa8)?;
+        c.run(0x7aa8, 1)?;
+        c.call(0xc0f4, 0x7aab)?;
+        c.run(0x7aab, 9)?;
+        let h = c.word(0x22a6);
+        let a = c.sub(W, h, 0xe);
+        let a = c.shl1(W, a, 2);
+        c.set_reg(AX, a);
+        let p = c.byte(0x47d0);
+        let b = c.dec(B, p as u16);
+        c.set_reg8(r8::BL, b as u8);
+        c.xor(B, 0, 0);
+        let bx = c.shl1(W, b, 1);
+        c.set_reg(BX, bx);
+        c.set_reg(BP, bx);
+        (a, bx)
+    };
+    c.run(0x7ac1, 21)?;
+    let s = c.add(W, 0x22b9, ax);
+    c.set_reg(SI, s);
+    let a = c.lods(W, pc::cpu::DS);
+    c.set_word(0x46d2, a);
+    let a = c.lods(W, pc::cpu::DS);
+    c.set_word(0x46d4, a);
+    let ds = c.sreg(pc::cpu::DS);
+    c.push(ds);
+    let base = c.word_in(SS, 0x47ca);
+    c.set_reg(SI, base);
+    let seg = c.word_in(SS, 0xdbb2);
+    c.set_sreg(pc::cpu::DS, seg);
+    let off = c.word_at(seg, bp.wrapping_add(base));
+    let s = c.add(W, base, off);
+    c.set_reg(SI, s);
+    let dx = c.word_in(SS, 0x18f3);
+    let bx = c.word_in(SS, 0x18f5);
+    let bx = c.inc(W, bx);
+    let dx = c.inc(W, dx);
+    c.set_word_in(SS, 0x47d4, dx);
+    c.set_word_in(SS, 0x47d6, bx);
+    let dx = c.add(W, dx, 0x3b);
+    c.set_reg(DX, dx);
+    let bx = c.add(W, bx, 0x3b);
+    c.set_reg(BX, bx);
+    c.set_word_in(SS, 0x47d8, dx);
+    c.set_word_in(SS, 0x47da, bx);
+    c.call(0x9d6a, 0x7b05)?;
+    c.run(0x7b05, 3)?;
+    let v = c.pop();
+    c.set_sreg(pc::cpu::DS, v);
+    c.set_reg(SI, 0x47d4);
+    c.call(0xc4aa, 0x7b0c)?;
+    c.run(0x7b0c, 1)?;
+    c.jump(0xc13b)
+}
