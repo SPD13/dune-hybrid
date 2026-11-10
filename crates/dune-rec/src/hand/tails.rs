@@ -1336,3 +1336,265 @@ pub fn dialogue_941d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, v);
     c.jump(0x9215)
 }
+
+/// `loc_00f08`: without [10h] bit 7 on at 0960h; else Jessica's head
+/// (7: `setup_lip_sync_data_from_current`, [478Ch] 0, 0Fh lower),
+/// `loc_0978e`, `loc_0998e`, [22A6h] none, [47C3h] up, [47C6h] 1,
+/// `loc_0c412`, then 0965h with DX 2Dh.
+pub fn jessica_0f08(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0f08)?;
+    let mut c = Ctx::new(m);
+    let f = c.word(0x10);
+    if f & 0x80 == 0 {
+        c.run(0x0f08, 3)?;
+        c.test(W, f, 0x80);
+        return c.jump(0x0960);
+    }
+    c.run(0x0f08, 3)?;
+    c.test(W, f, 0x80);
+    c.call(0xc412, 0x0f16)?;
+    c.run(0x0f16, 2)?;
+    c.set_word(0x47c4, 7);
+    c.call(0x9197, 0x0f1f)?;
+    c.run(0x0f1f, 3)?;
+    c.set_byte(0x478c, 0);
+    let v = c.word(0x1bf2);
+    let v = c.add(W, v, 0xf);
+    c.set_word(0x1bf2, v);
+    c.call(0x978e, 0x0f2c)?;
+    c.run(0x0f2c, 1)?;
+    c.call(0x998e, 0x0f2f)?;
+    c.run(0x0f2f, 4)?;
+    c.set_word(0x22a6, 0xffff);
+    let v = c.byte(0x47c3);
+    let v = c.inc(B, v as u16);
+    c.set_byte(0x47c3, v as u8);
+    c.set_word(0x47c6, 1);
+    c.call(0xc412, 0x0f42)?;
+    c.run(0x0f42, 2)?;
+    c.set_reg(DX, 0x2d);
+    c.jump(0x0965)
+}
+
+/// `loc_01707`: the intro script's next step. On the screen 1FAEh a
+/// click on 1B56h (`loc_0d6fe`) goes to 9ED5h. Else [0CE9Dh] 0 and the
+/// next byte of the script at CS:[477Ah] runs its step (the table at
+/// CS:1475h); at its end (FFh) the task 176Bh removed, the place and
+/// state from [4776h], [4774h] 0, the music changed unless phase 48h,
+/// `loc_0b2be`, and on at 0FA7h (or, with [0FBh] negative, the music
+/// stopped, `loc_068eb`, `loc_0780a`).
+pub fn script_1707(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::CS;
+    entered(start, 0x1707)?;
+    let mut c = Ctx::new(m);
+    let scr = c.word(0x2220);
+    if scr == 0x1fae {
+        c.run(0x1707, 4)?;
+        c.cmp(W, scr, 0x1fae);
+        c.set_reg(DI, 0x1b56);
+        c.call(0xd6fe, 0x1715)?;
+        if c.flag(CF) {
+            c.run(0x1715, 2)?;
+            return c.jump(0x9ed5);
+        }
+        c.run(0x1715, 1)?;
+    } else {
+        c.run(0x1707, 2)?;
+        c.cmp(W, scr, 0x1fae);
+    }
+    let si = c.word(0x477a);
+    let b = c.byte_in(CS, si);
+    c.run(0x171a, 5 + if b == 0xff { 0 } else { 4 })?;
+    c.set_byte(0xce9d, 0);
+    c.set_reg(SI, si);
+    c.lods(B, CS);
+    c.cmp(B, b as u16, 0xff);
+    if b != 0xff {
+        let si = c.reg(SI);
+        c.set_word(0x477a, si);
+        let ah = c.reg8(r8::AH);
+        c.xor(B, ah as u16, ah as u16);
+        c.set_reg(AX, b as u16);
+        c.set_reg(BX, b as u16);
+        let to = c.code_word(0x1475u16.wrapping_add(b as u16));
+        return c.jump(to);
+    }
+    c.run(0x1736, 2)?;
+    c.set_reg(SI, 0x176b);
+    c.call(0xda5f, 0x173c)?;
+    let ph = c.byte(0x2a);
+    c.run(0x173c, 7 + (ph != 0x48) as u32)?;
+    let ax = c.word(0x4776);
+    c.set_reg(AX, ax);
+    c.set_byte(4, ax as u8);
+    c.set_byte(0x46e0, (ax >> 8) as u8);
+    c.xor(B, ax & 0xff, ax & 0xff);
+    c.set_reg8(r8::AL, 0);
+    c.set_byte(0x4774, 0);
+    c.cmp(B, ph as u16, 0x48);
+    if ph != 0x48 {
+        c.call(0xadbe, 0x1755)?;
+    }
+    c.run(0x1755, 1)?;
+    c.call(0xb2be, 0x1758)?;
+    let f = c.byte(0xfb);
+    if f & 0x80 == 0 {
+        c.run(0x1758, 3)?;
+        c.cmp(B, f as u16, 0);
+        return c.jump(0x0fa7);
+    }
+    c.run(0x1758, 3)?;
+    c.cmp(B, f as u16, 0);
+    c.call(0xad5e, 0x1765)?;
+    c.run(0x1765, 1)?;
+    c.call(0x68eb, 0x1768)?;
+    c.run(0x1768, 1)?;
+    c.jump(0x780a)
+}
+
+/// `ui_draw_palace_plan` (18EE): after `loc_0d41b`, unless the plan is
+/// shown (BP 2012h: `loc_0d2e2`), in the palace ([4] 20xxh but room 1):
+/// the screen 1ABAh's buttons (`loc_0d95e`, `loc_0d2bd`), the screen
+/// saved, the frame (far [38DDh] at 143Ch, colour F1h), `loc_05b6e`
+/// (1444h, F7h), sheet 21h, the sprite list 120Bh, `loc_01948`, the
+/// rect 143Ch shown (`loc_0c0d5` AL 10h), then the screen pushed (BP
+/// 2012h, BX 19FCh).
+pub fn palace_plan_18ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::ES;
+    entered(start, 0x18ee)?;
+    let mut c = Ctx::new(m);
+    c.run(0x18ee, 1)?;
+    c.call(0xd41b, 0x18f1)?;
+    let bp = c.reg(BP);
+    if bp == 0x2012 {
+        c.run(0x18f1, 3)?;
+        c.cmp(W, bp, 0x2012);
+        return c.jump(0xd2e2);
+    }
+    let ax = c.word(4);
+    let (al, ah) = (ax as u8, (ax >> 8) as u8);
+    let go = ah == 0x20 && al != 1;
+    c.run(0x18f1, 2 + 3 + if ah == 0x20 { 2 } else { 0 } + if go { 2 } else { 1 })?;
+    c.cmp(W, bp, 0x2012);
+    c.set_reg(AX, ax);
+    c.cmp(B, ah as u16, 0x20);
+    if ah == 0x20 {
+        c.cmp(B, al as u16, 1);
+    }
+    if !go {
+        return c.ret();
+    }
+    c.set_reg(AX, 0x1aba);
+    c.call(0xd95e, 0x190c)?;
+    c.run(0x190c, 1)?;
+    c.call(0xd2bd, 0x190f)?;
+    c.run(0x190f, 1)?;
+    c.call(0xc07c, 0x1912)?;
+    c.run(0x1912, 3)?;
+    c.set_reg(SI, 0x143c);
+    c.set_reg8(r8::AL, 0xf1);
+    let es = c.word(0xdbda);
+    c.set_sreg(ES, es);
+    c.interp(0x191b, 0x191f)?;
+    c.run(0x191f, 3)?;
+    c.set_reg(SI, 0x1444);
+    c.set_reg8(r8::AL, 0xf7);
+    c.call(0x5b6e, 0x1927)?;
+    c.run(0x1927, 2)?;
+    c.set_reg(AX, 0x21);
+    c.call(0xc13e, 0x192d)?;
+    c.run(0x192d, 2)?;
+    c.set_reg(SI, 0x120b);
+    c.call(0xc21b, 0x1933)?;
+    c.run(0x1933, 1)?;
+    c.call(0x1948, 0x1936)?;
+    c.run(0x1936, 3)?;
+    c.set_reg(SI, 0x143c);
+    c.set_reg8(r8::AL, 0x10);
+    c.call(0xc0d5, 0x193e)?;
+    c.run(0x193e, 3)?;
+    c.set_reg(BP, 0x2012);
+    c.set_reg(BX, 0x19fc);
+    c.jump(0xd323)
+}
+
+/// `loc_07c02`: the place SI chosen (`loc_07ba3`, `loc_031f6`, the
+/// travel to [si+4]: `loc_02e98`); past the shown count ([1176h])
+/// [4Ch] FFh and the marker [4752h] reset (its +0Dh, +0Fh 1916h). Then
+/// the place's lines told (`loc_09719` until CF clear, SI [46EFh]),
+/// `loc_09efd`; [46F4h] 0, or for [47A5h] 80h 1 with `loc_07efb` and
+/// `loc_07e1e`; `loc_09901` without a talking head; then `loc_0c07c`.
+pub fn place_7c02(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7c02)?;
+    let mut c = Ctx::new(m);
+    c.run(0x7c02, 1)?;
+    c.call(0x7ba3, 0x7c05)?;
+    c.run(0x7c05, 1)?;
+    c.call(0x31f6, 0x7c08)?;
+    c.run(0x7c08, 2)?;
+    let si = c.reg(SI);
+    let di = c.word(si.wrapping_add(4));
+    c.set_reg(DI, di);
+    c.call(0x2e98, 0x7c0e)?;
+    c.run(0x7c0e, 1)?;
+    c.call(0x7c63, 0x7c11)?;
+    let ax = c.reg(AX);
+    let shown = c.word(0x1176);
+    if ax <= shown {
+        c.run(0x7c11, 2 + 1)?;
+        c.cmp(W, ax, shown);
+    } else {
+        let d = c.word(0x4752);
+        c.run(0x7c11, 2 + 4 + if d != 0 { 3 } else { 0 } + 1)?;
+        c.cmp(W, ax, shown);
+        c.set_byte(0x4c, 0xff);
+        c.set_reg(DI, d);
+        c.or(W, d, d);
+        if d != 0 {
+            c.set_reg(AX, 0x1916);
+            c.set_word(d.wrapping_add(0xd), 0x1916);
+            c.set_word(d.wrapping_add(0xf), 0x1916);
+        }
+    }
+    loop {
+        c.call(0x9719, 0x7c30)?;
+        let cf = c.flag(CF);
+        c.run(0x7c30, 2 + if cf { 1 } else { 0 })?;
+        let si = c.word(0x46ef);
+        c.set_reg(SI, si);
+        if !cf {
+            break;
+        }
+    }
+    c.run(0x7c36, 2)?;
+    let si = c.reg(SI);
+    c.push(si);
+    c.call(0x9efd, 0x7c3a)?;
+    let k = c.byte(0x47a5);
+    c.run(0x7c3a, 4 + if k == 0x80 { 2 } else { 0 })?;
+    let v = c.pop();
+    c.set_reg(SI, v);
+    c.set_byte(0x46f4, 0);
+    c.cmp(B, k as u16, 0x80);
+    if k == 0x80 {
+        let v = c.byte(0x46f4);
+        let v = c.inc(B, v as u16);
+        c.set_byte(0x46f4, v as u8);
+        c.call(0x7efb, 0x7c4e)?;
+        c.run(0x7c4e, 2)?;
+        let si = c.reg(SI);
+        c.push(si);
+        c.call(0x7e1e, 0x7c52)?;
+        c.run(0x7c52, 2)?;
+        let v = c.pop();
+        c.set_reg(SI, v);
+    }
+    let f = c.byte(0x46eb);
+    c.run(0x7c56, 2 + if f & 0x80 != 0 { 1 } else { 1 })?;
+    c.cmp(B, f as u16, 0);
+    if f & 0x80 != 0 {
+        c.call(0x9901, 0x7c60)?;
+        c.run(0x7c60, 1)?;
+    }
+    c.jump(0xc07c)
+}
