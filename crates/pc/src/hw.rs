@@ -582,6 +582,17 @@ impl IoLog {
         if pos < end { self.events.get(pos) } else { None }
     }
 
+    /// The instruction count of the next recorded interrupt among the next
+    /// `n` events (a block of `n` instructions does at most that much port
+    /// I/O before one, so an interrupt behind its reads is seen too).
+    pub fn next_irq(&self, n: usize) -> Option<u64> {
+        let (pos, end) = self.replay?;
+        self.events[pos..end.min(pos + n)].iter().find_map(|e| match e {
+            IoEvent::Irq { at, .. } => Some(*at),
+            _ => None,
+        })
+    }
+
     /// Consume the event `peek` returned.
     pub fn advance(&mut self) {
         if let Some((pos, _)) = &mut self.replay {

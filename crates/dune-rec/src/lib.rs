@@ -11,6 +11,10 @@
 //!
 //! [`hand`] holds hand-written, readable ports; each replaces the generated
 //! routine with the same entry.
+//!
+//! `src/generated_vga.rs`, when present, is the graphics driver (DNVGA)
+//! lifted from its segment (`dune-run --dump-drivers`, then `dune-lift
+//! --raw`): game-derived and git-ignored too.
 
 use std::sync::OnceLock;
 
@@ -21,6 +25,42 @@ pub use pc::rec::{Bail, Routine};
 mod generated;
 
 pub mod hand;
+
+#[cfg(has_generated_vga)]
+#[allow(clippy::all, dead_code, unused_mut, unused_variables, unused_imports, unused_parens, unreachable_code, non_snake_case)]
+mod generated_vga;
+
+/// The lifted graphics driver: routines and block leaders by offset in its
+/// segment, and names (all empty without `src/generated_vga.rs`).
+pub fn driver_routines() -> &'static [(u16, Routine)] {
+    #[cfg(has_generated_vga)]
+    return generated_vga::ROUTINES;
+    #[cfg(not(has_generated_vga))]
+    return &[];
+}
+pub fn driver_leaders() -> &'static [(u16, Routine)] {
+    #[cfg(has_generated_vga)]
+    return generated_vga::LEADERS;
+    #[cfg(not(has_generated_vga))]
+    return &[];
+}
+pub fn driver_names() -> &'static [(u16, &'static str)] {
+    #[cfg(has_generated_vga)]
+    return generated_vga::NAMES;
+    #[cfg(not(has_generated_vga))]
+    return &[];
+}
+
+/// The code bytes the driver was lifted from (ranges, FNV-1a hash).
+pub fn driver_code() -> (&'static [(u16, u16)], u64) {
+    #[cfg(has_generated_vga)]
+    return generated_vga::CODE;
+    #[cfg(not(has_generated_vga))]
+    return (&[], 0);
+}
+
+/// `DS:` offset of the word holding the graphics driver's segment.
+pub const DRIVER_SEG_AT: u16 = 0x38b7;
 
 #[cfg(has_generated)]
 mod gen_tables {

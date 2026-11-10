@@ -17,6 +17,17 @@
 //! multiply/divide, BCD, PUSHF/POPF, ...) run through the interpreter one
 //! instruction at a time; `INT`, far calls and anything leaving seg000 go
 //! through [`pc::Machine::rec_interp`] or bail. See `pc::rec` for the contract.
+//!
+//! A driver the game loads (DNVGA, ...) is lifted from its segment as
+//! `dune-run --dump-drivers` writes it:
+//!
+//!     dune-lift --raw graphics.bin --seg 334b --slots 46 --name vga [--cov FILE...] --out generated_vga.rs
+//!
+//! Its entries are the jump table at 0100h (`--slots` of them, 3 bytes
+//! each) and every near call target found from there. The generated code
+//! takes its segment from CS at run time. With `--also IMAGE`, instructions
+//! whose bytes differ between the images (the driver rewrites them) run
+//! through the interpreter, which reads them from memory.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -44,10 +55,30 @@ struct Args {
     cov: Vec<String>,
     out: String,
     only: Option<BTreeSet<u16>>,
+    /// A driver's segment image instead of the executable.
+    raw: Option<String>,
+    /// The segment the driver ran at in the coverage files.
+    seg: u16,
+    slots: u16,
+    name: String,
+    /// More images of the same driver, from other times or runs: code bytes
+    /// that differ between them are rewritten at run time.
+    also: Vec<String>,
 }
 
 fn parse() -> Result<Args, String> {
-    let mut a = Args { exe: String::new(), lst: String::new(), cov: Vec::new(), out: String::new(), only: None };
+    let mut a = Args {
+        exe: String::new(),
+        lst: String::new(),
+        cov: Vec::new(),
+        out: String::new(),
+        only: None,
+        raw: None,
+        seg: LOAD_SEG,
+        slots: 0,
+        name: String::new(),
+        also: Vec::new(),
+    };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
         let mut v = || it.next().ok_or(format!("missing value for {k}"));
@@ -56,6 +87,11 @@ fn parse() -> Result<Args, String> {
             "--lst" => a.lst = v()?,
             "--cov" => a.cov.push(v()?),
             "--out" => a.out = v()?,
+            "--raw" => a.raw = Some(v()?),
+            "--seg" => a.seg = u16::from_str_radix(&v()?, 16).map_err(|e| format!("--seg: {e}"))?,
+            "--slots" => a.slots = v()?.parse().map_err(|e| format!("--slots: {e}"))?,
+            "--name" => a.name = v()?,
+            "--also" => a.also.push(v()?),
             "--only" => {
                 let set = v()?.split(',').map(|s| u16::from_str_radix(s.trim(), 16).map_err(|e| format!("--only: {e}"))).collect::<Result<_, _>>()?;
                 a.only = Some(set);
@@ -63,6 +99,12 @@ fn parse() -> Result<Args, String> {
             other if !other.starts_with("--") => a.cov.push(other.to_string()),
             _ => return Err(format!("unknown option {k}")),
         }
+    }
+    if a.raw.is_some() {
+        if a.out.is_empty() || a.slots == 0 || a.name.is_empty() {
+            return Err("usage: dune-lift --raw DRIVER.bin --seg HEX --slots N --name NAME [--cov FILE]... --out FILE".into());
+        }
+        return Ok(a);
     }
     if a.exe.is_empty() || a.lst.is_empty() || a.out.is_empty() {
         return Err("usage: dune-lift --exe DNCDPRG.EXE --lst DNCDPRG.lst [--cov FILE]... [--only HEX,HEX] --out generated.rs".into());
@@ -139,7 +181,7 @@ struct Indirect {
     jump_targets: BTreeMap<u16, BTreeSet<u16>>,
 }
 
-fn read_coverage(paths: &[String], seg: &[u8]) -> Result<Indirect, String> {
+fn read_coverage(paths: &[String], seg: &[u8], cs: u16) -> Result<Indirect, String> {
     let mut ind = Indirect { call_targets: BTreeSet::new(), jump_targets: BTreeMap::new() };
     for p in paths {
         let text = fs::read_to_string(p).map_err(|e| format!("{p}: {e}"))?;
@@ -153,7 +195,7 @@ fn read_coverage(paths: &[String], seg: &[u8]) -> Result<Indirect, String> {
                 (u16::from_str_radix(a, 16).unwrap_or(0), u16::from_str_radix(b, 16).unwrap_or(0))
             };
             let ((fc, fi), (tc, ti)) = (split(f[1]), split(f[2]));
-            if fc != LOAD_SEG || tc != LOAD_SEG {
+            if fc != cs || tc != cs {
                 continue;
             }
             let insn = decode_at(seg, fi);
@@ -189,7 +231,7 @@ fn explore(seg: &[u8], entry: u16, ind: &Indirect) -> Routine {
     while let Some(start) = todo.pop() {
         let mut ip = start;
         loop {
-            if r.insns.contains_key(&ip) || ip as usize >= SEG000_LEN {
+            if r.insns.contains_key(&ip) || ip as usize >= seg.len() {
                 break;
             }
             let insn = decode_at(seg, ip);
@@ -397,6 +439,9 @@ fn cc(c: ConditionCode) -> u8 {
 /// How an instruction was translated (for the summary).
 #[derive(Default)]
 struct Stats {
+    /// Code bytes rewritten at run time ([`PATCHED`] for seg000).
+    patched: &'static [u16],
+    driver: bool,
     native: usize,
     stepped: usize,
     interp: usize,
@@ -411,14 +456,14 @@ fn lift(insn: &Instruction, st: &mut Stats) -> (String, bool) {
     let bail = format!("m.cpu.ip = 0x{ip:04x}; return Err(Bail);");
     // Through the interpreter, one instruction; it must end at `next`.
     let step = format!(
-        "m.cpu.ip = 0x{ip:04x}; m.step_insn()?; if m.cpu.ip != 0x{next:04x} || m.cpu.sregs[CS] != LOAD_SEG {{ return Err(Bail); }}"
+        "m.cpu.ip = 0x{ip:04x}; m.step_insn()?; if m.cpu.ip != 0x{next:04x} || m.cpu.sregs[CS] != seg {{ return Err(Bail); }}"
     );
     let interp = format!("m.rec_interp(0x{ip:04x}, 0x{next:04x})?;");
     if insn.is_invalid() {
         st.bail += 1;
         return (bail, true);
     }
-    let patched = PATCHED.iter().any(|&p| p >= ip && p < next);
+    let patched = st.patched.iter().any(|&p| p >= ip && p < next);
     if patched {
         st.stepped += 1;
         return (step, false);
@@ -469,7 +514,8 @@ fn lift(insn: &Instruction, st: &mut Stats) -> (String, bool) {
         Not => native(
             (|| {
                 let mask = if w { "0xffff" } else { "0xff" };
-                Some(format!("{{ let a = {}; {} }}", get(insn, 0, w)?, put(insn, 0, w, &format!("!a & {mask}"))?))
+                // `put` to memory names the address `a`: compute first.
+                Some(format!("{{ let a = {}; let r = !a & {mask}; {} }}", get(insn, 0, w)?, put(insn, 0, w, "r")?))
             })(),
             st,
         ),
@@ -654,7 +700,7 @@ fn lift(insn: &Instruction, st: &mut Stats) -> (String, bool) {
                     // A divide error leaves CS:IP at the handler: bail there.
                     (
                         format!(
-                            "{count} {{ let a = {a}; m.cpu.insn_cs = LOAD_SEG; m.cpu.insn_ip = 0x{ip:04x}; m.cpu.ip = 0x{next:04x}; if m.cpu.mul_div(&mut m.hw, {wn}, {sub}, a) {{ return Err(Bail); }} }}"
+                            "{count} {{ let a = {a}; m.cpu.insn_cs = seg; m.cpu.insn_ip = 0x{ip:04x}; m.cpu.ip = 0x{next:04x}; if m.cpu.mul_div(&mut m.hw, {wn}, {sub}, a) {{ return Err(Bail); }} }}"
                         ),
                         false,
                     )
@@ -759,8 +805,9 @@ fn emit_routine(out: &mut String, r: &Routine, name: &str, st: &mut Stats) {
     let mut fmt = IntelFormatter::new();
     fmt.options_mut().set_hex_prefix("0x");
     fmt.options_mut().set_hex_suffix("");
-    let _ = writeln!(out, "/// `{name}` (seg000:{:04x})", r.entry);
+    let _ = writeln!(out, "/// `{name}` ({}:{:04x})", if st.driver { "driver" } else { "seg000" }, r.entry);
     let _ = writeln!(out, "pub fn f_{:04x}(m: &mut Machine, start: u16) -> Result<(), Bail> {{", r.entry);
+    let _ = writeln!(out, "    let seg = m.cpu.sregs[CS];");
     let _ = writeln!(out, "    let mut pc: u16 = start;");
     let _ = writeln!(out, "    loop {{");
     let _ = writeln!(out, "        match pc {{");
@@ -799,6 +846,17 @@ fn emit_routine(out: &mut String, r: &Routine, name: &str, st: &mut Stats) {
     let _ = writeln!(out, "}}\n");
 }
 
+/// FNV-1a over the bytes of `ranges` (the same as `pc::rec`'s check).
+fn code_hash(seg: &[u8], ranges: &[(u16, u16)]) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for &(s, e) in ranges {
+        for &b in &seg[s as usize..e as usize] {
+            h = (h ^ b as u64).wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    h
+}
+
 fn main() -> ExitCode {
     let a = match parse() {
         Ok(a) => a,
@@ -808,21 +866,71 @@ fn main() -> ExitCode {
         }
     };
     let run = || -> Result<(), String> {
-        let exe = fs::read(&a.exe).map_err(|e| format!("{}: {e}", a.exe))?;
-        let seg = load_seg000(&exe)?;
-        let mut entries = listing_entries(&a.lst)?;
-        let ind = read_coverage(&a.cov, &seg)?;
-        for &t in &ind.call_targets {
-            entries.entry(t).or_insert_with(|| format!("sub_{t:04x}"));
-        }
+        let mut raw_patched: &'static [u16] = &[];
+        let (seg, mut entries, ind, source) = if let Some(raw) = &a.raw {
+            let seg = fs::read(raw).map_err(|e| format!("{raw}: {e}"))?;
+            if seg.len() != 0x10000 {
+                return Err(format!("{raw}: expected a 64 KB segment image"));
+            }
+            let ind = read_coverage(&a.cov, &seg, a.seg)?;
+            let mut entries: BTreeMap<u16, String> =
+                (0..a.slots).map(|i| (0x100 + 3 * i, format!("{}_slot_{i:02}", a.name))).collect();
+            for &t in &ind.call_targets {
+                entries.entry(t).or_insert_with(|| format!("{}_{t:04x}", a.name));
+            }
+            // Every near call target reachable from the entries.
+            let mut todo: Vec<u16> = entries.keys().copied().collect();
+            while let Some(e) = todo.pop() {
+                for insn in explore(&seg, e, &ind).insns.values() {
+                    if insn.mnemonic() == Mnemonic::Call && insn.op0_kind() == OpKind::NearBranch16 {
+                        let t = insn.near_branch16();
+                        if !entries.contains_key(&t) {
+                            entries.insert(t, format!("{}_{t:04x}", a.name));
+                            todo.push(t);
+                        }
+                    }
+                }
+            }
+            let mut patched = Vec::new();
+            for other in &a.also {
+                let img = fs::read(other).map_err(|e| format!("{other}: {e}"))?;
+                for &e in entries.keys() {
+                    for (&ip, insn) in &explore(&seg, e, &ind).insns {
+                        // A field may differ in only one byte between two
+                        // images: the whole instruction is rewritten.
+                        let bytes = ip..insn.next_ip() as u16;
+                        if bytes.clone().any(|b| seg[b as usize] != img[b as usize]) {
+                            for b in bytes {
+                                if !patched.contains(&b) {
+                                    patched.push(b);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            patched.sort_unstable();
+            println!("rewritten code bytes: {}", patched.iter().map(|b| format!("{b:04x}")).collect::<Vec<_>>().join(" "));
+            raw_patched = Box::leak(patched.into_boxed_slice());
+            (seg, entries, ind, raw.clone())
+        } else {
+            let exe = fs::read(&a.exe).map_err(|e| format!("{}: {e}", a.exe))?;
+            let seg = load_seg000(&exe)?;
+            let mut entries = listing_entries(&a.lst)?;
+            let ind = read_coverage(&a.cov, &seg, LOAD_SEG)?;
+            for &t in &ind.call_targets {
+                entries.entry(t).or_insert_with(|| format!("sub_{t:04x}"));
+            }
+            (seg, entries, ind, "DNCDPRG.EXE".to_string())
+        };
         if let Some(only) = &a.only {
             entries.retain(|k, _| only.contains(k));
         }
         let mut out = String::new();
-        out.push_str("// Generated by dune-lift from DNCDPRG.EXE. Game-derived: do not commit or share.\n\n");
+        let _ = writeln!(out, "// Generated by dune-lift from {source}. Game-derived: do not commit or share.\n");
         out.push_str("use pc::Machine;\nuse pc::cpu::{AX, BP, BX, CF, CS, CX, DF, DI, DS, DX, ES, IF, SI, SP, SS, ZF, Bus, Width};\n");
         out.push_str("use pc::rec::{Bail, Routine};\n\nconst LOAD_SEG: u16 = 0x1000;\n\n");
-        let mut st = Stats::default();
+        let mut st = Stats { patched: if a.raw.is_some() { raw_patched } else { PATCHED }, driver: a.raw.is_some(), ..Stats::default() };
         let mut sizes = 0usize;
         // Block leader -> a routine that has it (the first, by entry).
         let mut leaders: BTreeMap<u16, u16> = BTreeMap::new();
@@ -835,6 +943,35 @@ fn main() -> ExitCode {
                 }
             }
             emit_routine(&mut out, &r, name, &mut st);
+        }
+        if a.raw.is_some() {
+            // The code the routines were lifted from (rewritten bytes left
+            // out), so the machine can tell when the driver in memory is
+            // not this one.
+            let mut bytes = BTreeSet::new();
+            for &e in entries.keys() {
+                for (&ip, insn) in &explore(&seg, e, &ind).insns {
+                    for b in ip..insn.next_ip() as u16 {
+                        if !st.patched.contains(&b) {
+                            bytes.insert(b);
+                        }
+                    }
+                }
+            }
+            let mut ranges: Vec<(u16, u16)> = Vec::new();
+            for &b in &bytes {
+                match ranges.last_mut() {
+                    Some(r) if r.1 == b => r.1 = b + 1,
+                    _ => ranges.push((b, b + 1)),
+                }
+            }
+            let hash = code_hash(&seg, &ranges);
+            out.push_str("/// Code bytes the routines were lifted from: ranges, and their hash.\n");
+            out.push_str("pub static CODE: (&[(u16, u16)], u64) = (&[\n");
+            for (s, e) in &ranges {
+                let _ = writeln!(out, "    (0x{s:04x}, 0x{e:04x}),");
+            }
+            let _ = writeln!(out, "], 0x{hash:016x});\n");
         }
         out.push_str("pub static ROUTINES: &[(u16, Routine)] = &[\n");
         for &e in entries.keys() {

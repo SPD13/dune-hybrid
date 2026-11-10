@@ -74,6 +74,9 @@ struct Args {
     /// time one call may take.
     call_only: Option<Vec<u16>>,
     call_ms: u64,
+    /// Write each loaded driver's segment (64 KB from offset 0) here at the
+    /// end of the run, for `dune-lift --raw` (game-derived: never commit).
+    dump_drivers: Option<PathBuf>,
 }
 
 /// Top of the main loop (`loc_0d820`), where nothing is half done.
@@ -111,6 +114,7 @@ fn parse() -> Result<Args, String> {
         call_each: 0,
         call_only: None,
         call_ms: 300,
+        dump_drivers: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
@@ -144,6 +148,7 @@ fn parse() -> Result<Args, String> {
                 let es: Result<Vec<u16>, _> = list.split(',').map(|e| u16::from_str_radix(e.trim(), 16)).collect();
                 a.call_only = Some(es.map_err(|e| format!("--call-only HEX,HEX..: {e}"))?);
             }
+            "--dump-drivers" => a.dump_drivers = Some(v()?.into()),
             "--call-ms" => a.call_ms = v()?.parse().map_err(|e| format!("--call-ms: {e}"))?,
             "--phase-ladder" => {
                 let spec = v()?;
@@ -206,7 +211,8 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
         println!("rec stepped opcodes: {}", ops.join(" "));
         return;
     }
-    let names: std::collections::HashMap<u16, &str> = dune_rec::names().iter().copied().collect();
+    let mut names: std::collections::HashMap<u32, &str> = dune_rec::names().iter().map(|&(e, n)| (e as u32, n)).collect();
+    names.extend(dune_rec::driver_names().iter().map(|&(e, n)| (pc::rec::key(1, e), n)));
     let (mut ok, mut diff, mut bailed, mut skipped) = (0, 0, 0, 0);
     let mut rows = String::from("entry	name	ok	diff	bailed	skipped	first_diff	reached
 ");
@@ -215,11 +221,12 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
         diff += (s.diff > 0) as u32;
         bailed += (s.bailed > 0 && s.diff == 0 && s.ok == 0) as u32;
         skipped += (s.skipped > 0 && s.ok + s.diff + s.bailed == 0) as u32;
-        let hand = if dune_rec::is_hand(*e) { " [hand]" } else { "" };
+        let hand = if *e < 0x10000 && dune_rec::is_hand(*e as u16) { " [hand]" } else { "" };
         let name = format!("{}{hand}", names.get(e).copied().unwrap_or("?"));
         let fd = s.first_diff.clone().unwrap_or_default();
         let name = name.as_str();
-        let _ = writeln!(rows, "{e:04x}	{name}	{}	{}	{}	{}	{fd}	{}", s.ok, s.diff, s.bailed, s.skipped, dune_rec::hand::reached(*e) + rec.returned[*e as usize]);
+        let reached = if *e < 0x10000 { dune_rec::hand::reached(*e as u16) } else { 0 } + rec.returned[*e as usize];
+        let _ = writeln!(rows, "{e:04x}	{name}	{}	{}	{}	{}	{fd}	{reached}", s.ok, s.diff, s.bailed, s.skipped);
         if s.diff > 0 {
             println!("rec diff: {e:04x} {name}: {} of {} calls differ; first: {fd}", s.diff, s.ok + s.diff + s.bailed);
         }
@@ -387,7 +394,16 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
         println!("rec: {} routines, {mode:?}", routines.len());
-        m.rec = Some(Box::new(pc::rec::Rec::new(mode, routines, dune_rec::leaders())));
+        let rec = pc::rec::Rec::new(mode, routines, dune_rec::leaders());
+        let rec = if std::env::var_os("REC_NO_DRIVER").is_some() {
+            rec
+        } else {
+            rec.with_driver(dune_rec::driver_routines(), dune_rec::driver_leaders(), dune_rec::DRIVER_SEG_AT, dune_rec::driver_code())
+        };
+        if !dune_rec::driver_routines().is_empty() {
+            println!("rec: graphics driver: {} routines", dune_rec::driver_routines().len());
+        }
+        m.rec = Some(Box::new(rec));
     }
     if args.coverage.is_some() {
         m.coverage = Some(Box::default());
@@ -580,8 +596,24 @@ fn main() -> ExitCode {
         fs::write(path, c.to_text()).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         println!("coverage: {} seg000 instructions, {} indirect transfers -> {}", c.count(), c.indirect.len(), path.display());
     }
+    if let Some(dir) = &args.dump_drivers {
+        fs::create_dir_all(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+        for (name, seg) in m.driver_segments() {
+            if seg == 0 {
+                continue;
+            }
+            let a = (seg as usize) << 4;
+            let p = dir.join(format!("{name}.bin"));
+            fs::write(&p, &m.hw.mem[a..a + 0x10000]).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+            println!("driver {name} at {seg:04x} -> {}", p.display());
+        }
+    }
     if let Some(rec) = &m.rec {
         rec_report(rec, args.rec_report.as_deref(), m.cpu.instructions);
+        if rec.mode == pc::rec::RecMode::On {
+            let d: Vec<String> = m.driver_segments().iter().map(|(n, s)| format!("{n} {s:04x}")).collect();
+            println!("rec drivers: {} (BIOS f000, seg000 {:04x})", d.join(", "), pc::LOAD_SEG);
+        }
     }
     if let Some(img) = &code_image {
         let changed: Vec<String> =

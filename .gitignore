@@ -37,4 +37,5 @@ __pycache__/
 
 # Generated from the game executable by dune-lift: game-derived, never commit.
 crates/dune-rec/src/generated.rs
+crates/dune-rec/src/generated_*.rs
 target-*/

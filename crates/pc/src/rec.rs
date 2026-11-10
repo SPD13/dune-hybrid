@@ -28,12 +28,23 @@
 //!   there, interpreting with the recorded interrupts and resuming Rust at
 //!   block leaders, and then goes on in the caller's Rust code: a routine
 //!   that calls a waiting one is still checked to its end.
+//!
+//! Two code spaces: seg000, and a driver the game loads (the graphics
+//! driver, lifted from its segment: [`Rec::with_driver`]), whose segment is
+//! read from the game's driver table. Statistics and counts are keyed by
+//! [`key`]: the offset, plus 10000h in the driver.
 
 use std::collections::BTreeMap;
 
 use cpu::{CS, Cpu, SP, SS, Step};
 
-use crate::{LOAD_SEG, Machine, hw::IoEvent};
+use crate::{GAME_DS, LOAD_SEG, Machine, hw::IoEvent};
+
+/// Key of a routine in [`Rec::stats`] and [`Rec::returned`]: its offset,
+/// plus 10000h in the driver's code space.
+pub fn key(space: u8, off: u16) -> u32 {
+    (space as u32) << 16 | off as u32
+}
 
 /// The routine stopped early; continue interpreting from the current CS:IP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,7 +86,7 @@ pub struct Rec {
     pub resume: Vec<Option<Routine>>,
     /// Shadow mode: calls checked per routine.
     pub samples: u32,
-    pub stats: BTreeMap<u16, ShadowStats>,
+    pub stats: BTreeMap<u32, ShadowStats>,
     /// `On` mode: entries into Rust (calls and resumptions), and bails.
     pub calls: u64,
     pub bails: u64,
@@ -96,6 +107,18 @@ pub struct Rec {
     /// While a routine runs from shadow checking: nested code it cannot run
     /// natively is interpreted to completion instead of bailing.
     pub(crate) interp_nested: bool,
+    /// The lifted driver: routines and block leaders by offset in its
+    /// segment, and the `DS:` offset of the word holding that segment.
+    drv_table: Vec<Option<Routine>>,
+    drv_resume: Vec<Option<Routine>>,
+    drv_seg_at: usize,
+    /// The code the driver was lifted from (ranges, hash), and the virtual
+    /// time of the next check of the driver in memory against it.
+    drv_code: (&'static [(u16, u16)], u64),
+    drv_next_check: u64,
+    /// The segment the driver was last found at with exactly that code (0:
+    /// not loaded, or not the lifted one): only there it runs natively.
+    drv_ok_seg: u16,
     /// Bails absorbed by [`Machine::finish_call`] during the current
     /// shadow replay (the call then counts as bailed: part of it was
     /// interpreted).
@@ -117,13 +140,14 @@ pub struct Rec {
     busy: bool,
     /// Shadow mode: calls in progress, innermost last.
     pending: Vec<Pending>,
-    /// After a bail: interpret the instruction there once.
-    skip: Option<u16>,
+    /// After a bail: interpret the instruction there once (CS, IP).
+    skip: Option<(u16, u16)>,
 }
 
 /// A shadow check waiting for the original to return.
 struct Pending {
-    entry: u16,
+    /// [`key`] of the routine.
+    entry: u32,
     f: Routine,
     cpu: Cpu,
     mem: Vec<u8>,
@@ -184,12 +208,18 @@ impl Rec {
             calls: 0,
             bails: 0,
             bail_at: vec![0; 0x10000],
-            returned: vec![0; 0x10000],
+            returned: vec![0; 0x20000],
             stepped_op: vec![0; 256],
             interp_seg: vec![0; 0x10000],
             replay_native: 0,
             replay_interp: 0,
             interp_nested: false,
+            drv_table: Vec::new(),
+            drv_resume: Vec::new(),
+            drv_seg_at: 0,
+            drv_code: (&[], 0),
+            drv_next_check: 0,
+            drv_ok_seg: 0,
             nested_bails: 0,
             defer: None,
             deferred: 0,
@@ -201,18 +231,121 @@ impl Rec {
             pending: Vec::new(),
         }
     }
+
+    /// Add a lifted driver: its routines and block leaders by offset, and
+    /// the `DS:` offset of the word where the game keeps its segment.
+    ///
+    /// `code`: the bytes the driver was lifted from (ranges, FNV-1a hash).
+    /// Every 100 ms of virtual time the driver in memory is checked against
+    /// them; while it differs (not loaded yet, another driver, or code it
+    /// rewrote that the lifter did not see change), it is interpreted.
+    pub fn with_driver(
+        mut self,
+        routines: &[(u16, Routine)],
+        leaders: &[(u16, Routine)],
+        seg_at: u16,
+        code: (&'static [(u16, u16)], u64),
+    ) -> Rec {
+        if routines.is_empty() {
+            return self;
+        }
+        let mut table = vec![None; 0x10000];
+        let mut resume = vec![None; 0x10000];
+        for &(off, f) in leaders {
+            resume[off as usize] = Some(f);
+        }
+        for &(off, f) in routines {
+            table[off as usize] = Some(f);
+            resume[off as usize] = Some(f);
+        }
+        self.drv_table = table;
+        self.drv_resume = resume;
+        self.drv_seg_at = seg_at as usize;
+        self.drv_code = code;
+        self
+    }
 }
 
 impl Machine {
+    /// On device events: check the driver in memory against the code it was
+    /// lifted from (see [`Rec::with_driver`]); drop it on a difference.
+    pub(crate) fn rec_driver_check(&mut self, now: u64) {
+        let Some(rec) = &mut self.rec else { return };
+        if rec.drv_seg_at == 0 || now < rec.drv_next_check {
+            return;
+        }
+        rec.drv_next_check = now + 100_000_000;
+        let want = rec.drv_code.1;
+        let a = GAME_DS as usize * 16 + rec.drv_seg_at;
+        let seg = u16::from_le_bytes([self.hw.mem[a], self.hw.mem[a + 1]]);
+        let ok = self.driver_hash(&self.hw.mem) == Some(want);
+        let rec = self.rec.as_mut().unwrap();
+        let was = rec.drv_ok_seg;
+        rec.drv_ok_seg = if ok { seg } else { 0 };
+        if was != 0 && !ok {
+            eprintln!("rec: the graphics driver at {seg:04x} is not the one lifted (code hash differs): interpreting it");
+        }
+    }
+
+    /// The lifted driver's code bytes in `mem` hashed as the lifter did
+    /// (None without a lifted driver, or before it is loaded).
+    fn driver_hash(&self, mem: &[u8]) -> Option<u64> {
+        let rec = self.rec.as_ref()?;
+        if rec.drv_seg_at == 0 {
+            return None;
+        }
+        let a = GAME_DS as usize * 16 + rec.drv_seg_at;
+        let seg = u16::from_le_bytes([mem[a], mem[a + 1]]);
+        if seg == 0 {
+            return None;
+        }
+        let base = (seg as usize) << 4;
+        let mut h = 0xcbf2_9ce4_8422_2325u64;
+        for &(s, e) in rec.drv_code.0 {
+            for &b in &mem[base + s as usize..base + e as usize] {
+                h = (h ^ b as u64).wrapping_mul(0x100_0000_01b3);
+            }
+        }
+        Some(h)
+    }
+
+    /// The code space of segment `cs`: 0 for seg000, 1 for the lifted
+    /// driver's segment.
+    #[inline]
+    fn rec_space(&self, cs: u16) -> Option<u8> {
+        if cs == LOAD_SEG {
+            return Some(0);
+        }
+        let rec = self.rec.as_ref()?;
+        if rec.drv_ok_seg == 0 || cs != rec.drv_ok_seg {
+            return None;
+        }
+        let a = GAME_DS as usize * 16 + rec.drv_seg_at;
+        (u16::from_le_bytes([self.hw.mem[a], self.hw.mem[a + 1]]) == cs).then_some(1)
+    }
+
+    /// The routine with its entry at CS:`ip` (`entry`), or any routine with a
+    /// block leader there.
+    #[inline]
+    fn rec_routine(&self, cs: u16, ip: u16, entry: bool) -> Option<Routine> {
+        let space = self.rec_space(cs)?;
+        let r = self.rec.as_ref()?;
+        let t = match (space, entry) {
+            (0, true) => &r.table,
+            (0, false) => &r.resume,
+            (_, true) => &r.drv_table,
+            (_, false) => &r.drv_resume,
+        };
+        t[ip as usize]
+    }
+
     /// Run-loop hook: called before each instruction when `rec` is set.
     /// Returns true if it changed the state (the loop must re-check).
     pub(crate) fn rec_hook(&mut self) -> bool {
         let (cs, ip) = (self.cpu.sregs[CS], self.cpu.ip);
-        if cs != LOAD_SEG {
-            return false;
-        }
+        let Some(space) = self.rec_space(cs) else { return false };
         let Some(rec) = &mut self.rec else { return false };
-        if rec.busy || rec.skip.take() == Some(ip) {
+        if rec.busy || rec.skip.take() == Some((cs, ip)) {
             return false;
         }
         match rec.mode {
@@ -222,7 +355,13 @@ impl Machine {
                 if self.break_at.is_some() {
                     return false;
                 }
-                let Some(f) = rec.resume[ip as usize] else { return false };
+                // The graphics recorder watches the driver's entries and
+                // returns instruction by instruction.
+                if space == 1 && self.gfx.active() {
+                    return false;
+                }
+                let Some(f) = self.rec_routine(cs, ip, false) else { return false };
+                let rec = self.rec.as_mut().unwrap();
                 rec.calls += 1;
                 rec.busy = true;
                 let r = f(self, ip);
@@ -230,7 +369,7 @@ impl Machine {
                 rec.busy = false;
                 if r.is_err() {
                     rec.bails += 1;
-                    rec.skip = Some(self.cpu.ip);
+                    rec.skip = Some((self.cpu.sregs[CS], self.cpu.ip));
                     if self.cpu.sregs[CS] == LOAD_SEG {
                         rec.bail_at[self.cpu.ip as usize] += 1;
                     }
@@ -238,24 +377,29 @@ impl Machine {
                 true
             }
             RecMode::Shadow => {
-                let Some(f) = rec.table[ip as usize] else { return false };
-                let st = rec.stats.entry(ip).or_default();
+                let Some(f) = self.rec_routine(cs, ip, true) else { return false };
+                let k = key(space, ip);
+                let rec = self.rec.as_mut().unwrap();
+                let st = rec.stats.entry(k).or_default();
                 let checked = st.ok + st.diff + st.bailed + st.skipped;
-                let in_flight = rec.pending.iter().filter(|p| p.entry == ip).count() as u32;
+                let in_flight = rec.pending.iter().filter(|p| p.entry == k).count() as u32;
                 let room = checked + in_flight < rec.samples && rec.pending.len() < MAX_PENDING;
                 let (ss, sp) = (self.cpu.sregs[SS], self.cpu.regs[SP]);
                 let ret = self.mem_read16(ss, sp);
+                let ret_cs = self.mem_read16(ss, sp.wrapping_add(2));
                 // Only real calls: an entry reached by a jump or by falling
-                // through has no return address on the stack.
-                if room && self.called_from(ret, ip) {
-                    self.push_check(ip, f);
+                // through has no return address on the stack. The driver is
+                // also entered by far calls from seg000.
+                let called = self.called_from(cs, ret, ip) || (space == 1 && ret_cs == LOAD_SEG && self.called_far(ret_cs, ret));
+                if room && called {
+                    self.push_check(k, f);
                 }
                 false
             }
         }
     }
 
-    fn push_check(&mut self, entry: u16, f: Routine) {
+    fn push_check(&mut self, entry: u32, f: Routine) {
         let p = Pending {
             entry,
             f,
@@ -280,7 +424,7 @@ impl Machine {
             _ => None,
         };
         let Some(f) = f else { return false };
-        self.push_check(ip, f);
+        self.push_check(ip as u32, f);
         true
     }
 
@@ -295,11 +439,11 @@ impl Machine {
         n
     }
 
-    /// Whether the seg000 code just before `ret` is a near call that can
-    /// have gone to `target` (direct `CALL rel16` to it, or an indirect
-    /// `CALL r/m16` of 2 to 4 bytes).
-    fn called_from(&self, ret: u16, target: u16) -> bool {
-        let at = |off: u16| self.hw.mem[((LOAD_SEG as usize) << 4) + off as usize];
+    /// Whether the code in segment `cs` just before `ret` is a near call
+    /// that can have gone to `target` (direct `CALL rel16` to it, or an
+    /// indirect `CALL r/m16` of 2 to 4 bytes).
+    fn called_from(&self, cs: u16, ret: u16, target: u16) -> bool {
+        let at = |off: u16| self.hw.mem[(((cs as usize) << 4) + off as usize) & 0xf_ffff];
         if at(ret.wrapping_sub(3)) == 0xe8 {
             let rel = u16::from_le_bytes([at(ret.wrapping_sub(2)), at(ret.wrapping_sub(1))]);
             if ret.wrapping_add(rel) == target {
@@ -310,6 +454,17 @@ impl Machine {
             let modrm = at(ret.wrapping_sub(n - 1));
             at(ret.wrapping_sub(n)) == 0xff && (modrm >> 3) & 7 == 2 && modrm_len(modrm) == n - 1
         })
+    }
+
+    /// Whether the code at `cs` just before `ret` is a far call (`CALL
+    /// ptr16:16`, or `CALL m16:16` of 2 to 4 bytes).
+    fn called_far(&self, cs: u16, ret: u16) -> bool {
+        let at = |off: u16| self.hw.mem[(((cs as usize) << 4) + off as usize) & 0xf_ffff];
+        at(ret.wrapping_sub(5)) == 0x9a
+            || (2..=4).any(|n| {
+                let modrm = at(ret.wrapping_sub(n - 1));
+                at(ret.wrapping_sub(n)) == 0xff && (modrm >> 3) & 7 == 3 && modrm_len(modrm) == n - 1
+            })
     }
 
     /// Shadow mode, before each instruction: has the innermost pending call
@@ -362,7 +517,8 @@ impl Machine {
         // patch site) is marked in the report: if it changed code, the Rust
         // version, which keeps the code as it was, runs differently.
         let code = CODE_START..CODE_END;
-        let code_changed = p.mem[code.clone()].iter().zip(&self.hw.mem[code.clone()]).enumerate().any(|(i, (a, b))| a != b && CODE_START + i != PATCHED);
+        let code_changed = p.mem[code.clone()].iter().zip(&self.hw.mem[code.clone()]).enumerate().any(|(i, (a, b))| a != b && CODE_START + i != PATCHED)
+            || self.driver_hash(&p.mem) != self.driver_hash(&self.hw.mem);
         let entry_state = (p.cpu.clone(), p.mem.clone());
         let cpu1 = std::mem::replace(&mut self.cpu, p.cpu);
         let mem1 = std::mem::replace(&mut self.hw.mem, p.mem);
@@ -442,13 +598,13 @@ impl Machine {
     /// instructions as the original's call took (`IoLog::stop_at`), resuming
     /// in Rust at every block leader and interpreting only where Rust bailed.
     /// Returns (finished, bails).
-    fn replay_drive(&mut self, entry: u16, f: Routine) -> (bool, u32) {
+    fn replay_drive(&mut self, entry: u32, f: Routine) -> (bool, u32) {
         let stop = self.hw.io_log.stop_at;
         let start = self.cpu.instructions;
         let interp0 = self.rec.as_ref().unwrap().replay_interp;
         self.rec.as_mut().unwrap().nested_bails = 0;
         self.hw.io_log.stopped = false;
-        let r = f(self, entry);
+        let r = f(self, entry as u16);
         let mut just_bailed = self.rec_settle().and(r).is_err();
         if !just_bailed {
             self.rec.as_mut().unwrap().returned[entry as usize] += 1;
@@ -466,11 +622,7 @@ impl Machine {
                 break false;
             }
             let ip = self.cpu.ip;
-            let resume = if self.cpu.sregs[CS] == LOAD_SEG && !just_bailed {
-                self.rec.as_ref().and_then(|r| r.resume[ip as usize])
-            } else {
-                None
-            };
+            let resume = if just_bailed { None } else { self.rec_routine(self.cpu.sregs[CS], ip, false) };
             if let Some(g) = resume {
                 self.hw.io_log.stopped = false;
                 let r = g(self, ip);
@@ -500,6 +652,9 @@ impl Machine {
             }
             Some(&IoEvent::Irq { at, .. }) if at < self.cpu.instructions => {
                 let now = self.cpu.instructions;
+                if std::env::var_os("REC_DEBUG").is_some() && self.hw.io_log.mismatch.is_none() {
+                    eprintln!("irq missed at {:04x}:{:04x} (due {at}, now {now})", self.cpu.sregs[CS], self.cpu.ip);
+                }
                 self.hw.io_log.fail(format!("irq missed: due before instruction {at}, now {now}"));
                 false
             }
@@ -547,7 +702,7 @@ impl Machine {
     pub fn rec_tick(&mut self, len: u32) -> bool {
         if self.hw.io_log.replay.is_some() {
             let end = self.cpu.instructions + len as u64;
-            if matches!(self.hw.io_log.peek(), Some(&IoEvent::Irq { at, .. }) if at < end) {
+            if self.hw.io_log.next_irq(len as usize + 1).is_some_and(|at| at < end) {
                 return true;
             }
             self.hw.io_log.stopped = self.hw.io_log.stop_at < end;
@@ -645,7 +800,29 @@ impl Machine {
         // them here. One that takes long (it waits for an interrupt) is left
         // to the run loop, mid-way. After a service that showed the program
         // idle, the run loop must sleep: bail there too.
+        let mut just_bailed = false;
         for _ in 0..ON_INTERP_BUDGET {
+            // The lifted driver, natively, from any of its block leaders.
+            let here = self.cpu.sregs[CS];
+            if here != LOAD_SEG
+                && !just_bailed
+                && let Some(g) = self.rec_routine(here, self.cpu.ip, false)
+            {
+                let at = self.cpu.ip;
+                self.rec.as_mut().unwrap().calls += 1;
+                just_bailed = g(self, at).is_err();
+                if just_bailed {
+                    self.rec.as_mut().unwrap().bails += 1;
+                }
+                if back(&self.cpu) {
+                    return Ok(());
+                }
+                if self.exited.is_some() || self.rec_tick(1) {
+                    return Err(Bail);
+                }
+                continue;
+            }
+            just_bailed = false;
             if self.music.watch[0] != 0 {
                 let pc = self.cpu.phys(self.cpu.sregs[CS], self.cpu.ip);
                 if let Some(entry) = self.music.hit(pc) {
@@ -685,29 +862,30 @@ impl Machine {
     pub fn rec_call(&mut self, target: u16, ret: u16) -> Result<(), Bail> {
         self.cpu.ip = target;
         let nested = self.rec.as_ref().is_some_and(|r| r.interp_nested);
-        let (ss, sp) = (self.cpu.sregs[SS], self.cpu.regs[SP]);
+        let (cs, ss, sp) = (self.cpu.sregs[CS], self.cpu.sregs[SS], self.cpu.regs[SP]);
         self.rec_settle()?;
-        if let Some(f) = self.rec.as_ref().and_then(|r| r.table[target as usize]) {
+        if let Some(f) = self.rec_routine(cs, target, true) {
             let r = f(self, target);
             let r = self.rec_settle().and(r);
             match r {
                 Ok(()) => {
+                    let k = key(self.rec_space(cs).unwrap_or(0), target);
                     if let Some(r) = self.rec.as_mut() {
-                        r.returned[target as usize] += 1;
+                        r.returned[k as usize] += 1;
                     }
                 }
                 // Shadow replay: the callee bailed (an interrupt due inside
                 // it, a wait for one, code it does not run): finish it here
                 // and carry on in the caller's Rust code.
-                Err(Bail) if nested => self.finish_call(ret, ss, sp)?,
+                Err(Bail) if nested => self.finish_call(cs, ret, ss, sp)?,
                 Err(e) => return Err(e),
             }
         } else if nested {
-            self.finish_call(ret, ss, sp)?;
+            self.finish_call(cs, ret, ss, sp)?;
         } else {
             return Err(Bail);
         }
-        if self.cpu.ip == ret && self.cpu.sregs[CS] == LOAD_SEG { Ok(()) } else { Err(Bail) }
+        if self.cpu.ip == ret && self.cpu.sregs[CS] == cs { Ok(()) } else { Err(Bail) }
     }
 
     /// For readable ports, at the start of a stretch of `len` instructions
@@ -842,13 +1020,13 @@ impl Machine {
     /// Rust resumed at every block leader, the interpreter elsewhere. Bails
     /// at the end of the original's call (or on an I/O mismatch), which the
     /// replay then ends with.
-    fn finish_call(&mut self, ret: u16, ss: u16, sp: u16) -> Result<(), Bail> {
+    fn finish_call(&mut self, cs: u16, ret: u16, ss: u16, sp: u16) -> Result<(), Bail> {
         let start = self.cpu.instructions;
         let mut just_bailed = true;
         self.rec.as_mut().unwrap().nested_bails += 1;
         loop {
             let c = &self.cpu;
-            if c.sregs[CS] == LOAD_SEG && c.ip == ret && c.sregs[SS] == ss && c.regs[SP] > sp {
+            if c.sregs[CS] == cs && c.ip == ret && c.sregs[SS] == ss && c.regs[SP] > sp {
                 return Ok(());
             }
             if self.hw.io_log.replay.is_some() && self.cpu.instructions >= self.hw.io_log.stop_at {
@@ -862,11 +1040,7 @@ impl Machine {
                 continue;
             }
             let ip = self.cpu.ip;
-            let resume = if self.cpu.sregs[CS] == LOAD_SEG && !just_bailed {
-                self.rec.as_ref().and_then(|r| r.resume[ip as usize])
-            } else {
-                None
-            };
+            let resume = if just_bailed { None } else { self.rec_routine(self.cpu.sregs[CS], ip, false) };
             if let Some(g) = resume {
                 self.hw.io_log.stopped = false;
                 let r = g(self, ip);

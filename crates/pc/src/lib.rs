@@ -204,6 +204,16 @@ impl Machine {
     }
 
     #[inline]
+    /// The segments the game loaded its drivers at (0 until loaded): the
+    /// first word of each driver table it fills (seg000:e5e5, e775, e7ce).
+    pub fn driver_segments(&self) -> [(&'static str, u16); 3] {
+        let w = |off: usize| {
+            let a = GAME_DS as usize * 16 + off;
+            u16::from_le_bytes([self.hw.mem[a], self.hw.mem[a + 1]])
+        };
+        [("graphics", w(0x38b7)), ("sound", w(0x398b)), ("music", w(0x396f))]
+    }
+
     pub fn now_ns(&self) -> u64 {
         self.now_at(self.cpu.instructions)
     }
@@ -253,6 +263,7 @@ impl Machine {
                 self.next_event = self.hw.update(now);
                 self.music.refresh(&self.hw.mem);
                 self.gfx.refresh(&self.hw.mem);
+                self.rec_driver_check(now);
                 if let Some(b) = self.mouse.deferred {
                     if now >= self.mouse.pressed_at + MIN_BUTTON_HOLD_NS {
                         self.mouse.buttons = b;

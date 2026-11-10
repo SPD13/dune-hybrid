@@ -299,6 +299,57 @@ get one call whose garbage state makes the original rewrite its own code
 Without that batch's ports (back to 1,115 routines) they pass; the
 circle ports alone (which do write code) are not the cause.
 
+### 6. The graphics driver, lifted: `generated_vga.rs`
+
+The game loads its drivers from DUNE.DAT into memory it allocates; the
+listing does not have them. Under `--rec on`, after the seg000 routines,
+23% of all instructions were still interpreted, and 97% of those were the
+graphics driver (DNVGA; `rec interpreted: ... by segment` in the report,
+`rec drivers:` names the segments). It is lifted from its own bytes:
+
+```sh
+dune-run ... --dump-drivers DIR --coverage cov.txt   # DIR/graphics.bin, sound.bin, music.bin
+dune-lift --raw DIR/graphics.bin --seg 334b --slots 46 --name vga     --also OTHER/graphics.bin ... --cov cov.txt --out crates/dune-rec/src/generated_vga.rs
+```
+
+- Entries: the driver's jump table at 0100h (46 slots of 3 bytes, the far
+  pointers the game keeps at `DS:38B5h`), and every near call target
+  found from them. The generated code takes its segment from CS.
+- The driver rewrites some of its own code (two immediates, a jump
+  target, a few more): `--also` gives images of the driver from other
+  times and runs, and the instructions whose bytes differ between them run
+  through the interpreter, which reads them from memory. The output also
+  holds a hash of all the other code bytes (with an instruction counted
+  as rewritten as a whole: a word field may differ in one byte between
+  images). Every 100 ms of virtual time the machine checks the driver in
+  memory against it; the driver runs natively only in a segment that
+  passed (before it is loaded and set up, or if the game's pointer to it
+  is overwritten, it is interpreted). A shadow check whose call changed
+  the driver's code is marked like one that changed seg000's.
+- Coverage files now also record the drivers' instruction starts (`h
+  SEG:OFF`) and indirect jumps, for the lifter.
+- `pc::rec` has a second code space: the driver's segment, read from
+  `DS:38B7h`. Shadow mode checks the driver's routines like seg000's (their
+  report keys are 1xxxxh); calls from seg000 are far calls. Under `--rec
+  on` the driver runs natively from any of its block leaders, also inside
+  a port's or the generated code's far call (`rec_interp`). Not while the
+  graphics recorder watches the driver (`GFX_VERIFY`, the HD compositor).
+  `REC_NO_DRIVER=1` leaves it to the interpreter.
+
+Measured (the validation runs: two 10-minute random-input games with
+`--call-each 4`, the long-call and phase-ladder runs): 71 of the driver's
+79 routines called, 61 checked equal, 1 with differences (slot 22, in
+calls that also wrote into seg000's code, as `hnm_render_timer_callback`).
+Under `--rec on` the interpreted share fell from 23% to 1.0 to 2.5% of
+instructions (the rest: BIOS stubs, the music driver, bails), and a
+5-minute run went from about 100 to 240 MIPS, with every screenshot
+byte-identical.
+
+Two lifter bugs it found: `not` on memory negated the address (the
+memory `put` names the address `a`, hiding the value), and a generated
+block's interrupt check only looked at the next recorded event, missing
+an interrupt behind a port read (the driver's retrace polling loops).
+
 ## Next steps
 
 1. **More readable ports**, the main work from here: name the data segment
@@ -309,5 +360,7 @@ circle ports alone (which do write code) are not the cause.
 2. **Coverage of the rest** (the 20% of instructions never run): milestone
    saves, and harness states deeper in the game (the endings: `chankiss`
    etc.).
-3. **Drivers** (DNVGA is modelled in `gfx::model`; sound and music next) and
-   **DOS** behind a host API, for a build without the interpreter.
+3. **Drivers**: the graphics driver is lifted (above); the music and sound
+   drivers can be lifted the same way (`--dump-drivers` writes them; they
+   need their entry tables), then **DOS and the BIOS** behind a host API,
+   for a build without the interpreter.
