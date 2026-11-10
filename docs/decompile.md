@@ -197,7 +197,7 @@ the instruction count (virtual time). `Ctx` holds the bookkeeping:
   `interp` (`INT` and far calls into the drivers), and tail jumps call the
   target port directly.
 
-Ported: 980 routines (the small ones first: flags and setters, game time,
+Ported: 983 routines (the small ones first: flags and setters, game time,
 location kinds, frame tasks, condition operators, the intro's steps,
 framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
 decompression, voice and music start/stop, DUNE.DAT access, the memory
@@ -222,7 +222,7 @@ their telling, sentences and number words, sprite lists, region marks
 on the map, the cursor move; the EMS and XMS copies, the memory
 drivers' setup and release, the bump allocator, the interrupt
 handlers, mouse and joystick setup, save-file timestamps and
-compression, the voice block decoder), all equal to the original in every
+compression, the voice block decoder, tiled sprites), all equal to the original in every
 checked call (two 10-minute games with `--call-each 4`, 0 differences), and `--rec on`
 screenshots unchanged. A port no run has checked to completion stays out of the table
 (`copy_pal_and_transition`, `comm_fade_in_glow`,

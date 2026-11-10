@@ -749,3 +749,49 @@ pub fn uninitialize_memory_driver(m: &mut Machine, start: u16) -> Result<(), Bai
     }
     c.jump(0xe913)
 }
+
+/// `bump_alloc_get_addr_in_di_and_bump` (F0F6; F0FFh skips the first
+/// part): the far pointer of the free memory ([39B7h], ES:SI) stored
+/// at DS:DI, then CX bytes taken from it: [39B9h] (its segment) up by
+/// (CX + 15) / 16 paragraphs (AX). Past the limit [0CE68h] the game
+/// ends with "out of memory" (`out_of_memory_error`, run by the
+/// original).
+pub fn bump_alloc(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{ES, SI};
+    if start != 0xf0f6 && start != 0xf0ff {
+        return Err(Bail);
+    }
+    let mut c = Ctx::new(m);
+    if start == 0xf0f6 {
+        c.run(0xf0f6, 3)?;
+        let (s, e) = (c.word(0x39b7), c.word(0x39b9));
+        c.set_reg(SI, s);
+        c.set_sreg(ES, e);
+        let di = c.reg(DI);
+        c.set_word(di, s);
+        c.set_word(di.wrapping_add(2), e);
+    }
+    let cx = c.reg(CX);
+    let paras = ((cx as u32 + 0xf) >> 4) as u16;
+    let top = c.word(0x39b9).wrapping_add(paras);
+    let lim = c.word(0xce68);
+    let over = top > lim;
+    c.run(0xf0ff, 12 + if over { 0 } else { 1 })?;
+    c.set_reg(AX, cx);
+    let a = c.add(W, cx, 0xf);
+    let a = c.rcr1(W, a);
+    let a = c.shr1(W, a, 3);
+    c.set_reg(AX, a);
+    let v = c.word(0x39b9);
+    let v = c.add(W, v, a);
+    c.set_word(0x39b9, v);
+    c.push(a);
+    c.set_reg(AX, v);
+    c.cmp(W, v, lim);
+    let a = c.pop();
+    c.set_reg(AX, a);
+    if over {
+        return c.jump(0xf131);
+    }
+    c.ret()
+}

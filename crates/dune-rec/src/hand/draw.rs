@@ -378,3 +378,145 @@ pub fn string_update_ordinal_suffix(m: &mut Machine, start: u16) -> Result<(), B
     c.count(n + 3);
     c.ret()
 }
+
+/// `blit_repeated_x`: sprite AX of the current sheet ([0DBB0h]) tiled
+/// over the rectangle at SI (x0, y0, x1, y1): clipped by the driver
+/// (far [38D9h]), the first copy drawn (far [38C9h]), then copies to
+/// the right along the first row and, for each further row, down
+/// (far [3931h], the last ones cut to the rectangle), through a frame
+/// on the stack (x, y, width, height, x, y; then the sprite's height
+/// and width, the rectangle's height, width, y and x). DS kept.
+pub fn blit_repeated_x(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::SP;
+    entered(start, 0xc370)?;
+    let mut c = Ctx::new(m);
+    c.run(0xc370, 4)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    c.push(ds);
+    let ax = c.reg(AX);
+    c.push(ax);
+    let si = c.reg(SI);
+    c.push(si);
+    c.interp(0xc374, 0xc378)?;
+    c.run(0xc378, 25)?;
+    let si = c.pop();
+    c.set_reg(SI, si);
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    let ds = c.pop();
+    c.set_sreg(DS, ds);
+    let x = c.word(si);
+    c.set_reg(DX, x);
+    c.push(x);
+    let y = c.word(si.wrapping_add(2));
+    c.set_reg(BX, y);
+    c.push(y);
+    let x2 = c.word(si.wrapping_add(4));
+    let w = c.sub(W, x2, x);
+    c.set_reg(CX, w);
+    c.push(w);
+    let y2 = c.word(si.wrapping_add(6));
+    let h = c.sub(W, y2, y);
+    c.set_reg(CX, h);
+    c.push(h);
+    let (s0, sg) = (c.word(0xdbb0), c.word(0xdbb2));
+    c.set_reg(SI, s0);
+    c.set_sreg(DS, sg);
+    let bp = c.shl1(W, ax, 1);
+    c.set_reg(BP, bp);
+    let o = c.word(bp.wrapping_add(s0));
+    let s1 = c.add(W, s0, o);
+    c.set_reg(SI, s1);
+    let a = c.lods(W, DS);
+    c.set_reg(DI, a);
+    let sw = c.and(W, a, 0x1ff);
+    c.set_reg(AX, sw);
+    c.push(sw);
+    let a = c.lods(W, DS);
+    c.set_reg(CX, a);
+    c.xor(B, a >> 8, a >> 8);
+    let sh = a & 0xff;
+    c.set_reg(AX, sh);
+    c.push(sh);
+    c.interp(0xc3a6, 0xc3ab)?;
+    c.run(0xc3ab, 14)?;
+    let es = c.sreg(ES);
+    c.push(es);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    let sp = c.reg(SP);
+    c.set_reg(BP, sp);
+    let x = c.word_in(SS, sp.wrapping_add(0xa));
+    c.set_reg(DX, x);
+    let y = c.word_in(SS, sp.wrapping_add(8));
+    c.set_reg(BX, y);
+    let f0 = c.word_in(SS, sp);
+    let f2 = c.word_in(SS, sp.wrapping_add(2));
+    for v in [y, x, f0, f2, y, x] {
+        c.push(v);
+    }
+    let bp = c.reg(SP);
+    c.set_reg(BP, bp);
+    let w = c.word_in(SS, bp.wrapping_add(0x12));
+    let t = c.word_in(SS, bp.wrapping_add(4));
+    let dx = c.sub(W, w, t);
+    c.set_reg(DX, dx);
+    tile_run(&mut c, DX, 4, 8, 0xc3c7)?;
+    c.run(0xc3e0, 7)?;
+    let bp = c.reg(BP);
+    let w = c.word_in(SS, bp.wrapping_add(0x12));
+    c.set_reg(AX, w);
+    c.set_word_in(SS, bp.wrapping_add(4), w);
+    let x = c.word_in(SS, bp);
+    c.set_reg(AX, x);
+    c.set_word_in(SS, bp.wrapping_add(8), x);
+    let h = c.word_in(SS, bp.wrapping_add(0x10));
+    let t = c.word_in(SS, bp.wrapping_add(6));
+    let bx = c.sub(W, h, t);
+    c.set_reg(BX, bx);
+    if bx != 0 {
+        tile_run(&mut c, BX, 6, 0xa, 0xc3f4)?;
+    }
+    c.run(0xc40d, 3)?;
+    let sp = c.reg(SP);
+    let s = c.add(W, sp, 0x18);
+    c.set_reg(SP, s);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.ret()
+}
+
+/// `blit_repeated_x`'s loops (C3C7h / C3F4h): while the register `r`
+/// (the length left) stays positive, the frame's position [bp+pos]
+/// stepped by the size [bp+size] (cut to what is left) and a copy
+/// drawn (far [3931h]).
+fn tile_run(c: &mut Ctx, r: usize, size: u16, pos: u16, at: u16) -> Result<(), Bail> {
+    loop {
+        let bp = c.reg(BP);
+        let left = c.reg(r);
+        let a = c.word_in(SS, bp.wrapping_add(size));
+        let borrow = left < a;
+        c.run(at, 5 + borrow as u32)?;
+        c.set_reg(AX, a);
+        let v = c.word_in(SS, bp.wrapping_add(pos));
+        let v = c.add(W, v, a);
+        c.set_word_in(SS, bp.wrapping_add(pos), v);
+        let left = c.sub(W, left, a);
+        c.set_reg(r, left);
+        if borrow {
+            let v = c.add(W, a, left);
+            c.set_word_in(SS, bp.wrapping_add(size), v);
+        }
+        c.push(left);
+        let call = at + 0xe;
+        c.interp(call, call + 5)?;
+        c.run(call + 5, 3)?;
+        let left = c.pop();
+        c.set_reg(r, left);
+        c.cmp(W, left, 0);
+        if left as i16 <= 0 {
+            return Ok(());
+        }
+    }
+}
