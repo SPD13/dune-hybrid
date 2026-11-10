@@ -1296,3 +1296,184 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0x2943, f as u8);
     c.ret()
 }
+
+/// `open_dune_dat` (E675): the patch files DUNE?.DAT (37F2h, the digit
+/// at 37F7h counting up to '9'): each found (`loc_0f1fb`) is read to the
+/// free memory ([39B7h], `loc_0f260`) and, if it starts with C089h,
+/// run (far [39B7h], DX 31FFh). Then DUNE.DAT itself opened (37E9h; on
+/// failure returned with CF) into [0DBBAh] and its index read
+/// (`loc_0e741`): the resource table at [39B7h] ([0DBBCh]) gets 145h,
+/// 14Dh bytes FFh, then for each 19h-byte entry whose name is a known
+/// resource (`get_res_index_in_ax_by_name_dssi`, `loc_0f3a7`; a new one
+/// opens a 0Ah gap) its place (`loc_0e75b`); the hash table behind it
+/// (every 280h bytes, five words) and the memory taken
+/// (`bump_allocate_bump_cx_bytes`, CX [0D820h]).
+pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{BP, DF, DS, ES, SI, SS, ZF};
+    use super::r8;
+    entered(start, 0xe675)?;
+    let mut c = Ctx::new(m);
+    loop {
+        c.run(0xe675, 2)?;
+        c.set_reg(DX, 0x37f2);
+        c.call(0xf1fb, 0xe67b)?;
+        if !c.flag(CF) {
+            c.run(0xe67b, 3)?;
+            let (d, e) = (c.word(0x39b7), c.word(0x39b9));
+            c.set_reg(DI, d);
+            c.set_sreg(ES, e);
+            c.call(0xf260, 0xe684)?;
+            let di = c.reg(DI);
+            let w = c.word_in(ES, di);
+            c.run(0xe684, 2 + if w == 0xc089 { 1 } else { 0 })?;
+            c.cmp(W, w, 0xc089);
+            if w == 0xc089 {
+                c.set_reg(DX, 0x31ff);
+                c.interp(0xe68e, 0xe692)?;
+            }
+        } else {
+            c.run(0xe67b, 1)?;
+        }
+        let d = c.byte(0x37f7).wrapping_add(1);
+        c.run(0xe692, 4)?;
+        c.set_reg(SI, 0x37f7);
+        let v = c.byte(0x37f7);
+        let v = c.inc(B, v as u16);
+        c.set_byte(0x37f7, v as u8);
+        c.cmp(B, d as u16, 0x39);
+        if d > 0x39 {
+            break;
+        }
+    }
+    c.run(0xe69c, 2)?;
+    c.set_reg(DX, 0x37e9);
+    c.set_reg(AX, 0x3d00);
+    c.interp(0xe6a2, 0xe6a4)?;
+    if c.flag(CF) {
+        c.run(0xe6a4, 2)?;
+        return c.ret();
+    }
+    c.run(0xe6a4, 3)?;
+    let ax = c.reg(AX);
+    c.set_word(0xdbba, ax);
+    c.call(0xe741, 0xe6ac)?;
+    c.run(0xe6ac, 10)?;
+    let di = c.reg(DI);
+    c.set_reg(SI, di);
+    let es = c.sreg(ES);
+    c.set_reg(BP, es);
+    let (d, e) = (c.word(0x39b7), c.word(0x39b9));
+    c.set_reg(DI, d);
+    c.set_sreg(ES, e);
+    c.set_word(0xdbbc, d);
+    c.set_word(0xdbbe, e);
+    c.set_reg(AX, 0x145);
+    c.stos(W);
+    c.set_reg(CX, 0x14d);
+    c.set_reg8(r8::AL, 0xff);
+    c.rep(0xaa);
+    c.run(0xe6c7, 4)?;
+    let di = c.reg(DI);
+    c.set_word(0xd820, di);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let bp = c.reg(BP);
+    c.set_sreg(DS, bp);
+    c.lods(W, DS);
+    loop {
+        c.run(0xe6cf, 2)?;
+        let si = c.reg(SI);
+        c.push(si);
+        c.call(0xf314, 0xe6d3)?;
+        let cf = c.flag(CF);
+        c.run(0xe6d3, 2 + if cf { 0 } else { 1 })?;
+        let si = c.pop();
+        c.set_reg(SI, si);
+        if !cf {
+            c.call(0xf3a7, 0xe6d9)?;
+            let z = c.flag(ZF);
+            if z {
+                c.run(0xe6d9, 2)?;
+            } else {
+                c.run(0xe6d9, 13)?;
+                for r in [AX, DX, SI, DI] {
+                    let v = c.reg(r);
+                    c.push(v);
+                }
+                let end = c.word_in(SS, 0xd820);
+                c.set_reg(CX, end);
+                c.set_reg(SI, end);
+                let di = c.reg(DI);
+                let n = c.sub(W, end, di);
+                let s = c.sub(W, end, 2);
+                c.set_reg(SI, s);
+                c.set_reg(DI, s.wrapping_add(0xa));
+                let n = c.shr1(W, n, 1);
+                c.set_reg(CX, n);
+                c.set_flag(DF, true);
+                c.m.cpu.string_op(&mut c.m.hw, 0xa5, Some(ES), 0xf3);
+                c.run(0xe6f4, 6)?;
+                c.set_flag(DF, false);
+                for r in [DI, SI, DX, AX] {
+                    let v = c.pop();
+                    c.set_reg(r, v);
+                }
+            }
+            c.call(0xe75b, 0xe6fc)?;
+            c.run(0xe6fc, 1)?;
+            let v = c.word_in(SS, 0xd820);
+            let v = c.add(W, v, 0xa);
+            c.set_word_in(SS, 0xd820, v);
+        }
+        let si = c.reg(SI);
+        let next = c.byte(si.wrapping_add(0x19));
+        c.run(0xe702, 3)?;
+        let s = c.add(W, si, 0x19);
+        c.set_reg(SI, s);
+        c.cmp(B, next as u16, 0);
+        if next == 0 {
+            break;
+        }
+    }
+    c.run(0xe70a, 12)?;
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.set_reg(SI, 0x145);
+    let end = c.word(0xd820);
+    let a = c.sub(W, end, 0x145);
+    c.set_reg(AX, a);
+    c.xor(W, 0, 0);
+    c.set_reg(DX, 0);
+    c.set_reg(CX, 0x280);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 6, 0x280);
+    c.set_reg(DX, 0xa);
+    c.mul16(0xa);
+    let step = c.reg(AX);
+    c.set_reg(DX, step);
+    let (d, e) = (c.word_in(SS, 0xdbbc), c.word_in(SS, 0xdbbe));
+    c.set_sreg(ES, e);
+    let di = c.add(W, d, 2);
+    c.set_reg(DI, di);
+    let mut si = 0x145u16;
+    loop {
+        c.run(0xe729, 9)?;
+        si = c.add(W, si, step);
+        c.set_reg(SI, si);
+        c.push(si);
+        c.m.cpu.string_op(&mut c.m.hw, 0xa5, Some(ES), 0);
+        c.m.cpu.string_op(&mut c.m.hw, 0xa4, Some(ES), 0);
+        si = c.pop();
+        c.set_reg(SI, si);
+        c.set_reg(AX, si);
+        c.stos(W);
+        let di = c.reg(DI);
+        c.cmp(W, di, 0x140);
+        if di >= 0x140 {
+            break;
+        }
+    }
+    c.run(0xe73a, 2)?;
+    let cx = c.word(0xd820);
+    c.set_reg(CX, cx);
+    c.jump(0xf0ff)
+}

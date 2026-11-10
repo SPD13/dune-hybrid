@@ -225,7 +225,7 @@ the instruction count (virtual time). `Ctx` holds the bookkeeping:
   `interp` (`INT` and far calls into the drivers), and tail jumps call the
   target port directly.
 
-Ported: 1,072 routines (the small ones first: flags and setters, game time,
+Ported: 1,087 routines (the small ones first: flags and setters, game time,
 location kinds, frame tasks, condition operators, the intro's steps,
 framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
 decompression, voice and music start/stop, DUNE.DAT access, the memory
@@ -269,9 +269,10 @@ calls in which a port ran all of its own code (it returned without a
 bail, or got to its `ret` or final jump). A jump to code that is no
 routine's entry resumes the generated code there (its block leader)
 rather than bailing. A port no run has checked to completion stays out of the table
-(`copy_pal_and_transition`, `comm_fade_in_glow`,
-`comm_animate_incoming_call`, `sub_b1ee`: longer than the harness's
-300 ms). A port may also cover only a routine's common path and bail at
+(`sub_b1ee`, and a dozen routines no run reaches: the Emperor's demand,
+some scenes and video steps). Routines that wait for the timer
+(`copy_pal_and_transition`, the communication device) are checked with
+`--call-only` and `--call-ms 3000`. A port may also cover only a routine's common path and bail at
 its entry for the rest (`pause_if_p_key_pressed`: the pause screen
 itself stays generated).
 

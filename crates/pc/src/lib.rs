@@ -303,7 +303,11 @@ impl Machine {
             if let Some(c) = &mut self.coverage {
                 c.before(&self.cpu, &self.hw);
             }
+            let (cs, n0) = (self.cpu.sregs[CS], self.cpu.instructions);
             let step = self.cpu.step(&mut self.hw);
+            if let Some(r) = &mut self.rec {
+                r.interp_seg[cs as usize] += self.cpu.instructions - n0;
+            }
             if let Some(c) = &mut self.coverage {
                 c.after(&self.cpu);
             }

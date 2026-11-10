@@ -179,10 +179,19 @@ fn parse() -> Result<Args, String> {
 }
 
 /// Summary of `--rec`: shadow results per routine, or call counts.
-fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>) {
+fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
     use std::fmt::Write as _;
     if rec.mode == pc::rec::RecMode::On {
         println!("rec: {} calls into Rust, {} bailed", rec.calls, rec.bails);
+        let interp: u64 = rec.interp_seg.iter().sum();
+        let mut segs: Vec<(u64, usize)> = rec.interp_seg.iter().enumerate().filter(|(_, n)| **n > 0).map(|(i, n)| (*n, i)).collect();
+        segs.sort_unstable_by(|a, b| b.cmp(a));
+        let top: Vec<String> = segs.iter().take(8).map(|(n, s)| format!("{s:04x}:{:.1}%", 100.0 * *n as f64 / interp.max(1) as f64)).collect();
+        println!(
+            "rec interpreted: {interp} of {total} instructions ({:.1}%), by segment {}",
+            100.0 * interp as f64 / total.max(1) as f64,
+            top.join(" ")
+        );
         let names: std::collections::HashMap<u16, &str> = dune_rec::names().iter().copied().collect();
         let mut bails: Vec<(u64, usize)> = rec.bail_at.iter().enumerate().filter(|(_, n)| **n > 0).map(|(i, n)| (*n, i)).collect();
         bails.sort_unstable_by(|a, b| b.cmp(a));
@@ -572,7 +581,7 @@ fn main() -> ExitCode {
         println!("coverage: {} seg000 instructions, {} indirect transfers -> {}", c.count(), c.indirect.len(), path.display());
     }
     if let Some(rec) = &m.rec {
-        rec_report(rec, args.rec_report.as_deref());
+        rec_report(rec, args.rec_report.as_deref(), m.cpu.instructions);
     }
     if let Some(img) = &code_image {
         let changed: Vec<String> =

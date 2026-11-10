@@ -86,6 +86,10 @@ pub struct Rec {
     /// bailing (so all of it ran in Rust).
     pub returned: Vec<u32>,
     pub stepped_op: Vec<u64>,
+    /// Instructions the run loop interpreted, by code segment (the rest of
+    /// the count ran in Rust, or in [`Machine::rec_interp`], also counted
+    /// here under `--rec on`).
+    pub interp_seg: Vec<u64>,
     /// Shadow replays: instructions run by Rust and by the interpreter.
     pub replay_native: u64,
     pub replay_interp: u64,
@@ -182,6 +186,7 @@ impl Rec {
             bail_at: vec![0; 0x10000],
             returned: vec![0; 0x10000],
             stepped_op: vec![0; 256],
+            interp_seg: vec![0; 0x10000],
             replay_native: 0,
             replay_interp: 0,
             interp_nested: false,
@@ -648,7 +653,10 @@ impl Machine {
                 }
             }
             self.hw.now_ns = self.now_ns();
-            match self.cpu.step(&mut self.hw) {
+            let (cs, n0) = (self.cpu.sregs[CS], self.cpu.instructions);
+            let step = self.cpu.step(&mut self.hw);
+            self.rec.as_mut().unwrap().interp_seg[cs as usize] += self.cpu.instructions - n0;
+            match step {
                 Step::Ok => {}
                 Step::Callback(n) => {
                     self.service(n);
