@@ -988,3 +988,97 @@ pub fn compress_sav(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word_in(ES, d0.wrapping_add(2), n);
     c.ret()
 }
+
+/// `unrle_image_to_tmp_buffer` (C2A1): the RLE image at DS:SI ([SI-2]'s
+/// low byte the row count) unpacked into SS:4C60h, each row
+/// (DI mod 200h + 3) / 4 * 2 bytes: a byte n < 80h copies n + 1 bytes,
+/// else the next byte is repeated 1 - n times. Returns DS:SI = SS:4C60h;
+/// AX, BX, CX, DI, ES, BP kept.
+pub fn unrle_image_to_tmp_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc2a1)?;
+    let mut c = Ctx::new(m);
+    c.run(0xc2a1, 17)?;
+    for r in [AX, BX, CX, DI] {
+        let v = c.reg(r);
+        c.push(v);
+    }
+    let es = c.sreg(ES);
+    c.push(es);
+    let bp = c.reg(BP);
+    c.push(bp);
+    let ss = c.sreg(SS);
+    c.push(ss);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    let di0 = c.reg(DI);
+    c.set_reg(BP, di0);
+    c.set_reg(DI, 0x4c60);
+    let w = c.and(W, di0, 0x1ff);
+    let w = c.add(W, w, 3);
+    let w = c.shr1(W, w, 2);
+    let w = c.shl1(W, w, 1);
+    c.set_reg(BP, w);
+    let si = c.reg(SI);
+    let n = c.word(si.wrapping_sub(2));
+    c.xor(B, n >> 8, n >> 8);
+    let mut rows = n & 0xff;
+    c.set_reg(CX, rows);
+    loop {
+        c.run(0xc2c0, 2)?;
+        c.push(rows);
+        let mut bx = w;
+        c.set_reg(BX, bx);
+        loop {
+            let si = c.reg(SI);
+            let al = c.byte(si);
+            let lit = al & 0x80 == 0;
+            let len = if lit { 1 + al as u16 } else { 1u8.wrapping_sub(al) as u16 };
+            let left = bx.wrapping_sub(len);
+            c.run(0xc2c3, 3 + if lit { 5 } else { 6 })?;
+            c.lods(B, DS);
+            c.test(B, al as u16, 0x80);
+            if lit {
+                c.add(B, 1, al as u16);
+            } else {
+                c.sub(B, 1, al as u16);
+            }
+            c.set_reg8(r8::CL, len as u8);
+            c.xor(B, 0, 0);
+            c.set_reg(CX, len);
+            bx = c.sub(W, bx, len);
+            c.set_reg(BX, bx);
+            if lit {
+                c.rep(0xa4);
+                c.run(0xc2d2, 1 + (left == 0) as u32)?;
+            } else {
+                c.lods(B, DS);
+                c.rep(0xaa);
+                c.run(0xc2e1, 1)?;
+            }
+            if bx == 0 {
+                break;
+            }
+        }
+        c.run(0xc2e3, 2)?;
+        rows = c.pop().wrapping_sub(1);
+        c.set_reg(CX, rows);
+        if rows == 0 {
+            break;
+        }
+    }
+    c.run(0xc2e6, 10)?;
+    c.set_reg(SI, 0x4c60);
+    let ss = c.sreg(SS);
+    c.push(ss);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    let v = c.pop();
+    c.set_reg(BP, v);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    for r in [DI, CX, BX, AX] {
+        let v = c.pop();
+        c.set_reg(r, v);
+    }
+    c.ret()
+}
