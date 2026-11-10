@@ -23,7 +23,11 @@
 //!   returns, the Rust version is replayed from the entry state, fed from
 //!   that log, and registers, flags and all memory are compared; a replay
 //!   that does different I/O is a difference too. The original's result is
-//!   what the game continues with.
+//!   what the game continues with. In a replay, a call whose callee bails
+//!   (an interrupt due inside it, a wait for one) finishes the callee
+//!   there, interpreting with the recorded interrupts and resuming Rust at
+//!   block leaders, and then goes on in the caller's Rust code: a routine
+//!   that calls a waiting one is still checked to its end.
 
 use std::collections::BTreeMap;
 
@@ -88,6 +92,10 @@ pub struct Rec {
     /// While a routine runs from shadow checking: nested code it cannot run
     /// natively is interpreted to completion instead of bailing.
     pub(crate) interp_nested: bool,
+    /// Bails absorbed by [`Machine::finish_call`] during the current
+    /// shadow replay (the call then counts as bailed: part of it was
+    /// interpreted).
+    nested_bails: u32,
     busy: bool,
     /// Shadow mode: calls in progress, innermost last.
     pending: Vec<Pending>,
@@ -155,6 +163,7 @@ impl Rec {
             replay_native: 0,
             replay_interp: 0,
             interp_nested: false,
+            nested_bails: 0,
             busy: false,
             skip: None,
             pending: Vec::new(),
@@ -380,6 +389,7 @@ impl Machine {
         let stop = self.hw.io_log.stop_at;
         let start = self.cpu.instructions;
         let interp0 = self.rec.as_ref().unwrap().replay_interp;
+        self.rec.as_mut().unwrap().nested_bails = 0;
         self.hw.io_log.stopped = false;
         let mut just_bailed = f(self, entry).is_err();
         if !just_bailed {
@@ -417,7 +427,7 @@ impl Machine {
         let rec = self.rec.as_mut().unwrap();
         let interp = rec.replay_interp - interp0;
         rec.replay_native += (self.cpu.instructions - start).saturating_sub(interp);
-        (finished, bails)
+        (finished, bails + rec.nested_bails)
     }
 
     /// Replay: deliver the next recorded interrupt if it is due now (or the
@@ -611,19 +621,71 @@ impl Machine {
     /// callee has returned to `ret`.
     pub fn rec_call(&mut self, target: u16, ret: u16) -> Result<(), Bail> {
         self.cpu.ip = target;
+        let nested = self.rec.as_ref().is_some_and(|r| r.interp_nested);
+        let (ss, sp) = (self.cpu.sregs[SS], self.cpu.regs[SP]);
         if let Some(f) = self.rec.as_ref().and_then(|r| r.table[target as usize]) {
-            f(self, target)?;
-            if let Some(r) = self.rec.as_mut() {
-                r.returned[target as usize] += 1;
+            match f(self, target) {
+                Ok(()) => {
+                    if let Some(r) = self.rec.as_mut() {
+                        r.returned[target as usize] += 1;
+                    }
+                }
+                // Shadow replay: the callee bailed (an interrupt due inside
+                // it, a wait for one, code it does not run): finish it here
+                // and carry on in the caller's Rust code.
+                Err(Bail) if nested => self.finish_call(ret, ss, sp)?,
+                Err(e) => return Err(e),
             }
-        } else if self.rec.as_ref().is_some_and(|r| r.interp_nested) {
-            let (ss, sp) = (self.cpu.sregs[SS], self.cpu.regs[SP]);
-            let cs = self.cpu.sregs[CS];
-            self.interp_until(BUDGET, |c| c.sregs[CS] == cs && c.ip == ret && c.sregs[SS] == ss && c.regs[SP] > sp)?;
+        } else if nested {
+            self.finish_call(ret, ss, sp)?;
         } else {
             return Err(Bail);
         }
         if self.cpu.ip == ret && self.cpu.sregs[CS] == LOAD_SEG { Ok(()) } else { Err(Bail) }
+    }
+
+    /// Shadow replay: run until the call whose return address `ret` was
+    /// pushed at SS:SP returns there, the way [`Machine::replay_drive`]
+    /// runs a check: recorded interrupts delivered at their instruction,
+    /// Rust resumed at every block leader, the interpreter elsewhere. Bails
+    /// at the end of the original's call (or on an I/O mismatch), which the
+    /// replay then ends with.
+    fn finish_call(&mut self, ret: u16, ss: u16, sp: u16) -> Result<(), Bail> {
+        let start = self.cpu.instructions;
+        let mut just_bailed = true;
+        self.rec.as_mut().unwrap().nested_bails += 1;
+        loop {
+            let c = &self.cpu;
+            if c.sregs[CS] == LOAD_SEG && c.ip == ret && c.sregs[SS] == ss && c.regs[SP] > sp {
+                return Ok(());
+            }
+            if self.hw.io_log.replay.is_some() && self.cpu.instructions >= self.hw.io_log.stop_at {
+                return Err(Bail);
+            }
+            if self.hw.io_log.mismatch.is_some() || self.cpu.instructions - start > BUDGET {
+                return Err(Bail);
+            }
+            if self.replay_irq() {
+                just_bailed = false;
+                continue;
+            }
+            let ip = self.cpu.ip;
+            let resume = if self.cpu.sregs[CS] == LOAD_SEG && !just_bailed {
+                self.rec.as_ref().and_then(|r| r.resume[ip as usize])
+            } else {
+                None
+            };
+            if let Some(g) = resume {
+                self.hw.io_log.stopped = false;
+                just_bailed = g(self, ip).is_err();
+                if just_bailed {
+                    self.rec.as_mut().unwrap().nested_bails += 1;
+                }
+            } else {
+                just_bailed = false;
+                self.step_insn()?;
+            }
+        }
     }
 }
 

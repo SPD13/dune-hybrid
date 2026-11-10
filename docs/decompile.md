@@ -236,9 +236,12 @@ panel's buttons, loading a phrase's voice and lip-sync,
 an HNM frame's chunks; the intro's scene
 entries and other short entries ending in a jump), all equal to the original in every
 checked call (two 10-minute games with `--call-each 4`, 0 differences), and `--rec on`
-screenshots unchanged. A call counted as bailed may have run little of a port in Rust: a bail
-anywhere (in a callee, or in the routine a port ends in) leaves the rest
-of the call to the original. The report's `reached` column counts the
+screenshots unchanged. In a replay, a callee that bails (an interrupt due inside it, a timer
+wait) is finished there, with the recorded interrupts and Rust resumed
+at block leaders, and the caller's Rust code goes on after it (only in
+shadow replays: `--rec on` leaves interrupts and devices to the run
+loop). A call is still counted as bailed when any part of it was
+interpreted. The report's `reached` column counts the
 calls in which a port ran all of its own code (it returned without a
 bail, or got to its `ret` or final jump). A jump to code that is no
 routine's entry resumes the generated code there (its block leader)

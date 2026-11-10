@@ -2589,7 +2589,11 @@ fn rects_missing_at(c: &mut Ctx, start: u16) -> Result<(), Bail> {
         for &(a, w) in &slots {
             c.set_word_in(SS, a, w);
         }
-        let (n, call) = r?;
+        // A bail leaves CS:IP at the stretch's first instruction.
+        let Ok((n, call)) = r else {
+            c.m.cpu.ip = at;
+            return Err(Bail);
+        };
         c.run(at, n)?;
         rects_walk(c, resume)?;
         if !call {
