@@ -4,7 +4,8 @@
 //! directly, `N` times: first with the registers as they are there, then with
 //! random general registers. Each call starts from the same saved state and
 //! runs until it returns (to the main-loop top, pushed as its return address)
-//! or for at most [`CALL_NS`] of virtual time.
+//! or for at most `call_ns` of virtual time (`--call-ms`, default 300).
+//! A call still running then is not checked (its shadow check is dropped).
 //!
 //! The calls are meaningless to the game, but not to the checks: under
 //! `--rec shadow` each one is a shadow check (the original and the Rust
@@ -12,9 +13,6 @@
 //! `--coverage` counts everything they execute.
 
 use pc::{LOAD_SEG, Machine, RunExit, cpu};
-
-/// Virtual time one call may take.
-const CALL_NS: u64 = 300_000_000;
 
 #[derive(Default)]
 struct Outcome {
@@ -25,7 +23,7 @@ struct Outcome {
 }
 
 /// Run the harness from the machine's current state; it is left as found.
-pub fn run(m: &mut Machine, main_loop: u16, entries: &[u16], samples: u32) {
+pub fn run(m: &mut Machine, main_loop: u16, entries: &[u16], samples: u32, call_ns: u64) {
     m.break_at = Some((LOAD_SEG, main_loop));
     let r = m.run_until(m.now_ns() + 10_000_000_000);
     m.break_at = None;
@@ -58,7 +56,7 @@ pub fn run(m: &mut Machine, main_loop: u16, entries: &[u16], samples: u32) {
             m.cpu.ip = entry;
             m.rec_check_here();
             m.break_at = Some((LOAD_SEG, main_loop));
-            let r = m.run_until(m.now_ns() + CALL_NS);
+            let r = m.run_until(m.now_ns() + call_ns);
             m.break_at = None;
             match r {
                 RunExit::Break => out.returned += 1,
@@ -79,7 +77,7 @@ pub fn run(m: &mut Machine, main_loop: u16, entries: &[u16], samples: u32) {
         entries.len() as u32 * samples,
         out.returned,
         out.timed_out,
-        CALL_NS / 1_000_000,
+        call_ns / 1_000_000,
         out.exited,
         out.other
     );

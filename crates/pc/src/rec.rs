@@ -96,6 +96,20 @@ pub struct Rec {
     /// shadow replay (the call then counts as bailed: part of it was
     /// interpreted).
     nested_bails: u32,
+    /// Shadow replays: a readable port's stretch run through an interrupt
+    /// due inside it, waiting for the next boundary (see
+    /// [`Machine::rec_stretch`]).
+    defer: Option<Deferred>,
+    /// Shadow replays: stretches run through an interrupt, and how many of
+    /// them had to end in a bail (the interrupt changed what the rest of
+    /// the stretch computed).
+    pub deferred: u64,
+    pub deferred_bailed: u64,
+    /// Shadow replays whose result differed only with stretches run through
+    /// interrupts, and were equal when replayed bailing at them instead.
+    pub deferred_retried: u64,
+    /// Bail at interrupts again (the second replay of such a call).
+    no_through: bool,
     busy: bool,
     /// Shadow mode: calls in progress, innermost last.
     pending: Vec<Pending>,
@@ -116,6 +130,14 @@ struct Pending {
     log_start: usize,
     /// Instruction count at entry.
     cpu_instructions: u64,
+}
+
+/// A stretch started at `cpu` (its first instruction) with a recorded
+/// interrupt due inside it, run by Rust without it.
+struct Deferred {
+    cpu: Cpu,
+    mem: Vec<u8>,
+    log: Option<(usize, usize)>,
 }
 
 /// seg000's code, physical, and the byte the program patches itself
@@ -164,6 +186,11 @@ impl Rec {
             replay_interp: 0,
             interp_nested: false,
             nested_bails: 0,
+            defer: None,
+            deferred: 0,
+            deferred_bailed: 0,
+            deferred_retried: 0,
+            no_through: false,
             busy: false,
             skip: None,
             pending: Vec::new(),
@@ -331,6 +358,7 @@ impl Machine {
         // version, which keeps the code as it was, runs differently.
         let code = CODE_START..CODE_END;
         let code_changed = p.mem[code.clone()].iter().zip(&self.hw.mem[code.clone()]).enumerate().any(|(i, (a, b))| a != b && CODE_START + i != PATCHED);
+        let entry_state = (p.cpu.clone(), p.mem.clone());
         let cpu1 = std::mem::replace(&mut self.cpu, p.cpu);
         let mem1 = std::mem::replace(&mut self.hw.mem, p.mem);
         let io1 = self.hw.io_count;
@@ -343,25 +371,49 @@ impl Machine {
         let rec = self.rec.as_mut().unwrap();
         rec.interp_nested = true;
         rec.busy = true;
-        let (finished, bails) = self.replay_drive(p.entry, p.f);
-        let unused = self.hw.io_log.peek().map(|e| crate::hw::describe(Some(e)));
-        let mismatch = self.hw.io_log.mismatch.take().or_else(|| unused.map(|e| format!("io: original also had {e}")));
+        let mut retried = false;
+        let (diff, bails) = loop {
+            let deferred0 = self.rec.as_ref().unwrap().deferred;
+            let (finished, bails) = self.replay_drive(p.entry, p.f);
+            let unused = self.hw.io_log.peek().map(|e| crate::hw::describe(Some(e)));
+            let mismatch = self.hw.io_log.mismatch.take().or_else(|| unused.map(|e| format!("io: original also had {e}")));
+            let diff = match (mismatch, finished) {
+                (Some(m), _) => Some(m),
+                (None, false) => Some(format!(
+                    "did not finish: at {:04x}:{:04x} after {} instructions, original {}",
+                    self.cpu.sregs[CS],
+                    self.cpu.ip,
+                    self.cpu.instructions - p.cpu_instructions,
+                    cpu1.instructions - p.cpu_instructions
+                )),
+                (None, true) => compare(&cpu1, &mem1, &self.cpu, &self.hw.mem),
+            };
+            // A port may keep what it read across a stretch (right under
+            // `--rec on`, where no interrupt comes while Rust runs); run
+            // through an interrupt, that can be stale. Such a result is
+            // checked again bailing at the interrupts, unless a stretch
+            // itself was found different.
+            let rec = self.rec.as_mut().unwrap();
+            let through = rec.deferred > deferred0;
+            let stretch_wrong = diff.as_deref().is_some_and(|d| d.starts_with("stretch from"));
+            if diff.is_none() || !through || stretch_wrong || retried {
+                rec.no_through = false;
+                break (diff, bails + retried as u32);
+            }
+            retried = true;
+            rec.no_through = true;
+            rec.deferred_retried += 1;
+            rec.defer = None;
+            self.cpu = entry_state.0.clone();
+            self.hw.mem.copy_from_slice(&entry_state.1);
+            self.hw.io_log.replay = Some((p.log_start, end));
+            self.hw.io_log.mismatch = None;
+        };
         self.hw.io_log.replay = None;
         self.hw.io_log.recording = true;
         let rec = self.rec.as_mut().unwrap();
         rec.interp_nested = false;
         rec.busy = false;
-        let diff = match (mismatch, finished) {
-            (Some(m), _) => Some(m),
-            (None, false) => Some(format!(
-                "did not finish: at {:04x}:{:04x} after {} instructions, original {}",
-                self.cpu.sregs[CS],
-                self.cpu.ip,
-                self.cpu.instructions - p.cpu_instructions,
-                cpu1.instructions - p.cpu_instructions
-            )),
-            (None, true) => compare(&cpu1, &mem1, &self.cpu, &self.hw.mem),
-        };
         let diff = diff.map(|d| if code_changed { format!("{d} (the call wrote into the code segment)") } else { d });
         let st = rec.stats.entry(p.entry).or_default();
         match &diff {
@@ -391,7 +443,8 @@ impl Machine {
         let interp0 = self.rec.as_ref().unwrap().replay_interp;
         self.rec.as_mut().unwrap().nested_bails = 0;
         self.hw.io_log.stopped = false;
-        let mut just_bailed = f(self, entry).is_err();
+        let r = f(self, entry);
+        let mut just_bailed = self.rec_settle().and(r).is_err();
         if !just_bailed {
             self.rec.as_mut().unwrap().returned[entry as usize] += 1;
         }
@@ -415,7 +468,8 @@ impl Machine {
             };
             if let Some(g) = resume {
                 self.hw.io_log.stopped = false;
-                just_bailed = g(self, ip).is_err();
+                let r = g(self, ip);
+                just_bailed = self.rec_settle().and(r).is_err();
                 bails += (just_bailed && !self.hw.io_log.stopped) as u32;
             } else {
                 just_bailed = false;
@@ -569,6 +623,7 @@ impl Machine {
     /// CS:IP on that instruction.
     pub fn rec_interp(&mut self, ip: u16, next: u16) -> Result<(), Bail> {
         self.cpu.ip = ip;
+        self.rec_settle()?;
         let nested = self.rec.as_ref().is_some_and(|r| r.interp_nested);
         let (cs, ss, sp) = (self.cpu.sregs[CS], self.cpu.sregs[SS], self.cpu.regs[SP]);
         let back = |c: &Cpu| c.sregs[CS] == cs && c.ip == next && c.sregs[SS] == ss && c.regs[SP] == sp;
@@ -623,8 +678,11 @@ impl Machine {
         self.cpu.ip = target;
         let nested = self.rec.as_ref().is_some_and(|r| r.interp_nested);
         let (ss, sp) = (self.cpu.sregs[SS], self.cpu.regs[SP]);
+        self.rec_settle()?;
         if let Some(f) = self.rec.as_ref().and_then(|r| r.table[target as usize]) {
-            match f(self, target) {
+            let r = f(self, target);
+            let r = self.rec_settle().and(r);
+            match r {
                 Ok(()) => {
                     if let Some(r) = self.rec.as_mut() {
                         r.returned[target as usize] += 1;
@@ -642,6 +700,132 @@ impl Machine {
             return Err(Bail);
         }
         if self.cpu.ip == ret && self.cpu.sregs[CS] == LOAD_SEG { Ok(()) } else { Err(Bail) }
+    }
+
+    /// For readable ports, at the start of a stretch of `len` instructions
+    /// from CS:IP (already set): true when the port must bail there, as
+    /// [`Machine::rec_tick`]. First settles a stretch run through an
+    /// interrupt before ([`Machine::rec_settle`]); on `Err` the port bails
+    /// with the state the interpreter left.
+    ///
+    /// With `through` (a stretch without port I/O), in a shadow replay, a
+    /// recorded interrupt due inside the stretch does not make it bail: the
+    /// port runs the stretch without it, and at the next boundary the
+    /// stretch is checked and the interrupt put in (see `rec_settle`). A
+    /// port whose own loops always meet an interrupt is then still run to
+    /// its end in Rust.
+    pub fn rec_stretch(&mut self, len: u32, through: bool) -> Result<bool, Bail> {
+        self.rec_settle()?;
+        if self.hw.io_log.replay.is_none() || !through || self.rec.as_ref().is_some_and(|r| r.no_through) {
+            return Ok(self.rec_tick(len));
+        }
+        let end = self.cpu.instructions + len as u64;
+        self.hw.io_log.stopped = self.hw.io_log.stop_at < end;
+        if self.hw.io_log.stopped {
+            return Ok(true);
+        }
+        let due = matches!(self.hw.io_log.peek(), Some(&IoEvent::Irq { at, .. }) if at < end);
+        if due && self.hw.io_log.mismatch.is_none() {
+            let d = Deferred { cpu: self.cpu.clone(), mem: self.hw.mem.clone(), log: self.hw.io_log.replay };
+            let rec = self.rec.as_mut().unwrap();
+            rec.defer = Some(d);
+            rec.deferred += 1;
+        }
+        Ok(false)
+    }
+
+    /// Shadow replay, at a port's boundary after a stretch it ran through an
+    /// interrupt (CS:IP set to where the original is then): the stretch is
+    /// interpreted from its start twice. Without the interrupts, it must
+    /// give exactly the port's state (else the replay fails: the port
+    /// differs). With them, delivered at their instruction, it gives the
+    /// original's state, which the port goes on from. If the interrupts
+    /// changed registers, flags or where the stretch ended (the port's
+    /// locals may hold what the rest of it computed), the port bails there
+    /// instead (the call counts as bailed).
+    pub fn rec_settle(&mut self) -> Result<(), Bail> {
+        let Some(rec) = self.rec.as_mut() else { return Ok(()) };
+        let Some(d) = rec.defer.take() else { return Ok(()) };
+        let now = self.cpu.instructions;
+        let start = d.cpu.instructions;
+        let at = d.cpu.ip;
+        // Without the interrupts.
+        let r_cpu = std::mem::replace(&mut self.cpu, d.cpu.clone());
+        let r_mem = std::mem::replace(&mut self.hw.mem, d.mem.clone());
+        let r_log = std::mem::replace(&mut self.hw.io_log.replay, d.log);
+        let mut ok = now >= start;
+        while ok && self.cpu.instructions < now {
+            let n = self.cpu.instructions;
+            ok = self.step_raw().is_ok() && self.hw.io_log.mismatch.is_none() && self.cpu.instructions > n;
+        }
+        let pure = if ok { compare(&self.cpu, &self.hw.mem, &r_cpu, &r_mem) } else { None };
+        let pure_log = self.hw.io_log.replay;
+        let p_cpu = self.cpu.clone();
+        self.hw.io_log.mismatch = None;
+        if !ok {
+            // Not interpretable on its own (port I/O after the interrupt):
+            // the port's state can't be checked.
+            self.hw.io_log.fail(format!("stretch from {at:04x} through an interrupt: not replayable without it"));
+        } else if let Some(diff) = pure {
+            self.hw.io_log.fail(format!("stretch from {at:04x} differs: {diff}"));
+        } else if pure_log != r_log {
+            self.hw.io_log.fail(format!("stretch from {at:04x} did different I/O"));
+        }
+        if self.hw.io_log.mismatch.is_some() {
+            self.cpu = r_cpu;
+            self.hw.mem = r_mem;
+            self.hw.io_log.replay = r_log;
+            return Err(Bail);
+        }
+        // With them: the original.
+        self.cpu = d.cpu;
+        self.hw.mem = d.mem;
+        self.hw.io_log.replay = d.log;
+        let pure_n = now - start;
+        let mut own = 0u64;
+        let mut frames: Vec<(u16, u16, u16, u16)> = Vec::new();
+        while own < pure_n || !frames.is_empty() {
+            if self.hw.io_log.mismatch.is_some() || self.cpu.instructions - start > BUDGET {
+                return Err(Bail);
+            }
+            // The original's call ended inside the stretch (it left its
+            // frame some other way than its `ret`): the replay ends here.
+            if self.cpu.instructions >= self.hw.io_log.stop_at {
+                self.hw.io_log.stopped = true;
+                return Err(Bail);
+            }
+            let c = &self.cpu;
+            let frame = (c.sregs[CS], c.ip, c.sregs[SS], c.regs[SP]);
+            if self.replay_irq() {
+                frames.push(frame);
+                continue;
+            }
+            let inside = !frames.is_empty();
+            let n = self.cpu.instructions;
+            self.step_raw()?;
+            // The handlers' instructions are interpreted; the stretch's own
+            // ones were run by the port.
+            if inside {
+                self.rec.as_mut().unwrap().replay_interp += self.cpu.instructions - n;
+            } else {
+                own += self.cpu.instructions - n;
+            }
+            let c = &self.cpu;
+            let here = (c.sregs[CS], c.ip, c.sregs[SS], c.regs[SP]);
+            while frames.last() == Some(&here) {
+                frames.pop();
+            }
+        }
+        let c = &self.cpu;
+        let same = c.ip == p_cpu.ip && c.regs == p_cpu.regs && c.sregs == p_cpu.sregs && c.flags() == p_cpu.flags();
+        if same {
+            Ok(())
+        } else {
+            let rec = self.rec.as_mut().unwrap();
+            rec.deferred_bailed += 1;
+            rec.nested_bails += 1;
+            Err(Bail)
+        }
     }
 
     /// Shadow replay: run until the call whose return address `ret` was
@@ -677,7 +861,8 @@ impl Machine {
             };
             if let Some(g) = resume {
                 self.hw.io_log.stopped = false;
-                just_bailed = g(self, ip).is_err();
+                let r = g(self, ip);
+                just_bailed = self.rec_settle().and(r).is_err();
                 if just_bailed {
                     self.rec.as_mut().unwrap().nested_bails += 1;
                 }

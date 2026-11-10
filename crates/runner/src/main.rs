@@ -70,6 +70,10 @@ struct Args {
     rec: Option<pc::rec::RecMode>,
     rec_report: Option<PathBuf>,
     call_each: u32,
+    /// `--call-each`: only these entries (default all), and the virtual
+    /// time one call may take.
+    call_only: Option<Vec<u16>>,
+    call_ms: u64,
 }
 
 /// Top of the main loop (`loc_0d820`), where nothing is half done.
@@ -105,6 +109,8 @@ fn parse() -> Result<Args, String> {
         rec: None,
         rec_report: None,
         call_each: 0,
+        call_only: None,
+        call_ms: 300,
     };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
@@ -133,6 +139,12 @@ fn parse() -> Result<Args, String> {
             }
             "--rec-report" => a.rec_report = Some(v()?.into()),
             "--call-each" => a.call_each = v()?.parse().map_err(|e| format!("--call-each: {e}"))?,
+            "--call-only" => {
+                let list = v()?;
+                let es: Result<Vec<u16>, _> = list.split(',').map(|e| u16::from_str_radix(e.trim(), 16)).collect();
+                a.call_only = Some(es.map_err(|e| format!("--call-only HEX,HEX..: {e}"))?);
+            }
+            "--call-ms" => a.call_ms = v()?.parse().map_err(|e| format!("--call-ms: {e}"))?,
             "--phase-ladder" => {
                 let spec = v()?;
                 let (start, step) = spec.split_once(':').ok_or(format!("--phase-ladder START:STEP, got {spec}"))?;
@@ -212,6 +224,10 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>) {
         "rec replay: {} instructions, {:.1}% run by Rust",
         rec.replay_native + rec.replay_interp,
         100.0 * rec.replay_native as f64 / total as f64
+    );
+    println!(
+        "rec through: {} stretches run through an interrupt, {} of them ending in a bail; {} calls replayed again bailing at them",
+        rec.deferred, rec.deferred_bailed, rec.deferred_retried
     );
     if let Some(p) = tsv {
         fs::write(p, rows).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
@@ -542,8 +558,11 @@ fn main() -> ExitCode {
         }
     };
     if args.call_each > 0 {
-        let entries: Vec<u16> = dune_rec::routines().iter().map(|r| r.0).collect();
-        callall::run(&mut m, MAIN_LOOP, &entries, args.call_each);
+        let entries: Vec<u16> = match &args.call_only {
+            Some(es) => es.clone(),
+            None => dune_rec::routines().iter().map(|r| r.0).collect(),
+        };
+        callall::run(&mut m, MAIN_LOOP, &entries, args.call_each, args.call_ms * 1_000_000);
     }
     if let (Some(dir), Some(tr)) = (&args.rooms, &tracker) {
         rooms::capture(&mut m, dir, tr.clone());

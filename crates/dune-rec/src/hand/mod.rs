@@ -1243,7 +1243,7 @@ impl Ctx<'_> {
     /// the end of a shadow check) falls inside it, so the interpreter takes
     /// over at the exact instruction; else counts them.
     fn run(&mut self, at: u16, insns: u32) -> Result<(), Bail> {
-        self.check(at, insns)?;
+        self.stretch(at, insns, true)?;
         self.count(insns);
         Ok(())
     }
@@ -1252,7 +1252,15 @@ impl Ctx<'_> {
     /// count their instructions as they go ([`Ctx::count`]), so the device
     /// sees the time of each `in`/`out`.
     fn check(&mut self, at: u16, insns: u32) -> Result<(), Bail> {
-        if self.m.rec_tick(insns) {
+        self.stretch(at, insns, false)
+    }
+
+    /// The check of a stretch; `through`: one without port I/O, which a
+    /// shadow replay may run through an interrupt due inside it
+    /// ([`Machine::rec_stretch`]).
+    fn stretch(&mut self, at: u16, insns: u32, through: bool) -> Result<(), Bail> {
+        self.m.cpu.ip = at;
+        if self.m.rec_stretch(insns, through)? {
             self.m.cpu.ip = at;
             return Err(Bail);
         }
@@ -1519,6 +1527,7 @@ impl Ctx<'_> {
     fn jump(&mut self, target: u16) -> Result<(), Bail> {
         REACHED[self.entry as usize].fetch_add(1, Ordering::Relaxed);
         self.m.cpu.ip = target;
+        self.m.rec_settle()?;
         match self.m.rec.as_ref().and_then(|r| r.table[target as usize].or(r.resume[target as usize])) {
             Some(f) => f(self.m, target),
             None => Err(Bail),

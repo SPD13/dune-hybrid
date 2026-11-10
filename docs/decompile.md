@@ -49,6 +49,9 @@ python tools/coverage.py --lst ../Cryogenic/doc/DNCDPRG.lst cov-*.txt
   nothing to the game, but under `--rec shadow` each is a full check, and
   `--coverage` counts what they run. Random registers send indirect jumps to
   garbage addresses: keep these coverage files out of the lifter's input.
+  `--call-only E1,E2,..` (hex entries) limits it to those routines and
+  `--call-ms MS` sets the time a call may take: routines that wait for the
+  timer (the communication device, palette transitions) need 2 to 3 s.
 - `tools/coverage.py` merges any number of files: instruction and routine
   percentages, the largest routines never entered, executed code the listing
   shows as data.
@@ -130,6 +133,26 @@ run): 679 to 803 routines called per run, 638 to 758 of them checked equal,
 called, about 1,080 checked equal, 0 with differences. About 60% of the
 replayed instructions ran in Rust. Not checked: the few routines whose calls
 are too long (`start`, `play_intro`, `game_loop`).
+
+**Through interrupts** (readable ports only). A port's stretch with a
+recorded interrupt due inside it does not bail in a replay: the port runs
+it without the interrupt, and at its next boundary (the next stretch, a
+call, a jump, an `INT`, its return) `Machine::rec_settle` interprets the
+stretch from its start twice:
+- without the interrupts, it must give exactly the port's state (else the
+  call differs: "stretch from ... differs");
+- with them, at their recorded instruction, it gives the original's state,
+  and the port goes on from that.
+
+If the interrupts changed registers, flags or where the stretch ended, the
+port bails there instead. A port may keep a value it read across stretches
+(right under `--rec on`, where no interrupt comes while Rust runs). A call
+that differs only with stretches run through interrupts is therefore
+replayed once more, bailing at them as before, and counted from that.
+Stretches with port I/O (`check` and `count`) still bail. A port with long
+loops of its own, which always met an interrupt and never got to its end
+in Rust, is checked to its end this way (24,000 such stretches per
+10-minute run).
 
 A call that wrote into the code segment is marked in the report ("the call
 wrote into the code segment"): if it changed code, Rust, which keeps the
