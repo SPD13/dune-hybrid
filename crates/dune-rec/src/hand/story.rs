@@ -7553,3 +7553,360 @@ pub fn edge_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, v);
     c.ret()
 }
+
+/// `draw_SAL` (3B59): scene AL of the SAL resources: its sprite sheet
+/// (13h + (AL - 1) / 16, when not the first) opened, its list (from the
+/// table BC6Eh) and the position markers read (`sal_read_position_markers`,
+/// into 18h bytes on the stack, [47F6h]); then each entry drawn until
+/// FFFFh: a sprite (index, x, y, colour override at CS:C21Ah;
+/// `draw_sprite_clobbering_bx_dx`), a person's place (sprite 1: the next
+/// marker's figure, `loc_03d2f`, unless [47A4h] & 81h), a polygon
+/// (`SAL_polygon`) or a rectangle (C0xxh: far [3901h]).
+pub fn draw_sal(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{BP, CS, DI, ES, SP};
+    entered(start, 0x3b59)?;
+    let mut c = Ctx::new(m);
+    let ax = c.reg(AX);
+    let a = (ax & 0xff).wrapping_sub(1);
+    let sheet = a >> 4 != 0;
+    c.run(0x3b59, 8 + if sheet { 2 } else { 0 })?;
+    let sp = c.reg(SP);
+    let sp = c.sub(W, sp, 0x18);
+    c.set_reg(SP, sp);
+    c.set_word(0x47f6, sp);
+    let ah = ax >> 8;
+    c.xor(B, ah, ah);
+    let a = c.dec(W, ax & 0xff);
+    c.set_reg(AX, a);
+    c.push(a);
+    c.set_reg8(r8::CL, 4);
+    let s = c.m.cpu.shift(5, W, a as u32, 4) as u16;
+    c.set_reg(AX, s);
+    if sheet {
+        let v = c.add(W, s, 0x13);
+        c.set_reg(AX, v);
+        c.call(0xc13e, 0x3b70)?;
+    }
+    c.run(0x3b70, 7)?;
+    let a = c.pop();
+    let a = c.and(W, a, 0xf);
+    let a = c.shl1(W, a, 1);
+    c.set_reg(AX, a);
+    let si = c.add(W, 0xbc6e, a);
+    let si = c.word(si);
+    c.set_reg(SI, si);
+    c.call(0x3d83, 0x3b80)?;
+    loop {
+        let si = c.reg(SI);
+        let w = c.word(si);
+        if w == 0xffff {
+            c.run(0x3b80, 3 + 3)?;
+            c.lods(W, DS);
+            c.cmp(W, w, 0xffff);
+            c.m.cpu.write8(&mut c.m.hw, CS, 0xc21a, 0);
+            let sp = c.reg(SP);
+            let sp = c.add(W, sp, 0x18);
+            c.set_reg(SP, sp);
+            return c.ret();
+        }
+        if w & 0x8000 != 0 {
+            if w >> 8 == 0xc0 {
+                c.run(0x3b80, 4 + 2 + 14)?;
+                c.lods(W, DS);
+                c.cmp(W, w, 0xffff);
+                c.cmp(B, w >> 8, 0xc0);
+                c.push(w);
+                let es = c.word(0xdbda);
+                c.set_sreg(ES, es);
+                let dx = c.lods(W, DS);
+                c.set_reg(DX, dx);
+                let bx = c.lods(W, DS);
+                c.set_reg(BX, bx);
+                let di = c.lods(W, DS);
+                c.set_reg(DI, di);
+                let cx = c.lods(W, DS);
+                c.set_reg(CX, cx);
+                let a = c.pop();
+                c.set_reg(AX, a);
+                let si = c.reg(SI);
+                c.push(si);
+                c.set_reg(BP, 0xffff);
+                c.set_reg(SI, 0x1470);
+                c.interp(0x3be2, 0x3be6)?;
+                c.run(0x3be6, 2)?;
+                let v = c.pop();
+                c.set_reg(SI, v);
+                continue;
+            }
+            c.run(0x3b80, 4 + 3)?;
+            c.lods(W, DS);
+            c.cmp(W, w, 0xffff);
+            c.cmp(B, w >> 8, 0xc0);
+            c.call(0x3be9, 0x3bc7)?;
+            c.run(0x3bc7, 1)?;
+            continue;
+        }
+        let one = w & 0x1ff == 1;
+        c.run(0x3b80, 4 + 17 + 1)?;
+        c.lods(W, DS);
+        c.cmp(W, w, 0xffff);
+        c.set_reg(DI, w);
+        let h = c.shr1(B, w >> 8, 1);
+        let h = c.and(B, h, 1);
+        c.set_reg(AX, (h << 8) | (w & 0xff));
+        let b1 = c.lods(B, DS);
+        let dx = (h << 8) | b1;
+        c.set_reg(DX, dx);
+        c.lods(B, DS);
+        c.xor(B, h, h);
+        let bx = c.reg(AX) & 0xff;
+        c.set_reg(AX, bx);
+        c.set_reg(BX, bx);
+        let col = c.lods(B, DS) as u8;
+        let si = c.reg(SI);
+        c.push(si);
+        c.m.cpu.write8(&mut c.m.hw, CS, 0xc21a, col);
+        c.set_reg(AX, w);
+        let a = c.and(W, w, 0xfdff);
+        let a = c.dec(W, a);
+        c.set_reg(AX, a);
+        let d = c.and(W, w, 0x1ff);
+        c.set_reg(DI, d);
+        c.cmp(W, d, 1);
+        if !one {
+            c.call(0xc22f, 0x3bb2)?;
+            c.run(0x3bb2, 2)?;
+            let v = c.pop();
+            c.set_reg(SI, v);
+            continue;
+        }
+        let f = c.byte(0x47a4);
+        let skip = f & 0x81 != 0;
+        let p = c.word(0x47f6);
+        let mark = c.byte(p);
+        let none = !skip && mark == 0xff;
+        c.run(0x3d12, if skip { 2 } else if none { 6 } else { 8 })?;
+        c.test(B, f as u16, 0x81);
+        if !skip {
+            c.set_reg(DI, p);
+            let q = c.dec(W, p);
+            c.set_word(0x47f6, q);
+            c.cmp(B, mark as u16, 0xff);
+            if !none {
+                c.set_reg8(r8::AL, mark);
+                c.call(0x3d2f, 0x3d2b)?;
+            }
+        }
+        c.run(0x3d2b, 2)?;
+        let v = c.pop();
+        c.set_reg(SI, v);
+    }
+}
+
+/// `SAL_polygon` (3BE9): a filled polygon of the scene, SI past its
+/// header word (colour [si-2] into [47EDh], style [si-1] into [47ECh]).
+/// The gradient steps ([22DBh], [22DDh], each a signed byte * 16), the
+/// first point ([47EEh], [47F0h]); the right side's points traced
+/// (`loc_03e13`, into 4C60h) up to the one with bit 14, the left side's
+/// (into 4C62h) up to a negative one (or none with bit 15), closing
+/// back to the start. Then each line from the top drawn between its
+/// two ends (far [3945h] into [0DBDAh], [22DFh] the step, BP 1 for a
+/// dithered style), right to left (backwards) with style bit 0.
+pub fn sal_polygon(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{BP, DF, DI, ES};
+    entered(start, 0x3be9)?;
+    let mut c = Ctx::new(m);
+    c.run(0x3be9, 21 + 6)?;
+    c.set_word(0x22d9, 0x4c60);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    let si = c.reg(SI);
+    let a = c.byte(si.wrapping_sub(2));
+    c.set_reg8(r8::AL, a);
+    c.set_byte(0x47ed, a);
+    let a = c.byte(si.wrapping_sub(1));
+    c.set_reg8(r8::AL, a);
+    c.set_byte(0x47ec, a);
+    for at in [0x22dbu16, 0x22dd] {
+        let b = c.lods(B, DS) as u8;
+        let a = b as i8 as i16 as u16;
+        c.set_reg(AX, a);
+        let a = c.shl1(W, a, 4);
+        c.set_reg(AX, a);
+        c.set_word(at, a);
+    }
+    let dx = c.lods(W, DS);
+    c.set_reg(DX, dx);
+    let bx = c.lods(W, DS);
+    c.set_reg(BX, bx);
+    c.set_word(0x47ee, dx);
+    c.set_word(0x47f0, bx);
+    let mut ax;
+    loop {
+        c.run(0x3c25, 7)?;
+        ax = c.lods(W, DS);
+        c.push(ax);
+        let d = c.and(W, ax, 0x3fff);
+        c.set_reg(AX, d);
+        c.set_reg(DI, d);
+        let cx = c.lods(W, DS);
+        c.set_reg(CX, cx);
+        c.call(0x3e13, 0x3c32)?;
+        c.run(0x3c32, 5)?;
+        let (di, cx) = (c.reg(DI), c.reg(CX));
+        c.set_reg(DX, di);
+        c.set_reg(BX, cx);
+        ax = c.pop();
+        c.set_reg(AX, ax);
+        c.test(W, ax, 0x4000);
+        if ax & 0x4000 != 0 {
+            break;
+        }
+    }
+    c.run(0x3c3c, 7)?;
+    let (di, cx) = (c.reg(DI), c.reg(CX));
+    c.set_word(0x47f2, di);
+    c.set_word(0x47f4, cx);
+    let dx = c.word(0x47ee);
+    c.set_reg(DX, dx);
+    let bx = c.word(0x47f0);
+    c.set_reg(BX, bx);
+    c.set_word(0x22d9, 0x4c62);
+    c.test(W, ax, 0x8000);
+    if ax & 0x8000 == 0 {
+        loop {
+            c.run(0x3c57, 7)?;
+            ax = c.lods(W, DS);
+            c.push(ax);
+            let d = c.and(W, ax, 0x3fff);
+            c.set_reg(AX, d);
+            c.set_reg(DI, d);
+            let cx = c.lods(W, DS);
+            c.set_reg(CX, cx);
+            c.call(0x3e13, 0x3c64)?;
+            c.run(0x3c64, 5 + if ax & 0x8000 != 0 { 2 } else { 0 })?;
+            let (di, cx) = (c.reg(DI), c.reg(CX));
+            c.set_reg(DX, di);
+            c.set_reg(BX, cx);
+            ax = c.pop();
+            c.set_reg(AX, ax);
+            c.or(W, ax, ax);
+            if ax & 0x8000 != 0 {
+                c.set_reg(DX, di);
+                c.set_reg(BX, cx);
+                break;
+            }
+        }
+    }
+    c.run(0x3c71, 3)?;
+    let di = c.word(0x47f2);
+    c.set_reg(DI, di);
+    let cx = c.word(0x47f4);
+    c.set_reg(CX, cx);
+    c.call(0x3e13, 0x3c7c)?;
+    let style = c.byte(0x47ec);
+    let dither = style & 0x3e != 0;
+    c.run(0x3c7c, 11 + dither as u32 + 6)?;
+    let es = c.word(0xdbda);
+    c.set_sreg(ES, es);
+    let si = c.reg(SI);
+    c.push(si);
+    let top = c.word(0x47f0);
+    c.set_reg(BX, top);
+    let bot = c.word(0x47f4);
+    let n = c.sub(W, bot, top);
+    c.set_reg(BP, n);
+    c.set_reg(SI, 0x4c60);
+    c.set_reg(CX, n);
+    c.set_reg(BP, 0);
+    let ah = c.and(B, style as u16, 0x3e);
+    c.set_reg8(r8::AH, ah as u8);
+    if dither {
+        c.set_reg(BP, 1);
+    }
+    c.set_reg8(r8::AL, 2);
+    let step = c.reg(AX);
+    c.set_word(0x22df, step);
+    let col = c.byte(0x47ed);
+    c.set_reg8(r8::AH, col);
+    c.xor(B, 2, 2);
+    c.set_reg8(r8::AL, 0);
+    c.test(B, style as u16, 1);
+    let back = style & 1 != 0;
+    let base = if back { 0x3ce0u16 } else { 0x3cb2 };
+    let mut cx = n;
+    loop {
+        let si = c.reg(SI);
+        let (p, q) = (c.word(si), c.word(si.wrapping_add(2)));
+        let swap = if back { p < q } else { p >= q };
+        let (lo, hi) = if swap { (q, p) } else { (p, q) };
+        let len = if back { hi.wrapping_sub(1).wrapping_sub(lo) } else { hi.wrapping_add(1).wrapping_sub(lo) };
+        c.run(base, 9 + swap as u32 + 3 + if len != 0 { if back { 6 } else { 4 } } else { 0 })?;
+        c.push(cx);
+        let ax = c.reg(AX);
+        c.push(ax);
+        c.lods(W, DS);
+        c.set_reg(DX, p);
+        c.lods(W, DS);
+        c.set_reg(CX, q);
+        let v = c.pop();
+        c.set_reg(AX, v);
+        if back {
+            c.cmp(W, p, q);
+        } else {
+            c.cmp(W, p, q);
+        }
+        c.set_reg(DX, lo);
+        let x = if back { c.dec(W, hi) } else { c.inc(W, hi) };
+        let l = c.sub(W, x, lo);
+        c.set_reg(CX, l);
+        if l != 0 {
+            let l = if back { c.neg(W, l) } else { l };
+            c.set_reg(CX, l);
+            let si = c.reg(SI);
+            c.push(si);
+            let bx = c.reg(BX);
+            c.push(bx);
+            let s = c.word(0x22df);
+            c.set_reg(SI, s);
+            let d = c.word(0x22db);
+            c.set_reg(DI, d);
+            if back {
+                c.set_flag(DF, true);
+                c.interp(0x3d01, 0x3d05)?;
+                c.run(0x3d05, 3)?;
+            } else {
+                c.interp(0x3cd0, 0x3cd4)?;
+                c.run(0x3cd4, 2)?;
+            }
+            let v = c.pop();
+            c.set_reg(BX, v);
+            let v = c.pop();
+            c.set_reg(SI, v);
+            if back {
+                c.set_flag(DF, false);
+            }
+        }
+        let at = if back { 0x3d08 } else { 0x3cd6 };
+        let left = cx.wrapping_sub(1);
+        c.run(at, 4 + if left == 0 { 2 } else { 0 })?;
+        let ax = c.reg(AX);
+        let g = c.word(0x22dd);
+        let ax = c.add(W, ax, g);
+        c.set_reg(AX, ax);
+        let bx = c.reg(BX);
+        let bx = c.inc(W, bx);
+        c.set_reg(BX, bx);
+        cx = c.pop();
+        cx = cx.wrapping_sub(1);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    let v = c.pop();
+    c.set_reg(SI, v);
+    c.ret()
+}

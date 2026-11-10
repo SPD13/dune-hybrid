@@ -1634,3 +1634,41 @@ fn end_2ff7(c: &mut Ctx) -> Result<(), Bail> {
     c.stos(W);
     c.ret()
 }
+
+/// `sub_d443` and its entries D42Fh, D434h, D439h, D43Eh: the panel's
+/// button CL (0, or 4 down to 1 by entry) pressed: its place and handler
+/// (`loc_0d454`); a handler (BX) runs unless the button is disabled (AH
+/// bit 6).
+pub fn press_panel_button(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    let n = match start {
+        0xd42f => 4,
+        0xd434 => 3,
+        0xd439 => 2,
+        0xd43e => 1,
+        0xd443 => 0,
+        _ => return Err(Bail),
+    };
+    let mut c = Ctx::new(m);
+    if start == 0xd443 {
+        c.run(0xd443, 2)?;
+        let cx = c.reg(CX);
+        c.xor(W, cx, cx);
+    } else {
+        c.run(start, 3)?;
+    }
+    c.set_reg(CX, n);
+    c.call(0xd454, 0xd448)?;
+    let (ax, bx) = (c.reg(AX), c.reg(BX));
+    if bx == 0 {
+        c.run(0xd448, 3)?;
+        c.or(W, bx, bx);
+        return c.ret();
+    }
+    c.run(0xd448, 5)?;
+    c.or(W, bx, bx);
+    c.test(B, ax >> 8, 0x40);
+    if ax & 0x4000 != 0 {
+        return c.ret();
+    }
+    c.jump(bx)
+}
