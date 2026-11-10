@@ -597,3 +597,123 @@ pub fn for_each_in_code_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         (at, jmp) = (0x1066, 1);
     }
 }
+
+/// `play_intro2` (021C): the intro's second part ([289Eh] 8Ch, [28E7h]
+/// set). Unless entered with ZF set (skipped): the credits, eight
+/// pictures (from 1, `copy_pal_and_transition` BP 2C1h, each with its
+/// sound, `loc_0ab4f`), each shown for FA0h ticks (`wait_interruptable`)
+/// unless a key ends it (`loc_0de54`, or the wait); then a transition
+/// (BP 301h), a pause, the title (`loc_038f1` BL 0Ch, `loc_03950`,
+/// [46DFh] meanwhile) and a fade out (BP C0ADh). Then the screen is
+/// cleared (far [38D5h] on [0DBD8h]), the sound and frame tasks
+/// stopped, the game set up (day counter [115h] up, [0DBE6h] 6) and the
+/// player put in the palace (`loc_008f0`, DX 200Ah, BX 180h).
+pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{ES, SP, SS};
+    entered(start, 0x021c)?;
+    let mut c = Ctx::new(m);
+    let z = c.flag(ZF);
+    c.run(0x021c, 3 + if z { 0 } else { 1 })?;
+    c.set_byte(0x289e, 0x8c);
+    c.set_byte(0x28e7, 1);
+    if !z {
+        c.call(0xad50, 0x022b)?;
+        c.run(0x022b, 2)?;
+        c.set_reg(AX, 0x3e8);
+        let mut si = 1u16;
+        c.set_reg(SI, 1);
+        let skipped = loop {
+            c.run(0x0231, 3)?;
+            c.push(si);
+            c.set_reg(BP, 0x2c1);
+            c.call(0xc102, 0x0238)?;
+            c.run(0x0238, 1)?;
+            c.call(0xade0, 0x023b)?;
+            c.run(0x023b, 3)?;
+            let a = c.pop();
+            c.set_reg(AX, a);
+            c.push(a);
+            c.call(0xab4f, 0x0240)?;
+            c.run(0x0240, 2)?;
+            si = c.pop();
+            c.set_reg(SI, si);
+            c.call(0xde54, 0x0244)?;
+            if c.flag(ZF) {
+                c.run(0x0244, 1)?;
+                break true;
+            }
+            c.run(0x0244, 5)?;
+            c.push(si);
+            c.set_reg(AX, 0x320);
+            c.set_reg(AX, 0xfa0);
+            c.call(0xddb0, 0x0250)?;
+            c.run(0x0250, 2)?;
+            let f = c.m.cpu.flags();
+            c.push(f);
+            c.call(0x0911, 0x0254)?;
+            c.run(0x0254, 1)?;
+            c.call(0xac14, 0x0257)?;
+            c.run(0x0257, 1)?;
+            c.call(0xaded, 0x025a)?;
+            let sp = c.reg(SP);
+            let f = c.word_in(SS, sp);
+            let zf = f & 0x40 != 0;
+            c.run(0x025a, 3 + if zf { 0 } else { 3 })?;
+            let f = c.pop();
+            c.m.cpu.set_flags(f);
+            si = c.pop();
+            c.set_reg(SI, si);
+            if zf {
+                break true;
+            }
+            si = c.inc(W, si);
+            c.set_reg(SI, si);
+            c.cmp(W, si, 8);
+            if si > 8 {
+                break false;
+            }
+        };
+        if !skipped {
+            c.run(0x0264, 3)?;
+            c.set_reg(BP, 0x301);
+            c.set_reg8(r8::AL, 0x10);
+            c.call(0xc108, 0x026c)?;
+            c.run(0x026c, 2)?;
+            c.set_reg(AX, 0xc8);
+            c.call(0xddb0, 0x0272)?;
+            c.run(0x0272, 2)?;
+            c.set_reg8(r8::BL, 0x0c);
+            c.call(0x38f1, 0x0277)?;
+            c.run(0x0277, 3)?;
+            c.set_byte(0x46df, 1);
+            c.set_reg(AX, 0x4b0);
+            c.call(0xddb0, 0x0282)?;
+            c.run(0x0282, 1)?;
+            c.call(0x3950, 0x0285)?;
+            c.run(0x0285, 4)?;
+            c.set_byte(0x46df, 0);
+            c.set_reg(BP, 0xc0ad);
+            c.set_reg8(r8::AL, 0x10);
+            c.call(0xc108, 0x0292)?;
+        }
+    }
+    c.run(0x0292, 1)?;
+    let es = c.word(0xdbd8);
+    c.set_sreg(ES, es);
+    c.interp(0x0296, 0x029a)?;
+    c.run(0x029a, 1)?;
+    c.call(0xac14, 0x029d)?;
+    c.run(0x029d, 3)?;
+    c.set_byte(0x227d, 0);
+    c.set_byte(0xc5, 0);
+    c.call(0x0911, 0x02aa)?;
+    c.run(0x02aa, 6)?;
+    c.set_byte(0x28e7, 0);
+    c.set_byte(0xdbe6, 6);
+    let v = c.byte(0x115);
+    let v = c.inc(B, v as u16);
+    c.set_byte(0x115, v as u8);
+    c.set_reg(DX, 0x200a);
+    c.set_reg(BX, 0x180);
+    c.jump(0x08f0)
+}
