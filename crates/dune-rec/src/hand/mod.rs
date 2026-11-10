@@ -1098,6 +1098,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xf0d6, files::read_and_maybe_hsq, "read_and_maybe_hsq"),
     (0xf0a0, files::open_resource_force_hsq, "open_resource_force_hsq"),
     (0xf255, files::open_nonres_file, "open_nonres_file"),
+    (0xdf1e, input::get_mouse_pos_etc, "get_mouse_pos_etc"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),

@@ -523,3 +523,125 @@ pub fn initialize_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xe9f3, 1)?;
     c.ret()
 }
+
+/// `get_mouse_pos_etc` (DF1E): the input of a frame. After the keyboard
+/// (`loc_0de7b`), without keyboard-only control ([2942h] bit 6) the
+/// mouse read (INT 33h AX 3, scaled down by [2580h]/[2581h]) into
+/// [0DC36h], [0DC38h] and its buttons into [0DC34h]; with a joystick
+/// (bit 7) `loc_0dd10` adds it. Then the 13 movement keys (pressed at
+/// [0CEC8h + k] or [0CEDBh + k]) summed from the table [0DC48h] (6
+/// bytes each: button bits, dx, dy), the action keys ([0CEBAh],
+/// [0CE9Dh], [0CEE6h]) give button 1 on their press ([0DC57h] the last
+/// state). Without a move the cursor's speeds [0DC51h..] are reset; a
+/// move (the keyboard cursor) is left to the original from DFB7h.
+pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{DI, DS};
+    entered(start, 0xdf1e)?;
+    let mut c = Ctx::new(m);
+    c.run(0xdf1e, 1)?;
+    c.call(0xde7b, 0xdf21)?;
+    let f = c.byte(0x2942);
+    let kb = f & 0x40 != 0;
+    c.run(0xdf21, 3 + if kb { 0 } else { 1 })?;
+    let al = c.reg8(r8::AL);
+    c.xor(B, al as u16, al as u16);
+    c.set_reg8(r8::AL, 0);
+    c.test(B, f as u16, 0x40);
+    if !kb {
+        c.set_reg(AX, 3);
+        c.interp(0xdf2d, 0xdf2f)?;
+        c.run(0xdf2f, 10)?;
+        let (cx, dx, bx) = (c.reg(CX), c.reg(DX), c.reg(BX));
+        c.set_reg(AX, cx);
+        let sc = c.word(0x2580);
+        c.set_reg(CX, sc);
+        let ax = c.m.cpu.shift(5, W, cx as u32, sc as u32 & 0xff) as u16;
+        c.set_reg(AX, ax);
+        c.set_reg8(r8::CL, (sc >> 8) as u8);
+        let dx = c.m.cpu.shift(5, W, dx as u32, (sc >> 8) as u32) as u16;
+        c.set_reg(DX, dx);
+        c.set_reg(CX, ax);
+        c.set_reg8(r8::AL, bx as u8);
+        let b = c.and(B, bx & 0xff, 3);
+        c.set_reg8(r8::AL, b as u8);
+        c.set_word(0xdc36, ax);
+        c.set_word(0xdc38, dx);
+    }
+    let f = c.byte(0x2942);
+    let joy = f & 0x80 != 0;
+    c.run(0xdf49, 3 + joy as u32)?;
+    let al = c.reg8(r8::AL);
+    c.set_byte(0xdc34, al);
+    c.test(B, f as u16, 0x80);
+    if joy {
+        c.call(0xdd10, 0xdf56)?;
+    }
+    let di0 = c.word(0xdc48);
+    let mut n = 6;
+    for k in 0..13u16 {
+        let a = c.byte(0xcec8 + k);
+        let b = c.byte(0xcec8 + k + 1 + 0x12);
+        n += 5 + if a | b != 0 { 3 } else { 0 };
+    }
+    c.run(0xdf56, n)?;
+    c.set_reg(SI, 0xcec8);
+    c.set_reg(DI, di0);
+    let dx0 = c.reg(DX);
+    c.xor(W, dx0, dx0);
+    let (mut dx, mut bx, mut ax) = (0u16, 0u16, 0u16);
+    c.set_reg(DX, 0);
+    c.set_reg(BX, 0);
+    c.set_reg(AX, 0);
+    c.set_reg(CX, 0xd);
+    let mut di = di0;
+    for k in 0..13u16 {
+        let a = c.lods(B, DS) as u8;
+        let si = c.reg(SI);
+        let b = c.byte(si.wrapping_add(0x12));
+        let o = c.or(B, a as u16, b as u16) as u8;
+        ax = (ax & 0xff00) | o as u16;
+        c.set_reg(AX, ax);
+        if o != 0 {
+            let p = c.byte(di);
+            let h = c.or(B, ax >> 8, p as u16);
+            ax = (h << 8) | (ax & 0xff);
+            c.set_reg(AX, ax);
+            let v = c.word(di.wrapping_add(2));
+            dx = c.add(W, dx, v);
+            c.set_reg(DX, dx);
+            let v = c.word(di.wrapping_add(4));
+            bx = c.add(W, bx, v);
+            c.set_reg(BX, bx);
+        }
+        di = c.add(W, di, 6);
+        c.set_reg(DI, di);
+        c.set_reg(CX, 12 - k);
+    }
+    c.run(0xdf79, 13)?;
+    let a = c.byte(0xceba);
+    let b = c.byte(0xce9d);
+    let a = c.or(B, a as u16, b as u16);
+    let b = c.byte(0xcee6);
+    let a = c.or(B, a, b as u16);
+    let a = c.and(B, a, 1) as u8;
+    let old = c.byte(0xdc57);
+    c.set_byte(0xdc57, a);
+    let v = !old;
+    let s = c.byte(0xdc34);
+    let v = c.and(B, v as u16, s as u16);
+    let v = c.or(B, v, a as u16) as u8;
+    c.set_byte(0xdc34, v);
+    c.set_reg(AX, ((a as u16) << 8) | v as u16);
+    c.set_reg(AX, dx);
+    let ax = c.or(W, dx, bx);
+    c.set_reg(AX, ax);
+    if ax != 0 {
+        c.m.cpu.ip = 0xdfb7;
+        return Err(Bail);
+    }
+    c.run(0xdf9d, 4)?;
+    c.set_word(0xdc51, 0);
+    c.set_word(0xdc53, 0);
+    c.set_word(0xdc55, 0);
+    c.ret()
+}
