@@ -851,3 +851,174 @@ pub fn open_nonres_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, v);
     c.ret()
 }
+
+/// `get_res_index_in_ax_by_name_dssi` (F314): the resource index (AX,
+/// CF clear) of the name at DS:SI (ES = SS). A name "..\P" + digits is
+/// a phrase file: the index from its letters (DL the first less 40h,
+/// shifted left with "is it not 'O'" at +4; BX three hex digits, BH's
+/// top from the letter at +5). Else the name (up to 16 bytes, CX its
+/// length) is compared with the last one opened ([0CE78h]), then with
+/// all F7h names of the table at 31FFh; CF set if none matches.
+pub fn get_res_index_by_name(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use super::B;
+    use pc::cpu::{CF, ZF};
+    entered(start, 0xf314)?;
+    let mut c = Ctx::new(m);
+    let si0 = c.reg(SI);
+    let tag = c.word(si0.wrapping_add(2));
+    c.run(0xf314, 4)?;
+    let ss = c.sreg(SS);
+    c.push(ss);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.cmp(W, tag, 0x505c);
+    if tag == 0x505c {
+        return res_index_by_number(&mut c);
+    }
+    c.run(0xf31d, 3)?;
+    c.push(si0);
+    c.set_reg(CX, 0x10);
+    c.set_reg(DX, 0x10);
+    let mut cx = 0x10u16;
+    loop {
+        c.run(0xf323, 3)?;
+        let a = c.lods(B, DS);
+        c.or(B, a, a);
+        cx -= 1;
+        c.set_reg(CX, cx);
+        if cx == 0 || a == 0 {
+            break;
+        }
+    }
+    let z = c.flag(ZF);
+    c.run(0xf328, 1 + z as u32 + 11 + 1)?;
+    if z {
+        cx = c.inc(W, cx);
+        c.set_reg(CX, cx);
+    }
+    let n = c.sub(W, cx, 0x10);
+    let n = c.neg(W, n);
+    c.set_reg(CX, n);
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.xor(W, 0, 0);
+    c.set_reg(DX, 0);
+    let ax = c.word(0xce78);
+    c.set_reg(AX, ax);
+    let d = c.shl1(W, ax, 1);
+    c.set_reg(DI, d);
+    let d = c.word(d.wrapping_add(0x31ff));
+    let d = c.add(W, d, 2);
+    c.set_reg(DI, d);
+    c.push(n);
+    c.push(si);
+    c.m.cpu.string_op(&mut c.m.hw, 0xa6, None, 0xf3);
+    let eq = c.flag(ZF);
+    c.run(0xf345, 3 + if eq { 2 } else { 0 })?;
+    let si = c.pop();
+    c.set_reg(SI, si);
+    let cx = c.pop();
+    c.set_reg(CX, cx);
+    if eq {
+        c.set_flag(CF, false);
+        return c.ret();
+    }
+    c.run(0xf349, 2)?;
+    let mut bx = 0x31ffu16;
+    c.set_reg(BX, bx);
+    let mut bp = 0xf7u16;
+    c.set_reg(BP, bp);
+    loop {
+        c.run(0xf34f, 9)?;
+        let d = c.word_in(ES, bx);
+        c.set_reg(DI, d);
+        c.set_reg(AX, bx);
+        let a = c.sub(W, bx, 0x31ff);
+        let a = c.shr1(W, a, 1);
+        c.set_reg(AX, a);
+        bx = c.add(W, bx, 2);
+        c.set_reg(BX, bx);
+        let d = c.add(W, d, 2);
+        c.set_reg(DI, d);
+        let (cx, si) = (c.reg(CX), c.reg(SI));
+        c.push(cx);
+        c.push(si);
+        c.m.cpu.string_op(&mut c.m.hw, 0xa6, None, 0xf3);
+        let eq = c.flag(ZF);
+        c.run(0xf363, 5)?;
+        let si = c.pop();
+        c.set_reg(SI, si);
+        let cx = c.pop();
+        c.set_reg(CX, cx);
+        if eq {
+            c.set_flag(CF, false);
+            return c.ret();
+        }
+        bp = c.dec(W, bp);
+        c.set_reg(BP, bp);
+        if bp == 0 {
+            c.run(0xf36a, 2)?;
+            c.set_flag(CF, true);
+            return c.ret();
+        }
+    }
+}
+
+/// F36Ch: the phrase file's index from its name (SI at its start).
+fn res_index_by_number(c: &mut Ctx) -> Result<(), Bail> {
+    use super::B;
+    use pc::cpu::CF;
+    let si = c.reg(SI).wrapping_add(4);
+    let mut n = 6u32;
+    for k in 1..4u16 {
+        let a = c.byte(si.wrapping_add(k));
+        n += 3 + (a >= 0x41) as u32 + 7;
+    }
+    let last = c.byte(si.wrapping_add(5));
+    let below = last < 0x41;
+    n += 7 + if below { 0 } else { 5 } + 3;
+    c.run(0xf36c, n)?;
+    let s0 = c.reg(SI);
+    let s = c.add(W, s0, 4);
+    c.set_reg(SI, s);
+    let a = c.lods(B, DS);
+    let a = c.sub(B, a, 0x40);
+    c.set_reg8(r8::AL, a as u8);
+    c.set_reg8(r8::DL, a as u8);
+    let mut dl = a;
+    c.xor(W, 0, 0);
+    let mut bx = 0u16;
+    c.set_reg(BX, 0);
+    c.set_reg(CX, 3);
+    for k in 0..3u16 {
+        let a = c.lods(B, DS);
+        c.cmp(B, a, 0x41);
+        let a = if a >= 0x41 { c.sub(B, a, 7) } else { a };
+        let a = c.and(B, a, 0xf);
+        c.set_reg8(r8::AL, a as u8);
+        bx = c.shl1(W, bx, 4);
+        let bl = c.or(B, bx & 0xff, a);
+        bx = (bx & 0xff00) | bl;
+        c.set_reg(BX, bx);
+        c.set_reg(CX, 2 - k);
+    }
+    let a = c.lods(B, DS);
+    c.cmp(B, a, 0x4f);
+    let cf = c.flag(CF);
+    c.set_flag(CF, !cf);
+    dl = c.rcl1(B, dl);
+    c.set_reg8(r8::DL, dl as u8);
+    let a = c.lods(B, DS);
+    let a = c.sub(B, a, 0x41);
+    c.set_reg8(r8::AL, a as u8);
+    if !below {
+        let a = c.shl1(B, a, 4);
+        c.set_reg8(r8::AL, a as u8);
+        let bh = c.or(B, bx >> 8, a);
+        bx = (bh << 8) | (bx & 0xff);
+        c.set_reg(BX, bx);
+    }
+    c.set_reg(AX, bx);
+    c.set_flag(CF, false);
+    c.ret()
+}
