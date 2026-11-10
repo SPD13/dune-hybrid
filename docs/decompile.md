@@ -299,7 +299,7 @@ get one call whose garbage state makes the original rewrite its own code
 Without that batch's ports (back to 1,115 routines) they pass; the
 circle ports alone (which do write code) are not the cause.
 
-### 6. The graphics driver, lifted: `generated_vga.rs`
+### 6. The drivers, lifted: `generated_{vga,music,sound}.rs`
 
 The game loads its drivers from DUNE.DAT into memory it allocates; the
 listing does not have them. Under `--rec on`, after the seg000 routines,
@@ -328,22 +328,34 @@ dune-lift --raw DIR/graphics.bin --seg 334b --slots 46 --name vga     --also OTH
   the driver's code is marked like one that changed seg000's.
 - Coverage files now also record the drivers' instruction starts (`h
   SEG:OFF`) and indirect jumps, for the lifter.
-- `pc::rec` has a second code space: the driver's segment, read from
-  `DS:38B7h`. Shadow mode checks the driver's routines like seg000's (their
-  report keys are 1xxxxh); calls from seg000 are far calls. Under `--rec
+- The music and sound drivers the same way: `--slots 7 --name music`
+  (table at `DS:396Dh`, segment word at 396Fh) and `--slots 8 --name
+  sound` (398Bh), with `--entries 03ad,0591` for the sound driver's
+  interrupt handlers (code the coverage shows run but no call reaches).
+- `pc::rec` has a code space per lifted driver (1 graphics, 2 music, 3
+  sound), at the segment read from the game's driver table. Shadow mode
+  checks the drivers' routines like seg000's (their report keys are
+  10000h times the space plus the offset); calls from seg000 are far
+  calls. A difference in a call made while a driver's code was not the
+  lifted one (overwritten by a random-register harness call, within the
+  100 ms between checks) is marked "a driver's code was not the lifted
+  one at the call". The music tracker still sees every call to the music
+  driver. Under `--rec
   on` the driver runs natively from any of its block leaders, also inside
   a port's or the generated code's far call (`rec_interp`). Not while the
   graphics recorder watches the driver (`GFX_VERIFY`, the HD compositor).
   `REC_NO_DRIVER=1` leaves it to the interpreter.
 
 Measured (the validation runs: two 10-minute random-input games with
-`--call-each 4`, the long-call and phase-ladder runs): 71 of the driver's
-79 routines called, 61 checked equal, 1 with differences (slot 22, in
-calls that also wrote into seg000's code, as `hnm_render_timer_callback`).
-Under `--rec on` the interpreted share fell from 23% to 1.0 to 2.5% of
-instructions (the rest: BIOS stubs, the music driver, bails), and a
-5-minute run went from about 100 to 240 MIPS, with every screenshot
-byte-identical.
+`--call-each 4`, the long-call and phase-ladder runs): graphics, 71 of 79
+routines called, 61 checked equal, 1 with differences (slot 22, in calls
+that also wrote into seg000's code, as `hnm_render_timer_callback`);
+music, 32 of 33 called, 29 equal; sound, 36 of 51 called, 35 equal, 1
+different only with its code overwritten by the harness. Under `--rec on`
+the interpreted share fell from 23% to 0.8% of instructions (what is
+left: the BIOS stubs, seg000's bails, the graphics driver's rewritten
+instructions), and a 5-minute run went from about 100 to 190-240 MIPS,
+with every screenshot and the audio output byte-identical.
 
 Two lifter bugs it found: `not` on memory negated the address (the
 memory `put` names the address `a`, hiding the value), and a generated
@@ -360,7 +372,7 @@ an interrupt behind a port read (the driver's retrace polling loops).
 2. **Coverage of the rest** (the 20% of instructions never run): milestone
    saves, and harness states deeper in the game (the endings: `chankiss`
    etc.).
-3. **Drivers**: the graphics driver is lifted (above); the music and sound
-   drivers can be lifted the same way (`--dump-drivers` writes them; they
-   need their entry tables), then **DOS and the BIOS** behind a host API,
-   for a build without the interpreter.
+3. **A build without the interpreter**: the drivers are lifted (above);
+   left are the BIOS stubs the `INT`s go through (DOS and BIOS services are
+   already Rust, `pc::dos`/`bios`), interrupt delivery, and the code Rust
+   bails out of.

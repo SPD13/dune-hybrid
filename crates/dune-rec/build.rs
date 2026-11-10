@@ -3,13 +3,16 @@
 
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(has_generated)");
-    println!("cargo::rustc-check-cfg=cfg(has_generated_vga)");
     println!("cargo::rerun-if-changed=src/generated.rs");
-    println!("cargo::rerun-if-changed=src/generated_vga.rs");
     if std::path::Path::new("src/generated.rs").exists() {
         println!("cargo::rustc-cfg=has_generated");
     }
-    if std::path::Path::new("src/generated_vga.rs").exists() {
-        println!("cargo::rustc-cfg=has_generated_vga");
+    // The lifted drivers (`dune-lift --raw`).
+    for d in ["vga", "music", "sound"] {
+        println!("cargo::rustc-check-cfg=cfg(has_generated_{d})");
+        println!("cargo::rerun-if-changed=src/generated_{d}.rs");
+        if std::path::Path::new(&format!("src/generated_{d}.rs")).exists() {
+            println!("cargo::rustc-cfg=has_generated_{d}");
+        }
     }
 }

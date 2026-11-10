@@ -29,10 +29,10 @@
 //!   block leaders, and then goes on in the caller's Rust code: a routine
 //!   that calls a waiting one is still checked to its end.
 //!
-//! Two code spaces: seg000, and a driver the game loads (the graphics
-//! driver, lifted from its segment: [`Rec::with_driver`]), whose segment is
-//! read from the game's driver table. Statistics and counts are keyed by
-//! [`key`]: the offset, plus 10000h in the driver.
+//! Code spaces: seg000 (0), and the drivers the game loads (lifted from
+//! their segments: [`Rec::with_driver`], 1, 2, ...), whose segments are read
+//! from the game's driver tables. Statistics and counts are keyed by
+//! [`key`]: the offset, plus 10000h times the space.
 
 use std::collections::BTreeMap;
 
@@ -41,7 +41,7 @@ use cpu::{CS, Cpu, SP, SS, Step};
 use crate::{GAME_DS, LOAD_SEG, Machine, hw::IoEvent};
 
 /// Key of a routine in [`Rec::stats`] and [`Rec::returned`]: its offset,
-/// plus 10000h in the driver's code space.
+/// plus 10000h times its code space.
 pub fn key(space: u8, off: u16) -> u32 {
     (space as u32) << 16 | off as u32
 }
@@ -107,18 +107,8 @@ pub struct Rec {
     /// While a routine runs from shadow checking: nested code it cannot run
     /// natively is interpreted to completion instead of bailing.
     pub(crate) interp_nested: bool,
-    /// The lifted driver: routines and block leaders by offset in its
-    /// segment, and the `DS:` offset of the word holding that segment.
-    drv_table: Vec<Option<Routine>>,
-    drv_resume: Vec<Option<Routine>>,
-    drv_seg_at: usize,
-    /// The code the driver was lifted from (ranges, hash), and the virtual
-    /// time of the next check of the driver in memory against it.
-    drv_code: (&'static [(u16, u16)], u64),
-    drv_next_check: u64,
-    /// The segment the driver was last found at with exactly that code (0:
-    /// not loaded, or not the lifted one): only there it runs natively.
-    drv_ok_seg: u16,
+    /// The lifted drivers (code spaces 1, 2, ...).
+    drivers: Vec<Driver>,
     /// Bails absorbed by [`Machine::finish_call`] during the current
     /// shadow replay (the call then counts as bailed: part of it was
     /// interpreted).
@@ -158,6 +148,23 @@ struct Pending {
     log_start: usize,
     /// Instruction count at entry.
     cpu_instructions: u64,
+}
+
+/// A lifted driver ([`Rec::with_driver`]).
+struct Driver {
+    name: &'static str,
+    /// Routines and block leaders by offset in its segment.
+    table: Vec<Option<Routine>>,
+    resume: Vec<Option<Routine>>,
+    /// `DS:` offset of the word holding its segment.
+    seg_at: usize,
+    /// The code it was lifted from (ranges, hash), and the virtual time of
+    /// the next check of the driver in memory against it.
+    code: (&'static [(u16, u16)], u64),
+    next_check: u64,
+    /// The segment it was last found at with exactly that code (0: not
+    /// loaded, or not the lifted one): only there it runs natively.
+    ok_seg: u16,
 }
 
 /// A stretch started at `cpu` (its first instruction) with a recorded
@@ -208,18 +215,13 @@ impl Rec {
             calls: 0,
             bails: 0,
             bail_at: vec![0; 0x10000],
-            returned: vec![0; 0x20000],
+            returned: vec![0; 0x40000],
             stepped_op: vec![0; 256],
             interp_seg: vec![0; 0x10000],
             replay_native: 0,
             replay_interp: 0,
             interp_nested: false,
-            drv_table: Vec::new(),
-            drv_resume: Vec::new(),
-            drv_seg_at: 0,
-            drv_code: (&[], 0),
-            drv_next_check: 0,
-            drv_ok_seg: 0,
+            drivers: Vec::new(),
             nested_bails: 0,
             defer: None,
             deferred: 0,
@@ -232,8 +234,9 @@ impl Rec {
         }
     }
 
-    /// Add a lifted driver: its routines and block leaders by offset, and
-    /// the `DS:` offset of the word where the game keeps its segment.
+    /// Add a lifted driver (the next code space): its routines and block
+    /// leaders by offset, and the `DS:` offset of the word where the game
+    /// keeps its segment (its table's first far pointer's segment).
     ///
     /// `code`: the bytes the driver was lifted from (ranges, FNV-1a hash).
     /// Every 100 ms of virtual time the driver in memory is checked against
@@ -241,12 +244,13 @@ impl Rec {
     /// rewrote that the lifter did not see change), it is interpreted.
     pub fn with_driver(
         mut self,
+        name: &'static str,
         routines: &[(u16, Routine)],
         leaders: &[(u16, Routine)],
         seg_at: u16,
         code: (&'static [(u16, u16)], u64),
     ) -> Rec {
-        if routines.is_empty() {
+        if routines.is_empty() || self.drivers.len() == 3 {
             return self;
         }
         let mut table = vec![None; 0x10000];
@@ -258,50 +262,45 @@ impl Rec {
             table[off as usize] = Some(f);
             resume[off as usize] = Some(f);
         }
-        self.drv_table = table;
-        self.drv_resume = resume;
-        self.drv_seg_at = seg_at as usize;
-        self.drv_code = code;
+        self.drivers.push(Driver { name, table, resume, seg_at: seg_at as usize, code, next_check: 0, ok_seg: 0 });
         self
     }
 }
 
 impl Machine {
-    /// On device events: check the driver in memory against the code it was
-    /// lifted from (see [`Rec::with_driver`]); drop it on a difference.
+    /// On device events: check each lifted driver in memory against the code
+    /// it was lifted from (see [`Rec::with_driver`]).
     pub(crate) fn rec_driver_check(&mut self, now: u64) {
-        let Some(rec) = &mut self.rec else { return };
-        if rec.drv_seg_at == 0 || now < rec.drv_next_check {
-            return;
-        }
-        rec.drv_next_check = now + 100_000_000;
-        let want = rec.drv_code.1;
-        let a = GAME_DS as usize * 16 + rec.drv_seg_at;
-        let seg = u16::from_le_bytes([self.hw.mem[a], self.hw.mem[a + 1]]);
-        let ok = self.driver_hash(&self.hw.mem) == Some(want);
-        let rec = self.rec.as_mut().unwrap();
-        let was = rec.drv_ok_seg;
-        rec.drv_ok_seg = if ok { seg } else { 0 };
-        if was != 0 && !ok {
-            eprintln!("rec: the graphics driver at {seg:04x} is not the one lifted (code hash differs): interpreting it");
+        let Some(rec) = &self.rec else { return };
+        for i in 0..rec.drivers.len() {
+            let d = &self.rec.as_ref().unwrap().drivers[i];
+            if now < d.next_check {
+                continue;
+            }
+            let a = GAME_DS as usize * 16 + d.seg_at;
+            let seg = u16::from_le_bytes([self.hw.mem[a], self.hw.mem[a + 1]]);
+            let ok = self.driver_hash(i, &self.hw.mem) == Some(d.code.1);
+            let d = &mut self.rec.as_mut().unwrap().drivers[i];
+            d.next_check = now + 100_000_000;
+            if d.ok_seg != 0 && !ok {
+                eprintln!("rec: the {} driver at {seg:04x} is not the one lifted (code hash differs): interpreting it", d.name);
+            }
+            d.ok_seg = if ok { seg } else { 0 };
         }
     }
 
-    /// The lifted driver's code bytes in `mem` hashed as the lifter did
-    /// (None without a lifted driver, or before it is loaded).
-    fn driver_hash(&self, mem: &[u8]) -> Option<u64> {
-        let rec = self.rec.as_ref()?;
-        if rec.drv_seg_at == 0 {
-            return None;
-        }
-        let a = GAME_DS as usize * 16 + rec.drv_seg_at;
+    /// Driver `i`'s code bytes in `mem` hashed as the lifter did (None
+    /// before it is loaded).
+    fn driver_hash(&self, i: usize, mem: &[u8]) -> Option<u64> {
+        let d = &self.rec.as_ref()?.drivers[i];
+        let a = GAME_DS as usize * 16 + d.seg_at;
         let seg = u16::from_le_bytes([mem[a], mem[a + 1]]);
         if seg == 0 {
             return None;
         }
         let base = (seg as usize) << 4;
         let mut h = 0xcbf2_9ce4_8422_2325u64;
-        for &(s, e) in rec.drv_code.0 {
+        for &(s, e) in d.code.0 {
             for &b in &mem[base + s as usize..base + e as usize] {
                 h = (h ^ b as u64).wrapping_mul(0x100_0000_01b3);
             }
@@ -309,7 +308,20 @@ impl Machine {
         Some(h)
     }
 
-    /// The code space of segment `cs`: 0 for seg000, 1 for the lifted
+    /// Whether a lifted driver is loaded in `mem` with other code than it
+    /// was lifted from.
+    fn drivers_foreign(&self, mem: &[u8]) -> bool {
+        let Some(rec) = &self.rec else { return false };
+        (0..rec.drivers.len()).any(|i| self.driver_hash(i, mem).is_some_and(|h| h != rec.drivers[i].code.1))
+    }
+
+    /// Whether any lifted driver's code differs between two memories.
+    fn drivers_changed(&self, a: &[u8], b: &[u8]) -> bool {
+        let n = self.rec.as_ref().map_or(0, |r| r.drivers.len());
+        (0..n).any(|i| self.driver_hash(i, a) != self.driver_hash(i, b))
+    }
+
+    /// The code space of segment `cs`: 0 for seg000, 1.. for a lifted
     /// driver's segment.
     #[inline]
     fn rec_space(&self, cs: u16) -> Option<u8> {
@@ -317,11 +329,9 @@ impl Machine {
             return Some(0);
         }
         let rec = self.rec.as_ref()?;
-        if rec.drv_ok_seg == 0 || cs != rec.drv_ok_seg {
-            return None;
-        }
-        let a = GAME_DS as usize * 16 + rec.drv_seg_at;
-        (u16::from_le_bytes([self.hw.mem[a], self.hw.mem[a + 1]]) == cs).then_some(1)
+        let i = rec.drivers.iter().position(|d| d.ok_seg != 0 && d.ok_seg == cs)?;
+        let a = GAME_DS as usize * 16 + rec.drivers[i].seg_at;
+        (u16::from_le_bytes([self.hw.mem[a], self.hw.mem[a + 1]]) == cs).then_some(i as u8 + 1)
     }
 
     /// The routine with its entry at CS:`ip` (`entry`), or any routine with a
@@ -333,8 +343,8 @@ impl Machine {
         let t = match (space, entry) {
             (0, true) => &r.table,
             (0, false) => &r.resume,
-            (_, true) => &r.drv_table,
-            (_, false) => &r.drv_resume,
+            (k, true) => &r.drivers[k as usize - 1].table,
+            (k, false) => &r.drivers[k as usize - 1].resume,
         };
         t[ip as usize]
     }
@@ -357,7 +367,7 @@ impl Machine {
                 }
                 // The graphics recorder watches the driver's entries and
                 // returns instruction by instruction.
-                if space == 1 && self.gfx.active() {
+                if space > 0 && self.gfx.active() && self.rec.as_ref().unwrap().drivers[space as usize - 1].name == "graphics" {
                     return false;
                 }
                 let Some(f) = self.rec_routine(cs, ip, false) else { return false };
@@ -390,7 +400,7 @@ impl Machine {
                 // Only real calls: an entry reached by a jump or by falling
                 // through has no return address on the stack. The driver is
                 // also entered by far calls from seg000.
-                let called = self.called_from(cs, ret, ip) || (space == 1 && ret_cs == LOAD_SEG && self.called_far(ret_cs, ret));
+                let called = self.called_from(cs, ret, ip) || (space > 0 && ret_cs == LOAD_SEG && self.called_far(ret_cs, ret));
                 if room && called {
                     self.push_check(k, f);
                 }
@@ -518,7 +528,8 @@ impl Machine {
         // version, which keeps the code as it was, runs differently.
         let code = CODE_START..CODE_END;
         let code_changed = p.mem[code.clone()].iter().zip(&self.hw.mem[code.clone()]).enumerate().any(|(i, (a, b))| a != b && CODE_START + i != PATCHED)
-            || self.driver_hash(&p.mem) != self.driver_hash(&self.hw.mem);
+            || self.drivers_changed(&p.mem, &self.hw.mem);
+        let foreign = self.drivers_foreign(&p.mem);
         let entry_state = (p.cpu.clone(), p.mem.clone());
         let cpu1 = std::mem::replace(&mut self.cpu, p.cpu);
         let mem1 = std::mem::replace(&mut self.hw.mem, p.mem);
@@ -576,6 +587,7 @@ impl Machine {
         rec.interp_nested = false;
         rec.busy = false;
         let diff = diff.map(|d| if code_changed { format!("{d} (the call wrote into the code segment)") } else { d });
+        let diff = diff.map(|d| if foreign { format!("{d} (a driver's code was not the lifted one at the call)") } else { d });
         let st = rec.stats.entry(p.entry).or_default();
         match &diff {
             Some(d) => {
@@ -802,7 +814,13 @@ impl Machine {
         // idle, the run loop must sleep: bail there too.
         let mut just_bailed = false;
         for _ in 0..ON_INTERP_BUDGET {
-            // The lifted driver, natively, from any of its block leaders.
+            if self.music.watch[0] != 0 {
+                let pc = self.cpu.phys(self.cpu.sregs[CS], self.cpu.ip);
+                if let Some(entry) = self.music.hit(pc, self.cpu.instructions) {
+                    self.on_music_call(entry);
+                }
+            }
+            // A lifted driver, natively, from any of its block leaders.
             let here = self.cpu.sregs[CS];
             if here != LOAD_SEG
                 && !just_bailed
@@ -823,12 +841,6 @@ impl Machine {
                 continue;
             }
             just_bailed = false;
-            if self.music.watch[0] != 0 {
-                let pc = self.cpu.phys(self.cpu.sregs[CS], self.cpu.ip);
-                if let Some(entry) = self.music.hit(pc) {
-                    self.on_music_call(entry);
-                }
-            }
             self.hw.now_ns = self.now_ns();
             let (cs, n0) = (self.cpu.sregs[CS], self.cpu.instructions);
             let step = self.cpu.step(&mut self.hw);

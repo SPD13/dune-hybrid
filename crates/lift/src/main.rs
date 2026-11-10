@@ -64,6 +64,8 @@ struct Args {
     /// More images of the same driver, from other times or runs: code bytes
     /// that differ between them are rewritten at run time.
     also: Vec<String>,
+    /// More entries (code reached by interrupts: a driver's handlers).
+    entries: Vec<u16>,
 }
 
 fn parse() -> Result<Args, String> {
@@ -78,6 +80,7 @@ fn parse() -> Result<Args, String> {
         slots: 0,
         name: String::new(),
         also: Vec::new(),
+        entries: Vec::new(),
     };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
@@ -92,6 +95,11 @@ fn parse() -> Result<Args, String> {
             "--slots" => a.slots = v()?.parse().map_err(|e| format!("--slots: {e}"))?,
             "--name" => a.name = v()?,
             "--also" => a.also.push(v()?),
+            "--entries" => {
+                for e in v()?.split(',') {
+                    a.entries.push(u16::from_str_radix(e.trim(), 16).map_err(|e| format!("--entries: {e}"))?);
+                }
+            }
             "--only" => {
                 let set = v()?.split(',').map(|s| u16::from_str_radix(s.trim(), 16).map_err(|e| format!("--only: {e}"))).collect::<Result<_, _>>()?;
                 a.only = Some(set);
@@ -875,7 +883,7 @@ fn main() -> ExitCode {
             let ind = read_coverage(&a.cov, &seg, a.seg)?;
             let mut entries: BTreeMap<u16, String> =
                 (0..a.slots).map(|i| (0x100 + 3 * i, format!("{}_slot_{i:02}", a.name))).collect();
-            for &t in &ind.call_targets {
+            for &t in ind.call_targets.iter().chain(&a.entries) {
                 entries.entry(t).or_insert_with(|| format!("{}_{t:04x}", a.name));
             }
             // Every near call target reachable from the entries.

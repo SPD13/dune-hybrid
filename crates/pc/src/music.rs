@@ -55,6 +55,10 @@ pub struct MusicTracker {
     pub events: VecDeque<(u64, MusicEvent)>,
     /// Song currently playing according to the driver calls (0 = none).
     pub current: u8,
+    /// The last entry seen (address, instruction count): a call is seen
+    /// once even if the run loop comes back to its first instruction (Rust
+    /// code bailing there).
+    last: (u32, u64),
 }
 
 impl MusicTracker {
@@ -68,12 +72,16 @@ impl MusicTracker {
         }
     }
 
+    /// The entry `linear` is, the first time it is reached at instruction
+    /// count `count`.
     #[inline]
-    pub(crate) fn hit(&self, linear: u32) -> Option<usize> {
-        if linear == 0 {
+    pub(crate) fn hit(&mut self, linear: u32, count: u64) -> Option<usize> {
+        if linear == 0 || self.last == (linear, count) {
             return None;
         }
-        self.watch.iter().position(|&w| w == linear)
+        let i = self.watch.iter().position(|&w| w == linear)?;
+        self.last = (linear, count);
+        Some(i)
     }
 
     fn load_fingerprints(fs: &mut dyn FileSystem) -> Vec<(u8, Vec<u8>)> {

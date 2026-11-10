@@ -294,7 +294,7 @@ impl Machine {
             let watch_music = self.music.watch[0] != 0;
             if watch_music || self.gfx.active() {
                 let pc = self.cpu.phys(self.cpu.sregs[CS], self.cpu.ip);
-                if watch_music && let Some(entry) = self.music.hit(pc) {
+                if watch_music && let Some(entry) = self.music.hit(pc, self.cpu.instructions) {
                     self.on_music_call(entry);
                 }
                 if self.gfx.active() {

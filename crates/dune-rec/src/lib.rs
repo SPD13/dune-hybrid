@@ -12,9 +12,9 @@
 //! [`hand`] holds hand-written, readable ports; each replaces the generated
 //! routine with the same entry.
 //!
-//! `src/generated_vga.rs`, when present, is the graphics driver (DNVGA)
-//! lifted from its segment (`dune-run --dump-drivers`, then `dune-lift
-//! --raw`): game-derived and git-ignored too.
+//! `src/generated_{vga,music,sound}.rs`, when present, are the drivers the
+//! game loads, lifted from their segments (`dune-run --dump-drivers`, then
+//! `dune-lift --raw`): game-derived and git-ignored too.
 
 use std::sync::OnceLock;
 
@@ -26,41 +26,51 @@ mod generated;
 
 pub mod hand;
 
-#[cfg(has_generated_vga)]
-#[allow(clippy::all, dead_code, unused_mut, unused_variables, unused_imports, unused_parens, unreachable_code, non_snake_case)]
-mod generated_vga;
-
-/// The lifted graphics driver: routines and block leaders by offset in its
-/// segment, and names (all empty without `src/generated_vga.rs`).
-pub fn driver_routines() -> &'static [(u16, Routine)] {
-    #[cfg(has_generated_vga)]
-    return generated_vga::ROUTINES;
-    #[cfg(not(has_generated_vga))]
-    return &[];
-}
-pub fn driver_leaders() -> &'static [(u16, Routine)] {
-    #[cfg(has_generated_vga)]
-    return generated_vga::LEADERS;
-    #[cfg(not(has_generated_vga))]
-    return &[];
-}
-pub fn driver_names() -> &'static [(u16, &'static str)] {
-    #[cfg(has_generated_vga)]
-    return generated_vga::NAMES;
-    #[cfg(not(has_generated_vga))]
-    return &[];
+/// A lifted driver: what [`pc::rec::Rec::with_driver`] takes.
+pub struct Driver {
+    pub name: &'static str,
+    pub routines: &'static [(u16, Routine)],
+    pub leaders: &'static [(u16, Routine)],
+    pub names: &'static [(u16, &'static str)],
+    /// The code bytes it was lifted from (ranges, FNV-1a hash).
+    pub code: (&'static [(u16, u16)], u64),
+    /// `DS:` offset of the word holding its segment (the segment of its
+    /// table's first far pointer, as seg000:e5e5, e7ce, e775 load them).
+    pub seg_at: u16,
 }
 
-/// The code bytes the driver was lifted from (ranges, FNV-1a hash).
-pub fn driver_code() -> (&'static [(u16, u16)], u64) {
-    #[cfg(has_generated_vga)]
-    return generated_vga::CODE;
-    #[cfg(not(has_generated_vga))]
-    return (&[], 0);
+macro_rules! driver {
+    ($cfg:ident, $module:ident, $name:literal, $seg_at:literal) => {
+        #[cfg($cfg)]
+        #[allow(clippy::all, dead_code, unused_mut, unused_variables, unused_imports, unused_parens, unreachable_code, non_snake_case)]
+        mod $module;
+        #[cfg($cfg)]
+        fn $module() -> Option<Driver> {
+            Some(Driver {
+                name: $name,
+                routines: $module::ROUTINES,
+                leaders: $module::LEADERS,
+                names: $module::NAMES,
+                code: $module::CODE,
+                seg_at: $seg_at,
+            })
+        }
+        #[cfg(not($cfg))]
+        fn $module() -> Option<Driver> {
+            None
+        }
+    };
 }
 
-/// `DS:` offset of the word holding the graphics driver's segment.
-pub const DRIVER_SEG_AT: u16 = 0x38b7;
+driver!(has_generated_vga, generated_vga, "graphics", 0x38b7);
+driver!(has_generated_music, generated_music, "music", 0x396f);
+driver!(has_generated_sound, generated_sound, "sound", 0x398b);
+
+/// The lifted drivers present (`src/generated_{vga,music,sound}.rs`), in
+/// the order of their code spaces (1, 2, ...).
+pub fn drivers() -> Vec<Driver> {
+    [generated_vga(), generated_music(), generated_sound()].into_iter().flatten().collect()
+}
 
 #[cfg(has_generated)]
 mod gen_tables {

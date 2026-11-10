@@ -212,7 +212,11 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
         return;
     }
     let mut names: std::collections::HashMap<u32, &str> = dune_rec::names().iter().map(|&(e, n)| (e as u32, n)).collect();
-    names.extend(dune_rec::driver_names().iter().map(|&(e, n)| (pc::rec::key(1, e), n)));
+    if std::env::var_os("REC_NO_DRIVER").is_none() {
+        for (i, d) in dune_rec::drivers().iter().enumerate() {
+            names.extend(d.names.iter().map(|&(e, n)| (pc::rec::key(i as u8 + 1, e), n)));
+        }
+    }
     let (mut ok, mut diff, mut bailed, mut skipped) = (0, 0, 0, 0);
     let mut rows = String::from("entry	name	ok	diff	bailed	skipped	first_diff	reached
 ");
@@ -395,13 +399,12 @@ fn main() -> ExitCode {
         }
         println!("rec: {} routines, {mode:?}", routines.len());
         let rec = pc::rec::Rec::new(mode, routines, dune_rec::leaders());
-        let rec = if std::env::var_os("REC_NO_DRIVER").is_some() {
-            rec
-        } else {
-            rec.with_driver(dune_rec::driver_routines(), dune_rec::driver_leaders(), dune_rec::DRIVER_SEG_AT, dune_rec::driver_code())
-        };
-        if !dune_rec::driver_routines().is_empty() {
-            println!("rec: graphics driver: {} routines", dune_rec::driver_routines().len());
+        let mut rec = rec;
+        if std::env::var_os("REC_NO_DRIVER").is_none() {
+            for d in dune_rec::drivers() {
+                println!("rec: {} driver: {} routines", d.name, d.routines.len());
+                rec = rec.with_driver(d.name, d.routines, d.leaders, d.seg_at, d.code);
+            }
         }
         m.rec = Some(Box::new(rec));
     }
