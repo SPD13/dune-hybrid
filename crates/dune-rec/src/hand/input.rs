@@ -645,3 +645,63 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0xdc55, 0);
     c.ret()
 }
+
+/// `mouse_func_uncalled` (E9F4, a far routine for the mouse driver's
+/// event callback): the position (CX, DX) into [0DC36h], [0DC38h], and
+/// the button events in AL (bits 1-4: left down, left up, right down,
+/// right up) applied to the buttons [0DC34h]. AX, CX, DS kept.
+pub fn mouse_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{CF, CS, DS};
+    entered(start, 0xe9f4)?;
+    let mut c = Ctx::new(m);
+    let ax = c.reg(AX);
+    let al = ax as u8;
+    let mut n = 7 + 3;
+    if al >> 1 != 0 {
+        n += 4;
+        for k in 0..4 {
+            n += 2 + ((al >> (k + 1)) & 1) as u32;
+        }
+    }
+    c.run(0xe9f4, n)?;
+    c.push(ax);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let seg = c.word_in(CS, 0xea30);
+    c.set_sreg(DS, seg);
+    let (cx, dx) = (c.reg(CX), c.reg(DX));
+    c.set_word(0xdc36, cx);
+    c.set_word(0xdc38, dx);
+    let mut a = c.shr1(B, al as u16, 1);
+    c.set_reg8(r8::AL, a as u8);
+    if a != 0 {
+        c.push(cx);
+        let mut cl = c.byte(0xdc34) as u16;
+        c.set_reg8(r8::CL, cl as u8);
+        for k in 0..4 {
+            a = c.shr1(B, a, 1);
+            c.set_reg8(r8::AL, a as u8);
+            if c.flag(CF) {
+                cl = match k {
+                    0 => c.or(B, cl, 1),
+                    1 => c.and(B, cl, 0xfe),
+                    2 => c.or(B, cl, 2),
+                    _ => c.and(B, cl, 0xfd),
+                };
+                c.set_reg8(r8::CL, cl as u8);
+            }
+        }
+        c.set_byte(0xdc34, cl as u8);
+        let v = c.pop();
+        c.set_reg(CX, v);
+    }
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    let v = c.pop();
+    c.set_reg(AX, v);
+    let ip = c.pop();
+    let cs = c.pop();
+    c.m.cpu.ip = ip;
+    c.set_sreg(CS, cs);
+    Ok(())
+}

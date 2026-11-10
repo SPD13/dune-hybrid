@@ -1104,6 +1104,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xcc96, hnmload::hnm_decode_video_frame, "hnm_decode_video_frame"),
     (0x00d1, files::initialize_resources, "initialize_resources"),
     (0x021c, intro::play_intro2, "play_intro2"),
+    (0xde0c, sound::check_midi, "check_midi"),
+    (0xe9f4, input::mouse_event, "mouse_func_uncalled"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),

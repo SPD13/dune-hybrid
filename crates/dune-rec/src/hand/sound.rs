@@ -159,3 +159,81 @@ pub fn midi_func_2_0(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     c.ret()
 }
+
+/// `check_midi` (DE0C): with MIDI music ([0DBCDh] bit 7) the tempo
+/// position (`loc_0e270`), then the song played on (`loc_0dd63`) until
+/// BX is reached: [0DBCEh] * 16 + (60h - [0DBD0h]) / 6 (or the player
+/// stops, CF); then `loc_0de4e` and `loc_0e283` with its flags kept.
+/// ZF clear when the position was reached (or without MIDI).
+pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{BX, DX, SI};
+    entered(start, 0xde0c)?;
+    let mut c = Ctx::new(m);
+    let f = c.byte(0xdbcd);
+    if f & 0x80 == 0 {
+        c.run(0xde0c, 6)?;
+        c.cmp(B, f as u16, 0);
+        let ax = c.reg(AX);
+        c.push(ax);
+        c.or(B, ax & 0xff, 1);
+        let v = c.pop();
+        c.set_reg(AX, v);
+        return c.ret();
+    }
+    c.run(0xde0c, 3)?;
+    c.cmp(B, f as u16, 0);
+    c.call(0xe270, 0xde16)?;
+    c.run(0xde16, 3)?;
+    c.set_byte(0xcee8, 0);
+    c.set_reg(SI, 0xffff);
+    c.set_reg(DI, 0xffff);
+    loop {
+        c.run(0xde20, 14)?;
+        c.set_reg(AX, 0x60);
+        let t = c.word(0xdbd0);
+        let a = c.sub(W, 0x60, t);
+        let ah = a >> 8;
+        c.xor(B, ah, ah);
+        c.set_reg(AX, a & 0xff);
+        c.set_reg8(r8::DL, 6);
+        c.m.cpu.mul_div(&mut c.m.hw, B, 6, 6);
+        let al = c.reg8(r8::AL);
+        let al = c.and(B, al as u16, 0xf);
+        c.set_reg8(r8::AL, al as u8);
+        let d = c.word(0xdbce);
+        c.set_reg(DX, d);
+        let d = c.shl1(W, d, 4);
+        let dl = c.or(B, d & 0xff, al);
+        let dx = (d & 0xff00) | dl;
+        c.set_reg(DX, dx);
+        let bx = c.reg(BX);
+        c.cmp(W, bx, dx);
+        if bx <= dx {
+            c.run(0xde4a, 2)?;
+            let al = c.reg8(r8::AL);
+            let v = c.or(B, al as u16, 1);
+            c.set_reg8(r8::AL, v as u8);
+            break;
+        }
+        c.run(0xde41, 2)?;
+        c.push(bx);
+        c.call(0xdd63, 0xde45)?;
+        let cf = c.flag(CF);
+        c.run(0xde45, 2 + (!cf) as u32)?;
+        let v = c.pop();
+        c.set_reg(BX, v);
+        if cf {
+            break;
+        }
+    }
+    c.run(0xdde7, 2)?;
+    let f = c.m.cpu.flags();
+    c.push(f);
+    c.call(0xde4e, 0xddeb)?;
+    c.run(0xddeb, 2)?;
+    let f = c.pop();
+    c.m.cpu.set_flags(f);
+    c.call(0xe283, 0xddef)?;
+    c.run(0xddef, 1)?;
+    c.ret()
+}
