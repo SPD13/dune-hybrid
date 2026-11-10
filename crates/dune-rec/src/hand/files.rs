@@ -687,3 +687,167 @@ pub fn open_res_or_file_or_die(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.m.cpu.ip = 0xf22f;
     Err(Bail)
 }
+
+/// `open_resource_by_index_si_into_esdi` (F0B9): resource SI (kept in
+/// [0CE78h]) by its name in the table at 31FFh. A size word before the
+/// name means the memory is taken here: CX that many bytes checked
+/// (`alloc_check_cx_pages_available`), read (`read_and_maybe_hsq`), then
+/// allocated (`bump_allocate_bump_cx_bytes`); else it is read only.
+pub fn open_resource_by_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xf0b9)?;
+    let mut c = Ctx::new(m);
+    c.run(0xf0b9, 7)?;
+    let si = c.reg(SI);
+    c.set_word(0xce78, si);
+    let s = c.shl1(W, si, 1);
+    let p = c.word(s.wrapping_add(0x31ff));
+    c.set_reg(SI, p);
+    let ax = c.lods(W, DS);
+    let dx = p.wrapping_add(2);
+    c.set_reg(DX, dx);
+    c.or(W, ax, ax);
+    if ax == 0 {
+        return c.jump(0xf0d6);
+    }
+    c.run(0xf0ca, 3)?;
+    c.set_reg(CX, ax);
+    c.push(dx);
+    c.call(0xf11c, 0xf0d0)?;
+    c.run(0xf0d0, 2)?;
+    let v = c.pop();
+    c.set_reg(DX, v);
+    c.call(0xf0d6, 0xf0d4)?;
+    c.run(0xf0d4, 1)?;
+    c.jump(0xf0ff)
+}
+
+/// `read_and_maybe_hsq` (F0D6): resource [0CE78h] into ES:DI: from
+/// extended memory when it is kept there (index below [0CE70h],
+/// `alloc_extended_memory`), else read from DUNE.DAT
+/// (`read_resource_to_esdi`) and, for such an index, kept in extended
+/// memory (`memory_func_qq`); then unpacked if it is HSQ
+/// (`check_hsq_checksum`).
+pub fn read_and_maybe_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::CF;
+    use super::B;
+    entered(start, 0xf0d6)?;
+    let mut c = Ctx::new(m);
+    let ax = c.word(0xce78);
+    let lim = c.byte(0xce70);
+    let below = (ax as u8) < lim;
+    c.run(0xf0d6, 4)?;
+    c.set_reg(AX, ax);
+    c.cmp(B, ax & 0xff, lim as u16);
+    if below {
+        c.call(0xebe3, 0xf0e2)?;
+        c.run(0xf0e2, 2)?;
+        if c.flag(CF) {
+            return c.jump(0xf3d3);
+        }
+    }
+    c.call(0xf244, 0xf0e7)?;
+    let ax = c.word(0xce78);
+    let lim = c.byte(0xce70);
+    let below = (ax as u8) < lim;
+    c.run(0xf0e7, 4)?;
+    c.set_reg(AX, ax);
+    c.cmp(B, ax & 0xff, lim as u16);
+    if below {
+        c.call(0xeab7, 0xf0f3)?;
+        c.run(0xf0f3, 1)?;
+    }
+    c.jump(0xf3d3)
+}
+
+/// `open_resource_force_hsq` (F0A0): resource SI read into DS:4C60h as
+/// it is ([0CE71h] up: no unpacking), then unpacked from there to the
+/// caller's ES:DI (`hsq_decomp_skip_header_dssi_to_esdi`).
+pub fn open_resource_force_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use super::B;
+    entered(start, 0xf0a0)?;
+    let mut c = Ctx::new(m);
+    c.run(0xf0a0, 7)?;
+    let di = c.reg(DI);
+    c.push(di);
+    let es = c.sreg(ES);
+    c.push(es);
+    let k = c.byte(0xce71);
+    let k = c.inc(B, k as u16);
+    c.set_byte(0xce71, k as u8);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(DI, 0x4c60);
+    c.call(0xf0b9, 0xf0ae)?;
+    c.run(0xf0ae, 5)?;
+    let k = c.byte(0xce71);
+    let k = c.dec(B, k as u16);
+    c.set_byte(0xce71, k as u8);
+    let di = c.reg(DI);
+    c.set_reg(SI, di);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    let v = c.pop();
+    c.set_reg(DI, v);
+    c.jump(0xf403)
+}
+
+/// `open_nonres_file` (F255): the loose file named at DS:DX
+/// (`loc_0f204`; the game ends if it is missing, run by the original)
+/// read whole into ES:DI and closed; CX the bytes read, the flags those
+/// of the read.
+pub fn open_nonres_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::CF;
+    entered(start, 0xf255)?;
+    let mut c = Ctx::new(m);
+    c.run(0xf255, 4)?;
+    let (dx, di, es) = (c.reg(DX), c.reg(DI), c.sreg(ES));
+    c.push(dx);
+    c.push(di);
+    c.push(es);
+    c.call(0xf204, 0xf25b)?;
+    if c.flag(CF) {
+        c.run(0xf25b, 1)?;
+        c.m.cpu.ip = 0xf22f;
+        return Err(Bail);
+    }
+    c.run(0xf25b, 13)?;
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    let di = c.pop();
+    c.set_reg(DI, di);
+    let dx = c.pop();
+    c.set_reg(DX, dx);
+    c.push(dx);
+    c.push(di);
+    c.push(es);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    c.push(es);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.set_reg(CX, 0xffff);
+    c.set_reg(DX, di);
+    c.set_reg8(r8::AH, 0x3f);
+    c.interp(0xf26d, 0xf26f)?;
+    c.run(0xf26f, 4)?;
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    let ax = c.reg(AX);
+    c.set_reg(CX, ax);
+    let f = c.m.cpu.flags();
+    c.push(f);
+    c.set_reg8(r8::AH, 0x3e);
+    c.interp(0xf275, 0xf277)?;
+    c.run(0xf277, 5)?;
+    let f = c.pop();
+    c.m.cpu.set_flags(f);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    let v = c.pop();
+    c.set_reg(DI, v);
+    let v = c.pop();
+    c.set_reg(DX, v);
+    c.ret()
+}
