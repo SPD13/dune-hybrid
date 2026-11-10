@@ -1791,3 +1791,318 @@ pub fn sky_380c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, a);
     c.jump(0xc2f2)
 }
+
+/// `loc_01c46`: a day passes. The days in the same phase [0FFh] (reset
+/// when [2Ah] changed, [0FEh] the last); `loc_01d66`, `loc_01e43`; [0D5h]
+/// up from 1; the spice: [0A6h] = [0A0h] + the harvest [1172h] - the
+/// sold [1170h] (both taken, 0 below), its change against [0AEh] (kept)
+/// as a gain [0B2h] or a loss [0B0h]; `loc_01cda`, the totals
+/// (`loc_0c02e`, `loc_0bf26`); then with a random word (`loc_0e3cc`)
+/// each troop record from 10D8h (11h bytes, below kind 14h) with bit 3
+/// of +2 gets, for its five slots without a value but with +9 negative,
+/// the next 2 random bits.
+pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::SS;
+    entered(start, 0x1c46)?;
+    let mut c = Ctx::new(m);
+    let ph = c.byte(0x2a);
+    let last = c.byte(0xfe);
+    c.run(0x1c46, 5 + (ph != last) as u32 + 2)?;
+    c.set_reg8(r8::AL, ph);
+    c.set_reg8(r8::AH, ph);
+    c.set_byte(0xfe, ph);
+    c.set_reg8(r8::AL, last);
+    c.cmp(B, last as u16, ph as u16);
+    if ph != last {
+        c.set_byte(0xff, 0);
+    }
+    let v = c.byte(0xff);
+    let v = c.inc(B, v as u16);
+    c.set_byte(0xff, v as u8);
+    c.call(0x1d66, 0x1c5f)?;
+    c.run(0x1c5f, 1)?;
+    c.call(0x1e43, 0x1c62)?;
+    let d = c.byte(0xd5).wrapping_add(1);
+    let (harvest, a0, sold, ae) = (c.word(0x1172), c.word(0xa0), c.word(0x1170), c.word(0xae));
+    let s = harvest.wrapping_add(a0);
+    let (stock, borrow) = s.overflowing_sub(sold);
+    let stock = if borrow { 0 } else { stock };
+    let (diff, loss) = ae.overflowing_sub(stock);
+    c.run(0x1c62, 4 + (d >= 2) as u32 + 7 + borrow as u32 + 5 + if loss { 2 } else { 0 } + 3)?;
+    c.set_reg8(r8::AL, d.wrapping_sub(1));
+    let a = c.inc(B, d.wrapping_sub(1) as u16);
+    c.set_reg8(r8::AL, a as u8);
+    c.cmp(B, a, 2);
+    if d >= 2 {
+        c.set_byte(0xd5, d);
+    }
+    let ax = c.reg(AX);
+    c.xor(W, ax, ax);
+    c.set_word(0x1172, 0);
+    c.set_reg(BX, a0);
+    let v = c.add(W, harvest, a0);
+    c.set_word(0x1170, a0);
+    let v = c.sub(W, v, sold);
+    let v = if borrow { c.xor(W, v, v) } else { v };
+    c.set_word(0xa6, v);
+    c.set_word(0xae, v);
+    c.xor(W, 0, 0);
+    let r = c.sub(W, ae, v);
+    let (gain, lost) = if loss {
+        let n = c.neg(W, r);
+        (0u16, n)
+    } else {
+        (r, 0)
+    };
+    let _ = diff;
+    c.set_reg(AX, gain);
+    c.set_reg(BX, lost);
+    c.set_word(0xb2, gain);
+    c.set_word(0xb0, lost);
+    c.call(0x1cda, 0x1ca0)?;
+    c.run(0x1ca0, 1)?;
+    c.call(0xc02e, 0x1ca3)?;
+    c.run(0x1ca3, 1)?;
+    c.call(0xbf26, 0x1ca6)?;
+    c.run(0x1ca6, 1)?;
+    c.call(0xe3cc, 0x1ca9)?;
+    c.run(0x1ca9, 2)?;
+    let mut bx = c.reg(AX);
+    c.set_reg(BX, bx);
+    let mut si = 0x10d8u16;
+    c.set_reg(SI, si);
+    loop {
+        let f = c.byte(si.wrapping_add(2));
+        c.run(0x1cae, 2)?;
+        c.test(B, f as u16, 8);
+        if f & 8 != 0 {
+            c.run(0x1cb4, 1)?;
+            c.set_reg(BP, 4);
+            let mut bp = 4u16;
+            loop {
+                let v = c.byte_in(SS, bp.wrapping_add(si).wrapping_add(4));
+                let w = c.byte_in(SS, bp.wrapping_add(si).wrapping_add(9));
+                let fill = v == 0 && w & 0x80 != 0;
+                let n = 2 + if v == 0 { 2 } else { 0 } + if fill { 5 } else { 0 } + 2;
+                c.run(0x1cb7, n)?;
+                c.cmp(B, v as u16, 0);
+                if v == 0 {
+                    c.cmp(B, w as u16, 0);
+                }
+                if fill {
+                    bx = c.rol1(W, bx);
+                    bx = c.rol1(W, bx);
+                    c.set_reg(BX, bx);
+                    let a = c.and(B, bx & 0xff, 3);
+                    c.set_reg8(r8::AL, a as u8);
+                    let p = bp.wrapping_add(si).wrapping_add(4);
+                    c.m.cpu.write8(&mut c.m.hw, SS, p, a as u8);
+                }
+                bp = c.dec(W, bp);
+                c.set_reg(BP, bp);
+                if bp & 0x8000 != 0 {
+                    break;
+                }
+            }
+        }
+        si = c.add(W, si, 0x11);
+        c.set_reg(SI, si);
+        let k = c.byte(si);
+        c.run(0x1cd1, 3 + (k >= 0x14) as u32)?;
+        c.cmp(B, k as u16, 0x14);
+        if k >= 0x14 {
+            return c.ret();
+        }
+    }
+}
+
+/// `create_save_cl` (B389): save slot CL ('1' + CL into the name at
+/// 38A8h): the image made (`create_save_in_memory`), the day [2] put
+/// before it, packed (`compress_sav`) into ES:2, the file named
+/// (`loc_0f2fc`), then written (F27Ch, CX + 2 bytes from 0).
+pub fn create_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{DS, ES};
+    entered(start, 0xb389)?;
+    let mut c = Ctx::new(m);
+    c.run(0xb389, 3)?;
+    let cl = c.reg8(r8::CL);
+    let cl = c.add(B, cl as u16, 0x31);
+    c.set_reg8(r8::CL, cl as u8);
+    c.set_byte(0x38af, cl as u8);
+    c.call(0xb427, 0xb393)?;
+    c.run(0xb393, 8)?;
+    let d = c.word(2);
+    c.set_reg(AX, d);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.sreg(ES);
+    c.push(es);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    let di = c.reg(DI);
+    c.set_reg(SI, di);
+    c.xor(W, di, di);
+    c.set_reg(DI, 0);
+    c.stos(W);
+    c.call(0xb4ea, 0xb3a1)?;
+    c.run(0xb3a1, 3)?;
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.set_reg(DX, 0x38a8);
+    c.call(0xf2fc, 0xb3a8)?;
+    c.run(0xb3a8, 3)?;
+    let di = c.reg(DI);
+    c.xor(W, di, di);
+    c.set_reg(DI, 0);
+    let cx = c.reg(CX);
+    let cx = c.add(W, cx, 2);
+    c.set_reg(CX, cx);
+    c.jump(0xf27c)
+}
+
+/// `loc_0a03f`: a dialogue line's effects (`loc_0c85b`, unless the
+/// dialogue is being skipped [47B6h]): its action (low nibble of [si],
+/// the table at CS:A107h); its sentence noted for the log (with +2 bits
+/// 2-3, once: [si] bit 7; the entry (SI - AA78h) / 4 with the speaker
+/// [47C4h] * 8 in the high byte, at CS:[11BDh]); [19h] FFh, SI to the
+/// next line (or FFFFh when [47A8h] was set). Then, with no talking
+/// head and a speaker, the head (`loc_0978e`), the screen `loc_02ebf`
+/// while [4774h], and unless [0EAh] is positive the next step: the
+/// routine [227Eh] (taken, F66h left) between `loc_09efd` and
+/// `loc_0e270`/`loc_0e283`. [28E7h] from [28E8h] unless [0FBh] is
+/// negative. CF clear.
+pub fn line_a03f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{CS, SS};
+    let _ = SS;
+    entered(start, 0xa03f)?;
+    let mut c = Ctx::new(m);
+    c.run(0xa03f, 1)?;
+    c.call(0xc85b, 0xa042)?;
+    let skip = c.word(0x47b6);
+    if skip != 0 {
+        c.run(0xa042, 2)?;
+        c.cmp(W, skip, 0);
+    } else {
+        let si = c.reg(SI);
+        let a = c.byte(si) & 0xf;
+        c.run(0xa042, 2 + 3 + if a != 0 { 7 } else { 0 })?;
+        c.cmp(W, 0, 0);
+        let v = c.byte(si);
+        c.set_reg8(r8::AL, v);
+        let a = c.and(B, v as u16, 0xf);
+        c.set_reg8(r8::AL, a as u8);
+        if a != 0 {
+            let ah = c.reg8(r8::AH);
+            c.xor(B, ah as u16, ah as u16);
+            c.set_reg8(r8::AH, 0);
+            c.push(si);
+            let ax = c.dec(W, a);
+            let ax = c.shl1(W, ax, 1);
+            c.set_reg(AX, ax);
+            c.set_reg(BX, 0xa107);
+            let bx = c.add(W, 0xa107, ax);
+            c.set_reg(BX, bx);
+            let to = c.code_word(bx);
+            c.call(to, 0xa05d)?;
+            c.run(0xa05d, 1)?;
+            let v = c.pop();
+            c.set_reg(SI, v);
+        }
+        let si = c.reg(SI);
+        let b2 = c.byte(si.wrapping_add(2));
+        let b0 = c.byte(si);
+        let log = b2 & 0xc != 0 && b0 & 0x80 == 0;
+        let flag = c.byte(0x47a8);
+        c.run(0xa05e, 3 + if b2 & 0xc != 0 { 2 } else { 0 } + if log { 13 } else { 0 } + 7 + (flag != 0) as u32)?;
+        c.set_reg8(r8::AL, b2);
+        let a = c.and(B, b2 as u16, 0xc);
+        c.set_reg8(r8::AL, a as u8);
+        if b2 & 0xc != 0 {
+            c.test(B, b0 as u16, 0x80);
+        }
+        if log {
+            let ax = c.sub(W, si, 0xaa78);
+            let ax = c.shr1(W, ax, 2);
+            let sp = c.byte(0x47c4);
+            let bl = c.shl1(B, sp as u16, 3);
+            c.set_reg8(r8::BL, bl as u8);
+            let ah = c.or(B, ax >> 8, bl);
+            let ax = (ah << 8) | (ax & 0xff);
+            c.set_reg(AX, ax);
+            let bp = c.word(0x11bd);
+            c.set_reg(BP, bp);
+            c.set_word_in(CS, bp, ax);
+            c.set_word_in(CS, bp.wrapping_add(2), 0);
+            let v = c.word(0x11bd);
+            let v = c.add(W, v, 2);
+            c.set_word(0x11bd, v);
+        }
+        c.set_byte(0x19, 0xff);
+        let v = c.or(B, b0 as u16, 0x80);
+        c.set_byte(si, v as u8);
+        let s = c.add(W, si, 4);
+        c.set_reg(SI, s);
+        c.xor(B, 0, 0);
+        c.set_byte(0x47a8, 0);
+        c.set_reg8(r8::AL, flag);
+        c.or(B, flag as u16, flag as u16);
+        if flag != 0 {
+            c.set_reg(SI, 0xffff);
+        }
+    }
+    let head = c.byte(0x46eb);
+    let spk = c.word(0x47c4);
+    if head != 0 || spk >= 0x10 {
+        c.run(0xa0aa, 2 + if head == 0 { 2 } else { 0 })?;
+        c.cmp(B, head as u16, 0);
+        if head == 0 {
+            c.cmp(W, spk, 0x10);
+        }
+    } else {
+        c.run(0xa0aa, 4 + 2)?;
+        c.cmp(B, 0, 0);
+        c.cmp(W, spk, 0x10);
+        let si = c.reg(SI);
+        c.push(si);
+        c.call(0x978e, 0xa0bc)?;
+        let k = c.byte(0x4774);
+        c.run(0xa0bc, 3 + if k != 0 { 2 } else { 0 })?;
+        let v = c.pop();
+        c.set_reg(SI, v);
+        c.cmp(B, k as u16, 0);
+        if k != 0 {
+            let si = c.reg(SI);
+            c.push(si);
+            c.call(0x2ebf, 0xa0c8)?;
+            c.run(0xa0c8, 1)?;
+            let v = c.pop();
+            c.set_reg(SI, v);
+        }
+        let e = c.byte(0xea);
+        let pos = (e as i8) > 0;
+        c.run(0xa0c9, 2 + if pos { 0 } else { 1 })?;
+        c.cmp(B, e as u16, 0);
+        if !pos {
+            c.call(0xe270, 0xa0d3)?;
+            c.run(0xa0d3, 1)?;
+            c.call(0x9efd, 0xa0d6)?;
+            c.run(0xa0d6, 3)?;
+            let to = c.word(0x227e);
+            c.set_word(0x227e, 0xf66);
+            c.set_reg(AX, to);
+            c.call(to, 0xa0df)?;
+            c.run(0xa0df, 1)?;
+            c.call(0xe283, 0xa0e2)?;
+        }
+    }
+    let f = c.byte(0xfb);
+    c.run(0xa0e2, 2 + if f & 0x80 != 0 { 0 } else { 2 } + 2)?;
+    c.cmp(B, f as u16, 0);
+    if f & 0x80 == 0 {
+        let v = c.byte(0x28e8);
+        c.set_reg8(r8::AL, v);
+        c.set_byte(0x28e7, v);
+    }
+    c.set_flag(CF, false);
+    c.ret()
+}
