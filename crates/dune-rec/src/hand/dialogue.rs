@@ -5143,3 +5143,223 @@ pub fn draw_talking_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
 }
+
+/// `draw_speech_bubble` (8F28): the text box for the rectangle at SS:BP
+/// (x, y, width, height; [479Eh] BP): kept at 1BE2h (x, y, right edge
+/// up to 140h, bottom), its text area from the margins [4784h..478Ah]
+/// ([4791h..4797h] the corner, [478Fh]/[478Dh] the size). Then drawn
+/// by kind: with a talking head shown ([46EBh]) the dialogue frame (far
+/// [38DDh], colour [18F2h], one line higher meanwhile); for the book
+/// ([0C6h]) its page (sheet 32h, sprite 3 tiled over 2265h); nothing in
+/// the intro or with [46D9h]; with [28E7h] a parchment (from 4C60h, far
+/// [3919h] into [0DBDEh]) tiled with sprite 1Ch of no sheet; else the
+/// 4C60h buffer cleared for the text (`loc_0c085`, [22FCh] 4C60h) and
+/// the box reset (8895h).
+pub fn draw_speech_bubble(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{BP, ES, SS};
+    entered(start, 0x8f28)?;
+    let mut c = Ctx::new(m);
+    let bp = c.reg(BP);
+    let r0 = c.word_in(SS, bp);
+    let r1 = c.word_in(SS, bp.wrapping_add(2));
+    let r2 = c.word_in(SS, bp.wrapping_add(4));
+    let r3 = c.word_in(SS, bp.wrapping_add(6));
+    let right = r0.wrapping_add(r2);
+    let big = right >= 0x140;
+    c.run(0x8f28, 29 + big as u32 + 3)?;
+    c.set_word(0x479e, bp);
+    c.set_reg(DI, 0x1be2);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(AX, r0);
+    c.stos(W);
+    c.set_reg(DX, r0);
+    let m0 = c.word(0x4784);
+    let a = c.add(W, r0, m0);
+    c.set_reg(AX, a);
+    c.set_word(0x4791, a);
+    c.set_word(0x4795, a);
+    c.set_reg(AX, r1);
+    c.stos(W);
+    c.set_reg(BX, r1);
+    let m2 = c.word(0x4788);
+    let a = c.add(W, r1, m2);
+    c.set_reg(AX, a);
+    c.set_word(0x4793, a);
+    c.set_word(0x4797, a);
+    c.set_reg(AX, r2);
+    let dx = c.add(W, r0, r2);
+    c.set_reg(DX, dx);
+    let a = c.sub(W, r2, m0);
+    let m1 = c.word(0x4786);
+    let a = c.sub(W, a, m1);
+    c.set_reg(AX, a);
+    c.set_word(0x478f, a);
+    c.set_reg(AX, r3);
+    let bx = c.add(W, r1, r3);
+    c.set_reg(BX, bx);
+    let a = c.sub(W, r3, m2);
+    let m3 = c.word(0x478a);
+    let a = c.sub(W, a, m3);
+    c.set_reg(AX, a);
+    c.set_word(0x478d, a);
+    c.set_reg(AX, dx);
+    c.cmp(W, dx, 0x140);
+    if big {
+        c.set_reg(AX, 0x140);
+    }
+    c.stos(W);
+    c.set_reg(AX, bx);
+    c.stos(W);
+    let flags = [0x46ebu16, 0xc6, 0x227d, 0x46d9, 0x28e7].map(|a| c.byte(a));
+    if flags[0] != 0 {
+        c.run(0x8f7f, 2)?;
+        c.cmp(B, flags[0] as u16, 0);
+        return frame_8fd1(&mut c);
+    }
+    if flags[1] != 0 {
+        c.run(0x8f7f, 4)?;
+        c.cmp(B, 0, 0);
+        c.cmp(B, flags[1] as u16, 0);
+        return book_8ff5(&mut c);
+    }
+    if flags[2] != 0 || flags[3] != 0 {
+        let n = if flags[2] != 0 { 6 } else { 8 };
+        c.run(0x8f7f, n + 1)?;
+        c.cmp(B, 0, 0);
+        c.cmp(B, 0, 0);
+        c.cmp(B, flags[2] as u16, 0);
+        if flags[2] == 0 {
+            c.cmp(B, flags[3] as u16, 0);
+        }
+        return c.ret();
+    }
+    if flags[4] == 0 {
+        c.run(0x8f7f, 10)?;
+        for _ in 0..5 {
+            c.cmp(B, 0, 0);
+        }
+        return clear_900b(&mut c);
+    }
+    c.run(0x8f7f, 10 + 8)?;
+    for _ in 0..4 {
+        c.cmp(B, 0, 0);
+    }
+    c.cmp(B, flags[4] as u16, 0);
+    let si = c.reg(SI);
+    c.push(si);
+    c.set_reg(SI, 0x4c60);
+    c.set_reg(BP, 0x1be2);
+    c.set_reg(AX, 0x80);
+    c.set_word_in(SS, 0x1bea, 0x80);
+    c.set_word(0x1c06, 0x80);
+    c.set_word_in(SS, 0x1bee, 0x9468);
+    let es = c.word(0xdbde);
+    c.set_sreg(ES, es);
+    c.interp(0x8fbb, 0x8fbf)?;
+    c.run(0x8fbf, 1)?;
+    c.call(0xc137, 0x8fc2)?;
+    c.run(0x8fc2, 4)?;
+    c.set_reg(SI, 0x1be2);
+    let es = c.word(0xdbd6);
+    c.set_sreg(ES, es);
+    c.set_reg(AX, 0x1c);
+    c.call(0xc370, 0x8fcf)?;
+    c.run(0x8fcf, 2)?;
+    let v = c.pop();
+    c.set_reg(SI, v);
+    c.ret()
+}
+
+/// 8FD1h: the dialogue frame around the box (far [38DDh] into
+/// [0DBDAh], colour [18F2h]), drawn one line higher.
+fn frame_8fd1(c: &mut Ctx) -> Result<(), Bail> {
+    use pc::cpu::ES;
+    c.run(0x8fd1, 7)?;
+    let si = c.reg(SI);
+    c.push(si);
+    c.set_reg(SI, 0x1be2);
+    c.set_word(0x1bea, 0x80);
+    c.set_word(0x1bee, 0x7bed);
+    let v = c.word(0x1be4);
+    let v = c.sub(W, v, 2);
+    c.set_word(0x1be4, v);
+    let al = c.byte(0x18f2);
+    c.set_reg8(r8::AL, al);
+    let es = c.word(0xdbda);
+    c.set_sreg(ES, es);
+    c.interp(0x8fea, 0x8fee)?;
+    c.run(0x8fee, 3)?;
+    let v = c.word(0x1be4);
+    let v = c.add(W, v, 2);
+    c.set_word(0x1be4, v);
+    let v = c.pop();
+    c.set_reg(SI, v);
+    c.ret()
+}
+
+/// 8FF5h: the book's page: sheet 32h, sprite 3 tiled over 2265h.
+fn book_8ff5(c: &mut Ctx) -> Result<(), Bail> {
+    use pc::cpu::ES;
+    c.run(0x8ff5, 3)?;
+    let si = c.reg(SI);
+    c.push(si);
+    c.set_reg(AX, 0x32);
+    c.call(0xc13e, 0x8ffc)?;
+    c.run(0x8ffc, 4)?;
+    c.set_reg(AX, 3);
+    c.set_reg(SI, 0x2265);
+    let es = c.word(0xdbd6);
+    c.set_sreg(ES, es);
+    c.call(0xc370, 0x9009)?;
+    c.run(0x9009, 2)?;
+    let v = c.pop();
+    c.set_reg(SI, v);
+    c.ret()
+}
+
+/// 900Bh: the text buffer 4C60h (5960h bytes) cleared, [22FCh] 4C60h,
+/// `loc_0c085`; then the box at 1BE2h reset (8895h: [1C06h] the
+/// inverse of [0FBh]'s bit 7).
+fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
+    use pc::cpu::ES;
+    c.run(0x900b, 6)?;
+    c.set_reg(DI, 0x4c60);
+    c.set_reg(CX, 0x5960);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    let al = c.reg8(r8::AL);
+    c.xor(B, al as u16, al as u16);
+    c.set_reg8(r8::AL, 0);
+    c.rep(0xaa);
+    c.run(0x9017, 4)?;
+    c.set_reg(AX, 0x4c6f);
+    let a = c.and(B, 0x6f, 0xf0);
+    c.set_reg(AX, 0x4c00 | a);
+    c.set_word(0x22fc, 0x4c00 | a);
+    c.call(0xc085, 0x9022)?;
+    c.run(0x9022, 1 + 14)?;
+    let f = c.byte(0xfb);
+    let a = !f;
+    let a = c.and(B, a as u16, 0x80);
+    c.set_reg8(r8::AL, a as u8);
+    c.set_byte(0x1c06, a as u8);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(DI, 0x1be2);
+    let ax = c.reg(AX);
+    c.xor(W, ax, ax);
+    c.set_reg(AX, 0);
+    for _ in 0..4 {
+        c.stos(W);
+    }
+    c.set_reg8(r8::AL, 0x80);
+    c.stos(W);
+    c.ret()
+}
