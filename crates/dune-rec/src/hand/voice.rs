@@ -1809,3 +1809,130 @@ fn lip_sprite_9e75(c: &mut Ctx) -> Result<(), Bail> {
     c.set_sreg(DS, v);
     c.jump(0xdb67)
 }
+
+/// `load_voc_and_lipsync_data` (A6CC): phrase AX of talking head BL
+/// (up to 0Eh) loaded: its voice and lip-sync files (`loc_0a8bc`, after
+/// `loc_0a7a5` stops the last). BX FFFFh: the test sound (0FFFh or
+/// 1FFFh in turn: the immediate at A6D2h, flipped in the code each
+/// time) for head [22A6h]. Else the phrase number made relative to the
+/// head's first ([0D814h] + 3E7h with [47DCh], else [bx*2 - 280Ch]
+/// unless the intro), heads 0Eh saying phrase 2Ch/2Dh becoming 0Ch
+/// ([47C4h]); its lip-sync table (`loc_09123`, 8 bytes per head from
+/// 27FAh, [0DC28h]). Then the first lip-sync data read (`loc_0a83f`,
+/// once more for the other half [37E2h]); CF set (after `loc_0ade0`,
+/// `loc_0d617`) if there is none.
+pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::CS;
+    entered(start, 0xa6cc)?;
+    let mut c = Ctx::new(m);
+    let bx = c.reg(BX);
+    if bx == 0xffff {
+        c.run(0xa6cc, 2 + 4)?;
+        c.cmp(W, bx, 0xffff);
+        let imm = c.code_word(0xa6d2);
+        c.set_reg(AX, imm);
+        let b = c.byte_in(CS, 0xa6d3);
+        let b = c.xor(B, b as u16, 0x10);
+        c.m.cpu.write8(&mut c.m.hw, CS, 0xa6d3, b as u8);
+        let h = c.word(0x22a6);
+        c.set_reg(BX, h);
+        c.call(0xa8bc, 0xa6e1)?;
+        c.run(0xa6e1, 1)?;
+        c.call(0xa7a5, 0xa6e4)?;
+        c.run(0xa6e4, 1)?;
+    } else {
+        let ax = c.reg(AX);
+        let big = (bx & 0xff) >= 0xe;
+        let bl = if big { 0xe } else { bx & 0xff };
+        let bx1 = (bx & 0xff00) | bl;
+        let f = c.byte(0x47dc);
+        let intro = c.byte(0x227d);
+        let mut n = 2 + 3 + big as u32 + 3;
+        if f != 0 {
+            n += 3;
+        } else {
+            n += 2 + if intro == 0 { 3 } else { 0 };
+        }
+        c.run(0xa6cc, n)?;
+        c.cmp(W, bx, 0xffff);
+        c.push(bx);
+        c.cmp(B, bx & 0xff, 0xe);
+        c.set_reg(BX, bx1);
+        let h = c.and(B, ax >> 8, 0xf3);
+        let mut ax = (h << 8) | (ax & 0xff);
+        c.set_reg(AX, ax);
+        c.cmp(B, f as u16, 0);
+        if f != 0 {
+            let d = c.word(0xd814);
+            ax = c.sub(W, ax, d);
+            ax = c.add(W, ax, 0x3e7);
+            c.set_reg(AX, ax);
+        } else {
+            c.cmp(B, intro as u16, 0);
+            if intro == 0 {
+                let b2 = c.shl1(W, bx1, 1);
+                c.set_reg(BX, b2);
+                let d = c.word(b2.wrapping_sub(0x280c));
+                ax = c.sub(W, ax, d);
+                c.set_reg(AX, ax);
+                let b3 = c.shr1(W, b2, 1);
+                c.set_reg(BX, b3);
+            }
+        }
+        let bl = c.reg8(r8::BL);
+        let twelve = bl == 0xe && (ax as u8 & 0xfe) == 0x2c;
+        c.run(0xa710, 2 + if bl == 0xe { 4 + if twelve { 4 } else { 0 } } else { 0 } + 1)?;
+        c.cmp(B, bl as u16, 0xe);
+        if bl == 0xe {
+            c.set_reg(CX, ax);
+            let cl = c.and(B, ax & 0xff, 0xfe);
+            c.set_reg8(r8::CL, cl as u8);
+            c.cmp(B, cl, 0x2c);
+            if twelve {
+                let v = c.pop();
+                let v = (v & 0xff00) | 0x0c;
+                c.set_reg(CX, v);
+                c.set_word(0x47c4, v);
+                c.push(v);
+            }
+        }
+        c.call(0xa8bc, 0xa72a)?;
+        c.run(0xa72a, 1)?;
+        c.call(0xa7a5, 0xa72d)?;
+        c.run(0xa72d, 2)?;
+        let v = c.pop();
+        c.set_reg(AX, v);
+        c.call(0x9123, 0xa731)?;
+        c.run(0xa731, 6)?;
+        let a = c.reg(AX);
+        let a = c.shl1(W, a, 3);
+        let a = c.add(W, a, 0x27fa);
+        c.set_reg(AX, a);
+        c.set_reg(SI, a);
+        c.set_word(0xdc28, a);
+    }
+    c.run(0xa740, 2)?;
+    c.set_byte(0xdc2a, 0xff);
+    c.call(0xa83f, 0xa748)?;
+    let mut fail = c.flag(CF);
+    if !fail {
+        c.run(0xa748, 3)?;
+        let v = c.byte(0x37e2);
+        let v = c.xor(B, v as u16, 6);
+        c.set_byte(0x37e2, v as u8);
+        c.call(0xa83f, 0xa752)?;
+        fail = c.flag(CF);
+        c.run(0xa752, 1 + if fail { 1 } else { 1 })?;
+        if !fail {
+            return c.ret();
+        }
+    } else {
+        c.run(0xa748, 2)?;
+    }
+    c.call(0xade0, 0xa757)?;
+    c.run(0xa757, 1)?;
+    c.call(0xd617, 0xa75a)?;
+    c.run(0xa75a, 2)?;
+    c.set_flag(CF, true);
+    c.ret()
+}

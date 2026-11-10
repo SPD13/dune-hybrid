@@ -200,7 +200,7 @@ the instruction count (virtual time). `Ctx` holds the bookkeeping:
   `interp` (`INT` and far calls into the drivers), and tail jumps call the
   target port directly.
 
-Ported: 1,010 routines (the small ones first: flags and setters, game time,
+Ported: 1,011 routines (the small ones first: flags and setters, game time,
 location kinds, frame tasks, condition operators, the intro's steps,
 framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
 decompression, voice and music start/stop, DUNE.DAT access, the memory
@@ -230,7 +230,7 @@ start-up resources, the intro's second part, the MIDI position
 check, the mouse driver's event callback, freeing and
 keeping resources in memory, RLE images, mouth frames, the speech bubble, redrawing
 a rectangle with its particles, the scenes' sprites and polygons, the
-panel's buttons), all equal to the original in every
+panel's buttons, loading a phrase's voice and lip-sync), all equal to the original in every
 checked call (two 10-minute games with `--call-each 4`, 0 differences), and `--rec on`
 screenshots unchanged. A port no run has checked to completion stays out of the table
 (`copy_pal_and_transition`, `comm_fade_in_glow`,
@@ -245,7 +245,8 @@ the 40 routines that open resources, and was found from them.
 
 `handle_ctrl_v_once` (B270) turns itself into a bare `ret` after it ran
 (a code write the generated code does not see): its port reads its own
-first byte where it runs.
+first byte where it runs. `load_voc_and_lipsync_data` (A6CC) flips the
+immediate of its test sound each time: its port reads that word too.
 
 Open: under `--call-each` on seed 21, two generated routines differ
 (`hnm_render_timer_callback` and `parse_command_line`, which it interrupts,
