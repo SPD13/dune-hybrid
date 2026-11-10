@@ -1133,3 +1133,184 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let _ = B;
     c.jump(0xc137)
 }
+
+/// `allocator_attempt_to_free_space` (F13F): the loaded resource used
+/// longest ago (the 91h slots at D844h, 4 bytes each, their segment at
+/// +2, last use at DA8Eh + 2k against the clock [2]) dropped (none: out
+/// of memory, run by the original). Its segment cleared (the current
+/// sprite sheet [2784h] forgotten if it was that one); the memory above
+/// it moved down by the gap to the next resource (the smallest segment
+/// above, BX paragraphs): every slot past it (and the sheet pointer
+/// [0DBB2h]) moved too, the data copied in 64 KB steps, the free
+/// pointer [39B9h] lowered. With nothing above, the free pointer just
+/// drops to it. CX kept.
+pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xf13f)?;
+    let mut c = Ctx::new(m);
+    c.run(0xf13f, 7)?;
+    let cx = c.reg(CX);
+    c.push(cx);
+    let bp = c.word(2);
+    c.set_reg(BP, bp);
+    c.set_reg(SI, 0xd844);
+    c.set_reg(DI, 0xda8c);
+    c.set_reg(CX, 0x91);
+    let d0 = c.reg(DX);
+    c.xor(W, d0, d0);
+    let (mut dx, mut bx) = (0u16, 0u16);
+    c.set_reg(DX, 0);
+    c.set_reg(BX, 0);
+    let (mut si, mut di) = (0xd844u16, 0xda8cu16);
+    for k in 0..0x91u16 {
+        let seg = c.word(si.wrapping_add(6));
+        let t = c.word(di.wrapping_add(2));
+        let age = bp.wrapping_sub(t);
+        let used = seg != 0;
+        let better = used && age >= dx;
+        c.run(0xf151, 5 + if used { 4 + if better { 2 } else { 0 } } else { 0 } + 1)?;
+        di = c.add(W, di, 2);
+        c.set_reg(DI, di);
+        si = c.add(W, si, 4);
+        c.set_reg(SI, si);
+        c.set_reg(AX, seg);
+        c.or(W, seg, seg);
+        if used {
+            c.set_reg(AX, bp);
+            let a = c.sub(W, bp, t);
+            c.set_reg(AX, a);
+            c.cmp(W, a, dx);
+            if better {
+                dx = a;
+                c.set_reg(DX, dx);
+                bx = si;
+                c.set_reg(BX, bx);
+            }
+        }
+        c.set_reg(CX, 0x90 - k);
+    }
+    c.run(0xf16c, 2)?;
+    c.or(W, bx, bx);
+    if bx == 0 {
+        c.m.cpu.ip = 0xf130;
+        return Err(Bail);
+    }
+    let idx = bx.wrapping_sub(0xd844) >> 2;
+    let cur = c.word(0x2784);
+    c.run(0xf170, 6 + (idx == cur) as u32 + 5)?;
+    c.set_reg(AX, bx);
+    let a = c.sub(W, bx, 0xd844);
+    let a = c.shr1(W, a, 2);
+    c.set_reg(AX, a);
+    c.cmp(W, a, cur);
+    if a == cur {
+        c.set_word(0x2784, 0xffff);
+    }
+    c.xor(W, dx, dx);
+    let dx = c.word(bx.wrapping_add(2));
+    c.set_word(bx.wrapping_add(2), 0);
+    c.set_reg(DX, dx);
+    c.set_reg(SI, 0xd84a);
+    c.set_reg(CX, 0x91);
+    let mut best = 0x8000u16;
+    c.set_reg(BX, best);
+    for k in 0..0x91u16 {
+        let si = c.reg(SI);
+        let v = c.word(si);
+        let below = v < dx;
+        let take = !below && v.wrapping_sub(dx) < best;
+        c.run(0xf193, 4 + if below { 0 } else { 2 + take as u32 } + 1)?;
+        c.lods(W, DS);
+        let s = c.add(W, si.wrapping_add(2), 2);
+        c.set_reg(SI, s);
+        let a = c.sub(W, v, dx);
+        c.set_reg(AX, a);
+        if !below {
+            c.cmp(W, a, best);
+            if take {
+                best = a;
+                c.set_reg(BX, best);
+            }
+        }
+        c.set_reg(CX, 0x90 - k);
+    }
+    if best & 0x8000 != 0 {
+        c.run(0xf1a3, 2 + 3)?;
+        c.or(W, best, best);
+        c.set_word(0x39b9, dx);
+        let v = c.pop();
+        c.set_reg(CX, v);
+        return c.ret();
+    }
+    c.run(0xf1a3, 4)?;
+    c.or(W, best, best);
+    c.set_reg(SI, 0xd846);
+    c.set_reg(CX, 0x91);
+    let mut si = 0xd846u16;
+    for k in 0..0x91u16 {
+        let s = si.wrapping_add(4);
+        let v = c.word(s);
+        let lo = v < dx;
+        c.run(0xf1ad, 3 + (!lo) as u32 + 1)?;
+        si = c.add(W, si, 4);
+        c.set_reg(SI, si);
+        c.cmp(W, v, dx);
+        if !lo {
+            let n = c.sub(W, v, best);
+            c.set_word(s, n);
+        }
+        c.set_reg(CX, 0x90 - k);
+    }
+    let v = c.word(0xdbb2);
+    let lo = v < dx;
+    c.run(0xf1b8, 3 + (!lo) as u32)?;
+    c.set_reg(SI, 0xdbb2);
+    c.cmp(W, v, dx);
+    if !lo {
+        let n = c.sub(W, v, best);
+        c.set_word(0xdbb2, n);
+    }
+    let mut dst = dx;
+    loop {
+        let src = dst.wrapping_add(best);
+        let top = c.word_in(SS, 0x39b9);
+        let left = top.wrapping_sub(src);
+        let last = left <= 0x1000;
+        c.run(0xf1c1, 9 + if last { 5 } else { 2 })?;
+        c.set_sreg(ES, dst);
+        let d = c.add(W, dst, best);
+        c.set_reg(DX, d);
+        c.set_sreg(DS, d);
+        let s0 = c.reg(SI);
+        c.xor(W, s0, s0);
+        c.set_reg(SI, 0);
+        c.set_reg(DI, 0);
+        c.set_reg(AX, top);
+        let a = c.sub(W, top, d);
+        c.set_reg(AX, a);
+        c.cmp(W, a, 0x1000);
+        if last {
+            c.set_reg(CX, a);
+            let n = c.shl1(W, a, 3);
+            c.set_reg(CX, n);
+            c.rep(0xa5);
+            c.run(0xf1ed, 5)?;
+            let ss = c.sreg(SS);
+            c.push(ss);
+            let v = c.pop();
+            c.set_sreg(DS, v);
+            let t = c.word(0x39b9);
+            let t = c.sub(W, t, best);
+            c.set_word(0x39b9, t);
+            let v = c.pop();
+            c.set_reg(CX, v);
+            return c.ret();
+        }
+        c.set_reg(CX, 0x8000);
+        c.rep(0xa5);
+        c.run(0xf1db, 3)?;
+        let es = c.sreg(ES);
+        c.set_reg(DX, es);
+        dst = c.add(W, es, 0x1000);
+        c.set_reg(DX, dst);
+    }
+}

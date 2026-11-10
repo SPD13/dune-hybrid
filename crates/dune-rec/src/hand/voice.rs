@@ -1566,7 +1566,7 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.xor(W, di, di);
     c.set_reg(DI, 0);
     c.m.cpu.string_op(&mut c.m.hw, 0xa4, Some(ES), 0xf3);
-    c.run(0xaa48, 12)?;
+    c.run(0xaa48, 9)?;
     let (d, e) = (c.word(0x3819), c.word(0x381b));
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
@@ -1582,6 +1582,7 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.movs(W);
     c.set_reg8(r8::AL, 0x80);
     c.rep(0xaa);
+    c.run(0xaa5c, 3)?;
     let v = c.pop();
     c.set_sreg(DS, v);
     c.set_reg(SI, 0x3819);

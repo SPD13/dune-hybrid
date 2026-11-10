@@ -212,8 +212,7 @@ pub fn ems_copy(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let room = 0x4000u16.wrapping_sub(p);
         let below = room < cx;
         let n = if below { room } else { cx };
-        let left = cx - n;
-        c.run(at(0x1b), 7 + !below as u32 + 7 + if left == 0 { 2 } else { 3 })?;
+        c.run(at(0x1b), 7 + !below as u32 + 3)?;
         let frame = c.word_in(CS, 0xed3c);
         c.set_sreg(seg, frame);
         c.set_reg(DX, cx);
@@ -228,9 +227,11 @@ pub fn ems_copy(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let h = c.shr1(W, n, 1);
         c.set_reg(CX, h);
         c.rep(0xa5);
+        c.run(at(0x35), 2)?;
         let cl = c.adc(B, 0, 0);
         c.set_reg(CX, cl);
         c.rep(0xa4);
+        c.run(at(0x39), 2 + if left == 0 { 2 } else { 3 })?;
         c.set_reg(CX, left);
         if left == 0 {
             c.set_flag(CF, false);
@@ -396,7 +397,7 @@ pub fn init_extended_memory_allocator(m: &mut Machine, start: u16) -> Result<(),
     let b = c.shl1(W, n, 1);
     c.set_reg(CX, b);
     c.call(0xf0f6, 0xeaad)?;
-    c.run(0xeaad, 5)?;
+    c.run(0xeaad, 4)?;
     let (di, es) = (c.word(0xce6a), c.word(0xce6c));
     c.set_reg(DI, di);
     c.set_sreg(ES, es);
@@ -405,6 +406,7 @@ pub fn init_extended_memory_allocator(m: &mut Machine, start: u16) -> Result<(),
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.rep(0xab);
+    c.run(0xeab6, 1)?;
     c.ret()
 }
 
@@ -793,5 +795,214 @@ pub fn bump_alloc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if over {
         return c.jump(0xf131);
     }
+    c.ret()
+}
+
+/// `memory_func_qq` (EAB7): resource AX ([0CE6Eh]; CX bytes at ES:DI)
+/// kept in extended memory. In the page table (far [0CE6Ah], [39A9h]
+/// entries) its slot (+ 2 * AX past the table; use stamp at +172h from
+/// CS:EA75h) gets a chain of free pages: free entries (0) found from DI
+/// on (wrapping to the start; none free: `loc_0eb74` frees one, or the
+/// resource is dropped, `loc_0ebaa` from EB60h), consecutive ones linked
+/// (each entry the next page + 1), the last entry the bytes left
+/// (negative), each run copied (`loc_0ec59`, BX its first page, CX its
+/// bytes) and marked as a run's end (bit 15). Frame [bp]: the table's
+/// size in bytes, [bp+2] the bytes left, [bp+4] the run's first page.
+/// Wrapped in `loc_0e270`/`loc_0e283`; DS, ES kept.
+pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{BP, CS, DS, ES, SI, SP, ZF};
+    entered(start, 0xeab7)?;
+    let mut c = Ctx::new(m);
+    c.run(0xeab7, 1)?;
+    c.call(0xe270, 0xeaba)?;
+    c.run(0xeaba, 22)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.sreg(ES);
+    c.push(es);
+    let sp = c.reg(SP);
+    let bp = c.sub(W, sp, 6);
+    c.set_reg(SP, bp);
+    c.set_reg(BP, bp);
+    let ax = c.reg(AX);
+    c.set_word(0xce6e, ax);
+    let di = c.reg(DI);
+    c.push(di);
+    c.push(es);
+    let (d, e) = (c.word(0xce6a), c.word(0xce6c));
+    c.set_reg(DI, d);
+    c.set_sreg(ES, e);
+    c.set_reg(SI, ax);
+    let n = c.word(0x39a9);
+    c.set_reg(AX, n);
+    let n2 = c.shl1(W, n, 1);
+    c.set_reg(AX, n2);
+    c.set_word_in(SS, bp, n2);
+    let si = c.shl1(W, ax, 1);
+    let si = c.add(W, si, n2);
+    c.set_reg(SI, si);
+    c.set_reg(DX, si);
+    let t = c.word_in(CS, 0xea75);
+    let t = c.inc(W, t);
+    c.set_reg(AX, t);
+    c.set_word_in(ES, si.wrapping_add(0x172), t);
+    c.set_word_in(CS, 0xea75, t);
+    let cx = c.reg(CX);
+    c.set_word_in(SS, bp.wrapping_add(2), cx);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    let v = c.pop();
+    c.set_reg(SI, v);
+    loop {
+        let di = c.reg(DI);
+        let lim = c.word_in(SS, bp);
+        let below = di < lim;
+        c.run(0xeaed, 2 + (!below) as u32)?;
+        c.cmp(W, di, lim);
+        if !below {
+            c.xor(W, di, di);
+            c.set_reg(DI, 0);
+        }
+        loop {
+            c.run(0xeaf4, 5)?;
+            let di = c.reg(DI);
+            let lim = c.word_in(SS, bp);
+            c.set_reg(CX, lim);
+            let n = c.sub(W, lim, di);
+            let n = c.shr1(W, n, 1);
+            c.set_reg(CX, n);
+            c.xor(W, 0, 0);
+            c.set_reg(AX, 0);
+            c.m.cpu.string_op(&mut c.m.hw, 0xaf, None, 0xf2);
+            c.run(0xeaff, 1)?;
+            if c.flag(ZF) {
+                break;
+            }
+            c.run(0xeb01, 1)?;
+            c.call(0xeb74, 0xeb04)?;
+            c.run(0xeb04, 2)?;
+            if !c.flag(CF) {
+                return drop_eb60(&mut c, bp);
+            }
+            let di = c.reg(DI);
+            c.xor(W, di, di);
+            c.set_reg(DI, 0);
+        }
+        c.run(0xeb08, 7)?;
+        let di = c.reg(DI);
+        let mut di = c.sub(W, di, 2);
+        c.set_reg(DI, di);
+        c.xor(W, 0, 0);
+        let mut cx = 0u16;
+        c.set_reg(CX, 0);
+        c.set_reg(BX, di);
+        let bx = c.shr1(W, di, 1);
+        let mut bx = c.inc(W, bx);
+        c.set_reg(BX, bx);
+        c.set_word_in(SS, bp.wrapping_add(4), bx);
+        let mut dx = c.reg(DX);
+        loop {
+            c.run(0xeb28, 6)?;
+            let rem = c.word_in(SS, bp.wrapping_add(2));
+            let (a, b) = (dx, di);
+            dx = b;
+            di = a;
+            c.set_reg(DX, dx);
+            c.set_reg(DI, di);
+            c.set_word_in(ES, di, bx);
+            c.set_reg(AX, 0x400);
+            cx = c.add(W, cx, 0x400);
+            c.set_reg(CX, cx);
+            let r = c.sub(W, rem, 0x400);
+            c.set_word_in(SS, bp.wrapping_add(2), r);
+            if rem <= 0x400 {
+                c.run(0xeb37, 4)?;
+                c.set_reg(DI, dx);
+                c.set_reg(AX, r);
+                c.stos(W);
+                cx = c.add(W, cx, r);
+                c.set_reg(CX, cx);
+                break;
+            }
+            let nd = dx.wrapping_add(2);
+            let lim = c.word_in(SS, bp);
+            if nd >= lim {
+                c.run(0xeb17, 4)?;
+                c.set_reg(DI, dx);
+                let n = c.add(W, dx, 2);
+                c.set_reg(DI, n);
+                c.cmp(W, n, lim);
+                break;
+            }
+            let v = c.word_in(ES, nd);
+            c.run(0xeb17, if v != 0 { 6 } else { 7 })?;
+            c.set_reg(DI, dx);
+            let n = c.add(W, dx, 2);
+            c.set_reg(DI, n);
+            di = n;
+            c.cmp(W, n, lim);
+            c.cmp(W, v, 0);
+            if v != 0 {
+                break;
+            }
+            bx = c.inc(W, bx);
+            c.set_reg(BX, bx);
+        }
+        c.run(0xeb3f, 3)?;
+        let b = c.word_in(SS, bp.wrapping_add(4));
+        c.set_reg(BX, b);
+        c.push(dx);
+        c.call(0xec59, 0xeb46)?;
+        let rem = c.word_in(SS, bp.wrapping_add(2));
+        let again = rem.wrapping_sub(1) <= 0xfc00;
+        c.run(0xeb46, 7 + if again { 0 } else { 4 })?;
+        let dx = c.pop();
+        c.set_reg(DX, dx);
+        c.set_reg(DI, dx);
+        let v = c.word_in(ES, dx);
+        let v = c.or(W, v, 0x8000);
+        c.set_word_in(ES, dx, v);
+        c.set_reg(AX, rem);
+        let a = c.dec(W, rem);
+        c.set_reg(AX, a);
+        c.cmp(W, a, 0xfc00);
+        if !again {
+            return end_eb57(&mut c);
+        }
+    }
+}
+
+/// EB60h: no room: the resource dropped (`loc_0ebaa`, SI its slot,
+/// [0CE6Eh] FFFFh).
+fn drop_eb60(c: &mut Ctx, bp: u16) -> Result<(), Bail> {
+    use pc::cpu::SI;
+    c.run(0xeb60, 6)?;
+    let n = c.word_in(SS, bp);
+    c.set_reg(SI, n);
+    c.set_reg(AX, 0xffff);
+    let old = c.word_in(SS, 0xce6e);
+    c.set_word_in(SS, 0xce6e, 0xffff);
+    c.set_reg(AX, old);
+    let s = c.add(W, n, old);
+    let s = c.add(W, s, old);
+    c.set_reg(SI, s);
+    c.call(0xebaa, 0xeb72)?;
+    c.run(0xeb72, 1 + 4)?;
+    end_eb57(c)
+}
+
+/// EB57h (counted by the caller): the frame dropped, ES and DS back,
+/// `loc_0e283`.
+fn end_eb57(c: &mut Ctx) -> Result<(), Bail> {
+    use pc::cpu::{DS, ES, SP};
+    let sp = c.reg(SP);
+    let s = c.add(W, sp, 6);
+    c.set_reg(SP, s);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.call(0xe283, 0xeb5f)?;
+    c.run(0xeb5f, 1)?;
     c.ret()
 }
