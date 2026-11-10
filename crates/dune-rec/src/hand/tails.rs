@@ -993,3 +993,346 @@ pub fn dialogue_9719(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.ret()
 }
+
+/// `loc_0b96b`: the globe's decorations slid open (`globe_slide_decorations_open`),
+/// [0DD02h] down, `loc_0b98b`, then B941h.
+pub fn globe_b96b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb96b)?;
+    let mut c = Ctx::new(m);
+    c.run(0xb96b, 1)?;
+    c.call(0xb8f3, 0xb96e)?;
+    c.run(0xb96e, 2)?;
+    let v = c.byte(0xdd02);
+    let v = c.dec(B, v as u16);
+    c.set_byte(0xdd02, v as u8);
+    c.call(0xb98b, 0xb975)?;
+    c.run(0xb975, 1)?;
+    c.jump(0xb941)
+}
+
+/// `loc_0c02e`: `map_func`; the spice stock [0A6h] capped at [0A0h] +
+/// [1172h] - [1170h] (0 below); the troop records from 8AAh (1Bh bytes
+/// each, up to a 0) summed by their +1Ah byte: free ones (not bit 5 of
+/// +3) into [0ACh] when working (+10h bit 7), else into [0AAh] unless
+/// +3 bit 7.
+pub fn totals_c02e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc02e)?;
+    let mut c = Ctx::new(m);
+    c.run(0xc02e, 1)?;
+    c.call(0xbfe3, 0xc031)?;
+    let (a0, b1, b0, a6) = (c.word(0xa0), c.word(0x1172), c.word(0x1170), c.word(0xa6));
+    let s = a0.wrapping_add(b1);
+    let (d, borrow) = s.overflowing_sub(b0);
+    let cap = if borrow { 0 } else { d };
+    let below = cap < a6;
+    c.run(0xc031, 4 + borrow as u32 + 2 + (!below) as u32 + 4)?;
+    c.set_reg(AX, a0);
+    let v = c.add(W, a0, b1);
+    let v = c.sub(W, v, b0);
+    let v = if borrow { c.xor(W, v, v) } else { v };
+    c.set_reg(AX, v);
+    c.cmp(W, v, a6);
+    if !below {
+        c.set_word(0xa6, v);
+    }
+    c.xor(W, v, v);
+    c.set_reg(AX, 0);
+    c.set_word(0xaa, 0);
+    c.set_word(0xac, 0);
+    let mut si = 0x8aau16;
+    c.set_reg(SI, si);
+    loop {
+        let al = c.byte(si.wrapping_add(0x1a));
+        let k3 = c.byte(si.wrapping_add(3));
+        let k10 = c.byte(si.wrapping_add(0x10));
+        let next = c.byte(si.wrapping_add(0x1b));
+        let mut n = 3;
+        if k3 & 0x20 == 0 {
+            n += 2;
+            if k10 & 0x80 != 0 {
+                n += 2;
+            } else {
+                n += 2 + (k3 & 0x80 == 0) as u32;
+            }
+        }
+        n += 3 + (next == 0) as u32;
+        c.run(0xc054, n)?;
+        c.set_reg8(r8::AL, al);
+        c.test(B, k3 as u16, 0x20);
+        if k3 & 0x20 == 0 {
+            c.test(B, k10 as u16, 0x80);
+            if k10 & 0x80 != 0 {
+                let v = c.word(0xac);
+                let v = c.add(W, v, al as u16);
+                c.set_word(0xac, v);
+            } else {
+                c.test(B, k3 as u16, 0x80);
+                if k3 & 0x80 == 0 {
+                    let v = c.word(0xaa);
+                    let v = c.add(W, v, al as u16);
+                    c.set_word(0xaa, v);
+                }
+            }
+        }
+        si = c.add(W, si, 0x1b);
+        c.set_reg(SI, si);
+        c.cmp(B, next as u16, 0);
+        if next == 0 {
+            return c.ret();
+        }
+    }
+}
+
+/// `intro_28_night_attack_start` (0ACD): the particle sorter C827h, the
+/// sheet byte at CS:C13Ch 2Bh (`open_onmap_resource`), the screen saved;
+/// sprites 2 and 3 tiled over 1582h and 158Ah, the sprite list 11DDh,
+/// `loc_05ba0`; 4856h's 8 bytes cleared; the frame task B45h replaced
+/// (every 3), `loc_0c412`, then sound 3 (`loc_0ab15`).
+pub fn intro_night_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{CS, DS, ES};
+    entered(start, 0x0acd)?;
+    let mut c = Ctx::new(m);
+    c.run(0x0acd, 3)?;
+    c.set_word(0x2786, 0xc827);
+    c.m.cpu.write8(&mut c.m.hw, CS, 0xc13c, 0x2b);
+    c.call(0xc13b, 0x0adc)?;
+    c.run(0x0adc, 1)?;
+    c.call(0xc07c, 0x0adf)?;
+    c.run(0x0adf, 4)?;
+    c.set_reg(SI, 0x1582);
+    let es = c.word(0xdbda);
+    c.set_sreg(ES, es);
+    c.set_reg(AX, 2);
+    c.call(0xc370, 0x0aec)?;
+    c.run(0x0aec, 3)?;
+    c.set_reg(SI, 0x158a);
+    c.set_reg(AX, 3);
+    c.call(0xc370, 0x0af5)?;
+    c.run(0x0af5, 2)?;
+    c.set_reg(SI, 0x11dd);
+    c.call(0xc21b, 0x0afb)?;
+    c.run(0x0afb, 1)?;
+    c.call(0x5ba0, 0x0afe)?;
+    c.run(0x0afe, 6)?;
+    c.set_reg(DI, 0x4856);
+    let ax = c.reg(AX);
+    c.xor(W, ax, ax);
+    c.set_reg(AX, 0);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(CX, 8);
+    c.rep(0xaa);
+    c.run(0x0b0a, 2)?;
+    c.set_reg(SI, 0xb45);
+    c.call(0xda5f, 0x0b10)?;
+    c.run(0x0b10, 3)?;
+    c.set_reg(SI, 0xb45);
+    c.set_reg(BP, 3);
+    c.call(0xda25, 0x0b19)?;
+    c.run(0x0b19, 1)?;
+    c.call(0xc412, 0x0b1c)?;
+    c.run(0x0b1c, 2)?;
+    c.set_reg8(r8::AL, 3);
+    c.jump(0xab15)
+}
+
+/// `loc_06dbb`: the place BX's people (`loc_040ae`; the 0Ch records at
+/// FD8h, 10h bytes, and the player's at [4]) given DH as their state,
+/// their kind 2 unless it is 1 (the player's also in [0Bh], [8], and
+/// [473Bh] bit 7); then `loc_06603` with BP 6E0Fh and on at 6E02h. SI
+/// kept.
+pub fn people_6dbb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6dbb)?;
+    let mut c = Ctx::new(m);
+    c.run(0x6dbb, 2)?;
+    let si = c.reg(SI);
+    c.push(si);
+    c.call(0x40ae, 0x6dbf)?;
+    c.run(0x6dbf, 2)?;
+    c.set_reg(SI, 0xfd8);
+    c.set_reg(CX, 0xc);
+    let (bx, dh) = (c.reg(BX), c.reg8(r8::DH));
+    for k in 0..0xcu16 {
+        let s = 0xfd8 + 0x10 * k;
+        let p = c.word(s.wrapping_add(2));
+        let hit = p == bx;
+        let v = c.word(s);
+        let one = v & 0xff == 1;
+        c.run(0x6dc5, 2 + if hit { 4 + (!one) as u32 + 1 } else { 0 } + 2)?;
+        c.cmp(W, bx, p);
+        if hit {
+            c.set_reg(AX, v);
+            c.set_reg8(r8::AH, dh);
+            c.cmp(B, v & 0xff, 1);
+            if !one {
+                c.set_reg8(r8::AL, 2);
+            }
+            let ax = c.reg(AX);
+            c.set_word(s, ax);
+        }
+        let s2 = c.add(W, s, 0x10);
+        c.set_reg(SI, s2);
+        c.set_reg(CX, 0xb - k);
+    }
+    let p = c.word(6);
+    let hit = p == bx;
+    let v = c.word(4);
+    let one = v & 0xff == 1;
+    c.run(0x6ddb, 2 + if hit { 5 + (!one) as u32 + 3 } else { 0 } + 3)?;
+    c.cmp(W, bx, p);
+    if hit {
+        let f = c.byte(0x473b);
+        let f = c.or(B, f as u16, 0x80);
+        c.set_byte(0x473b, f as u8);
+        c.set_reg(AX, v);
+        c.set_reg8(r8::AH, dh);
+        c.cmp(B, v & 0xff, 1);
+        if !one {
+            c.set_reg8(r8::AL, 2);
+        }
+        let ax = c.reg(AX);
+        c.set_word(4, ax);
+        c.set_byte(0xb, ax as u8);
+        c.set_byte(8, (ax >> 8) as u8);
+    }
+    let v = c.pop();
+    c.set_reg(SI, v);
+    c.set_reg(BP, 0x6e0f);
+    c.call(0x6603, 0x6e02)?;
+    c.jump(0x6e02)
+}
+
+/// `sub_afc7`: the book's next page (unless [0C6h] bit 1 forbids it):
+/// with bit 2 set, two pages on ([11BFh]) and the music back
+/// (`loc_00a3e`, `loc_0ad5e`); the page found from [11BFh] (`loc_0b150`,
+/// CX 1, DX FFFEh, BX [2406h]): shown (`ui_draw_book_turning_page`,
+/// B02Ch with BP B039h, `loc_09901`, D397h); past the end, unless
+/// already, bit 2 set and the book's frame drawn (`loc_009f5`,
+/// B02Ch with BP 1797h); a step back is B024h's.
+pub fn book_afc7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::ZF;
+    entered(start, 0xafc7)?;
+    let mut c = Ctx::new(m);
+    let f = c.byte(0xc6);
+    if f & 2 != 0 {
+        c.run(0xafc7, 3)?;
+        c.test(B, f as u16, 2);
+        return c.ret();
+    }
+    c.run(0xafc7, 4 + if f & 4 != 0 { 2 } else { 5 })?;
+    c.test(B, f as u16, 2);
+    c.test(B, f as u16, 4);
+    if f & 4 != 0 {
+        let v = c.word(0x11bf);
+        let v = c.add(W, v, 2);
+        c.set_word(0x11bf, v);
+        c.call(0x0a3e, 0xafdd)?;
+        c.run(0xafdd, 1)?;
+        c.call(0xad5e, 0xafe0)?;
+        c.run(0xafe0, 5)?;
+    }
+    c.set_reg(CX, 1);
+    c.set_reg(DX, 0xfffe);
+    let bx = c.word(0x2406);
+    c.set_reg(BX, bx);
+    let si = c.word(0x11bf);
+    c.set_reg(SI, si);
+    c.call(0xb150, 0xaff1)?;
+    if !c.flag(ZF) {
+        c.run(0xaff1, 3)?;
+        let di = c.reg(DI);
+        c.set_word(0x11bf, di);
+        c.call(0xb1af, 0xaffa)?;
+        c.run(0xaffa, 2)?;
+        c.set_reg(BP, 0xb039);
+        c.call(0xb02c, 0xb000)?;
+        c.run(0xb000, 1)?;
+        c.call(0x9901, 0xb003)?;
+        c.run(0xb003, 1)?;
+        return c.jump(0xd397);
+    }
+    let dx = c.reg(DX);
+    if dx & 0x8000 != 0 {
+        c.run(0xaff1, 3)?;
+        c.or(W, dx, dx);
+        return c.jump(0xb024);
+    }
+    let f = c.byte(0xc6);
+    if f & 4 != 0 {
+        c.run(0xaff1, 5 + 1)?;
+        c.or(W, dx, dx);
+        c.test(B, f as u16, 4);
+        return c.ret();
+    }
+    c.run(0xaff1, 5 + 2)?;
+    c.or(W, dx, dx);
+    c.test(B, f as u16, 4);
+    let f = c.or(B, f as u16, 4);
+    c.set_byte(0xc6, f as u8);
+    c.call(0x09f5, 0xb019)?;
+    c.run(0xb019, 2)?;
+    let dx = c.reg(DX);
+    c.xor(W, dx, dx);
+    c.set_reg(DX, 0);
+    c.call(0xb1af, 0xb01e)?;
+    c.run(0xb01e, 2)?;
+    c.set_reg(BP, 0x1797);
+    c.jump(0xb02c)
+}
+
+/// `sub_941d`: a click in the dialogue: with the communication device
+/// active ([47A9h]) on at 2993h; else after `loc_0d41b`, by the screen
+/// BP: the palace plan's (20C2h) closed (`loc_0d2ea`, 0EB9h); the
+/// book's (with [11C9h] & 3, unless [11CAh]) at 4AADh; with a dialogue
+/// open ([479Eh]) `loc_0d2e2`; else the room redrawn (`draw_room_game_screen`,
+/// BX and DX kept) and the click handled (`loc_09215`).
+pub fn dialogue_941d(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x941d)?;
+    let mut c = Ctx::new(m);
+    let comm = c.byte(0x47a9);
+    if comm != 0 {
+        c.run(0x941d, 3)?;
+        c.cmp(B, comm as u16, 0);
+        return c.jump(0x2993);
+    }
+    c.run(0x941d, 3)?;
+    c.cmp(B, 0, 0);
+    c.call(0xd41b, 0x942a)?;
+    let bp = c.reg(BP);
+    if bp == 0x20c2 {
+        c.run(0x942a, 3)?;
+        c.cmp(W, bp, 0x20c2);
+        c.call(0xd2ea, 0x9433)?;
+        c.run(0x9433, 1)?;
+        return c.jump(0x0eb9);
+    }
+    let f = c.byte(0x11c9);
+    let g = c.byte(0x11ca);
+    let book = f & 3 != 0 && g == 0;
+    let open = c.word(0x479e);
+    c.run(0x942a, 2 + 2 + if f & 3 != 0 { 2 } else { 0 } + if book { 1 } else { 2 + if open != 0 { 1 } else { 3 } })?;
+    c.cmp(W, bp, 0x20c2);
+    c.test(B, f as u16, 3);
+    if f & 3 != 0 {
+        c.cmp(B, g as u16, 0);
+    }
+    if book {
+        return c.jump(0x4aad);
+    }
+    c.cmp(W, open, 0);
+    if open != 0 {
+        return c.jump(0xd2e2);
+    }
+    let (bx, dx) = (c.reg(BX), c.reg(DX));
+    c.push(bx);
+    c.push(dx);
+    c.call(0x2db1, 0x9453)?;
+    c.run(0x9453, 3)?;
+    let v = c.pop();
+    c.set_reg(DX, v);
+    let v = c.pop();
+    c.set_reg(BX, v);
+    c.jump(0x9215)
+}
