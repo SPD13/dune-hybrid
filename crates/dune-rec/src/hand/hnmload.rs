@@ -596,3 +596,78 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_flag(CF, false);
     c.ret()
 }
+
+/// `hnm_prefetch` (CB1A): more of the HNM file read ahead. While the
+/// part wanted ([0DC20h]) is done, the next one is set up (`loc_0cd8f`,
+/// `loc_0cc0c`) as long as frames are left ([0DBEAh] not [0DBEEh]) and
+/// so is the file ([0DC08h]:[0DC0Ah]); else (the next video, from
+/// CB61h) the original goes on. A part is read up to the next 2 KB
+/// boundary of the file (unless [0DBFEh] bit 7), once the buffer has
+/// room (`loc_0cc2b`; CF: not now), by `loc_0cdbf`.
+pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xcb1a)?;
+    let mut c = Ctx::new(m);
+    loop {
+        let cx = c.word(0xdc20);
+        if cx == 0 {
+            c.run(0xcb1a, 2)?;
+            c.set_reg(CX, 0);
+            let (a, b) = (c.word(0xdbea), c.word(0xdbee));
+            c.run(0xcb00, 3)?;
+            c.set_reg(AX, a);
+            c.cmp(W, a, b);
+            if a == b {
+                c.m.cpu.ip = 0xcb61;
+                return Err(Bail);
+            }
+            let (a, b) = (c.word(0xdc08), c.word(0xdc0a));
+            c.run(0xcb09, 3)?;
+            c.set_reg(AX, a);
+            let o = c.or(W, a, b);
+            c.set_reg(AX, o);
+            if o == 0 {
+                c.m.cpu.ip = 0xcb61;
+                return Err(Bail);
+            }
+            c.run(0xcb12, 1)?;
+            c.call(0xcd8f, 0xcb15)?;
+            c.run(0xcb15, 2)?;
+            if c.flag(CF) {
+                return c.ret();
+            }
+            c.call(0xcc0c, 0xcb1a)?;
+            continue;
+        }
+        let f = c.byte(0xdbfe);
+        let neg = f & 0x80 != 0;
+        let a = (c.word(0xdc04).wrapping_neg() & 0x7ff) + 0x800;
+        let clip = !neg && a < cx;
+        c.run(0xcb1a, 2 + 2 + if neg { 0 } else { 6 + clip as u32 } + 1)?;
+        c.set_reg(CX, cx);
+        c.cmp(B, f as u16, 0);
+        if !neg {
+            let a = c.word(0xdc04);
+            c.set_reg(AX, a);
+            let a = c.neg(W, a);
+            let a = c.and(W, a, 0x7ff);
+            let h = c.add(B, a >> 8, 8);
+            let a = (h << 8) | (a & 0xff);
+            c.set_reg(AX, a);
+            c.cmp(W, a, cx);
+            if clip {
+                c.set_reg(CX, a);
+            }
+        }
+        c.call(0xcc2b, 0xcb3b)?;
+        if c.flag(CF) {
+            c.run(0xcb3b, 2)?;
+            return c.ret();
+        }
+        c.run(0xcb3b, 3)?;
+        let cx = c.reg(CX);
+        let v = c.word(0xdc20);
+        let v = c.sub(W, v, cx);
+        c.set_word(0xdc20, v);
+        return c.jump(0xcdbf);
+    }
+}
