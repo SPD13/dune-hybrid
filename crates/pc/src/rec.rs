@@ -78,6 +78,9 @@ pub struct Rec {
     /// `On` mode profile: bails by the seg000 offset they left at, and
     /// instructions generated code ran through the interpreter, by opcode.
     pub bail_at: Vec<u64>,
+    /// Per routine entry: calls of its Rust code that returned without
+    /// bailing (so all of it ran in Rust).
+    pub returned: Vec<u32>,
     pub stepped_op: Vec<u64>,
     /// Shadow replays: instructions run by Rust and by the interpreter.
     pub replay_native: u64,
@@ -147,6 +150,7 @@ impl Rec {
             calls: 0,
             bails: 0,
             bail_at: vec![0; 0x10000],
+            returned: vec![0; 0x10000],
             stepped_op: vec![0; 256],
             replay_native: 0,
             replay_interp: 0,
@@ -378,6 +382,9 @@ impl Machine {
         let interp0 = self.rec.as_ref().unwrap().replay_interp;
         self.hw.io_log.stopped = false;
         let mut just_bailed = f(self, entry).is_err();
+        if !just_bailed {
+            self.rec.as_mut().unwrap().returned[entry as usize] += 1;
+        }
         let mut bails = (just_bailed && !self.hw.io_log.stopped) as u32;
         let finished = loop {
             if self.cpu.instructions >= stop {
@@ -606,6 +613,9 @@ impl Machine {
         self.cpu.ip = target;
         if let Some(f) = self.rec.as_ref().and_then(|r| r.table[target as usize]) {
             f(self, target)?;
+            if let Some(r) = self.rec.as_mut() {
+                r.returned[target as usize] += 1;
+            }
         } else if self.rec.as_ref().is_some_and(|r| r.interp_nested) {
             let (ss, sp) = (self.cpu.sregs[SS], self.cpu.regs[SP]);
             let cs = self.cpu.sregs[CS];

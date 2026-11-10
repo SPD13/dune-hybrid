@@ -187,7 +187,7 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>) {
     }
     let names: std::collections::HashMap<u16, &str> = dune_rec::names().iter().copied().collect();
     let (mut ok, mut diff, mut bailed, mut skipped) = (0, 0, 0, 0);
-    let mut rows = String::from("entry	name	ok	diff	bailed	skipped	first_diff
+    let mut rows = String::from("entry	name	ok	diff	bailed	skipped	first_diff	reached
 ");
     for (e, s) in &rec.stats {
         ok += (s.ok > 0 && s.diff == 0) as u32;
@@ -198,7 +198,7 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>) {
         let name = format!("{}{hand}", names.get(e).copied().unwrap_or("?"));
         let fd = s.first_diff.clone().unwrap_or_default();
         let name = name.as_str();
-        let _ = writeln!(rows, "{e:04x}	{name}	{}	{}	{}	{}	{fd}", s.ok, s.diff, s.bailed, s.skipped);
+        let _ = writeln!(rows, "{e:04x}	{name}	{}	{}	{}	{}	{fd}	{}", s.ok, s.diff, s.bailed, s.skipped, dune_rec::hand::reached(*e) + rec.returned[*e as usize]);
         if s.diff > 0 {
             println!("rec diff: {e:04x} {name}: {} of {} calls differ; first: {fd}", s.diff, s.ok + s.diff + s.bailed);
         }

@@ -53,54 +53,6 @@ pub fn intro_chani_in_sietch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(0x099d)
 }
 
-/// `intro_lady_jessica_2` (0771): the background 2004h (`loc_00978`),
-/// then scene AL 1 (099Dh).
-pub fn intro_lady_jessica_2(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    entered(start, 0x0771)?;
-    let mut c = Ctx::new(m);
-    c.run(0x0771, 2)?;
-    c.set_reg(DX, 0x2004);
-    c.call(0x0978, 0x0777)?;
-    c.run(0x0777, 2)?;
-    c.set_reg8(r8::AL, 1);
-    c.jump(0x099d)
-}
-
-/// `intro_duke_leto` (0995): the background 200Ah (`loc_00978`), then
-/// scene 0 at DX 0 (`loc_009c7`) and on at 978Eh.
-pub fn intro_duke_leto(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    entered(start, 0x0995)?;
-    let mut c = Ctx::new(m);
-    c.run(0x0995, 2)?;
-    c.set_reg(DX, 0x200a);
-    c.call(0x0978, 0x099b)?;
-    c.run(0x099b, 3)?;
-    let al = c.reg8(r8::AL);
-    c.xor(B, al as u16, al as u16);
-    c.set_reg8(r8::AL, 0);
-    let dx = c.reg(DX);
-    c.xor(W, dx, dx);
-    c.set_reg(DX, 0);
-    c.call(0x09c7, 0x09a2)?;
-    c.run(0x09a2, 1)?;
-    c.jump(0x978e)
-}
-
-/// `intro_paul_on_red_background` (07EE): sheet 30h, the sprite list
-/// 1526h drawn (`loc_0c21b`), on at 0960h.
-pub fn intro_paul_on_red_background(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    entered(start, 0x07ee)?;
-    let mut c = Ctx::new(m);
-    c.run(0x07ee, 2)?;
-    c.set_reg(AX, 0x30);
-    c.call(0xc13e, 0x07f4)?;
-    c.run(0x07f4, 2)?;
-    c.set_reg(SI, 0x1526);
-    c.call(0xc21b, 0x07fa)?;
-    c.run(0x07fa, 1)?;
-    c.jump(0x0960)
-}
-
 /// `ui_click_room_left` (3F24): BP 4 (left), then `ui_click_move_room`.
 pub fn ui_click_room_left(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3f24)?;
@@ -117,18 +69,6 @@ pub fn ch2_d23f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd239, 2)?;
     c.set_reg8(r8::CH, 2);
     c.jump(0xd23f)
-}
-
-/// `loc_0b024`: DH FFh, `loc_0b1af`, then BP AF43h into `loc_0b02c`.
-pub fn b1af_b024(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    entered(start, 0xb024)?;
-    let mut c = Ctx::new(m);
-    c.run(0xb024, 2)?;
-    c.set_reg8(r8::DH, 0xff);
-    c.call(0xb1af, 0xb029)?;
-    c.run(0xb029, 1)?;
-    c.set_reg(BP, 0xaf43);
-    c.jump(0xb02c)
 }
 
 /// `loc_0b2aa`: `loc_0b2b9`, then the screen B2B3h pushed (`loc_0d323`).
@@ -172,25 +112,6 @@ pub fn kind_6acb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(if a == cl as u16 { 0x6b24 } else { 0x6ad4 })
 }
 
-/// `loc_049d9`: without a talking head ([46EBh] negative) on through
-/// [46EDh]; else `loc_049a0`, then 4A5Ah.
-pub fn head_49d9(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    entered(start, 0x49d9)?;
-    let mut c = Ctx::new(m);
-    let f = c.byte(0x46eb);
-    if f & 0x80 != 0 {
-        c.run(0x49d9, 3)?;
-        c.cmp(B, f as u16, 0);
-        let to = c.word(0x46ed);
-        return c.jump(to);
-    }
-    c.run(0x49d9, 3)?;
-    c.cmp(B, f as u16, 0);
-    c.call(0x49a0, 0x49e3)?;
-    c.run(0x49e3, 1)?;
-    c.jump(0x4a5a)
-}
-
 /// `loc_06c15`: by the kind of the record at SI ([si+3] low nibble), DI
 /// its +4 word, CF clear: on through the table at CS:6BF5h.
 pub fn kind_6c15(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -211,22 +132,6 @@ pub fn kind_6c15(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(to)
 }
 
-/// `intro_somebody_in_sietch` (07C6): the background 802h at BX 1080h
-/// (`loc_00981`, [12h] 100h meanwhile), then scene AL 5 (099Dh).
-pub fn intro_somebody_in_sietch(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    entered(start, 0x07c6)?;
-    let mut c = Ctx::new(m);
-    c.run(0x07c6, 4)?;
-    c.set_reg(BX, 0x1080);
-    c.set_reg(DX, 0x802);
-    c.set_word(0x12, 0x100);
-    c.call(0x0981, 0x07d5)?;
-    c.run(0x07d5, 3)?;
-    c.set_word(0x12, 0);
-    c.set_reg8(r8::AL, 5);
-    c.jump(0x099d)
-}
-
 /// `loc_05406`: the map's centre [4710h]/[4712h] from [11C1h]/[11C3h];
 /// `loc_05beb`, `loc_05f79`, `loc_079de`, then `loc_0541f`.
 pub fn map_5406(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -245,20 +150,6 @@ pub fn map_5406(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x541c, 1)?;
     c.call(0x79de, 0x541f)?;
     c.jump(0x541f)
-}
-
-/// `loc_0d323`: `loc_0d316`, `loc_0d338`, `loc_0d280`, then D410h.
-pub fn screen_d323(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    entered(start, 0xd323)?;
-    let mut c = Ctx::new(m);
-    c.run(0xd323, 1)?;
-    c.call(0xd316, 0xd326)?;
-    c.run(0xd326, 1)?;
-    c.call(0xd338, 0xd329)?;
-    c.run(0xd329, 1)?;
-    c.call(0xd280, 0xd32c)?;
-    c.run(0xd32c, 1)?;
-    c.jump(0xd410)
 }
 
 /// `loc_0bc81`: `loc_0ba9e`, `loc_05b5d`, the mouse hidden over A0h,4Fh
@@ -302,96 +193,93 @@ pub fn intro_06d8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(0xca1b)
 }
 
-/// `loc_00802`: `loc_00820`, the driver's far [38BDh] (CX F0h, BX 180h),
-/// [46D7h] 0, sheet 2Eh, then the sprite list 1500h (`loc_0c21b`).
-pub fn intro_0802(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    entered(start, 0x0802)?;
+/// `sub_b18b`: the music stopped (`loc_0adbe`), [2788h], [0C6h], [1C30h]
+/// cleared, `loc_0ca01`, `loc_00a3e`, `loc_09901`, sheet 26h, then
+/// 1877h.
+pub fn b18b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb18b)?;
     let mut c = Ctx::new(m);
-    c.run(0x0802, 1)?;
-    c.call(0x0820, 0x0805)?;
-    c.run(0x0805, 2)?;
-    c.set_reg(CX, 0xf0);
-    c.set_reg(BX, 0x180);
-    c.interp(0x080b, 0x080f)?;
-    c.run(0x080f, 3)?;
-    c.set_byte(0x46d7, 0);
-    c.set_reg(AX, 0x2e);
-    c.call(0xc13e, 0x081a)?;
-    c.run(0x081a, 2)?;
-    c.set_reg(SI, 0x1500);
-    c.jump(0xc21b)
+    c.run(0xb18b, 1)?;
+    c.call(0xadbe, 0xb18e)?;
+    c.run(0xb18e, 4)?;
+    c.set_byte(0x2788, 0);
+    c.set_byte(0xc6, 0);
+    c.set_byte(0x1c30, 0);
+    c.call(0xca01, 0xb1a0)?;
+    c.run(0xb1a0, 1)?;
+    c.call(0x0a3e, 0xb1a3)?;
+    c.run(0xb1a3, 1)?;
+    c.call(0x9901, 0xb1a6)?;
+    c.run(0xb1a6, 2)?;
+    c.set_reg(AX, 0x26);
+    c.call(0xc13e, 0xb1ac)?;
+    c.run(0xb1ac, 1)?;
+    c.jump(0x1877)
 }
 
-/// `intro_26_baron` (09AD): sheet 30h, the sprite list 153Ah,
-/// `loc_0c412`, scene 9 at DX 52h (`loc_009c7`), on at 978Eh.
-pub fn intro_26_baron(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    entered(start, 0x09ad)?;
+/// `loc_0586e`: on through the table at CS:588Bh by BL, CH, CL being
+/// set (bits 0, 1, 2 of the index).
+pub fn flags_586e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x586e)?;
     let mut c = Ctx::new(m);
-    c.run(0x09ad, 2)?;
-    c.set_reg(AX, 0x30);
-    c.call(0xc13e, 0x09b3)?;
-    c.run(0x09b3, 2)?;
-    c.set_reg(SI, 0x153a);
-    c.call(0xc21b, 0x09b9)?;
-    c.run(0x09b9, 1)?;
-    c.call(0xc412, 0x09bc)?;
-    c.run(0x09bc, 3)?;
-    c.set_reg8(r8::AL, 9);
-    c.set_reg(DX, 0x52);
-    c.call(0x09c7, 0x09c4)?;
-    c.run(0x09c4, 1)?;
-    c.jump(0x978e)
-}
-
-/// `loc_07ba3`: `loc_0c08e`; a new SI (not [46EFh]) becomes [46F1h]
-/// and is set up (`loc_079ee`, `loc_09f40`). SI kept.
-pub fn select_7ba3(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    entered(start, 0x7ba3)?;
-    let mut c = Ctx::new(m);
-    c.run(0x7ba3, 1)?;
-    c.call(0xc08e, 0x7ba6)?;
-    let si = c.reg(SI);
-    let cur = c.word(0x46ef);
-    if si == cur {
-        c.run(0x7ba6, 3)?;
-        c.cmp(W, si, cur);
-        return c.ret();
+    let (bl, ch, cl) = (c.reg8(r8::BL), c.reg8(r8::CH), c.reg8(r8::CL));
+    c.run(0x586e, 3 + (bl != 0) as u32 + 2 + (ch != 0) as u32 + 2 + (cl != 0) as u32 + 3)?;
+    let ax = c.reg(AX);
+    c.xor(W, ax, ax);
+    let mut al = 0u16;
+    c.or(B, bl as u16, bl as u16);
+    if bl != 0 {
+        al = 1;
     }
-    c.run(0x7ba6, 5)?;
-    c.cmp(W, si, cur);
-    c.push(si);
-    c.set_word(0x46f1, si);
-    c.call(0x79ee, 0x7bb4)?;
-    c.run(0x7bb4, 1)?;
-    c.call(0x9f40, 0x7bb7)?;
-    c.run(0x7bb7, 2)?;
-    let v = c.pop();
-    c.set_reg(SI, v);
-    c.ret()
+    c.or(B, ch as u16, ch as u16);
+    if ch != 0 {
+        al = c.add(B, al, 2);
+    }
+    c.or(B, cl as u16, cl as u16);
+    if cl != 0 {
+        al = c.add(B, al, 4);
+    }
+    let ax = c.shl1(W, al, 1);
+    c.set_reg(AX, ax);
+    c.set_reg(SI, ax);
+    let to = c.code_word(0x588bu16.wrapping_add(ax));
+    c.jump(to)
 }
 
-/// `loc_013c8`: an intro script at CS:SI: [4] its first byte, [4778h]
-/// its list, [477Ah] past the list (its length byte); `loc_01392`,
-/// `draw_room_game_screen`, then 1707h.
-pub fn script_13c8(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    use pc::cpu::CS;
-    entered(start, 0x13c8)?;
+/// `loc_0cfe4`: the sprites for the screen kind [0CEEBh]: BBh (C7h for
+/// kind 6) read to CEECh, then C0h + kind into [47ACh] (far);
+/// `loc_00098`, on at D01Ah.
+pub fn sheets_cfe4(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::ES;
+    entered(start, 0xcfe4)?;
     let mut c = Ctx::new(m);
-    c.run(0x13c8, 8)?;
-    let a = c.lods(B, CS);
-    c.set_byte(4, a as u8);
-    let si = c.reg(SI);
-    c.set_word(0x4778, si);
-    let n = c.lods(B, CS);
-    c.xor(B, 0, 0);
-    c.set_reg(AX, n);
-    let si = c.reg(SI);
-    let s = c.add(W, si, n);
-    c.set_reg(SI, s);
-    c.set_word(0x477a, s);
-    c.call(0x1392, 0x13de)?;
-    c.run(0x13de, 1)?;
-    c.call(0x2db1, 0x13e1)?;
-    c.run(0x13e1, 1)?;
-    c.jump(0x1707)
+    let k = c.byte(0xceeb);
+    c.run(0xcfe4, 4 + (k == 6) as u32 + 4)?;
+    c.set_reg8(r8::AL, k);
+    c.set_reg(SI, 0xbb);
+    c.cmp(B, k as u16, 6);
+    if k == 6 {
+        c.set_reg(SI, 0xc7);
+    }
+    c.set_reg(DI, 0xceec);
+    let ds = c.sreg(pc::cpu::DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.call(0xf0b9, 0xcff9)?;
+    c.run(0xcff9, 6)?;
+    let k = c.byte(0xceeb);
+    let a = c.add(B, 0xc0, k as u16);
+    let ah = c.reg8(r8::AH);
+    c.xor(B, ah as u16, ah as u16);
+    c.set_reg(AX, a);
+    c.set_reg(SI, a);
+    let (d, e) = (c.word(0x47ac), c.word(0x47ae));
+    c.set_reg(DI, d);
+    c.set_sreg(ES, e);
+    c.call(0xf0b9, 0xd00a)?;
+    c.run(0xd00a, 1)?;
+    c.call(0x0098, 0xd00d)?;
+    c.run(0xd00d, 1)?;
+    c.jump(0xd01a)
 }
