@@ -59,6 +59,7 @@ mod tasks;
 mod text;
 mod time;
 mod troops;
+mod tails;
 mod ui;
 mod video;
 mod voice;
@@ -1121,6 +1122,31 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xd43e, screens::press_panel_button, "sub_d43e"),
     (0xa6cc, voice::load_voc_and_lipsync_data, "load_voc_and_lipsync_data"),
     (0xccf4, hnmload::hnm_decode_typed_chunk, "hnm_decode_typed_chunk_video_to_bp"),
+    (0x02de, tails::intro_part_2, "intro_part_2"),
+    (0x02e0, tails::draw_stars, "draw_stars"),
+    (0x06ce, tails::intro_video_06f3, "intro_load_desert_flyover_video"),
+    (0x06d3, tails::intro_video_06f3, "intro_desert_flight_to_sietch"),
+    (0x0788, tails::intro_chani_in_sietch, "intro_chani_in_sietch"),
+    (0x0771, tails::intro_lady_jessica_2, "intro_lady_jessica_2"),
+    (0x0995, tails::intro_duke_leto, "intro_duke_leto"),
+    (0x07ee, tails::intro_paul_on_red_background, "intro_paul_on_red_background"),
+    (0x3f24, tails::ui_click_room_left, "ui_click_room_left"),
+    (0xd239, tails::ch2_d23f, "loc_0d239"),
+    (0xb024, tails::b1af_b024, "loc_0b024"),
+    (0xb2aa, tails::screen_b2aa, "loc_0b2aa"),
+    (0x1860, tails::frieze_1860, "loc_01860"),
+    (0x6acb, tails::kind_6acb, "loc_06acb"),
+    (0x49d9, tails::head_49d9, "loc_049d9"),
+    (0x6c15, tails::kind_6c15, "loc_06c15"),
+    (0x07c6, tails::intro_somebody_in_sietch, "intro_somebody_in_sietch"),
+    (0x5406, tails::map_5406, "loc_05406"),
+    (0xd323, tails::screen_d323, "loc_0d323"),
+    (0xbc81, tails::globe_bc81, "loc_0bc81"),
+    (0x06d8, tails::intro_06d8, "sub_06d8"),
+    (0x0802, tails::intro_0802, "loc_00802"),
+    (0x09ad, tails::intro_26_baron, "intro_26_baron"),
+    (0x7ba3, tails::select_7ba3, "loc_07ba3"),
+    (0x13c8, tails::script_13c8, "loc_013c8"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),

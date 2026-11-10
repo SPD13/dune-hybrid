@@ -176,7 +176,9 @@ a difference comes from one). Modules by area: `story`, `phases`, `intro`,
 `panels`, `globe`, `mouse`, `draw`, `hnmload`, `scenes`, `saves`, `frame`
 (the frame-task runner, input checks, HNM frame steps), `cursor` (the
 keyboard cursor's hotspot search), `map` (the map screen), `troops`,
-`dialogue`, `screens` (the stack of UI screens, the panel's buttons);
+`dialogue`, `screens` (the stack of UI screens, the panel's buttons),
+`tails` (short entries that set up registers and go on into another
+routine);
 data-segment
 globals are named in `globals.rs` (from the routines that use them and
 Cryogenic's `GlobalsOnDs.cs`; unknown ones keep their offset).
@@ -200,7 +202,7 @@ the instruction count (virtual time). `Ctx` holds the bookkeeping:
   `interp` (`INT` and far calls into the drivers), and tail jumps call the
   target port directly.
 
-Ported: 1,012 routines (the small ones first: flags and setters, game time,
+Ported: 1,037 routines (the small ones first: flags and setters, game time,
 location kinds, frame tasks, condition operators, the intro's steps,
 framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
 decompression, voice and music start/stop, DUNE.DAT access, the memory
@@ -231,9 +233,12 @@ check, the mouse driver's event callback, freeing and
 keeping resources in memory, RLE images, mouth frames, the speech bubble, redrawing
 a rectangle with its particles, the scenes' sprites and polygons, the
 panel's buttons, loading a phrase's voice and lip-sync,
-an HNM frame's chunks), all equal to the original in every
+an HNM frame's chunks; the intro's scene
+entries and other short entries ending in a jump), all equal to the original in every
 checked call (two 10-minute games with `--call-each 4`, 0 differences), and `--rec on`
-screenshots unchanged. A port no run has checked to completion stays out of the table
+screenshots unchanged. A port ending in a jump to code without a routine of its own bails
+there (the original goes on), after all of its own code ran: the call
+is still compared. A port no run has checked to completion stays out of the table
 (`copy_pal_and_transition`, `comm_fade_in_glow`,
 `comm_animate_incoming_call`, `sub_b1ee`: longer than the harness's
 300 ms). A port may also cover only a routine's common path and bail at
