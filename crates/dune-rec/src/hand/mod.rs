@@ -1092,6 +1092,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xf0f6, dos::bump_alloc, "bump_alloc_get_addr_in_di_and_bump"),
     (0xf0ff, dos::bump_alloc, "bump_allocate_bump_cx_bytes"),
     (0xc370, draw::blit_repeated_x, "blit_repeated_x"),
+    (0xf229, files::open_res_or_file_or_die, "open_res_or_file_or_die"),
+    (0xc93c, hnmload::hnm_read_header, "hnm_read_header"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),

@@ -466,3 +466,133 @@ pub fn hnm_initialize_memory_handler(m: &mut Machine, start: u16) -> Result<(), 
         c.call(0xceb0, 0xcea6)?;
     }
 }
+
+/// `hnm_read_header` (C93C): the HNM file [0DC00h] (kept in [0DC02h])
+/// opened by name from the table entry `loc_0c921` returns (its flags
+/// word in [0DBFEh], the name after it; `open_res_or_file_or_die`: the
+/// handle in [35A6h], offset [0DC04h]:[0DC06h], size [0DC08h]:[0DC0Ah]).
+/// The header read (`loc_0cd8f`, then the rest by `loc_0cdbf` into the
+/// buffer [0DC0Ch], dropped to none when it would pass [0CE74h]); its
+/// palette applied (`loc_0c1ba`, [0DBB4h] FFh); past the FFh padding,
+/// the first frame's offset (the second entry when bit 2 of the flags
+/// is set) gives the data's start [0DBF6h]:[0DBF8h] and the bytes left
+/// [0DBFAh]:[0DBFCh]. CF set if a read failed.
+pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc93c)?;
+    let mut c = Ctx::new(m);
+    c.run(0xc93c, 3)?;
+    let ax = c.word(0xdc00);
+    c.set_reg(AX, ax);
+    c.set_word(0xdc02, ax);
+    c.call(0xc921, 0xc945)?;
+    c.run(0xc945, 4)?;
+    let bx = c.reg(BX);
+    let ax = c.word(bx);
+    c.set_reg(AX, ax);
+    c.set_word(0xdbfe, ax);
+    c.set_reg(DX, bx.wrapping_add(2));
+    c.call(0xf229, 0xc950)?;
+    c.run(0xc950, 8)?;
+    for (r, at) in [(BX, 0x35a6u16), (AX, 0xdc04), (DX, 0xdc06), (CX, 0xdc08), (BP, 0xdc0a)] {
+        let v = c.reg(r);
+        c.set_word(at, v);
+    }
+    let a = c.word(0xdc1a);
+    c.push(a);
+    let b = c.word(0xdc0c);
+    c.push(b);
+    c.call(0xcd8f, 0xc96e)?;
+    if !c.flag(CF) {
+        let (si, ax) = (c.reg(SI), c.reg(AX));
+        let (s, carry) = si.overflowing_add(ax);
+        let lim = c.word(0xce74);
+        let drop = carry || s > lim;
+        c.run(0xc96e, 3 + if carry { 0 } else { 2 } + drop as u32 + 3)?;
+        let s = c.add(W, si, ax);
+        c.set_reg(SI, s);
+        if !carry {
+            c.cmp(W, s, lim);
+        }
+        if drop {
+            c.set_word(0xdc0c, 0);
+        }
+        let a = c.sub(W, ax, 2);
+        c.set_reg(AX, a);
+        c.set_reg(CX, a);
+        c.call(0xcdbf, 0xc988)?;
+    } else {
+        c.run(0xc96e, 1)?;
+    }
+    let cf = c.flag(CF);
+    c.run(0xc988, 3 + cf as u32)?;
+    let v = c.pop();
+    c.set_word(0xdc0c, v);
+    let v = c.pop();
+    c.set_word(0xdc1a, v);
+    if cf {
+        return c.ret();
+    }
+    let (s0, e) = (c.word(0xdc0c), c.word(0xdc0e));
+    let w = c.word_at(e, s0);
+    let s1 = s0.wrapping_add(2);
+    let (sum, carry) = w.overflowing_add(s1);
+    let lim = c.word(0xce74);
+    let reset = carry || sum > lim;
+    c.run(0xc992, 4 + if carry { 0 } else { 2 } + reset as u32 + 2)?;
+    c.set_reg(SI, s0);
+    c.set_sreg(ES, e);
+    let a = c.lods(W, ES);
+    let a = c.add(W, a, s1);
+    c.set_reg(AX, a);
+    if !carry {
+        c.cmp(W, a, lim);
+    }
+    if reset {
+        c.xor(W, s1, s1);
+        c.set_reg(SI, 0);
+    }
+    c.set_byte(0xdbb4, 0xff);
+    c.call(0xc1ba, 0xc9ac)?;
+    c.run(0xc9ac, 1)?;
+    let si = c.reg(SI);
+    let mut si = c.dec(W, si);
+    c.set_reg(SI, si);
+    loop {
+        c.run(0xc9ad, 3)?;
+        si = c.inc(W, si);
+        c.set_reg(SI, si);
+        let b = c.byte_in(ES, si);
+        c.cmp(B, b as u16, 0xff);
+        if b != 0xff {
+            break;
+        }
+    }
+    let f = c.byte(0xdbfe);
+    let two = f & 4 != 0;
+    c.run(0xc9b4, 3 + two as u32 + 16)?;
+    let bx = c.reg(BX);
+    c.xor(W, bx, bx);
+    c.set_reg(BX, 0);
+    c.test(B, f as u16, 4);
+    let o = if two { 0x10u16 } else { 0 };
+    c.set_reg(BX, o);
+    let cx = c.word_in(ES, o.wrapping_add(si));
+    c.set_reg(CX, cx);
+    let bx = c.word_in(ES, o.wrapping_add(si).wrapping_add(2));
+    c.set_reg(BX, bx);
+    let a = c.word(0xdc04);
+    let a = c.add(W, a, cx);
+    c.set_word(0xdbf6, a);
+    let a = c.word(0xdc06);
+    let a = c.adc(W, a, bx);
+    c.set_word(0xdbf8, a);
+    let a = c.word(0xdc08);
+    let a = c.sub(W, a, cx);
+    c.set_word(0xdbfa, a);
+    let a = c.word(0xdc0a);
+    let a = c.sbb(W, a, bx);
+    c.set_word(0xdbfc, a);
+    c.set_reg(AX, a);
+    c.set_flag(CF, false);
+    c.ret()
+}

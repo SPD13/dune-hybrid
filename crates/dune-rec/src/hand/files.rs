@@ -668,3 +668,22 @@ pub fn scan_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(DS, ds);
     c.ret()
 }
+
+/// `open_res_or_file_or_die` (F229): the file named at DS:DX opened
+/// (`loc_0f1fb`: DUNE.DAT entry or loose file). If that fails the name
+/// goes into the error text and the game ends (`exit_with_error`, run
+/// by the original from F22Fh).
+pub fn open_res_or_file_or_die(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::CF;
+    entered(start, 0xf229)?;
+    let mut c = Ctx::new(m);
+    c.run(0xf229, 1)?;
+    c.call(0xf1fb, 0xf22c)?;
+    if !c.flag(CF) {
+        c.run(0xf22c, 2)?;
+        return c.ret();
+    }
+    c.run(0xf22c, 1)?;
+    c.m.cpu.ip = 0xf22f;
+    Err(Bail)
+}
