@@ -1151,6 +1151,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xb389, tails::create_save_cl, "create_save_cl"),
     (0xa03f, tails::line_a03f, "loc_0a03f"),
     (0x79ee, tails::place_panel_79ee, "loc_079ee"),
+    (0x542f, map::open_place_view_542f, "loc_0542f"),
     (0x0771, tails::intro_lady_jessica_2, "intro_lady_jessica_2"),
     (0x0995, tails::intro_duke_leto, "intro_duke_leto"),
     (0x07ee, tails::intro_paul_on_red_background, "intro_paul_on_red_background"),

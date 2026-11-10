@@ -6084,6 +6084,13 @@ pub fn open_place_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     place_view_at(&mut c, false)
 }
 
+/// `loc_0542f`: [`open_place_view`] on the point [1980h] as it is.
+pub fn open_place_view_542f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x542f)?;
+    let mut c = Ctx::new(m);
+    place_view_at(&mut c, true)
+}
+
 /// [`open_place_view`], or from 542Fh (`from_542f`: the point [1980h]
 /// as it is).
 pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
