@@ -1022,3 +1022,114 @@ fn res_index_by_number(c: &mut Ctx) -> Result<(), Bail> {
     c.set_flag(CF, false);
     c.ret()
 }
+
+/// `initialize_resources` (00D1): the start-up resources. BAh (the
+/// locations' data) read to 4948h and its words byte-swapped (18Ch of
+/// them); for each of the 63h records from 494Ah (8 bytes each) the
+/// rounded 10000h / (2 * its first word) kept at 4880h; BFh read and
+/// the globe's map at it + 62FCh ([0DCFEh]); BDh unpacked to AA76h; BCh
+/// read ([0AA72h] its far pointer); two buffers taken (1D4Ch bytes at
+/// [47ACh], ADD4h at [47B0h]); `loc_0cfb9`, then no sprite sheet
+/// (`loc_0c137`). Bails if a divisor would fault.
+pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use super::B;
+    use pc::cpu::CF;
+    entered(start, 0x00d1)?;
+    let mut c = Ctx::new(m);
+    c.run(0x00d1, 5)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(DI, 0x4948);
+    c.set_reg(SI, 0xba);
+    c.call(0xf0b9, 0x00dc)?;
+    c.run(0x00dc, 2 + 0x18c * 4)?;
+    c.set_reg(CX, 0x18c);
+    let di = c.reg(DI);
+    c.set_reg(SI, di);
+    for k in 0..0x18cu16 {
+        let a = c.lods(W, DS);
+        c.set_reg(AX, a.swap_bytes());
+        c.stos(W);
+        c.set_reg(CX, 0x18b - k);
+    }
+    let mut ok = true;
+    for k in 0..0x63u16 {
+        let v = c.word(0x494a + 8 * k).wrapping_shl(1);
+        if v < 2 {
+            ok = false;
+        }
+    }
+    if !ok {
+        c.m.cpu.ip = 0x00e7;
+        return Err(Bail);
+    }
+    c.run(0x00e7, 3 + 0x63 * 10 + 2)?;
+    c.set_reg(DI, 0x4880);
+    c.set_reg(CX, 0x63);
+    c.set_reg(SI, 0x494a);
+    for k in 0..0x63u16 {
+        let si = 0x494a + 8 * k;
+        c.xor(W, 0, 0);
+        c.set_reg(AX, 0);
+        c.set_reg(DX, 1);
+        let w = c.word(si);
+        let b = c.shl1(W, w, 1);
+        c.set_reg(BX, b);
+        c.m.cpu.mul_div(&mut c.m.hw, W, 6, b as u32);
+        let dx = c.reg(DX);
+        c.cmp(W, w, dx);
+        let cf = c.flag(CF) as u16;
+        let ax = c.reg(AX);
+        let ax = c.adc(W, ax, 0);
+        let _ = cf;
+        c.set_reg(AX, ax);
+        c.stos(W);
+        let s = c.add(W, si, 8);
+        c.set_reg(SI, s);
+        c.set_reg(CX, 0x62 - k);
+    }
+    c.set_reg(SI, 0xbf);
+    c.call(0xf0b9, 0x010c)?;
+    c.run(0x010c, 9)?;
+    let di = c.reg(DI);
+    c.set_reg(AX, di);
+    let a = c.add(W, di, 0x62fc);
+    c.set_reg(AX, a);
+    c.set_word(0xdcfe, a);
+    let es = c.sreg(ES);
+    c.set_word(0xdd00, es);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let v = c.pop();
+    c.set_sreg(ES, v);
+    c.set_reg(DI, 0xaa76);
+    c.set_reg(SI, 0xbd);
+    c.call(0xf0a0, 0x0123)?;
+    c.run(0x0123, 1)?;
+    c.call(0x0098, 0x0126)?;
+    c.run(0x0126, 2)?;
+    c.set_reg(SI, 0xbc);
+    c.call(0xf0b9, 0x012c)?;
+    c.run(0x012c, 3)?;
+    let (di, es) = (c.reg(DI), c.sreg(ES));
+    c.set_word(0xaa72, di);
+    c.set_word(0xaa74, es);
+    c.call(0x0098, 0x0137)?;
+    for (at, slot, n, ret) in [(0x0137u16, 0x47acu16, 0x1d4cu16, 0x0148u16), (0x0148, 0x47b0, 0xadd4, 0x0159)] {
+        c.run(at, 5)?;
+        let (a, e) = (c.word(0x39b7), c.word(0x39b9));
+        c.set_reg(AX, a);
+        c.set_sreg(ES, e);
+        c.set_word(slot, a);
+        c.set_word(slot + 2, e);
+        c.set_reg(CX, n);
+        c.call(0xf0ff, ret)?;
+    }
+    c.run(0x0159, 1)?;
+    c.call(0xcfb9, 0x015c)?;
+    c.run(0x015c, 1)?;
+    let _ = B;
+    c.jump(0xc137)
+}

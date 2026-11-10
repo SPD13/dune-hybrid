@@ -671,3 +671,92 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.jump(0xcdbf);
     }
 }
+
+/// `hnm_decode_video_frame` (CC96): the frame waiting in segment
+/// [0DC16h] (taken; none: nothing) at [0DC14h]. Kinds with [0DBFEh]
+/// bits 4/5 (full-screen pictures) go on in the original (4AEBh /
+/// 4AFDh). Else, unless [0DC24h] bit 10, its header (DI the screen
+/// offset, CX the size: none when CL is 0, DX, BX) drawn into the
+/// buffer [0DBDAh] by the driver: plain (far [38C9h]) for videos below
+/// 19h ([0DC00h]), else by the decoder at CS:CC92h (its segment from
+/// [38FBh]).
+pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{CS, DS};
+    entered(start, 0xcc96)?;
+    let mut c = Ctx::new(m);
+    let seg = c.word(0xdc16);
+    c.run(0xcc96, 6 + (seg == 0) as u32)?;
+    let a = c.word(0x38fb);
+    c.set_reg(AX, a);
+    c.set_word_in(CS, 0xcc94, a);
+    let b0 = c.reg(BP);
+    c.xor(W, b0, b0);
+    c.set_word(0xdc16, 0);
+    c.set_reg(BP, seg);
+    c.or(W, seg, seg);
+    if seg == 0 {
+        return c.ret();
+    }
+    let si = c.word(0xdc14);
+    let f = c.byte(0xdbfe);
+    c.run(0xcca7, 4)?;
+    c.set_reg(SI, si);
+    c.set_reg8(r8::AL, f);
+    c.test(B, f as u16, 0x30);
+    if f & 0x30 != 0 {
+        c.run(0xccea, 3)?;
+        c.test(B, f as u16, 0x20);
+        return c.jump(if f & 0x20 != 0 { 0x4aeb } else { 0x4afd });
+    }
+    let k = c.word(0xdc24);
+    c.run(0xccb2, 3)?;
+    let ds = c.sreg(DS);
+    c.push(ds);
+    c.test(W, k, 0x400);
+    if k & 0x400 != 0 {
+        return pop_ds_ret_cce1(&mut c);
+    }
+    let w1 = c.word_at(seg, si.wrapping_add(2));
+    c.run(0xccbb, 10)?;
+    let es = c.word(0xdbda);
+    c.set_sreg(ES, es);
+    let vid = c.word(0xdc00);
+    c.set_reg(BX, vid);
+    c.set_sreg(DS, seg);
+    let a = c.lods(W, DS);
+    let h = c.and(B, a >> 8, 0xf9);
+    let a = (h << 8) | (a & 0xff);
+    c.set_reg(AX, a);
+    c.set_reg(DI, a);
+    let a = c.lods(W, DS);
+    c.set_reg(CX, a);
+    c.or(B, a & 0xff, a & 0xff);
+    if w1 & 0xff == 0 {
+        return pop_ds_ret_cce1(&mut c);
+    }
+    c.run(0xccd2, 6)?;
+    let a = c.lods(W, DS);
+    c.set_reg(DX, a);
+    let a = c.lods(W, DS);
+    c.set_reg(AX, vid);
+    c.set_reg(BX, a);
+    c.cmp(W, vid, 0x19);
+    if vid >= 0x19 {
+        c.interp(0xcce3, 0xcce8)?;
+        c.run(0xcce8, 2)?;
+    } else {
+        c.interp(0xccdc, 0xcce1)?;
+        c.run(0xcce1, 2)?;
+    }
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.ret()
+}
+
+fn pop_ds_ret_cce1(c: &mut Ctx) -> Result<(), Bail> {
+    use pc::cpu::DS;
+    c.run(0xcce1, 2)?;
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.ret()
+}
