@@ -1594,3 +1594,218 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xaa6f, 1)?;
     c.ret()
 }
+
+/// `set_lipsync_data_to_al` (A82E): mouth frame AL shown, unless it is
+/// already ([0DC2Ah]); SI the lip-sync table [0DC28h], then `lip_frame`.
+pub fn set_lipsync_data_to_al(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa82e)?;
+    let mut c = Ctx::new(m);
+    let al = c.reg8(r8::AL);
+    let cur = c.byte(0xdc2a);
+    if al == cur {
+        c.run(0xa82e, 3)?;
+        c.cmp(B, al as u16, cur as u16);
+        return c.ret();
+    }
+    c.run(0xa82e, 5)?;
+    c.cmp(B, al as u16, cur as u16);
+    c.set_byte(0xdc2a, al);
+    let si = c.word(0xdc28);
+    c.set_reg(SI, si);
+    lip_frame_9de3(&mut c)
+}
+
+/// 9DE3h: the mouth frame AL drawn (talking heads up to [47C4h] 0Fh).
+/// After `setup_lip_sync_data_from_current`, a head ([46EBh] not
+/// negative): its rectangle (`loc_05b99` into D834h) moved by the head's
+/// position [1BF0h]/[1BF2h], the frame's entry (from [47D2h]: AL plus 4
+/// per pose [47D0h] - 1, once more for head 0Dh [22A6h]) copied into the
+/// sprite list (`loc_09bee`); unless [0EAh] is positive, the list drawn
+/// (`loc_09d2d`, `loc_0908c`): directly with two sprites or more (and
+/// `loc_0c4f0` after the mouse is hidden), else in the back buffer
+/// ([0DBDAh] kept; `loc_0c08e`); then the mouse drawn again
+/// (`draw_mouse_cursor_if_needed`). Else a sprite (`lip_sprite_9e75`).
+fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
+    let k = c.word(0x47c4);
+    if k >= 0x10 {
+        c.run(0x9de3, 3)?;
+        c.cmp(W, k, 0x10);
+        return c.ret();
+    }
+    c.run(0x9de3, 5)?;
+    c.cmp(W, k, 0x10);
+    let ax = c.reg(AX);
+    c.push(ax);
+    let si = c.reg(SI);
+    c.push(si);
+    c.call(0x9197, 0x9def)?;
+    let f = c.byte(0x46eb);
+    let neg = f & 0x80 != 0;
+    c.run(0x9def, 4 + if neg { 0 } else { 2 })?;
+    let si = c.pop();
+    c.set_reg(SI, si);
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.cmp(B, f as u16, 0);
+    if neg {
+        return lip_sprite_9e75(c);
+    }
+    c.set_reg(DI, 0xd834);
+    c.call(0x5b99, 0x9dfe)?;
+    let d = c.byte(0x47d0);
+    let none = d.wrapping_sub(1) & 0x80 != 0;
+    let kind = c.word(0x22a6);
+    c.run(0x9dfe, 10 + if none { 0 } else { 2 + (kind == 0xd) as u32 + 3 } + 4)?;
+    let dx = c.word(0x1bf0);
+    c.set_reg(DX, dx);
+    let bx = c.word(0x1bf2);
+    c.set_reg(BX, bx);
+    let di = c.reg(DI);
+    for (o, v) in [(8u16, dx), (6, bx), (4, dx), (2, bx)] {
+        let a = di.wrapping_sub(o);
+        let w = c.word(a);
+        let w = c.add(W, w, v);
+        c.set_word(a, w);
+    }
+    let si = c.word(0x47d2);
+    c.set_reg(SI, si);
+    let ah = c.dec(B, d as u16);
+    c.set_reg8(r8::AH, ah as u8);
+    let mut al = c.reg8(r8::AL) as u16;
+    if !none {
+        c.cmp(W, kind, 0xd);
+        if kind == 0xd {
+            al = c.add(B, al, ah);
+            c.set_reg8(r8::AL, al as u8);
+        }
+        let a = c.shl1(B, ah, 2);
+        c.set_reg8(r8::AH, a as u8);
+        al = c.add(B, al, a);
+        c.set_reg8(r8::AL, al as u8);
+    }
+    let ah = c.reg8(r8::AH) as u16;
+    c.xor(B, ah, ah);
+    let ax = c.shl1(W, al, 1);
+    c.set_reg(AX, ax);
+    let si = c.add(W, si, ax);
+    c.set_reg(SI, si);
+    c.call(0x9bee, 0x9e36)?;
+    let e = c.byte(0xea);
+    let skip = (e as i8) > 0;
+    c.run(0x9e36, 3 + skip as u32)?;
+    c.set_reg(SI, 0x4608);
+    c.cmp(B, e as u16, 0);
+    if skip {
+        return c.ret();
+    }
+    let n = c.word(0x4608);
+    if n >= 2 {
+        c.run(0x9e40, 3)?;
+        c.cmp(W, n, 2);
+        c.call(0x9d2d, 0x9e48)?;
+        c.run(0x9e48, 1)?;
+        c.call(0x908c, 0x9e4b)?;
+        c.run(0x9e4b, 2)?;
+        c.set_reg(SI, 0xd834);
+        c.call(0xdb74, 0x9e51)?;
+        c.run(0x9e51, 1)?;
+        c.call(0xc4f0, 0x9e54)?;
+        c.run(0x9e54, 1)?;
+        return c.jump(0xdb67);
+    }
+    c.run(0x9e40, 4)?;
+    c.cmp(W, n, 2);
+    c.set_reg(SI, 0xd834);
+    c.call(0xdb74, 0x9e5d)?;
+    c.run(0x9e5d, 2)?;
+    let v = c.word(0xdbda);
+    c.push(v);
+    c.call(0xc08e, 0x9e64)?;
+    c.run(0x9e64, 2)?;
+    c.set_reg(SI, 0x4608);
+    c.call(0x9d2d, 0x9e6a)?;
+    c.run(0x9e6a, 1)?;
+    c.call(0x908c, 0x9e6d)?;
+    c.run(0x9e6d, 2)?;
+    let v = c.pop();
+    c.set_word(0xdbda, v);
+    c.jump(0xdb67)
+}
+
+/// 9E75h: the mouth as a sprite of the sheet [0DBB2h]: the frame's byte
+/// (from [47D2h]: AL plus 4 per pose but for kind 0Ch [47C4h]) less 2
+/// picks the sprite from the table [47CCh]; drawn (`loc_09d94`, the
+/// mouse first hidden from 47D4h) into the screen [0DBD6h] then
+/// refreshed (`loc_0c4f0`) when its +3 byte is set, else into
+/// [0DBD8h]; then the mouse drawn again.
+fn lip_sprite_9e75(c: &mut Ctx) -> Result<(), Bail> {
+    let k = c.word(0x47c4);
+    let twelve = k == 0xc;
+    c.run(0x9e75, 3 + if twelve { 0 } else { 5 } + 6)?;
+    let si = c.word(0x47d2);
+    c.set_reg(SI, si);
+    c.cmp(W, k, 0xc);
+    let mut al = c.reg8(r8::AL) as u16;
+    if !twelve {
+        let d = c.byte(0x47d0);
+        let ah = c.dec(B, d as u16);
+        let ah = c.shl1(B, ah, 2);
+        c.set_reg8(r8::AH, ah as u8);
+        al = c.add(B, al, ah);
+        c.set_reg8(r8::AL, al as u8);
+    }
+    let ah = c.reg8(r8::AH) as u16;
+    c.xor(B, ah, ah);
+    let ax = c.shl1(W, al, 1);
+    c.set_reg(AX, ax);
+    let si = c.add(W, si, ax);
+    c.set_reg(SI, si);
+    c.push(si);
+    c.set_reg(SI, 0x47d4);
+    c.call(0xdb74, 0x9e99)?;
+    let sp = c.reg(SP);
+    let s0 = c.word_in(SS, sp);
+    let seg = c.word_in(SS, 0xdbb2);
+    let b = c.byte_at_seg(seg, s0);
+    let base = c.word_in(SS, 0x47cc);
+    let ax = (b.wrapping_sub(2) as u16) << 1;
+    let off = c.word_at(seg, ax.wrapping_add(base));
+    let s1 = base.wrapping_add(off);
+    let shown = c.byte_at_seg(seg, s1.wrapping_add(3)) != 0;
+    c.run(0x9e99, 12 + 2)?;
+    let si = c.pop();
+    c.set_reg(SI, si);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    c.set_sreg(DS, seg);
+    let b = c.lods(B, DS);
+    c.xor(B, 0, 0);
+    let a = c.sub(B, b, 2);
+    let a = c.shl1(W, a, 1);
+    c.set_reg(AX, a);
+    c.set_reg(BP, a);
+    c.set_reg(SI, base);
+    let s = c.add(W, base, off);
+    c.set_reg(SI, s);
+    let v = c.byte_at_seg(seg, s.wrapping_add(3));
+    c.cmp(B, v as u16, 0);
+    if shown {
+        let es = c.word_in(SS, 0xdbd6);
+        c.set_sreg(ES, es);
+        c.call(0x9d94, 0x9ebf)?;
+        c.run(0x9ebf, 3)?;
+        let v = c.pop();
+        c.set_sreg(DS, v);
+        c.set_reg(SI, 0x47d4);
+        c.call(0xc4f0, 0x9ec6)?;
+        c.run(0x9ec6, 1)?;
+        return c.jump(0xdb67);
+    }
+    let es = c.word_in(SS, 0xdbd8);
+    c.set_sreg(ES, es);
+    c.call(0x9d94, 0x9ed1)?;
+    c.run(0x9ed1, 2)?;
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.jump(0xdb67)
+}

@@ -1109,6 +1109,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xf13f, files::allocator_free_space, "allocator_attempt_to_free_space"),
     (0xeab7, dos::memory_func_qq, "memory_func_qq"),
     (0xc2a1, saves::unrle_image_to_tmp_buffer, "unrle_image_to_tmp_buffer"),
+    (0xa82e, voice::set_lipsync_data_to_al, "set_lipsync_data_to_al"),
     (0x4057, story::enter_room, "loc_04057"),
     (0x3f15, story::room_move, "ui_click_room_up"),
     (0x3f1a, story::room_move, "ui_click_room_right"),
