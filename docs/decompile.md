@@ -86,13 +86,18 @@ cargo run --release -p lift -- --exe GAME/DNCDPRG.EXE \
 - 98.8% of instructions are written out natively. String ops and
   MUL/IMUL/DIV/IDIV call the interpreter's own operations
   (`Cpu::string_op`, `Cpu::mul_div`) without its fetch and decode. IRET,
-  RETF and far jumps are native too. The rest (BCD, ENTER/LEAVE,
-  PUSHA/POPA, STI) go through the interpreter one instruction at a time.
-  `INT` and far calls use `Machine::rec_interp`.
+  RETF, far jumps and STI are native too (the instruction after STI starts
+  a block, so a pending interrupt is seen where the CPU takes it). The rest
+  (BCD, ENTER/LEAVE, PUSHA/POPA) go through the interpreter one
+  instruction at a time. `INT` and far calls use `Machine::rec_interp`.
+- `--leaders FILE` (the `REC_MISSES` file of a `--rec on` run, see below):
+  more block starts, where Rust found none to go on from; one outside every
+  routine becomes a routine of its own (`resume_from_XXXX`).
 - Self-modifying code (found by `CODE_DIFF=1 dune-run ...`, which lists the
   seg000 bytes that changed during a run):
   - the immediate of `mov ax, 25h` at C13B (patched at 0AD3 and 0B24):
-    instructions covering it always run through the interpreter;
+    read from the code as it runs (as the drivers' rewritten immediates,
+    below);
   - the targets of the far jumps at EFDC and F04D, set at start-up to the
     interrupt handlers the game replaced (it chains to them): every direct
     far jump reads its target from the code when it runs.
@@ -178,15 +183,21 @@ The result is the same, to the instruction, as without `--rec`:
 - `INT` and far calls (BIOS/DOS services, the drivers) run inside the
   routine, instruction by instruction, with the same per-instruction checks,
   the music-driver tracking and the battery saver's idle detection. The
-  `INT` itself and the BIOS stubs it reaches (`FE 38 nn`, a service; `INT
-  1Ch` from the timer stub; `IRET`) are run by `Machine::host_step`, not
-  the interpreter: the services behind them are Rust already
-  (`pc::bios`/`dos`). The lifted drivers run natively; anything else on
-  the interpreter.
-- After a bail, Rust takes over again at the same place as soon as
-  anything changed (an instruction ran, an interrupt or device event was
-  taken, the battery saver slept); only a bail with nothing changed has the
+  `INT` itself, the calls (`CALL rel16`, `CALL ptr16:16`, `CALL [disp16]`
+  near and far) and the BIOS stubs an `INT` reaches (`FE 38 nn`, a
+  service; `INT 1Ch` from the timer stub; `IRET`) are run by
+  `Machine::host_step`, not the interpreter: the services behind them are
+  Rust already (`pc::bios`/`dos`). Past the call, lifted code (a driver's,
+  seg000's) runs natively from any block start; anything else on the
+  interpreter.
+- After a bail, Rust takes over again at the same place: a port may stop
+  where the generated code goes on. A second bail there with nothing
+  changed (no instruction ran, no interrupt or device event was taken, the
+  battery saver did not sleep, the run's deadline is the same) has the
   interpreter run one instruction.
+- `REC_MISSES=FILE` writes where Rust found no block start to go on from
+  (a port's stop in the middle of a block, a bail before an event inside a
+  block): the next lift's `--leaders`.
 - Port I/O sees the time of its instruction (the PIT counter).
 - While a harness breakpoint is set (`--phase-ladder`), Rust stays off: it
   would run through the breakpoint.
@@ -343,14 +354,23 @@ dune-lift --raw DIR/graphics.bin --seg 334b --slots 46 --name vga     --also OTH
 - Entries: the driver's jump table at 0100h (46 slots of 3 bytes, the far
   pointers the game keeps at `DS:38B5h`), and every near call target
   found from them. The generated code takes its segment from CS.
-- The driver rewrites some of its own code (two immediates, a jump
-  target, a few more): `--also` gives images of the driver from other
-  times and runs, and the instructions whose bytes differ between them run
-  through the interpreter, which reads them from memory. The output also
+- The driver rewrites some of its own code (15 instructions: immediates
+  it computes, the targets of two jumps, a `nop nop` it turns into a jump,
+  an `inc`/`dec`, a `loop`'s target): `--also` gives images of the driver
+  from other times and runs. Each instruction whose bytes differ between
+  them gets every form seen (`rewritten: N forms`), and the generated code
+  picks by the bytes in memory; forms that differ only in the immediate
+  also get a form for any value, read from the code as it runs. All forms'
+  targets are explored (the jumps at 1EA5 and 1F28 lead to the driver's
+  hottest loop, 1D83, which a lift of one image never reached). A form
+  starting where its own image has no instruction boundary is left out.
+  Bytes no form matches go through the interpreter. The output also
   holds a hash of all the other code bytes (with an instruction counted
   as rewritten as a whole: a word field may differ in one byte between
-  images). Every 100 ms of virtual time the machine checks the driver in
-  memory against it; the driver runs natively only in a segment that
+  images). The machine checks the driver in memory against it as soon as
+  the game's pointer to it changes, then after 1 ms doubling to every
+  100 ms while it differs (it is still being loaded), and every 100 ms
+  once it matched; the driver runs natively only in a segment that
   passed (before it is loaded and set up, or if the game's pointer to it
   is overwritten, it is interpreted). A shadow check whose call changed
   the driver's code is marked like one that changed seg000's.
@@ -385,7 +405,16 @@ left: the BIOS stubs, seg000's bails, the graphics driver's rewritten
 instructions), and a 5-minute run went from about 100 to 190-240 MIPS,
 with every screenshot and the audio output byte-identical. With the BIOS
 stubs and `INT`s on the host and the tighter re-entry after a bail, 0.5%
-(244 MIPS), screenshots still identical.
+(244 MIPS), screenshots still identical. With the rewritten instructions'
+forms, the calls on the host and the extra block starts: 10,609 of 2.08
+billion instructions interpreted in a 5-minute game (0.0005%; most of them
+running to an interrupt's exact instruction), 196 MIPS against 51 for the
+interpreter alone, screenshots identical. The relift (all coverage files, the
+extra block starts) has 1,202 routines; the validation runs show only
+differences marked as the harness's (a call that wrote into the code
+segment, or a driver whose code the harness's random calls had overwritten:
+more of these in the sound driver now that drivers are re-checked as soon
+as the game's pointer to them changes).
 
 Two lifter bugs it found: `not` on memory negated the address (the
 memory `put` names the address `a`, hiding the value), and a generated
@@ -403,11 +432,13 @@ an interrupt behind a port read (the driver's retrace polling loops).
    saves, and harness states deeper in the game (the endings: `chankiss`
    etc.).
 3. **A build without the interpreter**: the drivers are lifted (above),
-   the BIOS stubs and `INT`s run by the host, and `--rec native` takes
-   interrupts at block boundaries. A 5-minute `--rec native` game
-   interprets 0.5% of its instructions, 97% of them the graphics driver's
-   rewritten instructions (the stepped `nop`s and jumps it switches code
-   paths with, at 334b:1d83-1d98 and 1f24 the most), the rest seg000's own
-   rewritten sites and bails. Each of
-   these as a Rust branch on the byte the code writes, and the interpreter
-   can go.
+   the BIOS stubs, `INT`s and calls run by the host, rewritten code picked
+   by its bytes, and `--rec native` takes interrupts at block boundaries.
+   A 5-minute `--rec native` game interprets 459 of its 2.08 billion
+   instructions (the music and sound drivers just after they are loaded,
+   before the check finds them; 5 `aam`s), at 193 MIPS, every screenshot
+   identical to the interpreter's. What is left for a build with no interpreter at all:
+   making the drivers' code check immediate (not interpreting a driver
+   in the moments before it is checked), the rare instructions still
+   stepped (`aam`), and a fallback for code no lift has seen (today the
+   interpreter; without it, a stop naming the address, to lift from).

@@ -208,6 +208,20 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
         at.sort_unstable_by(|a, b| b.cmp(a));
         let top: Vec<String> = at.iter().take(12).map(|(n, (s, o))| format!("{s:04x}:{o:04x} {n}")).collect();
         println!("rec interpreted most at: {}", top.join(", "));
+        let mut missed: Vec<(u64, (u16, u16))> = rec.missed.iter().map(|(&k, &n)| (n, k)).collect();
+        missed.sort_unstable_by(|a, b| b.cmp(a));
+        let top: Vec<String> = missed.iter().take(8).map(|(n, (s, o))| format!("{s:04x}:{o:04x} {n}")).collect();
+        println!("rec no block to go on from: {} places, most at {}", missed.len(), top.join(", "));
+        // For the next lift: `dune-lift --leaders FILE`.
+        if let Some(p) = std::env::var_os("REC_MISSES") {
+            let mut s = String::new();
+            for (n, (sg, o)) in &missed {
+                let _ = writeln!(s, "{sg:04x}:{o:04x} {n}");
+            }
+            if let Err(e) = fs::write(&p, s) {
+                eprintln!("REC_MISSES: {e}");
+            }
+        }
         let names: std::collections::HashMap<u16, &str> = dune_rec::names().iter().copied().collect();
         let mut bails: Vec<(u64, usize)> = rec.bail_at.iter().enumerate().filter(|(_, n)| **n > 0).map(|(i, n)| (*n, i)).collect();
         bails.sort_unstable_by(|a, b| b.cmp(a));

@@ -44,10 +44,11 @@ use iced_x86::{
 const LOAD_SEG: u16 = 0x1000;
 /// seg000 length (code; the data segment follows at 0F4Bh paragraphs).
 const SEG000_LEN: usize = 0xf4b0;
-/// Code bytes the program rewrites at run time: instructions containing
-/// them always run through the interpreter, which fetches from memory.
-/// C13C: the immediate of `mov ax, 25h` (patched at 0AD3 and 0B24).
+/// Code bytes the program rewrites at run time. C13C: the immediate of
+/// `mov ax, 25h` at C13B (patched at 0AD3 and 0B24), read as it runs.
 const PATCHED: &[u16] = &[0xc13c];
+/// The instructions holding them.
+const PATCHED_INSNS: &[u16] = &[0xc13b];
 
 struct Args {
     exe: String,
@@ -66,6 +67,9 @@ struct Args {
     also: Vec<String>,
     /// More entries (code reached by interrupts: a driver's handlers).
     entries: Vec<u16>,
+    /// Files of `SEG:OFF count` lines (`REC_MISSES` from `dune-run --rec
+    /// on`): where Rust had no block to go on from; they become block starts.
+    leaders: Vec<String>,
 }
 
 fn parse() -> Result<Args, String> {
@@ -81,6 +85,7 @@ fn parse() -> Result<Args, String> {
         name: String::new(),
         also: Vec::new(),
         entries: Vec::new(),
+        leaders: Vec::new(),
     };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
@@ -95,6 +100,7 @@ fn parse() -> Result<Args, String> {
             "--slots" => a.slots = v()?.parse().map_err(|e| format!("--slots: {e}"))?,
             "--name" => a.name = v()?,
             "--also" => a.also.push(v()?),
+            "--leaders" => a.leaders.push(v()?),
             "--entries" => {
                 for e in v()?.split(',') {
                     a.entries.push(u16::from_str_radix(e.trim(), 16).map_err(|e| format!("--entries: {e}"))?);
@@ -187,10 +193,15 @@ fn listing_entries(path: &str) -> Result<BTreeMap<u16, String>, String> {
 struct Indirect {
     call_targets: BTreeSet<u16>,
     jump_targets: BTreeMap<u16, BTreeSet<u16>>,
+    /// Instructions the code rewrites at run time (`--also` images): every
+    /// form seen at that address, the lifted image's first, with its bytes.
+    variants: BTreeMap<u16, Vec<(Vec<u8>, Instruction)>>,
+    /// Block starts asked for (`--leaders`).
+    extra_leaders: BTreeSet<u16>,
 }
 
 fn read_coverage(paths: &[String], seg: &[u8], cs: u16) -> Result<Indirect, String> {
-    let mut ind = Indirect { call_targets: BTreeSet::new(), jump_targets: BTreeMap::new() };
+    let mut ind = Indirect { call_targets: BTreeSet::new(), jump_targets: BTreeMap::new(), variants: BTreeMap::new(), extra_leaders: BTreeSet::new() };
     for p in paths {
         let text = fs::read_to_string(p).map_err(|e| format!("{p}: {e}"))?;
         for line in text.lines() {
@@ -221,6 +232,23 @@ fn read_coverage(paths: &[String], seg: &[u8], cs: u16) -> Result<Indirect, Stri
     Ok(ind)
 }
 
+/// `--leaders` files: `SEG:OFF count` lines; the offsets in segment `cs`.
+fn read_leaders(paths: &[String], cs: u16) -> Result<BTreeSet<u16>, String> {
+    let mut set = BTreeSet::new();
+    for p in paths {
+        let text = fs::read_to_string(p).map_err(|e| format!("{p}: {e}"))?;
+        for line in text.lines() {
+            let Some((s, o)) = line.split_whitespace().next().and_then(|a| a.split_once(':')) else { continue };
+            if u16::from_str_radix(s, 16) == Ok(cs)
+                && let Ok(o) = u16::from_str_radix(o, 16)
+            {
+                set.insert(o);
+            }
+        }
+    }
+    Ok(set)
+}
+
 fn decode_at(seg: &[u8], ip: u16) -> Instruction {
     let mut d = Decoder::with_ip(16, &seg[ip as usize..], ip as u64, DecoderOptions::NONE);
     d.decode()
@@ -245,6 +273,37 @@ fn explore(seg: &[u8], entry: u16, ind: &Indirect) -> Routine {
             let insn = decode_at(seg, ip);
             r.insns.insert(ip, insn);
             if insn.is_invalid() {
+                break;
+            }
+            // A rewritten instruction ends its block; each of its forms goes
+            // on at its own successors.
+            if let Some(vs) = ind.variants.get(&ip) {
+                for (_, v) in vs {
+                    if v.is_invalid() {
+                        continue;
+                    }
+                    let vn = v.next_ip() as u16;
+                    let mut go = |t: u16, r: &mut Routine| {
+                        r.leaders.insert(t);
+                        todo.push(t);
+                    };
+                    match v.flow_control() {
+                        FlowControl::UnconditionalBranch | FlowControl::ConditionalBranch
+                            if v.op0_kind() == OpKind::NearBranch16 =>
+                        {
+                            go(v.near_branch16(), &mut r);
+                            if v.flow_control() == FlowControl::ConditionalBranch {
+                                go(vn, &mut r);
+                            }
+                        }
+                        FlowControl::UnconditionalBranch
+                        | FlowControl::IndirectBranch
+                        | FlowControl::Return
+                        | FlowControl::Exception => {}
+                        _ if v.mnemonic() == Mnemonic::Hlt => {}
+                        _ => go(vn, &mut r),
+                    }
+                }
                 break;
             }
             let next = insn.next_ip() as u16;
@@ -275,6 +334,11 @@ fn explore(seg: &[u8], entry: u16, ind: &Indirect) -> Routine {
                 FlowControl::Call | FlowControl::IndirectCall | FlowControl::Interrupt => {
                     r.leaders.insert(next);
                 }
+                // After STI a pending interrupt comes one instruction later:
+                // a block start there, so `rec_tick` sees it.
+                _ if insn.mnemonic() == Mnemonic::Sti => {
+                    r.leaders.insert(next);
+                }
                 // A REP string op runs as one interpreter step, however many
                 // iterations: alone in its block, interrupt timing stays exact.
                 _ if insn.has_rep_prefix() || insn.has_repne_prefix() => {
@@ -284,6 +348,11 @@ fn explore(seg: &[u8], entry: u16, ind: &Indirect) -> Routine {
                 _ => {}
             }
             ip = next;
+        }
+    }
+    for &l in &ind.extra_leaders {
+        if r.insns.contains_key(&l) {
+            r.leaders.insert(l);
         }
     }
     r
@@ -733,6 +802,9 @@ fn lift(insn: &Instruction, st: &mut Stats) -> (String, bool) {
         Pushf => native(Some("{ let f = m.cpu.flags(); m.cpu.push(&mut m.hw, f); }".into()), st),
         Popf => native(Some("{ let f = m.cpu.pop(&mut m.hw); m.cpu.set_flags(f); }".into()), st),
         Cli => native(Some("m.cpu.set_flag(IF, false);".into()), st),
+        // Interrupts on after the next instruction: `rec_tick` keeps the
+        // hold to the next block's first instruction.
+        Sti => native(Some("m.cpu.set_flag(IF, true); m.cpu.irq_inhibit = true;".into()), st),
         // Control that leaves the routine's segment or frame: done here, then
         // the run loop (or the caller) goes on from the new CS:IP.
         Iret => {
@@ -809,7 +881,7 @@ fn block_len(r: &Routine, leader: u16) -> u32 {
     n.max(1)
 }
 
-fn emit_routine(out: &mut String, r: &Routine, name: &str, st: &mut Stats) {
+fn emit_routine(out: &mut String, r: &Routine, name: &str, st: &mut Stats, ind: &Indirect) {
     let mut fmt = IntelFormatter::new();
     fmt.options_mut().set_hex_prefix("0x");
     fmt.options_mut().set_hex_suffix("");
@@ -834,6 +906,52 @@ fn emit_routine(out: &mut String, r: &Routine, name: &str, st: &mut Stats) {
             };
             let mut text = String::new();
             fmt.format(insn, &mut text);
+            if let Some(vs) = ind.variants.get(&ip) {
+                // Rewritten at run time: the form in memory now, natively
+                // if it is one seen, else through the interpreter.
+                let _ = writeln!(out, "                // {ip:04x}: {text} (rewritten: {} forms)", vs.len());
+                let _ = writeln!(
+                    out,
+                    "                let code = |i: u16| m.hw.mem[(((seg as usize) << 4) + 0x{ip:04x}usize.wrapping_add(i as usize)) & 0xf_ffff];"
+                );
+                let patched = std::mem::take(&mut st.patched);
+                let vs_all = vs;
+                let mut vs: Vec<&(Vec<u8>, Instruction)> = vs.iter().collect();
+                vs.sort_by_key(|(b, _)| std::cmp::Reverse(b.len()));
+                for (bytes, v) in vs {
+                    if v.is_invalid() {
+                        continue;
+                    }
+                    let cond: Vec<String> = bytes.iter().enumerate().map(|(i, b)| format!("code({i}) == 0x{b:02x}")).collect();
+                    let mut vt = String::new();
+                    fmt.format(v, &mut vt);
+                    let (code, ends) = lift(v, st);
+                    let _ = writeln!(out, "                if {} {{", cond.join(" && "));
+                    let _ = writeln!(out, "                    // {vt}");
+                    let _ = writeln!(out, "                    {code}");
+                    if !ends {
+                        let _ = writeln!(out, "                    pc = 0x{:04x}; continue;", v.next_ip() as u16);
+                    }
+                    let _ = writeln!(out, "                }}");
+                }
+                // Forms that differ only in their immediate (a constant the
+                // code writes into itself): any value, read as it runs.
+                if let Some(code) = immediate_form(&vs_all, st) {
+                    let k = vs_all[0].1.len() - imm_size(&vs_all[0].1);
+                    let cond: Vec<String> = vs_all[0].0[..k].iter().enumerate().map(|(i, b)| format!("code({i}) == 0x{b:02x}")).collect();
+                    let _ = writeln!(out, "                if {} {{", cond.join(" && "));
+                    let _ = writeln!(out, "                    {code}");
+                    let _ = writeln!(out, "                    pc = 0x{:04x}; continue;", vs_all[0].1.next_ip() as u16);
+                    let _ = writeln!(out, "                }}");
+                }
+                st.patched = patched;
+                st.stepped += 1;
+                let _ = writeln!(
+                    out,
+                    "                m.cpu.ip = 0x{ip:04x}; m.step_insn()?; if m.cpu.sregs[CS] != seg {{ return Err(Bail); }} pc = m.cpu.ip; continue;"
+                );
+                break;
+            }
             let (code, ends) = lift(insn, st);
             let _ = writeln!(out, "                // {ip:04x}: {text}");
             let _ = writeln!(out, "                {code}");
@@ -852,6 +970,52 @@ fn emit_routine(out: &mut String, r: &Routine, name: &str, st: &mut Stats) {
     let _ = writeln!(out, "        }}");
     let _ = writeln!(out, "    }}");
     let _ = writeln!(out, "}}\n");
+}
+
+/// Size of an instruction's immediate (0: none).
+fn imm_size(insn: &Instruction) -> usize {
+    (0..insn.op_count())
+        .map(|i| match insn.op_kind(i) {
+            OpKind::Immediate8 | OpKind::Immediate8to16 => 1,
+            OpKind::Immediate16 => 2,
+            _ => 0,
+        })
+        .sum()
+}
+
+/// For a rewritten instruction whose forms differ only in their trailing
+/// immediate: its code with the immediate read from memory as it runs
+/// (`code(i)`, the instruction's bytes). None if the forms differ
+/// otherwise, or it does not lift natively.
+fn immediate_form(vs: &[(Vec<u8>, Instruction)], st: &mut Stats) -> Option<String> {
+    let (b0, i0) = &vs[0];
+    let size = imm_size(i0);
+    let k = i0.len().checked_sub(size)?;
+    if size == 0 || (0..i0.op_count()).filter(|&i| matches!(i0.op_kind(i), OpKind::Immediate8 | OpKind::Immediate8to16 | OpKind::Immediate16)).count() != 1 {
+        return None;
+    }
+    if !vs.iter().all(|(b, v)| v.code() == i0.code() && v.len() == i0.len() && b[..k] == b0[..k]) {
+        return None;
+    }
+    let mut p = *i0;
+    let (token, read) = match (0..p.op_count()).map(|i| p.op_kind(i)).find(|k| matches!(k, OpKind::Immediate8 | OpKind::Immediate8to16 | OpKind::Immediate16))? {
+        OpKind::Immediate16 => {
+            p.set_immediate16(0x5a5a);
+            ("0x5a5au32", format!("(code({k}) as u32 | (code({}) as u32) << 8)", k + 1))
+        }
+        OpKind::Immediate8to16 => {
+            p.set_immediate8to16(0x5b);
+            ("0x5bu32", format!("(code({k}) as i8 as i16 as u16 as u32)"))
+        }
+        _ => {
+            p.set_immediate8(0x5b);
+            ("0x5bu32", format!("(code({k}) as u32)"))
+        }
+    };
+    let (n, s) = (st.native, st.stepped);
+    let (code, ends) = lift(&p, st);
+    (st.native, st.stepped) = (n, s);
+    (!ends && code.matches(token).count() == 1 && !code.contains("step_insn")).then(|| code.replace(token, &read))
 }
 
 /// FNV-1a over the bytes of `ranges` (the same as `pc::rec`'s check).
@@ -880,7 +1044,8 @@ fn main() -> ExitCode {
             if seg.len() != 0x10000 {
                 return Err(format!("{raw}: expected a 64 KB segment image"));
             }
-            let ind = read_coverage(&a.cov, &seg, a.seg)?;
+            let mut ind = read_coverage(&a.cov, &seg, a.seg)?;
+            ind.extra_leaders = read_leaders(&a.leaders, a.seg)?;
             let mut entries: BTreeMap<u16, String> =
                 (0..a.slots).map(|i| (0x100 + 3 * i, format!("{}_slot_{i:02}", a.name))).collect();
             for &t in ind.call_targets.iter().chain(&a.entries) {
@@ -899,25 +1064,56 @@ fn main() -> ExitCode {
                     }
                 }
             }
+            // Instructions that differ in another image are rewritten at run
+            // time (a field may differ in only one byte: the whole
+            // instruction). Their forms are followed while exploring, which
+            // can reach more code: repeat until nothing new.
+            let imgs: Vec<Vec<u8>> = a.also.iter().map(|o| fs::read(o).map_err(|e| format!("{o}: {e}"))).collect::<Result<_, _>>()?;
+            let mut ind = ind;
             let mut patched = Vec::new();
-            for other in &a.also {
-                let img = fs::read(other).map_err(|e| format!("{other}: {e}"))?;
+            loop {
+                let mut more = false;
                 for &e in entries.keys() {
-                    for (&ip, insn) in &explore(&seg, e, &ind).insns {
-                        // A field may differ in only one byte between two
-                        // images: the whole instruction is rewritten.
-                        let bytes = ip..insn.next_ip() as u16;
-                        if bytes.clone().any(|b| seg[b as usize] != img[b as usize]) {
-                            for b in bytes {
+                    let r = explore(&seg, e, &ind);
+                    for (&ip, insn) in &r.insns {
+                        let n = insn.len();
+                        for img in &imgs {
+                            let i = ip as usize;
+                            if img[i..i + n] == seg[i..i + n] {
+                                continue;
+                            }
+                            for b in ip..insn.next_ip() as u16 {
                                 if !patched.contains(&b) {
                                     patched.push(b);
                                 }
                             }
+                            let i0 = ind.variants.len();
+                            ind.variants.entry(ip).or_insert_with(|| vec![(seg[i..i + n].to_vec(), *insn)]);
+                            more |= ind.variants.len() != i0;
+                            // The image's own instruction there, unless its
+                            // code before runs into it (another boundary).
+                            let pred = r.insns.range(..ip).next_back().filter(|(_, p)| p.next_ip() as u16 == ip);
+                            if let Some((&p, _)) = pred
+                                && decode_at(img, p).next_ip() as u16 != ip
+                            {
+                                continue;
+                            }
+                            let v = decode_at(img, ip);
+                            let vb = img[i..i + v.len()].to_vec();
+                            let vs = ind.variants.entry(ip).or_insert_with(|| vec![(seg[i..i + n].to_vec(), *insn)]);
+                            if !vs.iter().any(|(b, _)| *b == vb) {
+                                vs.push((vb, v));
+                                more = true;
+                            }
                         }
                     }
                 }
+                if !more {
+                    break;
+                }
             }
             patched.sort_unstable();
+            println!("rewritten instructions: {}", ind.variants.iter().map(|(ip, v)| format!("{ip:04x}x{}", v.len())).collect::<Vec<_>>().join(" "));
             println!("rewritten code bytes: {}", patched.iter().map(|b| format!("{b:04x}")).collect::<Vec<_>>().join(" "));
             raw_patched = Box::leak(patched.into_boxed_slice());
             (seg, entries, ind, raw.clone())
@@ -925,19 +1121,39 @@ fn main() -> ExitCode {
             let exe = fs::read(&a.exe).map_err(|e| format!("{}: {e}", a.exe))?;
             let seg = load_seg000(&exe)?;
             let mut entries = listing_entries(&a.lst)?;
-            let ind = read_coverage(&a.cov, &seg, LOAD_SEG)?;
+            let mut ind = read_coverage(&a.cov, &seg, LOAD_SEG)?;
+            ind.extra_leaders = read_leaders(&a.leaders, LOAD_SEG)?;
+            for &ip in PATCHED_INSNS {
+                let insn = decode_at(&seg, ip);
+                ind.variants.insert(ip, vec![(seg[ip as usize..insn.next_ip() as usize].to_vec(), insn)]);
+            }
             for &t in &ind.call_targets {
                 entries.entry(t).or_insert_with(|| format!("sub_{t:04x}"));
             }
             (seg, entries, ind, "DNCDPRG.EXE".to_string())
         };
+        // A block start asked for in code no routine reaches: a routine of
+        // its own from there.
+        if !ind.extra_leaders.is_empty() {
+            let mut covered = BTreeSet::new();
+            for &e in entries.keys() {
+                covered.extend(explore(&seg, e, &ind).insns.into_keys());
+            }
+            let name = if a.raw.is_some() { a.name.clone() } else { "resume".into() };
+            for &l in &ind.extra_leaders {
+                if !covered.contains(&l) {
+                    entries.insert(l, format!("{name}_from_{l:04x}"));
+                    covered.extend(explore(&seg, l, &ind).insns.into_keys());
+                }
+            }
+        }
         if let Some(only) = &a.only {
             entries.retain(|k, _| only.contains(k));
         }
         let mut out = String::new();
         let _ = writeln!(out, "// Generated by dune-lift from {source}. Game-derived: do not commit or share.\n");
         out.push_str("use pc::Machine;\nuse pc::cpu::{AX, BP, BX, CF, CS, CX, DF, DI, DS, DX, ES, IF, SI, SP, SS, ZF, Bus, Width};\n");
-        out.push_str("use pc::rec::{Bail, Routine};\n\nconst LOAD_SEG: u16 = 0x1000;\n\n");
+        out.push_str("use pc::rec::{Bail, Routine};\n\n");
         let mut st = Stats { patched: if a.raw.is_some() { raw_patched } else { PATCHED }, driver: a.raw.is_some(), ..Stats::default() };
         let mut sizes = 0usize;
         // Block leader -> a routine that has it (the first, by entry).
@@ -950,7 +1166,11 @@ fn main() -> ExitCode {
                     leaders.entry(l).or_insert(e);
                 }
             }
-            emit_routine(&mut out, &r, name, &mut st);
+            if name.contains("_from_") {
+                // Only resumed into, and only if no other routine has its blocks.
+                out.push_str("#[allow(dead_code)]\n");
+            }
+            emit_routine(&mut out, &r, name, &mut st, &ind);
         }
         if a.raw.is_some() {
             // The code the routines were lifted from (rewritten bytes left
@@ -982,8 +1202,12 @@ fn main() -> ExitCode {
             let _ = writeln!(out, "], 0x{hash:016x});\n");
         }
         out.push_str("pub static ROUTINES: &[(u16, Routine)] = &[\n");
-        for &e in entries.keys() {
-            let _ = writeln!(out, "    (0x{e:04x}, f_{e:04x}),");
+        // Not the `--leaders` routines: nothing calls them (they only
+        // resume), so they are not checked as calls.
+        for (&e, name) in &entries {
+            if !name.contains("_from_") {
+                let _ = writeln!(out, "    (0x{e:04x}, f_{e:04x}),");
+            }
         }
         out.push_str("];\n\npub static LEADERS: &[(u16, Routine)] = &[\n");
         for (&l, &e) in &leaders {
