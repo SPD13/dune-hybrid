@@ -69,6 +69,8 @@ struct Args {
     /// Recompiled routines: shadow-check them, or run them.
     rec: Option<pc::rec::RecMode>,
     rec_report: Option<PathBuf>,
+    /// `--rec native`: events at block boundaries (see `Rec::late_events`).
+    rec_native: bool,
     call_each: u32,
     /// `--call-each`: only these entries (default all), and the virtual
     /// time one call may take.
@@ -111,6 +113,7 @@ fn parse() -> Result<Args, String> {
         monkey: None,
         rec: None,
         rec_report: None,
+        rec_native: false,
         call_each: 0,
         call_only: None,
         call_ms: 300,
@@ -138,7 +141,11 @@ fn parse() -> Result<Args, String> {
                 a.rec = Some(match v()?.as_str() {
                     "shadow" => pc::rec::RecMode::Shadow,
                     "on" => pc::rec::RecMode::On,
-                    other => return Err(format!("--rec shadow|on, got {other}")),
+                    "native" => {
+                        a.rec_native = true;
+                        pc::rec::RecMode::On
+                    }
+                    other => return Err(format!("--rec shadow|on|native, got {other}")),
                 })
             }
             "--rec-report" => a.rec_report = Some(v()?.into()),
@@ -187,7 +194,7 @@ fn parse() -> Result<Args, String> {
 fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
     use std::fmt::Write as _;
     if rec.mode == pc::rec::RecMode::On {
-        println!("rec: {} calls into Rust, {} bailed", rec.calls, rec.bails);
+        println!("rec: {} calls into Rust, {} bailed, {} BIOS stub and INT instructions run by the host", rec.calls, rec.bails, rec.host_steps);
         let interp: u64 = rec.interp_seg.iter().sum();
         let mut segs: Vec<(u64, usize)> = rec.interp_seg.iter().enumerate().filter(|(_, n)| **n > 0).map(|(i, n)| (*n, i)).collect();
         segs.sort_unstable_by(|a, b| b.cmp(a));
@@ -197,6 +204,10 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
             100.0 * interp as f64 / total.max(1) as f64,
             top.join(" ")
         );
+        let mut at: Vec<(u64, (u16, u16))> = rec.interp_at.iter().map(|(&k, &n)| (n, k)).collect();
+        at.sort_unstable_by(|a, b| b.cmp(a));
+        let top: Vec<String> = at.iter().take(12).map(|(n, (s, o))| format!("{s:04x}:{o:04x} {n}")).collect();
+        println!("rec interpreted most at: {}", top.join(", "));
         let names: std::collections::HashMap<u16, &str> = dune_rec::names().iter().copied().collect();
         let mut bails: Vec<(u64, usize)> = rec.bail_at.iter().enumerate().filter(|(_, n)| **n > 0).map(|(i, n)| (*n, i)).collect();
         bails.sort_unstable_by(|a, b| b.cmp(a));
@@ -400,6 +411,7 @@ fn main() -> ExitCode {
         println!("rec: {} routines, {mode:?}", routines.len());
         let rec = pc::rec::Rec::new(mode, routines, dune_rec::leaders());
         let mut rec = rec;
+        rec.late_events = args.rec_native;
         if std::env::var_os("REC_NO_DRIVER").is_none() {
             for d in dune_rec::drivers() {
                 println!("rec: {} driver: {} routines", d.name, d.routines.len());

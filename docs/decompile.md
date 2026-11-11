@@ -175,9 +175,18 @@ The result is the same, to the instruction, as without `--rec`:
   event or the run's deadline falls inside the block (virtual time is a
   function of the instruction count, so this is known in advance), it bails
   and the interpreter runs the block.
-- `INT` and far calls (BIOS/DOS services, the drivers) run on the
-  interpreter inside the routine, with the same per-instruction checks,
-  the music-driver tracking and the battery saver's idle detection.
+- `INT` and far calls (BIOS/DOS services, the drivers) run inside the
+  routine, instruction by instruction, with the same per-instruction checks,
+  the music-driver tracking and the battery saver's idle detection. The
+  `INT` itself and the BIOS stubs it reaches (`FE 38 nn`, a service; `INT
+  1Ch` from the timer stub; `IRET`) are run by `Machine::host_step`, not
+  the interpreter: the services behind them are Rust already
+  (`pc::bios`/`dos`). The lifted drivers run natively; anything else on
+  the interpreter.
+- After a bail, Rust takes over again at the same place as soon as
+  anything changed (an instruction ran, an interrupt or device event was
+  taken, the battery saver slept); only a bail with nothing changed has the
+  interpreter run one instruction.
 - Port I/O sees the time of its instruction (the PIT counter).
 - While a harness breakpoint is set (`--phase-ladder`), Rust stays off: it
   would run through the breakpoint.
@@ -185,6 +194,25 @@ The result is the same, to the instruction, as without `--rec`:
 Measured: three 5- and 10-minute random-input games (one with the phase
 ladder): every screenshot byte-identical to the same run without `--rec`
 (50 of 50), at 135 to 165 MIPS against 63 for the interpreter (2.2 to 2.6×).
+
+**`--rec native`** is `--rec on` without the exact timing: device events,
+interrupts and the run's deadline are taken at the first block start at or
+after they fall due (`Rec::late_events`), so the interpreter no longer runs
+blocks just to land an interrupt on its instruction. Interrupts are
+asynchronous on the real machine too; this is the timing a build without
+the interpreter has. Measured: a 5-minute random-input game ran 4
+instructions more of 2.08 billion than without `--rec`, every screenshot
+identical, and the same to the instruction however the run is sliced
+(with or without `--shot-every`); its audio differs from 69 s on in 0.8%
+of the samples, at about 1% of the signal (a sound event a few samples
+later). It found a bug the exact mode hid: STI's
+one-instruction interrupt hold was never cleared by Rust code (the
+interpreter clears it at every step), so the game's first wait for the
+timer (E86Eh, after it installs its handler) waited forever; `rec_tick`
+now clears it when a block runs.
+
+The report shows what is still interpreted, by segment and by address
+(`rec interpreted most at:`).
 
 ### 5. Readable ports: `crates/dune-rec/src/hand/`
 
@@ -355,7 +383,9 @@ different only with its code overwritten by the harness. Under `--rec on`
 the interpreted share fell from 23% to 0.8% of instructions (what is
 left: the BIOS stubs, seg000's bails, the graphics driver's rewritten
 instructions), and a 5-minute run went from about 100 to 190-240 MIPS,
-with every screenshot and the audio output byte-identical.
+with every screenshot and the audio output byte-identical. With the BIOS
+stubs and `INT`s on the host and the tighter re-entry after a bail, 0.5%
+(244 MIPS), screenshots still identical.
 
 Two lifter bugs it found: `not` on memory negated the address (the
 memory `put` names the address `a`, hiding the value), and a generated
@@ -372,7 +402,12 @@ an interrupt behind a port read (the driver's retrace polling loops).
 2. **Coverage of the rest** (the 20% of instructions never run): milestone
    saves, and harness states deeper in the game (the endings: `chankiss`
    etc.).
-3. **A build without the interpreter**: the drivers are lifted (above);
-   left are the BIOS stubs the `INT`s go through (DOS and BIOS services are
-   already Rust, `pc::dos`/`bios`), interrupt delivery, and the code Rust
-   bails out of.
+3. **A build without the interpreter**: the drivers are lifted (above),
+   the BIOS stubs and `INT`s run by the host, and `--rec native` takes
+   interrupts at block boundaries. A 5-minute `--rec native` game
+   interprets 0.5% of its instructions, 97% of them the graphics driver's
+   rewritten instructions (the stepped `nop`s and jumps it switches code
+   paths with, at 334b:1d83-1d98 and 1f24 the most), the rest seg000's own
+   rewritten sites and bails. Each of
+   these as a Rust branch on the byte the code writes, and the interpreter
+   can go.

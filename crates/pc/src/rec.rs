@@ -101,6 +101,8 @@ pub struct Rec {
     /// the count ran in Rust, or in [`Machine::rec_interp`], also counted
     /// here under `--rec on`).
     pub interp_seg: Vec<u64>,
+    /// The same by instruction address (CS, IP) (diagnostics).
+    pub interp_at: std::collections::HashMap<(u16, u16), u64>,
     /// Shadow replays: instructions run by Rust and by the interpreter.
     pub replay_native: u64,
     pub replay_interp: u64,
@@ -131,7 +133,21 @@ pub struct Rec {
     /// Shadow mode: calls in progress, innermost last.
     pending: Vec<Pending>,
     /// After a bail: interpret the instruction there once (CS, IP).
-    skip: Option<(u16, u16)>,
+    /// After a bail: the state it left (CS, IP, instruction count, idle
+    /// time, next device event, run deadline). While all are unchanged, Rust
+    /// must not take over there again (it would bail again): the
+    /// interpreter runs one instruction.
+    skip: Option<(u16, u16, u64, u64, u64, u64)>,
+    /// Instructions of the BIOS stubs and `INT`s run by
+    /// [`Machine::host_step`] (diagnostics).
+    pub host_steps: u64,
+    /// `--rec native`: device events, interrupts and the run's deadline are
+    /// taken at the first block boundary at or after they fall due, instead
+    /// of the interpreter running up to their exact instruction. The game
+    /// then runs without the interpreter wherever its code is lifted; its
+    /// timing is as valid (interrupts are asynchronous) but no longer the
+    /// interpreter's to the instruction.
+    pub late_events: bool,
 }
 
 /// A shadow check waiting for the original to return.
@@ -218,6 +234,7 @@ impl Rec {
             returned: vec![0; 0x40000],
             stepped_op: vec![0; 256],
             interp_seg: vec![0; 0x10000],
+            interp_at: std::collections::HashMap::new(),
             replay_native: 0,
             replay_interp: 0,
             interp_nested: false,
@@ -230,6 +247,8 @@ impl Rec {
             no_through: false,
             busy: false,
             skip: None,
+            host_steps: 0,
+            late_events: false,
             pending: Vec::new(),
         }
     }
@@ -264,6 +283,14 @@ impl Rec {
         }
         self.drivers.push(Driver { name, table, resume, seg_at: seg_at as usize, code, next_check: 0, ok_seg: 0 });
         self
+    }
+}
+
+impl Rec {
+    /// Count `n` instructions the interpreter ran at CS:IP.
+    pub(crate) fn count_interp(&mut self, cs: u16, ip: u16, n: u64) {
+        self.interp_seg[cs as usize] += n;
+        *self.interp_at.entry((cs, ip)).or_default() += n;
     }
 }
 
@@ -355,7 +382,7 @@ impl Machine {
         let (cs, ip) = (self.cpu.sregs[CS], self.cpu.ip);
         let Some(space) = self.rec_space(cs) else { return false };
         let Some(rec) = &mut self.rec else { return false };
-        if rec.busy || rec.skip.take() == Some((cs, ip)) {
+        if rec.busy || rec.skip.take() == Some((cs, ip, self.cpu.instructions, self.idle_ns, self.next_event, self.run_deadline)) {
             return false;
         }
         match rec.mode {
@@ -379,7 +406,7 @@ impl Machine {
                 rec.busy = false;
                 if r.is_err() {
                     rec.bails += 1;
-                    rec.skip = Some((self.cpu.sregs[CS], self.cpu.ip));
+                    rec.skip = Some((self.cpu.sregs[CS], self.cpu.ip, self.cpu.instructions, self.idle_ns, self.next_event, self.run_deadline));
                     if self.cpu.sregs[CS] == LOAD_SEG {
                         rec.bail_at[self.cpu.ip as usize] += 1;
                     }
@@ -726,8 +753,20 @@ impl Machine {
         // The run loop checks before every instruction; the block's last
         // instruction starts at this count. Time comes from the count, so a
         // device event or the run's deadline inside the block is known now.
-        let last = self.now_at(self.cpu.instructions + len.max(1) as u64 - 1);
-        last >= self.next_event || last >= self.run_deadline || self.hw.reschedule || (self.cpu.accepts_irq() && self.hw.irq_pending())
+        let late = self.rec.as_ref().is_some_and(|r| r.late_events);
+        let last = self.now_at(self.cpu.instructions + if late { 0 } else { len.max(1) as u64 - 1 });
+        // An interrupt pending is taken before the block, or (right after
+        // STI) after its first instruction: then the interpreter runs that.
+        let due = last >= self.next_event
+            || last >= self.run_deadline
+            || self.hw.reschedule
+            || (self.cpu.flag(cpu::IF) && self.hw.irq_pending());
+        if !due {
+            // The block runs: STI's one-instruction hold ends with its first
+            // instruction (the interpreter clears it at every step).
+            self.cpu.irq_inhibit = false;
+        }
+        due
     }
 
     fn interp_until(&mut self, budget: u64, done: impl Fn(&Cpu) -> bool) -> Result<(), Bail> {
@@ -772,6 +811,50 @@ impl Machine {
             rec.stepped_op[op as usize] += 1;
         }
         self.step_raw()
+    }
+
+    /// `--rec on`: the instruction at CS:IP if it is one the host runs
+    /// without the interpreter: `INT nn` anywhere, and the BIOS stubs' own
+    /// instructions (`FE 38 nn` a service, `INT nn`, `IRET`; see
+    /// `bios::install`). Exactly as the CPU would: the same instruction
+    /// count, the same stack. None: the interpreter must run it.
+    pub(crate) fn host_step(&mut self) -> Option<Step> {
+        if !self.rec.as_ref().is_some_and(|r| r.mode == RecMode::On) || self.cpu.halted {
+            return None;
+        }
+        let (cs, ip) = (self.cpu.sregs[CS], self.cpu.ip);
+        let base = (cs as usize) << 4;
+        let at = |o: u16| self.hw.mem[(base + ip.wrapping_add(o) as usize) & 0xf_ffff];
+        let stub = cs == crate::STUB_SEG;
+        let (op, n, k) = (at(0), at(1), at(2));
+        let len = match op {
+            0xcd => 2,
+            0xfe if stub && n == 0x38 => 3,
+            0xcf if stub => 1,
+            _ => return None,
+        };
+        let c = &mut self.cpu;
+        c.irq_inhibit = false;
+        c.insn_cs = cs;
+        c.insn_ip = ip;
+        c.instructions += 1;
+        c.ip = ip.wrapping_add(len);
+        let step = match op {
+            0xcd => {
+                c.interrupt(&mut self.hw, n);
+                Step::Ok
+            }
+            0xfe => Step::Callback(k),
+            _ => {
+                c.ip = c.pop(&mut self.hw);
+                c.sregs[CS] = c.pop(&mut self.hw);
+                let f = c.pop(&mut self.hw);
+                c.set_flags(f);
+                Step::Ok
+            }
+        };
+        self.rec.as_mut().unwrap().host_steps += 1;
+        Some(step)
     }
 
     fn step_raw(&mut self) -> Result<(), Bail> {
@@ -842,9 +925,15 @@ impl Machine {
             }
             just_bailed = false;
             self.hw.now_ns = self.now_ns();
-            let (cs, n0) = (self.cpu.sregs[CS], self.cpu.instructions);
-            let step = self.cpu.step(&mut self.hw);
-            self.rec.as_mut().unwrap().interp_seg[cs as usize] += self.cpu.instructions - n0;
+            let step = match self.host_step() {
+                Some(s) => s,
+                None => {
+                    let (cs, ip, n0) = (self.cpu.sregs[CS], self.cpu.ip, self.cpu.instructions);
+                    let s = self.cpu.step(&mut self.hw);
+                    self.rec.as_mut().unwrap().count_interp(cs, ip, self.cpu.instructions - n0);
+                    s
+                }
+            };
             match step {
                 Step::Ok => {}
                 Step::Callback(n) => {
