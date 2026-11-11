@@ -9,7 +9,7 @@ description = "Browser (wasm) host for the emulated DNCDPRG.EXE"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pc = { workspace = true }
+pc = { workspace = true, features = ["interp"] }
 gfx = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

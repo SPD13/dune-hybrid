@@ -8,7 +8,7 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 cpu = { path = "crates/cpu" }
-pc = { path = "crates/pc" }
+pc = { path = "crates/pc", default-features = false }
 gfx = { path = "crates/gfx" }
 
 [profile.release]

@@ -55,7 +55,12 @@ pub enum RunExit {
     Invalid { cs: u16, ip: u16, opcode: u16 },
     /// Reached [`Machine::break_at`] (which is then cleared).
     Break,
+    /// Built without the interpreter: CS:IP is code with no Rust version.
+    Unlifted { cs: u16, ip: u16 },
 }
+
+/// [`Step::Invalid`]'s opcode for "no interpreter in this build".
+pub(crate) const NO_INTERP: u16 = 0xffff;
 
 /// A DOS file handle: the host file plus the name it was opened under (so a
 /// snapshot can reopen it).
@@ -318,7 +323,7 @@ impl Machine {
                 Some(s) => s,
                 None => {
                     let (cs, ip, n0) = (self.cpu.sregs[CS], self.cpu.ip, self.cpu.instructions);
-                    let s = self.cpu.step(&mut self.hw);
+                    let s = self.cpu_step();
                     if let Some(r) = &mut self.rec {
                         r.count_interp(cs, ip, self.cpu.instructions - n0);
                     }
@@ -334,9 +339,21 @@ impl Machine {
                     self.service(n);
                     self.idle_check();
                 }
+                Step::Invalid { cs, ip, opcode: NO_INTERP } => return RunExit::Unlifted { cs, ip },
                 Step::Invalid { cs, ip, opcode } => return RunExit::Invalid { cs, ip, opcode },
             }
         }
+    }
+
+    /// The interpreter, one instruction; the one place it is called. Built
+    /// without it ([`RunExit::Unlifted`]): [`Step::Invalid`] with opcode
+    /// [`NO_INTERP`], CS:IP unchanged.
+    #[inline]
+    pub(crate) fn cpu_step(&mut self) -> Step {
+        #[cfg(feature = "interp")]
+        return self.cpu.step(&mut self.hw);
+        #[cfg(not(feature = "interp"))]
+        return Step::Invalid { cs: self.cpu.sregs[CS], ip: self.cpu.ip, opcode: NO_INTERP };
     }
 
     /// After a service: if the idle detector saw the program polling for
@@ -565,7 +582,7 @@ impl Machine {
             if let Some(c) = &mut self.coverage {
                 c.before(&self.cpu, &self.hw);
             }
-            let step = self.cpu.step(&mut self.hw);
+            let step = self.cpu_step();
             if let Some(c) = &mut self.coverage {
                 c.after(&self.cpu);
             }

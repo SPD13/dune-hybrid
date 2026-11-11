@@ -190,6 +190,8 @@ struct Driver {
     interval: u64,
     /// The segment the game's table held at the last check.
     seen_seg: u16,
+    /// When a call into it last forced a check.
+    forced_at: u64,
     /// The segment it was last found at with exactly that code (0: not
     /// loaded, or not the lifted one): only there it runs natively.
     ok_seg: u16,
@@ -300,7 +302,7 @@ impl Rec {
             table[off as usize] = Some(f);
             resume[off as usize] = Some(f);
         }
-        self.drivers.push(Driver { name, table, resume, seg_at: seg_at as usize, code, next_check: 0, interval: CHECK_MIN_NS, seen_seg: 0, ok_seg: 0 });
+        self.drivers.push(Driver { name, table, resume, seg_at: seg_at as usize, code, next_check: 0, interval: CHECK_MIN_NS, seen_seg: 0, forced_at: 0, ok_seg: 0 });
         self
     }
 }
@@ -327,6 +329,10 @@ impl Machine {
                 continue;
             }
             let ok = self.driver_hash(i, &self.hw.mem) == Some(d.code.1);
+            // The game's pointer moved (or was cleared) while the code is
+            // still where it was verified: it stays there, natively (its
+            // interrupt handlers keep running from there).
+            let kept = !ok && d.ok_seg != 0 && d.ok_seg != seg && self.driver_hash_at(i, &self.hw.mem, d.ok_seg) == Some(d.code.1);
             let d = &mut self.rec.as_mut().unwrap().drivers[i];
             if seg != d.seen_seg {
                 d.interval = CHECK_MIN_NS;
@@ -339,8 +345,53 @@ impl Machine {
             if d.ok_seg != 0 && d.ok_seg == seg && !ok {
                 eprintln!("rec: the {} driver at {seg:04x} is not the one lifted (code hash differs): interpreting it", d.name);
             }
-            d.ok_seg = if ok { seg } else { 0 };
+            d.ok_seg = if ok {
+                seg
+            } else if kept {
+                d.ok_seg
+            } else {
+                0
+            };
+            if kept {
+                d.next_check = now + CHECK_MIN_NS.max(d.interval);
+            }
         }
+    }
+
+    /// A far call into segment `seg`: if a driver the game keeps there is
+    /// not (yet) found to be the lifted one, check it now (at most once a
+    /// millisecond), so it runs natively from its first calls on.
+    fn rec_driver_called(&mut self, seg: u16) {
+        let now = self.now_ns();
+        let Some(rec) = &mut self.rec else { return };
+        let mut due = false;
+        for d in &mut rec.drivers {
+            let a = GAME_DS as usize * 16 + d.seg_at;
+            let at = u16::from_le_bytes([self.hw.mem[a], self.hw.mem[a + 1]]);
+            if at == seg && d.ok_seg != seg && now >= d.forced_at + CHECK_MIN_NS {
+                d.forced_at = now;
+                d.next_check = 0;
+                due = true;
+            }
+        }
+        if due {
+            self.rec_driver_check(now);
+        }
+    }
+
+    /// Diagnostics: each lifted driver's name, the segment the game's
+    /// table holds, where its code was last verified (0: nowhere), and
+    /// whether the code at the table's segment is the lifted one now.
+    pub fn rec_drivers(&self) -> Vec<(&'static str, u16, u16, bool)> {
+        let Some(rec) = &self.rec else { return Vec::new() };
+        (0..rec.drivers.len())
+            .map(|i| {
+                let d = &rec.drivers[i];
+                let a = GAME_DS as usize * 16 + d.seg_at;
+                let seg = u16::from_le_bytes([self.hw.mem[a], self.hw.mem[a + 1]]);
+                (d.name, seg, d.ok_seg, self.driver_hash(i, &self.hw.mem) == Some(d.code.1))
+            })
+            .collect()
     }
 
     /// Driver `i`'s code bytes in `mem` hashed as the lifter did (None
@@ -348,7 +399,12 @@ impl Machine {
     fn driver_hash(&self, i: usize, mem: &[u8]) -> Option<u64> {
         let d = &self.rec.as_ref()?.drivers[i];
         let a = GAME_DS as usize * 16 + d.seg_at;
-        let seg = u16::from_le_bytes([mem[a], mem[a + 1]]);
+        self.driver_hash_at(i, mem, u16::from_le_bytes([mem[a], mem[a + 1]]))
+    }
+
+    /// Driver `i`'s code bytes hashed as if it were at segment `seg`.
+    fn driver_hash_at(&self, i: usize, mem: &[u8], seg: u16) -> Option<u64> {
+        let d = &self.rec.as_ref()?.drivers[i];
         if seg == 0 {
             return None;
         }
@@ -383,9 +439,9 @@ impl Machine {
             return Some(0);
         }
         let rec = self.rec.as_ref()?;
+        // Where its code was last verified (see `rec_driver_check`).
         let i = rec.drivers.iter().position(|d| d.ok_seg != 0 && d.ok_seg == cs)?;
-        let a = GAME_DS as usize * 16 + rec.drivers[i].seg_at;
-        (u16::from_le_bytes([self.hw.mem[a], self.hw.mem[a + 1]]) == cs).then_some(i as u8 + 1)
+        Some(i as u8 + 1)
     }
 
     /// The routine with its entry at CS:`ip` (`entry`), or any routine with a
@@ -797,10 +853,21 @@ impl Machine {
         // instruction starts at this count. Time comes from the count, so a
         // device event or the run's deadline inside the block is known now.
         let late = self.rec.as_ref().is_some_and(|r| r.late_events);
+        if late {
+            // STI's one-instruction hold ends at the block boundary too, as
+            // every other event's exact instruction does: a pending
+            // interrupt is taken here (else only the interpreter could run
+            // the one instruction before it).
+            self.cpu.irq_inhibit = false;
+        }
         let last = self.now_at(self.cpu.instructions + if late { 0 } else { len.max(1) as u64 - 1 });
         // An interrupt pending is taken before the block, or (right after
         // STI) after its first instruction: then the interpreter runs that.
-        let due = last >= self.next_event
+        // Native timing: the run loop has updated the devices at this very
+        // time before Rust runs; an event due again right now (a device
+        // with more to do at once) waits for the block's end, as time must
+        // pass for it (else Rust would bail here for ever).
+        let due = (if late { last > self.next_event } else { last >= self.next_event })
             || last >= self.run_deadline
             || self.hw.reschedule
             || (self.cpu.flag(cpu::IF) && self.hw.irq_pending());
@@ -947,13 +1014,16 @@ impl Machine {
             }
         };
         self.rec.as_mut().unwrap().host_steps += 1;
+        if self.cpu.sregs[CS] != cs {
+            self.rec_driver_called(self.cpu.sregs[CS]);
+        }
         Some(step)
     }
 
     fn step_raw(&mut self) -> Result<(), Bail> {
         let replay = self.hw.io_log.replay.is_some();
         self.hw.now_ns = self.now_ns();
-        match self.cpu.step(&mut self.hw) {
+        match self.cpu_step() {
             Step::Ok => Ok(()),
             Step::Callback(n) => {
                 self.service(n);
@@ -1024,7 +1094,7 @@ impl Machine {
                 Some(s) => s,
                 None => {
                     let (cs, ip, n0) = (self.cpu.sregs[CS], self.cpu.ip, self.cpu.instructions);
-                    let s = self.cpu.step(&mut self.hw);
+                    let s = self.cpu_step();
                     self.rec.as_mut().unwrap().count_interp(cs, ip, self.cpu.instructions - n0);
                     s
                 }

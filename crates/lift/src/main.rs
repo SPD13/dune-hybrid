@@ -70,6 +70,9 @@ struct Args {
     /// Files of `SEG:OFF count` lines (`REC_MISSES` from `dune-run --rec
     /// on`): where Rust had no block to go on from; they become block starts.
     leaders: Vec<String>,
+    /// Instructions (raw mode) known to be rewritten at run time though no
+    /// `--also` image shows it (siblings of rewritten ones).
+    rewritten: Vec<u16>,
 }
 
 fn parse() -> Result<Args, String> {
@@ -86,6 +89,7 @@ fn parse() -> Result<Args, String> {
         also: Vec::new(),
         entries: Vec::new(),
         leaders: Vec::new(),
+        rewritten: Vec::new(),
     };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
@@ -101,6 +105,11 @@ fn parse() -> Result<Args, String> {
             "--name" => a.name = v()?,
             "--also" => a.also.push(v()?),
             "--leaders" => a.leaders.push(v()?),
+            "--rewritten" => {
+                for e in v()?.split(',') {
+                    a.rewritten.push(u16::from_str_radix(e.trim(), 16).map_err(|e| format!("--rewritten: {e}"))?);
+                }
+            }
             "--entries" => {
                 for e in v()?.split(',') {
                     a.entries.push(u16::from_str_radix(e.trim(), 16).map_err(|e| format!("--entries: {e}"))?);
@@ -764,6 +773,38 @@ fn lift(insn: &Instruction, st: &mut Stats) -> (String, bool) {
             };
             (format!("{count} m.cpu.string_op(&mut m.hw, 0x{op:02x}, {seg}, 0x{rep:02x});"), false)
         }
+        // IMUL r16, r/m16, imm: as the interpreter (CF = OF = the product
+        // does not fit in 16 bits; the other flags unchanged).
+        Imul if insn.op_count() == 3 => {
+            let code = (|| {
+                let a = get(insn, 1, true)?;
+                let b = match insn.op2_kind() {
+                    OpKind::Immediate16 => insn.immediate16() as i16 as i32,
+                    OpKind::Immediate8to16 => insn.immediate8to16() as i32,
+                    _ => return None,
+                };
+                let r = put(insn, 0, true, "(r as u16 as u32)")?;
+                Some(format!(
+                    "{{ let r = ({a} as u16 as i16 as i32) * ({b}); {r} let over = r != (r as i16) as i32; m.cpu.set_flag(CF, over); m.cpu.set_flag(pc::cpu::OF, over); }}"
+                ))
+            })();
+            native(code, st)
+        }
+        // AAM base (not 0: that raises #DE, left to the interpreter).
+        Aam if insn.immediate8() != 0 => {
+            let b = insn.immediate8();
+            native(
+                Some(format!(
+                    "{{ let al = m.cpu.reg8(0); m.cpu.set_reg8(4, al / {b}); m.cpu.set_reg8(0, al % {b}); m.cpu.set_szp(Width::B, (al % {b}) as u32); }}"
+                )),
+                st,
+            )
+        }
+        // HLT: the CPU waits for an interrupt; the run loop sleeps.
+        Hlt => {
+            st.native += 1;
+            (format!("{count} m.cpu.ip = 0x{next:04x}; m.cpu.halted = true; return Err(Bail);"), true)
+        }
         Mul | Imul | Div | Idiv if insn.op_count() == 1 => {
             let sub = match m {
                 Mul => 4,
@@ -846,7 +887,7 @@ fn lift(insn: &Instruction, st: &mut Stats) -> (String, bool) {
                 true,
             )
         }
-        Hlt | Jmp => {
+        Jmp => {
             st.bail += 1;
             (bail, true)
         }
@@ -944,6 +985,25 @@ fn emit_routine(out: &mut String, r: &Routine, name: &str, st: &mut Stats, ind: 
                     let _ = writeln!(out, "                    pc = 0x{:04x}; continue;", vs_all[0].1.next_ip() as u16);
                     let _ = writeln!(out, "                }}");
                 }
+                // Branches whose forms differ only in their displacement: any
+                // target, computed as it runs (Rust goes on there from any
+                // block start).
+                if let Some((code, k, ends)) = branch_form(&vs_all, st) {
+                    let cond: Vec<String> = vs_all[0].0[..k].iter().enumerate().map(|(i, b)| format!("code({i}) == 0x{b:02x}")).collect();
+                    let next = vs_all[0].1.next_ip() as u16;
+                    let disp = if vs_all[0].1.len() - k == 1 {
+                        format!("(code({k}) as i8 as i16 as u16)")
+                    } else {
+                        format!("(code({k}) as u16 | (code({}) as u16) << 8)", k + 1)
+                    };
+                    let _ = writeln!(out, "                if {} {{", cond.join(" && "));
+                    let _ = writeln!(out, "                    let t: u16 = 0x{next:04x}u16.wrapping_add({disp});");
+                    let _ = writeln!(out, "                    {code}");
+                    if !ends {
+                        let _ = writeln!(out, "                    pc = 0x{next:04x}; continue;");
+                    }
+                    let _ = writeln!(out, "                }}");
+                }
                 st.patched = patched;
                 st.stepped += 1;
                 let _ = writeln!(
@@ -1018,6 +1078,32 @@ fn immediate_form(vs: &[(Vec<u8>, Instruction)], st: &mut Stats) -> Option<Strin
     (!ends && code.matches(token).count() == 1 && !code.contains("step_insn")).then(|| code.replace(token, &read))
 }
 
+/// For a rewritten near branch (JMP, Jcc, LOOP) whose forms differ only
+/// in the displacement: its code with the target `t` (computed by the
+/// caller), the number of bytes before the displacement, and whether the
+/// code ends the block.
+fn branch_form(vs: &[(Vec<u8>, Instruction)], st: &mut Stats) -> Option<(String, usize, bool)> {
+    let (b0, i0) = &vs[0];
+    if i0.op0_kind() != OpKind::NearBranch16 || i0.mnemonic() == Mnemonic::Call {
+        return None;
+    }
+    let size = match i0.len() {
+        2 => 1,
+        3 if b0[0] == 0xe9 => 2,
+        _ => return None,
+    };
+    let k = i0.len() - size;
+    if !vs.iter().all(|(b, v)| v.code() == i0.code() && v.len() == i0.len() && b[..k] == b0[..k]) {
+        return None;
+    }
+    let mut p = *i0;
+    p.set_near_branch16(0x5a5a);
+    let (n, s) = (st.native, st.stepped);
+    let (code, ends) = lift(&p, st);
+    (st.native, st.stepped) = (n, s);
+    (code.matches("0x5a5a").count() == 1 && !code.contains("step_insn")).then(|| (code.replace("0x5a5a", "t"), k, ends))
+}
+
 /// FNV-1a over the bytes of `ranges` (the same as `pc::rec`'s check).
 fn code_hash(seg: &[u8], ranges: &[(u16, u16)]) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
@@ -1073,7 +1159,7 @@ fn main() -> ExitCode {
             let mut patched = Vec::new();
             loop {
                 let mut more = false;
-                for &e in entries.keys() {
+                for &e in entries.keys().chain(&ind.extra_leaders.clone()) {
                     let r = explore(&seg, e, &ind);
                     for (&ip, insn) in &r.insns {
                         let n = insn.len();
@@ -1112,6 +1198,15 @@ fn main() -> ExitCode {
                     break;
                 }
             }
+            for &ip in &a.rewritten {
+                let insn = decode_at(&seg, ip);
+                ind.variants.entry(ip).or_insert_with(|| vec![(seg[ip as usize..insn.next_ip() as usize].to_vec(), insn)]);
+                for b in ip..insn.next_ip() as u16 {
+                    if !patched.contains(&b) {
+                        patched.push(b);
+                    }
+                }
+            }
             patched.sort_unstable();
             println!("rewritten instructions: {}", ind.variants.iter().map(|(ip, v)| format!("{ip:04x}x{}", v.len())).collect::<Vec<_>>().join(" "));
             println!("rewritten code bytes: {}", patched.iter().map(|b| format!("{b:04x}")).collect::<Vec<_>>().join(" "));
@@ -1140,10 +1235,24 @@ fn main() -> ExitCode {
                 covered.extend(explore(&seg, e, &ind).insns.into_keys());
             }
             let name = if a.raw.is_some() { a.name.clone() } else { "resume".into() };
+            let mut todo = Vec::new();
             for &l in &ind.extra_leaders {
                 if !covered.contains(&l) {
                     entries.insert(l, format!("{name}_from_{l:04x}"));
                     covered.extend(explore(&seg, l, &ind).insns.into_keys());
+                    todo.push(l);
+                }
+            }
+            // And what they call.
+            while let Some(e) = todo.pop() {
+                for insn in explore(&seg, e, &ind).insns.values() {
+                    if insn.mnemonic() == Mnemonic::Call && insn.op0_kind() == OpKind::NearBranch16 {
+                        let t = insn.near_branch16();
+                        if !entries.contains_key(&t) {
+                            entries.insert(t, format!("{name}_{t:04x}"));
+                            todo.push(t);
+                        }
+                    }
                 }
             }
         }

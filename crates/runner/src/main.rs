@@ -382,6 +382,11 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    #[cfg(not(feature = "interp"))]
+    if !(args.rec == Some(pc::rec::RecMode::On) && args.rec_native) {
+        eprintln!("built without the interpreter: only --rec native runs");
+        return ExitCode::FAILURE;
+    }
     let exe = match fs::read(args.dir.join("DNCDPRG.EXE")) {
         Ok(b) => b,
         Err(e) => {
@@ -655,7 +660,16 @@ fn main() -> ExitCode {
         let peak = audio.iter().fold(0f32, |a, &b| a.max(b.abs()));
         println!("audio: {:.1}s, peak {peak:.3}", audio.len() as f64 / 2.0 / pc::sound::OUTPUT_RATE as f64);
     }
-    println!("exit: {exit:?} after {:.2}s virtual, {:.2}s wall, {:.1} MIPS real", m.now_ns() as f64 / 1e9, elapsed, m.cpu.instructions as f64 / elapsed / 1e6);
+    let exit = match exit {
+        pc::RunExit::Unlifted { cs, ip } => {
+            for (name, seg, ok, now) in m.rec_drivers() {
+                println!("rec driver {name}: table {seg:04x}, verified at {ok:04x}, lifted code at the table's segment now: {now}");
+            }
+            format!("Unlifted at {cs:04x}:{ip:04x} (no Rust code there: lift it, e.g. with --leaders)")
+        }
+        e => format!("{e:?}"),
+    };
+    println!("exit: {exit} after {:.2}s virtual, {:.2}s wall, {:.1} MIPS real", m.now_ns() as f64 / 1e9, elapsed, m.cpu.instructions as f64 / elapsed / 1e6);
     println!("cpu: {}", m.regs_string());
     println!("battery saver skipped {:.1}% of virtual time", m.idle_skipped_ns as f64 / m.now_ns() as f64 * 100.0);
     println!("vga mode {:02x}; PIT {:.1} Hz", m.hw.vga.mode, m.hw.pit.irq0_hz());

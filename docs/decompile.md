@@ -421,6 +421,63 @@ memory `put` names the address `a`, hiding the value), and a generated
 block's interrupt check only looked at the next recorded event, missing
 an interrupt behind a port read (the driver's retrace polling loops).
 
+### 7. Without the interpreter
+
+```sh
+cargo build --release -p runner --no-default-features   # pc without its `interp` feature
+dune-run ... --rec native
+```
+
+`pc`'s `interp` feature (on by default, and for the web build) is the
+x86 interpreter: every use goes through `Machine::cpu_step`. Built without
+it, `Cpu::step` is never instantiated (it is generic over the bus), so the
+interpreter is not in the binary; only `--rec native` runs, and code with
+no Rust version stops the machine: `exit: Unlifted at CS:IP`. `dune-rec`
+takes `pc` without default features, so it cannot turn it back on.
+
+What made it possible, beyond the sections above:
+- `IMUL r16, r/m16, imm`, `AAM` and `HLT` lifted (`HLT` stops the routine
+  halted; the run loop sleeps until the interrupt).
+- A driver is checked as soon as the game calls into it (at most once a
+  millisecond while it is not found to be the lifted one), not only on
+  the next periodic check: a just-loaded driver runs natively from its
+  first call.
+- Interrupt handlers no call reaches (the temporary timer handler at
+  E8B8 that the start-up code installs to measure the machine), and
+  driver code the dumps never showed running: found by `REC_MISSES` from
+  the interpreter build (`--rec native` and `--rec on`, random-input games
+  and the phase ladder: about 940 places), and lifted as block starts or
+  routines of their own with `--leaders` (and what those call).
+- Every hand port's stretch start is a block start (a port may stop at
+  any of them, in the middle of a generated block): `--leaders` from
+  `grep -rhoE "c\.(run|check)\(0x[0-9a-f]{4}" crates/dune-rec/src/hand/`
+  (2,933 places, as `1000:XXXX` lines).
+- Rewritten branches whose forms differ only in their displacement get a
+  form computing the target as it runs (the graphics driver's `loop` at
+  163B, whose target it rewrites among a family of entries at 166E-16AA);
+  `--rewritten HEX,...` marks instructions known to be rewritten that no
+  dump shows rewritten (1684, 1687: siblings of rewritten ones). Without
+  it, the first rewrite made the whole driver "not the lifted one".
+- A driver runs natively at the segment its code was verified at, even
+  while the game's pointer to it moves.
+- In native timing, STI's one-instruction hold also ends at the block
+  boundary: an interrupt pending then is taken there, one instruction
+  early (else only the interpreter could run the instruction before it).
+
+Measured: a 5-minute random-input game without the interpreter ran to its
+deadline at 197 MIPS (51 for the interpreter alone), every screenshot
+identical to the interpreter's, the same final CPU state. Ten 20-minute
+random-input games (seeds 12, 13, 21, 31, 44, 57, 66, 78, 90, 101), one at
+a time: all ran to their deadline at 140 to 160 MIPS. The last stop
+found (seed 12, in the sound driver) was a device due again at the very
+time the run loop had just updated it: in native timing an event due
+exactly at a block's start now waits for the block's end, as time must
+pass for it.
+
+The shadow validation (two 10-minute games with `--call-each 4`, the
+long-call and phase-ladder runs) shows only differences marked as the
+harness's, and `--rec on` stays screenshot-identical.
+
 ## Next steps
 
 1. **More readable ports**, the main work from here: name the data segment
@@ -431,14 +488,7 @@ an interrupt behind a port read (the driver's retrace polling loops).
 2. **Coverage of the rest** (the 20% of instructions never run): milestone
    saves, and harness states deeper in the game (the endings: `chankiss`
    etc.).
-3. **A build without the interpreter**: the drivers are lifted (above),
-   the BIOS stubs, `INT`s and calls run by the host, rewritten code picked
-   by its bytes, and `--rec native` takes interrupts at block boundaries.
-   A 5-minute `--rec native` game interprets 459 of its 2.08 billion
-   instructions (the music and sound drivers just after they are loaded,
-   before the check finds them; 5 `aam`s), at 193 MIPS, every screenshot
-   identical to the interpreter's. What is left for a build with no interpreter at all:
-   making the drivers' code check immediate (not interpreting a driver
-   in the moments before it is checked), the rare instructions still
-   stepped (`aam`), and a fallback for code no lift has seen (today the
-   interpreter; without it, a stop naming the address, to lift from).
+3. **Lifting what the interpreter-free build stops at**: see section 7.
+   Each stop names an address; collect the places with `REC_MISSES` from
+   the interpreter build in the same game, add them to `--leaders`,
+   relift.

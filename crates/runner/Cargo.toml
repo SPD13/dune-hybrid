@@ -9,6 +9,11 @@ description = "Headless native runner: boots DNCDPRG.EXE and writes screenshots"
 name = "dune-run"
 path = "src/main.rs"
 
+[features]
+default = ["interp"]
+# Build without the interpreter: `cargo build -p runner --no-default-features`.
+interp = ["pc/interp"]
+
 [dependencies]
 pc = { workspace = true }
 gfx = { workspace = true }
