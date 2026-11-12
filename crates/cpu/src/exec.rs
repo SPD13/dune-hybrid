@@ -735,6 +735,7 @@ impl Cpu {
     /// as the interpreter runs them (for generated code). Returns true if it
     /// raised a divide error (CS:IP is then at the handler; `insn_cs`/`insn_ip`
     /// must name the instruction).
+    #[inline]
     pub fn mul_div<B: Bus>(&mut self, bus: &mut B, w: Width, sub: usize, a: u32) -> bool {
         match sub {
             4 => {

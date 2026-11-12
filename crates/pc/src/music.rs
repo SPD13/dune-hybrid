@@ -76,10 +76,13 @@ impl MusicTracker {
     /// count `count`.
     #[inline]
     pub(crate) fn hit(&mut self, linear: u32, count: u64) -> Option<usize> {
-        if linear == 0 || self.last == (linear, count) {
+        if linear == 0 {
             return None;
         }
         let i = self.watch.iter().position(|&w| w == linear)?;
+        if self.last == (linear, count) {
+            return None;
+        }
         self.last = (linear, count);
         Some(i)
     }

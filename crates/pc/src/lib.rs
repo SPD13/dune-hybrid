@@ -62,6 +62,16 @@ pub enum RunExit {
 /// [`Step::Invalid`]'s opcode for "no interpreter in this build".
 pub(crate) const NO_INTERP: u16 = 0xffff;
 
+/// What [`Machine::tooled_step`] did.
+enum Tooled {
+    /// An instruction ran (interpreted or by the host).
+    Step(Step),
+    /// Rust ran: loop again.
+    Again,
+    /// Stop the run.
+    Exit(RunExit),
+}
+
 /// A DOS file handle: the host file plus the name it was opened under (so a
 /// snapshot can reopen it).
 pub(crate) struct OpenFile {
@@ -306,36 +316,17 @@ impl Machine {
                     self.watch_gfx(pc);
                 }
             }
-            // Shadow checks finishing here first (a harness's breakpoint at a
-            // routine's return must not cut its check off), then the
-            // breakpoint, then Rust (which, one block at a time, stops at it).
-            if self.rec.is_some() {
-                self.rec_pending();
-            }
-            if self.break_at == Some((self.cpu.sregs[CS], self.cpu.ip)) {
-                self.break_at = None;
-                return RunExit::Break;
-            }
-            if self.rec.is_some() && self.rec_hook() {
-                continue;
-            }
-            if let Some(c) = &mut self.coverage {
-                c.before(&self.cpu, &self.hw);
-            }
-            let step = match self.host_step() {
-                Some(s) => s,
-                None => {
-                    let (cs, ip, n0) = (self.cpu.sregs[CS], self.cpu.ip, self.cpu.instructions);
-                    let s = self.cpu_step();
-                    if let Some(r) = &mut self.rec {
-                        r.count_interp(cs, ip, self.cpu.instructions - n0);
-                    }
-                    s
+            // The plain emulator: one test, then the interpreter. Recompiled
+            // code, coverage and breakpoints all go through `tooled_step`.
+            let step = if self.rec.is_none() && self.coverage.is_none() && self.break_at.is_none() {
+                self.cpu_step()
+            } else {
+                match self.tooled_step() {
+                    Tooled::Step(s) => s,
+                    Tooled::Again => continue,
+                    Tooled::Exit(e) => return e,
                 }
             };
-            if let Some(c) = &mut self.coverage {
-                c.after(&self.cpu);
-            }
             match step {
                 Step::Ok | Step::Halt => {}
                 Step::Callback(n) => {
@@ -346,6 +337,43 @@ impl Machine {
                 Step::Invalid { cs, ip, opcode } => return RunExit::Invalid { cs, ip, opcode },
             }
         }
+    }
+
+    /// One step with the decompilation tooling on (`rec`, `coverage` or
+    /// `break_at` set); kept out of line so the plain emulator's loop stays
+    /// as it was. Shadow checks finishing here first (a harness's breakpoint
+    /// at a routine's return must not cut its check off), then the
+    /// breakpoint, then Rust (which, one block at a time, stops at it).
+    #[inline(never)]
+    fn tooled_step(&mut self) -> Tooled {
+        if self.rec.is_some() {
+            self.rec_pending();
+        }
+        if self.break_at == Some((self.cpu.sregs[CS], self.cpu.ip)) {
+            self.break_at = None;
+            return Tooled::Exit(RunExit::Break);
+        }
+        if self.rec.is_some() && self.rec_hook() {
+            return Tooled::Again;
+        }
+        if let Some(c) = &mut self.coverage {
+            c.before(&self.cpu, &self.hw);
+        }
+        let step = match self.host_step() {
+            Some(s) => s,
+            None => {
+                let (cs, ip, n0) = (self.cpu.sregs[CS], self.cpu.ip, self.cpu.instructions);
+                let s = self.cpu_step();
+                if let Some(r) = &mut self.rec {
+                    r.count_interp(cs, ip, self.cpu.instructions - n0);
+                }
+                s
+            }
+        };
+        if let Some(c) = &mut self.coverage {
+            c.after(&self.cpu);
+        }
+        Tooled::Step(step)
     }
 
     /// The interpreter, one instruction; the one place it is called. Built

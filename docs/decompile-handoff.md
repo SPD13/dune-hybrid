@@ -74,6 +74,8 @@ tools/lift/validate.sh TAG                         # shadow + call-each + --rec 
 | c9 | **9 of 10** (intro 900 s and all phase-ladder games but one) | unreferenced listing labels (game 303 at `1000:283e`) |
 | c10 | **11 of 11**: nine hour-long games (six languages, five with the ladder), game 303, the intro | |
 | c11 | 1 of 2 | none to fix: game 410 is the voice-file-over-the-sound-driver case below |
+| c12 | **7 of 7 two-hour games** (seeds 501-507, six languages, ladders 70:35 to 70:200) | none |
+| c13 | **5 of 5 four-hour games** (seeds 601-605, clicks 0.15 s to 3 s, ladders 70:45, 70:60) | none |
 
 Speed without the interpreter: 180–220 MIPS. The interpreter alone runs
 about 50.

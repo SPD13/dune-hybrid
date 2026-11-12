@@ -557,6 +557,21 @@ The validation after these changes is unchanged from before them:
 - 1,222 routines verified equal in the first game;
 - `--rec on` 10/10 screenshot-identical.
 
+Round c12 (2026-11-12): seven **2-hour** games on new seeds (501-507),
+six languages, ladders from 70:35 to 70:200, clicks every 0.3 to 1.5 s:
+all ran to the end, at 192 to 211 MIPS. Round c13: five **4-hour**
+games (seeds 601-605; clicks every 0.15 s to 3 s, ladders 70:45 and
+70:60): all ran to the end, at 200 to 231 MIPS, still changing screens in
+their last hour.
+
+**The emulator is unaffected.** In plain emulation (no `--rec`, no
+coverage, no breakpoint) the run loop makes one test and runs the
+interpreter; all the tooling is in `Machine::tooled_step`, out of line.
+Checked against `hd-studio`'s emulator on the 900 s intro, every room and
+a 10-minute scripted game: all 366 outputs (screenshots, audio, every
+graphics driver call, room captures) byte-identical, speed within 3%
+(the noise between runs).
+
 ## Next steps
 
 1. **More readable ports**, the main work from here: name the data segment
