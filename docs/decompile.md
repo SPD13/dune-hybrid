@@ -12,6 +12,24 @@ and Cryogenic's sources; never dune-re's game logic.
 **Never commit generated code.** `crates/dune-rec/src/generated.rs` is
 produced from your own `DNCDPRG.EXE`. It is game-derived and git-ignored.
 
+## Choosing how the game runs
+
+The emulator stays the default; the Rust code is opt-in, so what worked
+before keeps working.
+
+| Run | How | Needs `generated*.rs` |
+|---|---|---|
+| **Emulated** (interpreter only, as before) | `cargo build --release`, then `dune-run …` with no `--rec` | no |
+| **Rust, checked** against the interpreter | `dune-run … --rec shadow` | yes |
+| **Rust, exact timing**, interpreter where Rust has no code | `dune-run … --rec on` | yes |
+| **Rust, native timing** | `dune-run … --rec native` | yes |
+| **Without the interpreter** at all | `cargo build --release -p runner --no-default-features`, then `--rec native` | yes |
+
+- The web app always builds with the interpreter and does not use the
+  generated code.
+- Without the generated files, `dune-rec` still compiles (a fresh clone);
+  `--rec` then has only the hand ports.
+
 ## Pipeline
 
 ```
@@ -478,6 +496,67 @@ The shadow validation (two 10-minute games with `--call-each 4`, the
 long-call and phase-ladder runs) shows only differences marked as the
 harness's, and `--rec on` stays screenshot-identical.
 
+#### Making it reliable: the soak loop (`tools/lift/`)
+
+The lift inputs are game-derived, so they live outside git in
+`../dune-lift/`; its README lists them. The scripts read that folder,
+or `$LIFT_DATA`:
+
+```sh
+tools/lift/lift.sh                    # lift seg000 + the drivers, build both runners
+tools/lift/soak.sh check TAG SPEC...  # games without the interpreter, one at a time
+tools/lift/merge.sh TAG               # their "Unlifted at" stops (and REC_MISSES) -> leaders.txt
+tools/lift/validate.sh TAG            # shadow + call-each + --rec on screenshots
+```
+
+A SPEC is `LANG,SEED,SECONDS[,LADDER[,STEP]]`. Each stop names an
+address: either a block start to add, or a pattern the lifter should know.
+The patterns found so far, now handled in general:
+- **Code rewritten through `mov cs:[A], ...`** (`static_rewrites`). An
+  immediate stored gives the instruction's form with it; a register stored
+  marks the instruction rewritten, its value read as it runs.
+  - This was a real bug. The graphics driver turns `add di,140h` into
+    `sub di,140h` by storing one ModRM byte, and no dump had caught that
+    form: the intro drew a scene wrong at 309 s and crashed at 328 s,
+    under `--rec on` too.
+  - Shadow mode missed it: it checks the first 20 calls of a routine
+    (`REC_SAMPLES`, `REC_FROM` change that).
+- **Jump tables:**
+  - `jmp cs:[reg+T]`, bounded by a `cmp` just before it, or unbounded:
+    the words pointing at code within 4 KB of the table.
+  - From the listing (`listing_leaders.py`): `dw` code pointers, `dd`
+    far pointers (the interrupt vectors the program installs), labels
+    with no cross-reference.
+- **After a `div`/`idiv`, a block start:** the program's divide-error
+  handler returns past the instruction.
+- **The graphics driver's `1234h` placeholder immediates:** they are
+  patched through computed addresses, so they are read as the code runs.
+  The rewritten `loop` families' entries are in
+  `drivers/vga-rewritten.txt`.
+- **Hand ports that give up** on a case they don't handle (`loc_03385`: a
+  divide overflow). Without the interpreter, the generated code at that
+  place runs instead.
+- **Breakpoints (the phase ladder, `--call-each`):** without the
+  interpreter, Rust runs one block at a time while one is set.
+
+Measured (rounds c9-c10): 20 of 21 games ran to their deadline without
+the interpreter:
+- the 900 s intro;
+- nine hour-long random-input games in six languages, five of them with
+  the phase ladder;
+- game 303, which has the phase ladder too.
+
+They ran at 170 to 234 MIPS. Afterwards, 1 of 2 new games stopped: the
+phase ladder had forced a stage in which a voice file is loaded over the
+sound driver, which the game then calls. The same happens with the
+original (seed 205 freezes there under the plain interpreter). Not
+something the lift can fix; such games are left out.
+
+The validation after these changes is unchanged from before them:
+- the same differences, all marked as the harness's;
+- 1,222 routines verified equal in the first game;
+- `--rec on` 10/10 screenshot-identical.
+
 ## Next steps
 
 1. **More readable ports**, the main work from here: name the data segment
@@ -488,7 +567,8 @@ harness's, and `--rec on` stays screenshot-identical.
 2. **Coverage of the rest** (the 20% of instructions never run): milestone
    saves, and harness states deeper in the game (the endings: `chankiss`
    etc.).
-3. **Lifting what the interpreter-free build stops at**: see section 7.
-   Each stop names an address; collect the places with `REC_MISSES` from
-   the interpreter build in the same game, add them to `--leaders`,
-   relift.
+3. **The soak loop** (section 7): more seeds, longer games, other ladder
+   steps, until rounds come back clean. `tools/lift/soak.sh check`,
+   `merge.sh`, `lift.sh`; one game at a time.
+4. **The differences marked as the harness's**, re-checked with every call
+   (`REC_SAMPLES`, `REC_FROM`): one such mark hid the graphics bug above.

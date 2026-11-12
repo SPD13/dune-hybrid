@@ -1,5 +1,6 @@
 # Dune Hybrid: notes for Claude
 
+- **Continuing the decompilation (DNCDPRG.EXE to Rust)?** Read [docs/decompile-handoff.md](docs/decompile-handoff.md) first, then [docs/decompile.md](docs/decompile.md).
 - **Continuing the generative HD art and studio work?** Read [docs/hd-handoff.md](docs/hd-handoff.md) first, then [docs/hd-studio-plan.md](docs/hd-studio-plan.md).
 - **Never commit or share game-derived files:** packs, renders, extracted art, studio work folders, `DUNE.DAT`, saves.
 - **Commit or push only when the user asks.**

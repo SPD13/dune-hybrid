@@ -258,6 +258,67 @@ fn read_leaders(paths: &[String], cs: u16) -> Result<BTreeSet<u16>, String> {
     Ok(set)
 }
 
+/// The targets of `jmp word ptr cs:[REG+TABLE]` whose index is bounded by a
+/// `cmp REG2, N` just before it (and doubled by `and REG2, even` or
+/// `shl`/`add` to itself, or not): the table's words, read from the image.
+/// Unbounded: the words pointing at code near the table.
+fn jump_table(seg: &[u8], before: &BTreeMap<u16, Instruction>, insn: &Instruction) -> Vec<u16> {
+    if insn.mnemonic() != Mnemonic::Jmp
+        || insn.op0_kind() != OpKind::Memory
+        || insn.memory_segment() != Register::CS
+        || insn.memory_index() != Register::None
+        || !matches!(insn.memory_base(), Register::BX | Register::SI | Register::DI | Register::BP)
+    {
+        return Vec::new();
+    }
+    let ip = insn.ip() as u16;
+    let base = insn.memory_displacement32() as usize;
+    let near: Vec<&Instruction> = before.range(ip.saturating_sub(0x20)..ip).map(|(_, i)| i).collect();
+    let Some(n) = near.iter().rev().find_map(|i| {
+        (i.mnemonic() == Mnemonic::Cmp && i.op0_kind() == OpKind::Register && matches!(i.op1_kind(), OpKind::Immediate16 | OpKind::Immediate8to16 | OpKind::Immediate8))
+            .then(|| i.immediate(1) as u32)
+    }) else {
+        // No bound: the words that point at code near the table (within
+        // 4 KB), up to two that do not in a row.
+        let mut out = Vec::new();
+        let mut misses = 0;
+        for k in 0..64 {
+            let a = base + 2 * k;
+            if a + 1 >= seg.len() {
+                break;
+            }
+            let t = u16::from_le_bytes([seg[a], seg[a + 1]]) as usize;
+            // (Not into the words read so far: code may follow the table.)
+            if t >= 0x100 && t.abs_diff(base) < 0x1000 && !(base..a + 2).contains(&t) {
+                out.push(t as u16);
+                misses = 0;
+            } else {
+                misses += 1;
+                if misses == 2 {
+                    break;
+                }
+            }
+        }
+        return out;
+    };
+    let doubled = near.iter().any(|i| {
+        (i.mnemonic() == Mnemonic::And && i.op1_kind() != OpKind::Register && i.immediate(1) & 1 == 0)
+            || (i.mnemonic() == Mnemonic::Shl && i.op1_kind() == OpKind::Immediate8 && i.immediate(1) == 1)
+            || (i.mnemonic() == Mnemonic::Add && i.op1_kind() == OpKind::Register && i.op0_register() == i.op1_register())
+    });
+    let words = if doubled { n.div_ceil(2) } else { n };
+    if words == 0 || words > 0x80 {
+        return Vec::new();
+    }
+    (0..words as usize)
+        .filter_map(|k| {
+            let a = base + 2 * k;
+            (a + 1 < seg.len()).then(|| u16::from_le_bytes([seg[a], seg[a + 1]]))
+        })
+        .filter(|&t| t >= 0x100 && (t as usize) < seg.len())
+        .collect()
+}
+
 fn decode_at(seg: &[u8], ip: u16) -> Instruction {
     let mut d = Decoder::with_ip(16, &seg[ip as usize..], ip as u64, DecoderOptions::NONE);
     d.decode()
@@ -334,6 +395,10 @@ fn explore(seg: &[u8], entry: u16, ind: &Indirect) -> Routine {
                             todo.push(t);
                         }
                     }
+                    for t in jump_table(seg, &r.insns, &insn) {
+                        r.leaders.insert(t);
+                        todo.push(t);
+                    }
                     break;
                 }
                 FlowControl::Exception => break,
@@ -346,6 +411,11 @@ fn explore(seg: &[u8], entry: u16, ind: &Indirect) -> Routine {
                 // After STI a pending interrupt comes one instruction later:
                 // a block start there, so `rec_tick` sees it.
                 _ if insn.mnemonic() == Mnemonic::Sti => {
+                    r.leaders.insert(next);
+                }
+                // A divide error's handler may return past the DIV (the
+                // program's own skips it): a block start after it.
+                _ if matches!(insn.mnemonic(), Mnemonic::Div | Mnemonic::Idiv) => {
                     r.leaders.insert(next);
                 }
                 // A REP string op runs as one interpreter step, however many
@@ -1104,6 +1174,74 @@ fn branch_form(vs: &[(Vec<u8>, Instruction)], st: &mut Stats) -> Option<(String,
     (code.matches("0x5a5a").count() == 1 && !code.contains("step_insn")).then(|| (code.replace("0x5a5a", "t"), k, ends))
 }
 
+/// A store into the code segment at a fixed address (`mov cs:[A], src`):
+/// the address, its size, and the bytes stored if they are an immediate.
+fn cs_store(insn: &Instruction) -> Option<(u16, usize, Option<Vec<u8>>)> {
+    if insn.mnemonic() != Mnemonic::Mov
+        || insn.op_count() != 2
+        || insn.op0_kind() != OpKind::Memory
+        || insn.memory_segment() != Register::CS
+        || insn.memory_base() != Register::None
+        || insn.memory_index() != Register::None
+    {
+        return None;
+    }
+    let addr = insn.memory_displacement32() as u16;
+    let size = insn.memory_size().size();
+    let val = match insn.op1_kind() {
+        OpKind::Immediate8 => Some(vec![insn.immediate8()]),
+        OpKind::Immediate16 => Some(insn.immediate16().to_le_bytes().to_vec()),
+        _ => None,
+    };
+    Some((addr, size, val))
+}
+
+/// Instructions the code itself rewrites with `mov cs:[A], ...` (found
+/// statically, so forms no dump caught are lifted too): an immediate stored
+/// gives the instruction's form with it; a register stored only marks it
+/// rewritten (its immediate or displacement is then read as it runs).
+/// Returns whether anything new was added.
+fn static_rewrites(seg: &[u8], all: &BTreeMap<u16, Instruction>, ind: &mut Indirect, patched: &mut Vec<u16>) -> bool {
+    let mut more = false;
+    for (&sip, s) in all {
+        let Some((addr, size, val)) = cs_store(s) else { continue };
+        let Some((&tip, t)) = all.range(..=addr).next_back().filter(|(_, t)| t.next_ip() as u16 > addr) else { continue };
+        if tip == sip || addr as usize + size > t.next_ip() as usize {
+            continue;
+        }
+        let n = t.len();
+        let orig = (seg[tip as usize..tip as usize + n].to_vec(), *t);
+        if !ind.variants.contains_key(&tip) {
+            ind.variants.insert(tip, vec![orig]);
+            more = true;
+        }
+        for b in tip..t.next_ip() as u16 {
+            if !patched.contains(&b) {
+                patched.push(b);
+            }
+        }
+        let Some(val) = val else { continue };
+        let k = (addr - tip) as usize;
+        let forms: Vec<Vec<u8>> = ind.variants[&tip].iter().map(|(b, _)| b.clone()).collect();
+        for b in forms {
+            if b.len() < k + size {
+                continue;
+            }
+            let mut buf = seg.to_vec();
+            buf[tip as usize..tip as usize + b.len()].copy_from_slice(&b);
+            buf[addr as usize..addr as usize + size].copy_from_slice(&val);
+            let v = decode_at(&buf, tip);
+            let vb = buf[tip as usize..v.next_ip() as usize].to_vec();
+            let vs = ind.variants.get_mut(&tip).unwrap();
+            if !vs.iter().any(|(x, _)| *x == vb) {
+                vs.push((vb, v));
+                more = true;
+            }
+        }
+    }
+    more
+}
+
 /// FNV-1a over the bytes of `ranges` (the same as `pc::rec`'s check).
 fn code_hash(seg: &[u8], ranges: &[(u16, u16)]) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
@@ -1124,7 +1262,7 @@ fn main() -> ExitCode {
         }
     };
     let run = || -> Result<(), String> {
-        let mut raw_patched: &'static [u16] = &[];
+        let raw_patched: &'static [u16];
         let (seg, mut entries, ind, source) = if let Some(raw) = &a.raw {
             let seg = fs::read(raw).map_err(|e| format!("{raw}: {e}"))?;
             if seg.len() != 0x10000 {
@@ -1194,6 +1332,25 @@ fn main() -> ExitCode {
                         }
                     }
                 }
+                let mut all = BTreeMap::new();
+                for &e in entries.keys().chain(&ind.extra_leaders.clone()) {
+                    all.extend(explore(&seg, e, &ind).insns);
+                }
+                more |= static_rewrites(&seg, &all, &mut ind, &mut patched);
+                // Immediates 1234h are placeholders the driver patches in
+                // through computed addresses: read as it runs.
+                for (&ip, insn) in &all {
+                    let imm = (0..insn.op_count()).any(|i| insn.op_kind(i) == OpKind::Immediate16 && insn.immediate16() == 0x1234);
+                    if imm && !ind.variants.contains_key(&ip) {
+                        ind.variants.insert(ip, vec![(seg[ip as usize..insn.next_ip() as usize].to_vec(), *insn)]);
+                        for b in ip..insn.next_ip() as u16 {
+                            if !patched.contains(&b) {
+                                patched.push(b);
+                            }
+                        }
+                        more = true;
+                    }
+                }
                 if !more {
                     break;
                 }
@@ -1225,6 +1382,20 @@ fn main() -> ExitCode {
             for &t in &ind.call_targets {
                 entries.entry(t).or_insert_with(|| format!("sub_{t:04x}"));
             }
+            // Code the program rewrites with `mov cs:[A], ...`.
+            let mut patched: Vec<u16> = PATCHED.to_vec();
+            loop {
+                let mut all = BTreeMap::new();
+                for &e in entries.keys().chain(&ind.extra_leaders.clone()) {
+                    all.extend(explore(&seg, e, &ind).insns);
+                }
+                if !static_rewrites(&seg, &all, &mut ind, &mut patched) {
+                    break;
+                }
+            }
+            patched.sort_unstable();
+            println!("rewritten instructions: {}", ind.variants.iter().map(|(ip, v)| format!("{ip:04x}x{}", v.len())).collect::<Vec<_>>().join(" "));
+            raw_patched = Box::leak(patched.into_boxed_slice());
             (seg, entries, ind, "DNCDPRG.EXE".to_string())
         };
         // A block start asked for in code no routine reaches: a routine of
@@ -1263,7 +1434,7 @@ fn main() -> ExitCode {
         let _ = writeln!(out, "// Generated by dune-lift from {source}. Game-derived: do not commit or share.\n");
         out.push_str("use pc::Machine;\nuse pc::cpu::{AX, BP, BX, CF, CS, CX, DF, DI, DS, DX, ES, IF, SI, SP, SS, ZF, Bus, Width};\n");
         out.push_str("use pc::rec::{Bail, Routine};\n\n");
-        let mut st = Stats { patched: if a.raw.is_some() { raw_patched } else { PATCHED }, driver: a.raw.is_some(), ..Stats::default() };
+        let mut st = Stats { patched: raw_patched, driver: a.raw.is_some(), ..Stats::default() };
         let mut sizes = 0usize;
         // Block leader -> a routine that has it (the first, by entry).
         let mut leaders: BTreeMap<u16, u16> = BTreeMap::new();

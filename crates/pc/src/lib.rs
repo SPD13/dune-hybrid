@@ -306,15 +306,18 @@ impl Machine {
                     self.watch_gfx(pc);
                 }
             }
+            // Shadow checks finishing here first (a harness's breakpoint at a
+            // routine's return must not cut its check off), then the
+            // breakpoint, then Rust (which, one block at a time, stops at it).
             if self.rec.is_some() {
                 self.rec_pending();
-                if self.rec_hook() {
-                    continue;
-                }
             }
             if self.break_at == Some((self.cpu.sregs[CS], self.cpu.ip)) {
                 self.break_at = None;
                 return RunExit::Break;
+            }
+            if self.rec.is_some() && self.rec_hook() {
+                continue;
             }
             if let Some(c) = &mut self.coverage {
                 c.before(&self.cpu, &self.hw);

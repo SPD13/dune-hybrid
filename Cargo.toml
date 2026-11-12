@@ -13,3 +13,8 @@ gfx = { path = "crates/gfx" }
 
 [profile.release]
 debug = 1
+
+# The generated code (15 MB of Rust) without debug info: with line tables
+# its compile needs much more memory.
+[profile.release.package.dune-rec]
+debug = 0

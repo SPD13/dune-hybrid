@@ -222,6 +222,16 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
                 eprintln!("REC_MISSES: {e}");
             }
         }
+        // Every place the interpreter ran: each one stops the build without it.
+        if let Some(p) = std::env::var_os("REC_INTERP") {
+            let mut s = String::new();
+            for (n, (sg, o)) in &at {
+                let _ = writeln!(s, "{sg:04x}:{o:04x} {n}");
+            }
+            if let Err(e) = fs::write(&p, s) {
+                eprintln!("REC_INTERP: {e}");
+            }
+        }
         let names: std::collections::HashMap<u16, &str> = dune_rec::names().iter().copied().collect();
         let mut bails: Vec<(u64, usize)> = rec.bail_at.iter().enumerate().filter(|(_, n)| **n > 0).map(|(i, n)| (*n, i)).collect();
         bails.sort_unstable_by(|a, b| b.cmp(a));
@@ -238,7 +248,10 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
     }
     let mut names: std::collections::HashMap<u32, &str> = dune_rec::names().iter().map(|&(e, n)| (e as u32, n)).collect();
     if std::env::var_os("REC_NO_DRIVER").is_none() {
-        for (i, d) in dune_rec::drivers().iter().enumerate() {
+        let only = std::env::var("REC_DRIVERS").ok();
+        let all = dune_rec::drivers();
+        let used = all.iter().filter(|d| !only.as_ref().is_some_and(|o| !o.split(',').any(|n| n == d.name)));
+        for (i, d) in used.enumerate() {
             names.extend(d.names.iter().map(|&(e, n)| (pc::rec::key(i as u8 + 1, e), n)));
         }
     }
@@ -431,8 +444,21 @@ fn main() -> ExitCode {
         let rec = pc::rec::Rec::new(mode, routines, dune_rec::leaders());
         let mut rec = rec;
         rec.late_events = args.rec_native;
+        // REC_SAMPLES=N: check the first N calls of each routine (default 20).
+        if let Some(n) = std::env::var("REC_SAMPLES").ok().and_then(|v| v.parse().ok()) {
+            rec.samples = n;
+        }
+        // REC_FROM=SECONDS: shadow checks only from then on.
+        if let Some(t) = std::env::var("REC_FROM").ok().and_then(|v| v.parse::<f64>().ok()) {
+            rec.check_from = (t * 1e9) as u64;
+        }
         if std::env::var_os("REC_NO_DRIVER").is_none() {
+            // REC_DRIVERS=graphics,sound: only those (finding which one differs).
+            let only = std::env::var("REC_DRIVERS").ok();
             for d in dune_rec::drivers() {
+                if only.as_ref().is_some_and(|o| !o.split(',').any(|n| n == d.name)) {
+                    continue;
+                }
                 println!("rec: {} driver: {} routines", d.name, d.routines.len());
                 rec = rec.with_driver(d.name, d.routines, d.leaders, d.seg_at, d.code);
             }

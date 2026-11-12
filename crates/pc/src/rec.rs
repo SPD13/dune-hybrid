@@ -85,7 +85,17 @@ pub struct Rec {
     /// leader the interpreter reaches.
     pub resume: Vec<Option<Routine>>,
     /// Shadow mode: calls checked per routine.
+    /// seg000's generated code by block start: where a hand port gives up
+    /// twice with nothing changed (a case it does not handle), the build
+    /// without the interpreter goes on in it.
+    generated: Vec<Option<Routine>>,
+    fell_back: Option<(u16, u16, u64, u64, u64, u64)>,
     pub samples: u32,
+    /// Running Rust one block at a time: 1 in the first block, 2 after, 3
+    /// once it stopped at the next.
+    one_block: u8,
+    /// Shadow checks start at this virtual time (ns).
+    pub check_from: u64,
     pub stats: BTreeMap<u32, ShadowStats>,
     /// `On` mode: entries into Rust (calls and resumptions), and bails.
     pub calls: u64,
@@ -195,6 +205,10 @@ struct Driver {
     /// The segment it was last found at with exactly that code (0: not
     /// loaded, or not the lifted one): only there it runs natively.
     ok_seg: u16,
+    /// Whether it was ever found to be the lifted one, and the hashes of
+    /// the other forms of its code seen since (see `REC_DRIVER_FORMS`).
+    was_ok: bool,
+    forms: Vec<u64>,
 }
 
 /// A stretch started at `cpu` (its first instruction) with a recorded
@@ -236,6 +250,9 @@ impl Rec {
         for &(off, f) in leaders {
             resume[off as usize] = Some(f);
         }
+        // The generated code at each block start, before the hand ports
+        // take over their entries (see `generated`).
+        let generated = resume.clone();
         for &(off, f) in routines {
             table[off as usize] = Some(f);
             resume[off as usize] = Some(f);
@@ -244,7 +261,11 @@ impl Rec {
             mode,
             table,
             resume,
+            generated,
+            fell_back: None,
             samples: 20,
+            check_from: 0,
+            one_block: 0,
             stats: BTreeMap::new(),
             calls: 0,
             bails: 0,
@@ -302,7 +323,7 @@ impl Rec {
             table[off as usize] = Some(f);
             resume[off as usize] = Some(f);
         }
-        self.drivers.push(Driver { name, table, resume, seg_at: seg_at as usize, code, next_check: 0, interval: CHECK_MIN_NS, seen_seg: 0, forced_at: 0, ok_seg: 0 });
+        self.drivers.push(Driver { name, table, resume, seg_at: seg_at as usize, code, next_check: 0, interval: CHECK_MIN_NS, seen_seg: 0, forced_at: 0, ok_seg: 0, was_ok: false, forms: Vec::new() });
         self
     }
 }
@@ -343,7 +364,33 @@ impl Machine {
             // Its code changed where it was (a pointer to it overwritten is
             // not news).
             if d.ok_seg != 0 && d.ok_seg == seg && !ok {
-                eprintln!("rec: the {} driver at {seg:04x} is not the one lifted (code hash differs): interpreting it", d.name);
+                eprintln!("rec: the {} driver at {seg:04x} is not the one lifted (code hash differs) at {:.3}s: interpreting it", d.name, now as f64 / 1e9);
+            }
+            // The lifted driver's code rewritten into a form the lift has not
+            // seen: dump it, for the next lift's `--also` images.
+            if ok {
+                d.was_ok = true;
+            } else if d.was_ok && seg != 0 && !kept && d.forms.len() < 64 {
+                let base = (seg as usize) << 4;
+                if base + 0x10000 <= self.hw.mem.len() {
+                    let h = {
+                        let mut h = 0xcbf2_9ce4_8422_2325u64;
+                        for &(s, e) in d.code.0 {
+                            for &b in &self.hw.mem[base + s as usize..base + e as usize] {
+                                h = (h ^ b as u64).wrapping_mul(0x100_0000_01b3);
+                            }
+                        }
+                        h
+                    };
+                    if !d.forms.contains(&h) {
+                        d.forms.push(h);
+                        if let Some(dir) = std::env::var_os("REC_DRIVER_FORMS") {
+                            let dir = std::path::PathBuf::from(dir).join(format!("{}-{h:016x}", d.name));
+                            let _ = std::fs::create_dir_all(&dir);
+                            let _ = std::fs::write(dir.join(format!("{}.bin", d.name)), &self.hw.mem[base..base + 0x10000]);
+                        }
+                    }
+                }
             }
             d.ok_seg = if ok {
                 seg
@@ -468,14 +515,21 @@ impl Machine {
         if rec.busy {
             return false;
         }
-        if rec.skip.take() == Some((cs, ip, self.cpu.instructions, self.idle_ns, self.next_event, self.run_deadline)) {
+        let state = (cs, ip, self.cpu.instructions, self.idle_ns, self.next_event, self.run_deadline);
+        let skipping = rec.skip.take() == Some(state);
+        // (Once per place and state: if the generated code makes no
+        // progress either, there is nothing else to run.)
+        if skipping && (cfg!(feature = "interp") || rec.mode != RecMode::On || space != 0 || rec.fell_back.replace(state) == Some(state)) {
             return false;
         }
         match rec.mode {
             RecMode::On => {
                 // A breakpoint (harnesses) must stop at its exact instruction,
-                // which Rust code would run through: interpret meanwhile.
-                if self.break_at.is_some() {
+                // which Rust code would run through: interpret meanwhile, or
+                // without the interpreter, run Rust one block at a time (the
+                // run loop checks the breakpoint between them).
+                let one_block = self.break_at.is_some();
+                if one_block && cfg!(feature = "interp") {
                     return false;
                 }
                 // The graphics recorder watches the driver's entries and
@@ -483,7 +537,17 @@ impl Machine {
                 if space > 0 && self.gfx.active() && self.rec.as_ref().unwrap().drivers[space as usize - 1].name == "graphics" {
                     return false;
                 }
-                let Some(f) = self.rec_routine(cs, ip, false) else {
+                // Without the interpreter: a hand port that gave up here
+                // twice leaves it to the generated code.
+                if skipping {
+                    let rec = self.rec.as_ref().unwrap();
+                    match (rec.generated[ip as usize], rec.resume[ip as usize]) {
+                        (Some(g), Some(h)) if g as usize != h as usize => {}
+                        _ => return false,
+                    }
+                }
+                let found = if skipping { self.rec.as_ref().unwrap().generated[ip as usize] } else { self.rec_routine(cs, ip, false) };
+                let Some(f) = found else {
                     let rec = self.rec.as_mut().unwrap();
                     if !rec.in_interp {
                         *rec.missed.entry((cs, ip)).or_default() += 1;
@@ -494,32 +558,53 @@ impl Machine {
                 rec.in_interp = false;
                 rec.calls += 1;
                 rec.busy = true;
+                rec.one_block = if one_block { 1 } else { 0 };
                 let r = f(self, ip);
                 let rec = self.rec.as_mut().unwrap();
                 rec.busy = false;
+                let planned = rec.one_block == 3;
+                let mut traced = false;
+                rec.one_block = 0;
                 if r.is_err() {
                     rec.bails += 1;
                     // A port may stop where the generated code goes on: Rust
                     // tries once more there; a second bail with nothing
                     // changed leaves one instruction to the interpreter.
                     let at = (self.cpu.sregs[CS], self.cpu.ip, self.cpu.instructions, self.idle_ns, self.next_event, self.run_deadline);
-                    if rec.last_bail.replace(at) == Some(at) {
+                    // (Not the planned stops of one block at a time.)
+                    if !planned && rec.last_bail.replace(at) == Some(at) {
                         rec.skip = Some(at);
+                        traced = std::env::var_os("REC_TRACE_SKIP").is_some();
                     }
-                    if self.cpu.sregs[CS] == LOAD_SEG {
+                    if self.cpu.sregs[CS] == LOAD_SEG && !one_block {
                         rec.bail_at[self.cpu.ip as usize] += 1;
                     }
+                }
+                if traced {
+                    eprintln!(
+                        "rec skip at {cs:04x}:{:04x}: now {} next_event {} deadline {} reschedule {} IF {} irq_pending {} inhibit {} halted {}",
+                        self.cpu.ip,
+                        self.now_ns(),
+                        self.next_event,
+                        self.run_deadline,
+                        self.hw.reschedule,
+                        self.cpu.flag(cpu::IF),
+                        self.hw.irq_pending(),
+                        self.cpu.irq_inhibit,
+                        self.cpu.halted
+                    );
                 }
                 true
             }
             RecMode::Shadow => {
                 let Some(f) = self.rec_routine(cs, ip, true) else { return false };
                 let k = key(space, ip);
+                let early = self.now_ns() < self.rec.as_ref().unwrap().check_from;
                 let rec = self.rec.as_mut().unwrap();
                 let st = rec.stats.entry(k).or_default();
                 let checked = st.ok + st.diff + st.bailed + st.skipped;
                 let in_flight = rec.pending.iter().filter(|p| p.entry == k).count() as u32;
-                let room = checked + in_flight < rec.samples && rec.pending.len() < MAX_PENDING;
+                let room = !early && checked + in_flight < rec.samples && rec.pending.len() < MAX_PENDING;
                 let (ss, sp) = (self.cpu.sregs[SS], self.cpu.regs[SP]);
                 let ret = self.mem_read16(ss, sp);
                 let ret_cs = self.mem_read16(ss, sp.wrapping_add(2));
@@ -848,6 +933,16 @@ impl Machine {
         }
         if self.rec.as_ref().is_some_and(|r| r.interp_nested) {
             return false;
+        }
+        // One block per call (a breakpoint is set): stop at the next block.
+        if let Some(r) = self.rec.as_mut()
+            && r.one_block > 0
+        {
+            if r.one_block >= 2 {
+                r.one_block = 3;
+                return true;
+            }
+            r.one_block = 2;
         }
         // The run loop checks before every instruction; the block's last
         // instruction starts at this count. Time comes from the count, so a
