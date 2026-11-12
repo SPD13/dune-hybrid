@@ -5637,3 +5637,637 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 7);
     steps_8313(&mut c)
 }
+
+/// `loc_03406` (BP of `loc_033be`, for each troop SI): unless bit 20h of
+/// byte 3, its yield (`loc_0342d`, AX) goes to [94h] for a troop with bit
+/// 80h of byte 10h; else to [96h], with its words 10h and 12h ORed into
+/// [5Ch] and [5Eh].
+pub fn tally_yield(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x3406)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let b3 = c.byte(si.wrapping_add(3));
+    c.run(0x3406, 3)?;
+    c.test(B, b3 as u16, 0x20);
+    if b3 & 0x20 != 0 {
+        return c.ret();
+    }
+    c.call(0x342d, 0x340f)?;
+    let si = c.reg(SI);
+    let b10 = c.byte(si.wrapping_add(0x10));
+    let ax = c.reg(AX);
+    if b10 & 0x80 != 0 {
+        c.run(0x340f, 4)?;
+        c.test(B, b10 as u16, 0x80);
+        let v = c.word(0x94);
+        let v = c.add(W, v, ax);
+        c.set_word(0x94, v);
+        return c.ret();
+    }
+    c.run(0x340f, 8)?;
+    c.test(B, b10 as u16, 0x80);
+    let v = c.word(0x96);
+    let v = c.add(W, v, ax);
+    c.set_word(0x96, v);
+    for (field, total) in [(0x10u16, 0x5cu16), (0x12, 0x5e)] {
+        let w = c.word(si.wrapping_add(field));
+        c.set_reg(AX, w);
+        let t = c.word(total);
+        let t = c.or(W, t, w);
+        c.set_word(total, t);
+    }
+    c.ret()
+}
+
+/// `loc_05728` (BP of `loc_06639`, for each troop SI, CF for byte 3 below
+/// 80h): by the job in the low nibble of byte 3 (not 2): BL + 1 for jobs
+/// 0-3, CH + 1 for 4-7, CL + 1 for 8-15. AL the job / 4.
+pub fn count_by_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x5728)?;
+    let mut c = Ctx::new(m);
+    if !c.flag(CF) {
+        c.run(0x5728, 2)?;
+        return c.ret();
+    }
+    let si = c.reg(SI);
+    let b3 = c.byte(si.wrapping_add(3));
+    let job = b3 & 0x0f;
+    c.run(0x5728, if job == 2 { 6 } else if job >> 2 == 0 { 10 } else { 12 })?;
+    let al = c.and(B, b3 as u16, 0x0f);
+    c.set_reg8(r8::AL, al as u8);
+    c.cmp(B, al, 2);
+    if job == 2 {
+        return c.ret();
+    }
+    let al = c.shr1(B, al, 2);
+    c.set_reg8(r8::AL, al as u8);
+    let reg = if al == 0 {
+        r8::BL
+    } else {
+        c.cmp(B, al, 1);
+        if al == 1 { r8::CH } else { r8::CL }
+    };
+    let v = c.reg8(reg);
+    let v = c.inc(B, v as u16);
+    c.set_reg8(reg, v as u8);
+    c.ret()
+}
+
+/// `loc_04e04` (BP of `loc_04ded`, for each troop SI): CX + 1 for a troop
+/// with byte 3 zero and bit 80h of byte 19h.
+pub fn count_4e04(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4e04)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let b3 = c.byte(si.wrapping_add(3));
+    let b19 = c.byte(si.wrapping_add(0x19));
+    let counted = b3 == 0 && b19 & 0x80 != 0;
+    c.run(0x4e04, if b3 != 0 { 3 } else if counted { 6 } else { 5 })?;
+    c.cmp(B, b3 as u16, 0);
+    if b3 == 0 {
+        c.test(B, b19 as u16, 0x80);
+        if counted {
+            let cx = c.reg(CX);
+            let cx = c.inc(W, cx);
+            c.set_reg(CX, cx);
+        }
+    }
+    c.ret()
+}
+
+/// `loc_07289` (BP of `loc_0727d`, for each troop SI): bit 40h of word 12h
+/// cleared, CX 100h when it was set.
+pub fn clear_bit_7289(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7289)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let w = c.word(si.wrapping_add(0x12));
+    let set = w & 0x40 != 0;
+    c.run(0x7289, if set { 5 } else { 3 })?;
+    c.test(W, w, 0x40);
+    if set {
+        let w = c.and(W, w, 0xffbf);
+        c.set_word(si.wrapping_add(0x12), w);
+        c.set_reg(CX, 0x100);
+    }
+    c.ret()
+}
+
+/// `loc_07655`, the end of `loc_0762a` and `loc_0764d`: `loc_066b1` (CX,
+/// DX kept), CX + 1.
+fn troop_lost_7655(c: &mut Ctx) -> Result<(), Bail> {
+    let (cx, dx) = (c.reg(CX), c.reg(DX));
+    c.push(cx);
+    c.push(dx);
+    c.call(0x66b1, 0x765a)?;
+    c.run(0x765a, 4)?;
+    let dx = c.pop();
+    c.set_reg(DX, dx);
+    let cx = c.pop();
+    let cx = c.inc(W, cx);
+    c.set_reg(CX, cx);
+    c.ret()
+}
+
+/// `loc_0762a` (BP of `loc_07443`, for each troop SI of a raided
+/// location, CF for byte 3 below 80h): a troop with bit 80h of byte 10h
+/// and CX below DX is captured (byte 3 ACh, bit 10h of byte 10h, bytes
+/// 1Ah and 19h and word 0Ch zero); at CX = DX or above it is lost
+/// ([`troop_lost_7655`]). CX + 1 either way.
+pub fn raid_troop_762a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x762a)?;
+    let mut c = Ctx::new(m);
+    if c.flag(CF) {
+        c.run(0x762a, 2)?;
+        return c.ret();
+    }
+    let si = c.reg(SI);
+    let b10 = c.byte(si.wrapping_add(0x10));
+    if b10 & 0x80 == 0 {
+        c.run(0x762a, 4)?;
+        c.test(B, b10 as u16, 0x80);
+        return c.ret();
+    }
+    let (cx, dx) = (c.reg(CX), c.reg(DX));
+    if cx >= dx {
+        c.run(0x762a, 8)?;
+        c.test(B, b10 as u16, 0x80);
+        c.cmp(W, cx, dx);
+        return troop_lost_7655(&mut c);
+    }
+    c.run(0x762a, 12)?;
+    c.test(B, b10 as u16, 0x80);
+    c.cmp(W, cx, dx);
+    c.set_byte(si.wrapping_add(3), 0xac);
+    let v = c.or(B, b10 as u16, 0x10);
+    c.set_byte(si.wrapping_add(0x10), v as u8);
+    c.set_byte(si.wrapping_add(0x1a), 0);
+    c.set_word(si.wrapping_add(0x0c), 0);
+    c.set_byte(si.wrapping_add(0x19), 0);
+    let cx = c.inc(W, cx);
+    c.set_reg(CX, cx);
+    c.ret()
+}
+
+/// `loc_0764d` (BP of `loc_06e02`, for each troop SI, CF for byte 3 below
+/// 80h): a troop with bit 80h of byte 10h is lost ([`troop_lost_7655`]).
+pub fn lose_troop_764d(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x764d)?;
+    let mut c = Ctx::new(m);
+    if c.flag(CF) {
+        c.run(0x764d, 2)?;
+        return c.ret();
+    }
+    let si = c.reg(SI);
+    let b10 = c.byte(si.wrapping_add(0x10));
+    if b10 & 0x80 == 0 {
+        c.run(0x764d, 4)?;
+        c.test(B, b10 as u16, 0x80);
+        return c.ret();
+    }
+    c.run(0x764d, 6)?;
+    c.test(B, b10 as u16, 0x80);
+    troop_lost_7655(&mut c)
+}
+
+/// `loc_068da` (for each troop SI): with bit 10h of byte 10h, the bit
+/// cleared, CX + 1 and `loc_0846c` (CX kept).
+pub fn troop_68da(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x68da)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let b = c.byte(si.wrapping_add(0x10));
+    if b & 0x10 == 0 {
+        c.run(0x68da, 3)?;
+        c.test(B, b as u16, 0x10);
+        return c.ret();
+    }
+    c.run(0x68da, 2)?;
+    c.test(B, b as u16, 0x10);
+    troop_at_68e0(&mut c)
+}
+
+/// `loc_068e0`, the end of `loc_068da` and `loc_075ea`: bit 10h of byte
+/// 10h of the troop SI cleared, CX + 1, `loc_0846c` (CX kept).
+fn troop_at_68e0(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x68e0, 4)?;
+    let si = c.reg(SI);
+    let b = c.byte(si.wrapping_add(0x10));
+    let b = c.and(B, b as u16, 0xef);
+    c.set_byte(si.wrapping_add(0x10), b as u8);
+    let cx = c.reg(CX);
+    let cx = c.inc(W, cx);
+    c.set_reg(CX, cx);
+    c.push(cx);
+    c.call(0x846c, 0x68e9)?;
+    c.run(0x68e9, 2)?;
+    let cx = c.pop();
+    c.set_reg(CX, cx);
+    c.ret()
+}
+
+/// `loc_06e0f` (for each troop SI): bit 20h of word 10h moved to bit
+/// 1000h of word 12h.
+pub fn troop_6e0f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6e0f)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let w = c.word(si.wrapping_add(0x10));
+    let set = w & 0x20 != 0;
+    c.run(0x6e0f, if set { 5 } else { 3 })?;
+    c.test(W, w, 0x20);
+    if set {
+        let w = c.and(W, w, 0xffdf);
+        c.set_word(si.wrapping_add(0x10), w);
+        let v = c.word(si.wrapping_add(0x12));
+        let v = c.or(W, v, 0x1000);
+        c.set_word(si.wrapping_add(0x12), v);
+    }
+    c.ret()
+}
+
+/// `loc_075ea` (BP of `loc_07443`, for each troop SI of a raided
+/// location, CF for byte 3 below 80h): a troop with bit 80h of byte 10h
+/// leaves (`loc_0858c`, the bit cleared, `loc_0851f`); with CL 8 or more
+/// it is lost ([`troop_lost_7655`]), else it starts over: byte 3 A0h,
+/// bytes 1Ah and 15h random from 1464h (mask F7Fh), bytes 16h and 17h
+/// from 0A0Ah (mask 1F1Fh), byte 19h 0, then `loc_068e0`.
+pub fn raid_troop_75ea(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x75ea)?;
+    let mut c = Ctx::new(m);
+    if c.flag(CF) {
+        c.run(0x75ea, 2)?;
+        return c.ret();
+    }
+    let si = c.reg(SI);
+    let b10 = c.byte(si.wrapping_add(0x10));
+    if b10 & 0x80 == 0 {
+        c.run(0x75ea, 4)?;
+        c.test(B, b10 as u16, 0x80);
+        return c.ret();
+    }
+    c.run(0x75ea, 4)?;
+    c.test(B, b10 as u16, 0x80);
+    c.call(0x858c, 0x75f5)?;
+    c.run(0x75f5, 2)?;
+    let si = c.reg(SI);
+    let b = c.byte(si.wrapping_add(0x10));
+    let b = c.and(B, b as u16, 0x7f);
+    c.set_byte(si.wrapping_add(0x10), b as u8);
+    c.call(0x851f, 0x75fc)?;
+    let cl = c.reg8(r8::CL);
+    if cl >= 8 {
+        c.run(0x75fc, 5)?;
+        c.cmp(B, cl as u16, 8);
+        return troop_lost_7655(&mut c);
+    }
+    c.run(0x75fc, 5)?;
+    c.cmp(B, cl as u16, 8);
+    let si = c.reg(SI);
+    c.set_byte(si.wrapping_add(3), 0xa0);
+    c.set_reg(BX, 0x0f7f);
+    c.call(0xe3b7, 0x760b)?;
+    c.run(0x760b, 5)?;
+    let si = c.reg(SI);
+    let ax = c.reg(AX);
+    let ax = c.add(W, ax, 0x1464);
+    c.set_reg(AX, ax);
+    c.set_byte(si.wrapping_add(0x1a), ax as u8);
+    c.set_byte(si.wrapping_add(0x15), (ax >> 8) as u8);
+    c.set_reg(BX, 0x1f1f);
+    c.call(0xe3b7, 0x761a)?;
+    c.run(0x761a, 5)?;
+    let si = c.reg(SI);
+    let ax = c.reg(AX);
+    let ax = c.add(W, ax, 0x0a0a);
+    c.set_reg(AX, ax);
+    c.set_byte(si.wrapping_add(0x16), ax as u8);
+    c.set_byte(si.wrapping_add(0x17), (ax >> 8) as u8);
+    c.set_byte(si.wrapping_add(0x19), 0);
+    troop_at_68e0(&mut c)
+}
+
+/// `loc_075af` (BP of `loc_07443`, for each troop SI of a raided
+/// location DI, CF for byte 3 below 80h): troop 8E0h gets bit 20h of
+/// byte 3 cleared and goes on into `loc_06b8a`; a troop with bit 20h of
+/// byte 3 gets byte 3 22h; any other gets bit 400h of word 10h (and 20h
+/// for a location with byte 8 28h or more), `loc_06f48` with AL 4,
+/// `loc_06edd` with BX 1, AL 3, and goes on into `loc_06acb` with CL 4.
+pub fn raid_troop_75af(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x75af)?;
+    let mut c = Ctx::new(m);
+    if !c.flag(CF) {
+        c.run(0x75af, 2)?;
+        return c.ret();
+    }
+    let si = c.reg(SI);
+    if si == 0x08e0 {
+        c.run(0x75af, 5)?;
+        c.cmp(W, si, 0x08e0);
+        let b = c.byte(si.wrapping_add(3));
+        let b = c.and(B, b as u16, 0xdf);
+        c.set_byte(si.wrapping_add(3), b as u8);
+        return c.jump(0x6b8a);
+    }
+    let b3 = c.byte(si.wrapping_add(3));
+    if b3 & 0x20 != 0 {
+        c.run(0x75af, 7)?;
+        c.cmp(W, si, 0x08e0);
+        c.test(B, b3 as u16, 0x20);
+        c.set_byte(si.wrapping_add(3), 0x22);
+        return c.ret();
+    }
+    let di = c.reg(DI);
+    let kind = c.byte(di.wrapping_add(8));
+    let far = kind >= 0x28;
+    c.run(0x75af, if far { 11 } else { 10 })?;
+    c.cmp(W, si, 0x08e0);
+    c.test(B, b3 as u16, 0x20);
+    let w = c.word(si.wrapping_add(0x10));
+    let w = c.or(W, w, 0x0400);
+    c.set_word(si.wrapping_add(0x10), w);
+    c.cmp(B, kind as u16, 0x28);
+    if far {
+        let w = c.or(W, w, 0x0020);
+        c.set_word(si.wrapping_add(0x10), w);
+    }
+    c.set_reg8(r8::AL, 4);
+    c.call(0x6f48, 0x75d1)?;
+    c.run(0x75d1, 3)?;
+    c.set_reg(BX, 1);
+    c.set_reg8(r8::AL, 3);
+    c.call(0x6edd, 0x75d9)?;
+    c.run(0x75d9, 2)?;
+    c.set_reg8(r8::CL, 4);
+    c.jump(0x6acb)
+}
+
+/// `loc_034d0` (for each troop SI, unless bit 20h of byte 3): with its
+/// byte 3 in AL, the base DX is 7Fh for bit 40h, else 61h. The count at
+/// DX (DX - 1 for a troop without bit 80h of byte 10h) + 1, except that
+/// such a troop with byte 3 80h counts at [90h] instead and stops there;
+/// then the count at DX + 1 + its job (the low nibble, its two low bits
+/// dropped when both are set) + 1, and when that is below 7Fh also the
+/// count at 71h + the low nibble of word 12h.
+pub fn census_34d0(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x34d0)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let al = c.byte(si.wrapping_add(3));
+    if al & 0x20 != 0 {
+        c.run(0x34d0, 3)?;
+        c.test(B, al as u16, 0x20);
+        return c.ret();
+    }
+    let b10 = c.byte(si.wrapping_add(0x10));
+    let dx: u16 = if al & 0x40 != 0 { 0x7f } else { 0x61 };
+    let mut n = 9 + (al & 0x40 != 0) as u32;
+    let own = b10 & 0x80 != 0;
+    if !own {
+        n += 3;
+        if al == 0x80 {
+            c.run(0x34d0, n + 2)?;
+            census_head(&mut c, al, dx, b10);
+            let bx = c.reg(BX);
+            let bx = c.dec(W, bx);
+            c.set_reg(BX, bx);
+            c.cmp(B, al as u16, 0x80);
+            let v = c.byte(0x90);
+            let v = c.inc(B, v as u16);
+            c.set_byte(0x90, v as u8);
+            return c.ret();
+        }
+    }
+    // 34F0: AX = AL with AH = AL, AND 30Fh; job bits dropped for AH 3.
+    let ax = (((al as u16) << 8) | al as u16) & 0x030f;
+    let ah = ax >> 8;
+    let lo = if ah == 3 { (ax as u8) & 0xfc } else { ax as u8 };
+    let bx = dx.wrapping_add(lo as u16);
+    n += 1 + 4 + (ah == 3) as u32 + 6;
+    let more = bx < 0x7f;
+    n += if more { 6 } else { 1 };
+    c.run(0x34d0, n)?;
+    census_head(&mut c, al, dx, b10);
+    let mut bx = dx;
+    if !own {
+        bx = c.dec(W, bx);
+        c.set_reg(BX, bx);
+        c.cmp(B, al as u16, 0x80);
+    }
+    let v = c.byte(bx);
+    let v = c.inc(B, v as u16);
+    c.set_byte(bx, v as u8);
+    let ax = ((al as u16) << 8) | al as u16;
+    let ax = c.and(W, ax, 0x030f);
+    c.cmp(B, ax >> 8, 3);
+    let ax = if ax >> 8 == 3 { (ax & 0xff00) | c.and(B, ax & 0xff, 0xfc) } else { ax };
+    let ax = c.xor(B, ax >> 8, ax >> 8) << 8 | (ax & 0xff);
+    c.set_reg(AX, ax);
+    let bx = c.add(W, dx, ax);
+    c.set_reg(BX, bx);
+    let v = c.byte(bx.wrapping_add(1));
+    let v = c.inc(B, v as u16);
+    c.set_byte(bx.wrapping_add(1), v as u8);
+    c.cmp(W, bx, 0x7f);
+    if more {
+        let w = c.word(si.wrapping_add(0x12));
+        let ax = c.and(W, w, 0x0f);
+        c.set_reg(AX, ax);
+        let bx = c.add(W, 0x71, ax);
+        c.set_reg(BX, bx);
+        let v = c.byte(bx);
+        let v = c.inc(B, v as u16);
+        c.set_byte(bx, v as u8);
+    }
+    c.ret()
+}
+
+/// `loc_034d0` up to 34E9h: the flags and registers of its tests (AL the
+/// troop's byte 3, DX and BX the base).
+fn census_head(c: &mut Ctx, al: u8, dx: u16, b10: u8) {
+    c.test(B, al as u16, 0x20);
+    c.set_reg8(r8::AL, al);
+    c.test(B, al as u16, 0x40);
+    c.set_reg(DX, dx);
+    c.set_reg(BX, dx);
+    c.test(B, b10 as u16, 0x80);
+}
+
+/// `loc_06ad4`: the troop SI takes the job CL (0Ah instead of 8 at the
+/// location 7C8h while its byte 1Ah is zero), with DI its location (word
+/// 4): bits 30h of byte 12h and 100h of word 10h cleared, the latter set
+/// again unless `loc_06c15` gives CF; `loc_08461`, `loc_06b25`; for a
+/// job other than 2, bit `loc_0693b` (AL) of 2000h ORed into word 12h;
+/// `loc_07847` for the troop shown ([1954h]).
+pub fn set_job_6ad4(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6ad4)?;
+    set_job_at_6ad4(&mut Ctx::new(m))
+}
+
+fn set_job_at_6ad4(c: &mut Ctx) -> Result<(), Bail> {
+    let si = c.reg(SI);
+    let di = c.word(si.wrapping_add(4));
+    let cl = c.reg8(r8::CL);
+    let quiet = cl == 8 && di == 0x07c8 && c.byte(di.wrapping_add(0x1a)) == 0;
+    let n = if cl != 8 {
+        3
+    } else if di != 0x07c8 {
+        5
+    } else if quiet {
+        8
+    } else {
+        7
+    };
+    c.run(0x6ad4, n + 4)?;
+    c.set_reg(DI, di);
+    c.cmp(B, cl as u16, 8);
+    if cl == 8 {
+        c.cmp(W, di, 0x07c8);
+        if di == 0x07c8 {
+            let v = c.byte(di.wrapping_add(0x1a));
+            c.cmp(B, v as u16, 0);
+        }
+    }
+    let job = if quiet { 0x0a } else { cl };
+    c.set_reg8(r8::CL, job);
+    c.set_byte(si.wrapping_add(3), job);
+    let v = c.byte(si.wrapping_add(0x12));
+    let v = c.and(B, v as u16, 0xcf);
+    c.set_byte(si.wrapping_add(0x12), v as u8);
+    let v = c.word(si.wrapping_add(0x10));
+    let v = c.and(W, v, 0xfeff);
+    c.set_word(si.wrapping_add(0x10), v);
+    c.call(0x6c15, 0x6af9)?;
+    let si = c.reg(SI);
+    if c.flag(CF) {
+        c.run(0x6af9, 2)?;
+    } else {
+        c.run(0x6af9, 3)?;
+        let v = c.word(si.wrapping_add(0x10));
+        let v = c.or(W, v, 0x0100);
+        c.set_word(si.wrapping_add(0x10), v);
+    }
+    c.call(0x8461, 0x6b03)?;
+    c.run(0x6b03, 1)?;
+    c.call(0x6b25, 0x6b06)?;
+    let si = c.reg(SI);
+    let job = c.byte(si.wrapping_add(3));
+    if job == 2 {
+        c.run(0x6b06, 2)?;
+        c.cmp(B, job as u16, 2);
+    } else {
+        c.run(0x6b06, 3)?;
+        c.cmp(B, job as u16, 2);
+        c.call(0x693b, 0x6b0f)?;
+        c.run(0x6b0f, 4)?;
+        let si = c.reg(SI);
+        let al = c.reg8(r8::AL);
+        c.set_reg8(r8::CL, al);
+        let ax = c.shl(W, 0x2000, al);
+        c.set_reg(AX, ax);
+        let v = c.word(si.wrapping_add(0x12));
+        let v = c.or(W, v, ax);
+        c.set_word(si.wrapping_add(0x12), v);
+    }
+    let si = c.reg(SI);
+    let id = c.byte(si);
+    let shown = c.byte(0x1954);
+    if id != shown {
+        c.run(0x6b19, 4)?;
+        c.set_reg8(r8::AL, id);
+        c.cmp(B, id as u16, shown as u16);
+        return c.ret();
+    }
+    c.run(0x6b19, 4)?;
+    c.set_reg8(r8::AL, id);
+    c.cmp(B, id as u16, shown as u16);
+    c.call(0x7847, 0x6b24)?;
+    c.run(0x6b24, 1)?;
+    c.ret()
+}
+
+/// `loc_06ecb` (for each troop SI): with bit 10h of byte 12h, its job
+/// set again ([`set_job_6ad4`] with CL its byte 3's low nibble).
+pub fn redo_job_6ecb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6ecb)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let b = c.byte(si.wrapping_add(0x12));
+    if b & 0x10 == 0 {
+        c.run(0x6ecb, 3)?;
+        c.test(B, b as u16, 0x10);
+        return c.ret();
+    }
+    c.run(0x6ecb, 5)?;
+    c.test(B, b as u16, 0x10);
+    let v = c.byte(si.wrapping_add(3));
+    let cl = c.and(B, v as u16, 0x0f);
+    c.set_reg8(r8::CL, cl as u8);
+    set_job_at_6ad4(&mut c)
+}
+
+/// `loc_07506` (for each troop SI): bit 10h of byte 10h for a troop with
+/// bit 80h there, else bit 20h of byte 3.
+pub fn mark_troop_7506(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7506)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let b10 = c.byte(si.wrapping_add(0x10));
+    c.run(0x7506, 4)?;
+    c.test(B, b10 as u16, 0x80);
+    let (at, bit) = if b10 & 0x80 != 0 { (0x10u16, 0x10u16) } else { (3, 0x20) };
+    let v = c.byte(si.wrapping_add(at));
+    let v = c.or(B, v as u16, bit);
+    c.set_byte(si.wrapping_add(at), v as u8);
+    c.ret()
+}
+
+/// `loc_06155` (for each troop SI): AX its byte 1Ah; a troop with bit 80h
+/// of byte 10h adds it to [0D81Ch]; one of job 6 adds its words 0Ch and
+/// 0Eh to CX and BX, and AX to DX too unless bit 20h of byte 3.
+pub fn sum_troop_6155(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6155)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let b10 = c.byte(si.wrapping_add(0x10));
+    let b3 = c.byte(si.wrapping_add(3));
+    let n = if b10 & 0x80 != 0 {
+        6
+    } else if b3 != 6 {
+        7
+    } else if b3 & 0x20 != 0 {
+        11
+    } else {
+        12
+    };
+    c.run(0x6155, n)?;
+    c.xor(W, 0, 0);
+    let ax = c.byte(si.wrapping_add(0x1a)) as u16;
+    c.set_reg(AX, ax);
+    c.test(B, b10 as u16, 0x80);
+    if b10 & 0x80 != 0 {
+        let v = c.word(0xd81c);
+        let v = c.add(W, v, ax);
+        c.set_word(0xd81c, v);
+        return c.ret();
+    }
+    c.cmp(B, b3 as u16, 6);
+    if b3 != 6 {
+        return c.ret();
+    }
+    c.test(B, b3 as u16, 0x20);
+    if b3 & 0x20 == 0 {
+        let dx = c.reg(DX);
+        let dx = c.add(W, dx, ax);
+        c.set_reg(DX, dx);
+    }
+    let w = c.word(si.wrapping_add(0x0c));
+    let cx = c.reg(CX);
+    let cx = c.add(W, cx, w);
+    c.set_reg(CX, cx);
+    let w = c.word(si.wrapping_add(0x0e));
+    let bx = c.reg(BX);
+    let bx = c.add(W, bx, w);
+    c.set_reg(BX, bx);
+    c.ret()
+}

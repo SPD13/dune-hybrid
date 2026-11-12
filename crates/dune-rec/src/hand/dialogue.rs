@@ -5346,7 +5346,8 @@ fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(AX, 0x4c00 | a);
     c.set_word(0x22fc, 0x4c00 | a);
     c.call(0xc085, 0x9022)?;
-    c.run(0x9022, 1 + 14)?;
+    // The `jmp`, then 8895h to its `ret`: 15 instructions.
+    c.run(0x9022, 1 + 15)?;
     let f = c.byte(0xfb);
     let a = !f;
     let a = c.and(B, a as u16, 0x80);
@@ -5365,5 +5366,122 @@ fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
     }
     c.set_reg8(r8::AL, 0x80);
     c.stos(W);
+    c.ret()
+}
+
+/// `loc_0a172`: by the dialogue state [47C4h]: 1 counts at [0F5h]; 3 goes
+/// on into `loc_024a3`; others return.
+pub fn dialogue_state_a172(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa172)?;
+    let mut c = Ctx::new(m);
+    let ax = c.word(0x47c4);
+    c.run(0xa172, if ax == 1 { 7 } else { 6 })?;
+    c.set_reg(AX, ax);
+    c.cmp(W, ax, 1);
+    if ax == 1 {
+        let v = c.byte(0xf5);
+        let v = c.inc(B, v as u16);
+        c.set_byte(0xf5, v as u8);
+    }
+    c.cmp(W, ax, 3);
+    if ax == 3 {
+        return c.jump(0x24a3);
+    }
+    c.ret()
+}
+
+/// `loc_0a28e`: a speaker's portrait brought up (SI kept): from state
+/// 0Eh of [47C4h] [0DC30h] = `loc_0456c` for the person [47E6h]; unless
+/// [28E7h] is 1 or the person is [114Eh] already: [47A4h] 0, resource
+/// 21h opened, `loc_0c21b` with 22E4h, its 2A80h bytes moved to end at
+/// A5BFh ([22FCh] their new start), the person's mark (`loc_05b55`),
+/// then with [46EBh] 1 meanwhile `loc_05b99` (22F4h, 46E3h),
+/// `loc_05b93`, `loc_0b6c3`, `loc_0c137`, `loc_05dce`, `loc_062fe` (SI
+/// the person); last `loc_0c477` with 22ECh.
+pub fn portrait_a28e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa28e)?;
+    let mut c = Ctx::new(m);
+    let state = c.word(0x47c4);
+    let si = c.reg(SI);
+    if state >= 0x0e {
+        c.run(0xa28e, 5)?;
+        c.push(si);
+        c.cmp(W, state, 0x0e);
+        let di = c.word(0x47e6);
+        c.set_reg(DI, di);
+        c.call(0x456c, 0xa29d)?;
+        c.run(0xa29d, 1)?;
+        let ax = c.reg(AX);
+        c.set_word(0xdc30, ax);
+    } else {
+        c.run(0xa28e, 3)?;
+        c.push(si);
+        c.cmp(W, state, 0x0e);
+    }
+    let book = c.byte(0x28e7);
+    let who = c.word(0x47e6);
+    let shown = c.word(0x114e);
+    if book == 1 || who == shown {
+        c.run(0xa2a0, (if book == 1 { 2 } else { 5 }) + 2)?;
+        c.cmp(B, book as u16, 1);
+        if book != 1 {
+            c.set_reg(AX, who);
+            c.cmp(W, who, shown);
+        }
+        let si = c.pop();
+        c.set_reg(SI, si);
+        return c.ret();
+    }
+    c.run(0xa2a0, 5 + 3)?;
+    c.cmp(B, book as u16, 1);
+    c.cmp(W, who, shown);
+    c.set_byte(0x47a4, 0);
+    c.set_reg(AX, 0x21);
+    c.call(0xc13e, 0xa2bb)?;
+    c.run(0xa2bb, 2)?;
+    c.set_reg(SI, 0x22e4);
+    c.call(0xc21b, 0xa2c1)?;
+    c.run(0xa2c1, 8)?;
+    let from = c.word(0x22fc);
+    let si = c.add(W, from, 0x2a80);
+    c.set_reg(SI, si);
+    c.set_reg(CX, 0x2a80);
+    c.set_reg(DI, 0xa5bf);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.set_flag(pc::cpu::DF, true);
+    c.rep(0xa4);
+    c.run(0xa2d2, 6)?;
+    c.set_flag(pc::cpu::DF, false);
+    let di = c.reg(DI);
+    let di = c.inc(W, di);
+    c.set_reg(DI, di);
+    c.set_word(0x22fc, di);
+    let who = c.word(0x47e6);
+    c.set_reg(DI, who);
+    c.push(who);
+    c.call(0x5b55, 0xa2e0)?;
+    c.run(0xa2e0, 4)?;
+    c.set_byte(0x46eb, 1);
+    c.set_reg(SI, 0x22f4);
+    c.set_reg(DI, 0x46e3);
+    c.call(0x5b99, 0xa2ee)?;
+    for (to, back) in [(0x5b93u16, 0xa2f1u16), (0xb6c3, 0xa2f4), (0xc137, 0xa2f7), (0x5dce, 0xa2fa)] {
+        c.run(back - 3, 1)?;
+        c.call(to, back)?;
+    }
+    c.run(0xa2fa, 2)?;
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.call(0x62fe, 0xa2fe)?;
+    c.run(0xa2fe, 3)?;
+    c.set_byte(0x46eb, 0);
+    c.set_reg(SI, 0x22ec);
+    c.call(0xc477, 0xa309)?;
+    c.run(0xa309, 2)?;
+    let si = c.pop();
+    c.set_reg(SI, si);
     c.ret()
 }

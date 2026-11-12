@@ -6,7 +6,7 @@
 //! (the current entry, and the entries left), which adding or removing a
 //! task keeps right.
 
-use super::{Ctx, W, entered, globals as g};
+use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
     cpu::{AX, BP, BX, CX, DI, DS, ES, SI},
@@ -201,3 +201,44 @@ pub fn add_room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// The room animation's frame task.
 const ROOM_ANIMATION_TASK: u16 = 0xc0b6;
+
+/// `loc_0391d` (a frame task): the far routine at [3951h] with AL
+/// [46D7h] (AX kept), CX 1C5h, BX DBh ([22E3h] set) or CX F0h, BX 180h;
+/// then, unless [227Dh], again with CX 30h, BX 2D0h. [46D7h] - 1; at 0
+/// the task (SI 3916h) removed (`remove_frame_task`).
+pub fn task_391d(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x391d)?;
+    let mut c = Ctx::new(m);
+    let flag = c.byte(0x22e3);
+    c.run(0x391d, if flag != 0 { 6 } else { 8 })?;
+    let (cx, bx) = if flag != 0 { (0x1c5, 0xdb) } else { (0xf0, 0x180) };
+    c.cmp(B, flag as u16, 0);
+    c.set_reg(CX, cx);
+    c.set_reg(BX, bx);
+    let n = c.byte(0x46d7);
+    c.set_reg8(r8::AL, n);
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.interp(0x3934, 0x3938)?;
+    let video = c.byte(0x227d);
+    c.run(0x3938, if video != 0 { 3 } else { 5 })?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.cmp(B, video as u16, 0);
+    if video == 0 {
+        c.set_reg(CX, 0x30);
+        c.set_reg(BX, 0x2d0);
+        c.interp(0x3946, 0x394a)?;
+    }
+    let n = c.byte(0x46d7);
+    let last = n == 1;
+    c.run(0x394a, if last { 5 } else { 3 })?;
+    let n = c.dec(B, n as u16);
+    c.set_byte(0x46d7, n as u8);
+    if !last {
+        return c.ret();
+    }
+    c.set_byte(0x46d7, 0);
+    c.set_reg(SI, 0x3916);
+    c.jump(0xda5f)
+}

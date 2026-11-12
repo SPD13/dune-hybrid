@@ -2753,7 +2753,7 @@ fn circle_at(c: &mut Ctx, at: u16) -> Result<(), Bail> {
     let mut pre = 6;
     let mut first = true;
     loop {
-        let Ok((n, end, out, old_cx, carry)) = circle_sim(label, r) else {
+        let Ok((n, end, out, fl)) = circle_sim(label, r) else {
             c.m.cpu.ip = if first { at } else { label };
             return Err(Bail);
         };
@@ -2769,18 +2769,53 @@ fn circle_at(c: &mut Ctx, at: u16) -> Result<(), Bail> {
         for (reg, v) in [(AX, ax), (BX, bx), (CX, cx), (DX, dx), (SI, si), (DI, di), (BP, bp)] {
             c.set_reg(reg, v);
         }
+        circle_flags(c, fl);
         match end {
             Some(back) => {
                 c.call(0x64ef, back)?;
                 r = [c.reg(AX), c.reg(BX), c.reg(CX), c.reg(DX), c.reg(SI), c.reg(DI), c.reg(BP)];
                 label = back;
             }
-            None => {
-                // `dec cx` keeps CF: the last `add ax, cx` set it.
-                c.set_flag(CF, carry);
-                c.dec(W, old_cx);
-                return c.ret();
-            }
+            None => return c.ret(),
+        }
+    }
+}
+
+/// The flags a stretch of the midpoint walk ends with: its last `add` or
+/// `sub` (which set CF), then the last `inc`/`dec` after it (which set the
+/// other flags and keep CF). Every stretch passes a `sub ax, bp` before it
+/// can end.
+#[derive(Clone, Copy, Default)]
+struct CircleFlags {
+    /// (`add`?, a, b) of the last `add`/`sub`.
+    arith: Option<(bool, u16, u16)>,
+    /// (`inc`?, a) of an `inc`/`dec` after it.
+    step: Option<(bool, u16)>,
+}
+
+impl CircleFlags {
+    fn arith(&mut self, add: bool, a: u16, b: u16) {
+        *self = CircleFlags { arith: Some((add, a, b)), step: None };
+    }
+    fn step(&mut self, inc: bool, a: u16) {
+        self.step = Some((inc, a));
+    }
+}
+
+/// Sets the flags a stretch of the walk ended with (see [`CircleFlags`]).
+fn circle_flags(c: &mut Ctx, f: CircleFlags) {
+    if let Some((add, a, b)) = f.arith {
+        if add {
+            c.add(W, a, b);
+        } else {
+            c.sub(W, a, b);
+        }
+    }
+    if let Some((inc, a)) = f.step {
+        if inc {
+            c.inc(W, a);
+        } else {
+            c.dec(W, a);
         }
     }
 }
@@ -2788,13 +2823,12 @@ fn circle_at(c: &mut Ctx, at: u16) -> Result<(), Bail> {
 /// One stretch of the midpoint walk at `loc_064b2` from `label`: its
 /// instruction count, the return address of the `loc_064ef` call that
 /// ends it (or none for the `ret`), the registers (AX, BX, CX, DX, SI,
-/// DI, BP), for the `ret` CX before its last `dec`, and the carry of
-/// the stretch's last `add ax, cx`.
+/// DI, BP) and the flags it ends with.
 #[allow(clippy::type_complexity)]
-fn circle_sim(label: u16, r: [u16; 7]) -> Result<(u32, Option<u16>, [u16; 7], u16, bool), Bail> {
+fn circle_sim(label: u16, r: [u16; 7]) -> Result<(u32, Option<u16>, [u16; 7], CircleFlags), Bail> {
     let [mut ax, mut bx, mut cx, mut dx, mut si, mut di, mut bp] = r;
     let mut n = 0u32;
-    let mut carry = false;
+    let mut fl = CircleFlags::default();
     let mut l = label;
     loop {
         if n > 1_000_000 {
@@ -2814,23 +2848,26 @@ fn circle_sim(label: u16, r: [u16; 7]) -> Result<(u32, Option<u16>, [u16; 7], u1
             0x64c3 => {
                 bp = bp.wrapping_add(1);
                 dx = dx.wrapping_add(1);
+                fl.step(false, di);
                 di = di.wrapping_sub(1);
                 n += 3;
                 l = 0x64c6;
             }
             0x64c6 => {
+                fl.arith(false, ax, bp);
                 ax = ax.wrapping_sub(bp);
                 n += 2;
                 if ax & 0x8000 == 0 {
                     l = 0x64c3;
                 } else {
                     n += 1;
-                    return Ok((n, Some(0x64cd), [ax, bx, cx, dx, si, di, bp], 0, carry));
+                    return Ok((n, Some(0x64cd), [ax, bx, cx, dx, si, di, bp], fl));
                 }
             }
             0x64cd => {
                 bx = bx.wrapping_add(1);
                 si = si.wrapping_sub(1);
+                fl.arith(true, ax, cx);
                 ax = ax.wrapping_add(cx);
                 n += 4;
                 if ax & 0x8000 != 0 {
@@ -2843,6 +2880,7 @@ fn circle_sim(label: u16, r: [u16; 7]) -> Result<(u32, Option<u16>, [u16; 7], u1
             }
             0x64d5 => {
                 bp = bp.wrapping_add(1);
+                fl.step(false, cx);
                 cx = cx.wrapping_sub(1);
                 n += 3;
                 l = 0x64de;
@@ -2850,21 +2888,23 @@ fn circle_sim(label: u16, r: [u16; 7]) -> Result<(u32, Option<u16>, [u16; 7], u1
             0x64d9 => {
                 dx = dx.wrapping_add(1);
                 di = di.wrapping_sub(1);
+                fl.arith(false, ax, bp);
                 ax = ax.wrapping_sub(bp);
+                fl.step(true, bp);
                 bp = bp.wrapping_add(1);
                 n += 4;
                 l = 0x64de;
             }
             0x64de => {
                 n += 1;
-                return Ok((n, Some(0x64e1), [ax, bx, cx, dx, si, di, bp], 0, carry));
+                return Ok((n, Some(0x64e1), [ax, bx, cx, dx, si, di, bp], fl));
             }
             0x64e1 => {
                 bx = bx.wrapping_add(1);
                 si = si.wrapping_sub(1);
-                let (v, cf) = ax.overflowing_add(cx);
+                fl.arith(true, ax, cx);
+                let (v, carry) = ax.overflowing_add(cx);
                 ax = v;
-                carry = cf;
                 n += 4;
                 if carry {
                     l = 0x64e9;
@@ -2875,14 +2915,14 @@ fn circle_sim(label: u16, r: [u16; 7]) -> Result<(u32, Option<u16>, [u16; 7], u1
                 }
             }
             0x64e9 => {
-                let old = cx;
+                fl.step(false, cx);
                 cx = cx.wrapping_sub(1);
                 n += 2;
                 if cx & 0x8000 == 0 {
                     l = 0x64d9;
                 } else {
                     n += 1;
-                    return Ok((n, None, [ax, bx, cx, dx, si, di, bp], old, carry));
+                    return Ok((n, None, [ax, bx, cx, dx, si, di, bp], fl));
                 }
             }
             _ => return Err(Bail),
@@ -7152,7 +7192,7 @@ pub fn circle_walk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut r = [c.reg(AX), c.reg(BX), c.reg(CX), c.reg(DX), c.reg(SI), c.reg(DI), c.reg(BP)];
     let mut label = 0x64b2u16;
     loop {
-        let Ok((n, end, out, old_cx, carry)) = circle_sim(label, r) else {
+        let Ok((n, end, out, fl)) = circle_sim(label, r) else {
             c.m.cpu.ip = label;
             return Err(Bail);
         };
@@ -7161,17 +7201,14 @@ pub fn circle_walk(m: &mut Machine, start: u16) -> Result<(), Bail> {
         for (reg, v) in [(AX, ax), (BX, bx), (CX, cx), (DX, dx), (SI, si), (DI, di), (BP, bp)] {
             c.set_reg(reg, v);
         }
+        circle_flags(&mut c, fl);
         match end {
             Some(back) => {
                 c.call(0x64ef, back)?;
                 r = [c.reg(AX), c.reg(BX), c.reg(CX), c.reg(DX), c.reg(SI), c.reg(DI), c.reg(BP)];
                 label = back;
             }
-            None => {
-                c.set_flag(CF, carry);
-                c.dec(W, old_cx);
-                return c.ret();
-            }
+            None => return c.ret(),
         }
     }
 }
@@ -7326,4 +7363,336 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.pop();
     c.set_reg(SI, si);
     c.ret()
+}
+
+/// `loc_0646f`, the circle's span handler (CS:64EDh from `loc_06447`):
+/// the row BX + [0D818h] (from -5Dh to 5Dh, else nothing) of the map
+/// around [0D81Ch], from `map_func` (DI, DX); the span starts DX (pushed
+/// by the caller's `loc_064ef`) further, wrapped into 0..BP; then CX
+/// bytes at ES:DI, each wrapping at BP: a byte whose bits 30h are 10h
+/// stays, others get those bits flipped and [4739h] ORed in.
+pub fn span_646f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x646f)?;
+    let mut c = Ctx::new(m);
+    if !span_row(&mut c, 0x646f, 0x5d)? {
+        return c.ret();
+    }
+    // The path first, from pure reads (the bytes it writes kept aside),
+    // for the instruction count.
+    let sp = c.reg(SP);
+    let start_dx = c.word_in(SS, sp);
+    let (bp, es) = (c.reg(BP), c.sreg(ES));
+    let step = c.string_step(B);
+    let colour = c.byte(0x4739);
+    let count = c.reg(CX);
+    if count == 0 {
+        c.m.cpu.ip = 0x6485;
+        return Err(Bail);
+    }
+    let mut di = c.reg(DI).wrapping_add(start_dx);
+    let mut dx = c.reg(DX).wrapping_add(start_dx);
+    let mut n = 4u32;
+    let mut guard = 0;
+    while dx & 0x8000 != 0 {
+        di = di.wrapping_add(bp);
+        dx = dx.wrapping_add(bp);
+        n += 3;
+        guard += 1;
+        if guard > 10_000 {
+            c.m.cpu.ip = 0x6485;
+            return Err(Bail);
+        }
+    }
+    let mut written: Vec<(u16, u8)> = Vec::new();
+    for _ in 0..count {
+        let old = match written.iter().rev().find(|&&(a, _)| a == di) {
+            Some(&(_, v)) => v,
+            None => c.byte_at_seg(es, di),
+        };
+        let bits = old & 0x30;
+        let new = if bits == 0x10 { old } else { (old ^ bits) | colour };
+        n += if bits == 0x10 { 5 } else { 7 };
+        written.push((di, new));
+        di = di.wrapping_add(step);
+        dx = dx.wrapping_add(1);
+        n += 4;
+        if dx >= bp {
+            dx = dx.wrapping_sub(bp);
+            di = di.wrapping_sub(bp);
+            n += 2;
+        }
+        n += 1;
+    }
+    c.run(0x6485, n + 1)?;
+    // Then the work, flag-exact.
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    let di = c.reg(DI);
+    let di = c.add(W, di, ax);
+    c.set_reg(DI, di);
+    let dx = c.reg(DX);
+    let mut dx = c.add(W, dx, ax);
+    c.set_reg(DX, dx);
+    while dx & 0x8000 != 0 {
+        let di = c.reg(DI);
+        let di = c.add(W, di, bp);
+        c.set_reg(DI, di);
+        dx = c.add(W, dx, bp);
+        c.set_reg(DX, dx);
+    }
+    let mut cx = count;
+    loop {
+        let di = c.reg(DI);
+        let al = c.byte_in(ES, di);
+        let ah = c.and(B, al as u16, 0x30);
+        c.cmp(B, ah, 0x10);
+        let mut al = al as u16;
+        if ah != 0x10 {
+            al = c.xor(B, al, ah);
+            al = c.or(B, al, colour as u16);
+        }
+        c.set_reg(AX, (ah << 8) | al);
+        c.stos(B);
+        let di = c.reg(DI);
+        dx = c.inc(W, dx);
+        c.set_reg(DX, dx);
+        c.cmp(W, dx, bp);
+        if dx >= bp {
+            dx = c.sub(W, dx, bp);
+            c.set_reg(DX, dx);
+            let di = c.sub(W, di, bp);
+            c.set_reg(DI, di);
+        }
+        cx = cx.wrapping_sub(1);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    c.ret()
+}
+
+/// The start of the span handlers `loc_0646f` and `loc_0653a` (at
+/// `entry`): the row BX + [0D818h] into BX; from -`limit` to `limit`,
+/// DX pushed and `map_func` (at 0B58Bh) called for that row of the map
+/// around [0D81Ch] (true); else nothing (false: the handler returns).
+fn span_row(c: &mut Ctx, entry: u16, limit: u16) -> Result<bool, Bail> {
+    let bx = c.reg(BX);
+    let row = bx.wrapping_add(c.word(0xd818));
+    let above = (row as i16) > limit as i16;
+    let below = !above && (row as i16) < -(limit as i16);
+    c.run(entry, if above { 4 } else if below { 6 } else { 8 })?;
+    let v = c.word(0xd818);
+    let row = c.add(W, bx, v);
+    c.set_reg(BX, row);
+    c.cmp(W, row, limit);
+    if above {
+        return Ok(false);
+    }
+    c.cmp(W, row, limit.wrapping_neg());
+    if below {
+        return Ok(false);
+    }
+    let dx = c.reg(DX);
+    c.push(dx);
+    let at = c.word(0xd81c);
+    c.set_reg(DX, at);
+    c.call(0xb58b, entry + 0x16)?;
+    Ok(true)
+}
+
+/// After `map_func` in a span handler (at `at`): the start DX the caller
+/// pushed (AX) added to DI and DX, then BP added until DX is not
+/// negative.
+fn span_start(c: &mut Ctx, at: u16) -> Result<(), Bail> {
+    let sp = c.reg(SP);
+    let ax = c.word_in(SS, sp);
+    let (di, dx, bp) = (c.reg(DI), c.reg(DX), c.reg(BP));
+    let mut d = dx.wrapping_add(ax);
+    let mut n = 4u32;
+    while d & 0x8000 != 0 {
+        d = d.wrapping_add(bp);
+        n += 3;
+        if n > 30_000 {
+            c.m.cpu.ip = at;
+            return Err(Bail);
+        }
+    }
+    c.run(at, n)?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    let mut di = c.add(W, di, ax);
+    c.set_reg(DI, di);
+    let mut dx = c.add(W, dx, ax);
+    c.set_reg(DX, dx);
+    while dx & 0x8000 != 0 {
+        di = c.add(W, di, bp);
+        c.set_reg(DI, di);
+        dx = c.add(W, dx, bp);
+        c.set_reg(DX, dx);
+    }
+    Ok(())
+}
+
+/// `loc_0653a`, the span handler of a moving record's circle (CS:64EDh
+/// from `loc_06515`): as [`span_646f`] for rows -56h to 56h, each byte
+/// at ES:DI (bits 30h not 10h) made a trail: a byte with bit 40h that
+/// `loc_0409a` finds a location for (ZF) has the record SI's byte 12h
+/// cleared and, for a location from 138h that `loc_05d36` accepts, bit
+/// 80h of its byte 0Ah cleared and `location_raided` (registers kept by
+/// `save_regs`/`restore_regs`, ES kept); then AX AND 0ECFh, AL OR 20h, and
+/// for AH below 8, when [4736h] rotated left gives CF, bits 30h of AL 10h.
+pub fn span_653a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x653a)?;
+    let mut c = Ctx::new(m);
+    if !span_row(&mut c, 0x653a, 0x56)? {
+        return c.ret();
+    }
+    if c.reg(CX) == 0 {
+        c.m.cpu.ip = 0x6550;
+        return Err(Bail);
+    }
+    span_start(&mut c, 0x6550)?;
+    loop {
+        let di = c.reg(DI);
+        let b = c.byte_in(ES, di);
+        let ab = ((b as u16) << 8) | b as u16;
+        if b & 0x30 == 0x10 {
+            let t = trail_count(&mut c, false, ab);
+            c.run(0x655d, 6 + t)?;
+            trail_test(&mut c, b, false);
+            if trail_end(&mut c, false) {
+                return c.ret();
+            }
+            continue;
+        }
+        if b & 0x40 == 0 {
+            let t = trail_count(&mut c, true, ab);
+            c.run(0x655d, 8 + t)?;
+            trail_test(&mut c, b, true);
+            if trail_end(&mut c, true) {
+                return c.ret();
+            }
+            continue;
+        }
+        c.run(0x655d, 9)?;
+        trail_test(&mut c, b, true);
+        c.call(0x409a, 0x6571)?;
+        if !c.flag(ZF) {
+            let ax = c.reg(AX);
+            let t = trail_count(&mut c, true, ax);
+            c.run(0x6571, 1 + t)?;
+            if trail_end(&mut c, true) {
+                return c.ret();
+            }
+            continue;
+        }
+        c.run(0x6571, 3)?;
+        let si = c.reg(SI);
+        c.set_byte(si.wrapping_add(0x12), 0);
+        c.call(0xe270, 0x657a)?;
+        c.run(0x657a, 3)?;
+        let es = c.sreg(ES);
+        c.push(es);
+        let si = c.reg(SI);
+        c.set_reg(DI, si);
+        c.call(0x5d36, 0x6580)?;
+        let di = c.reg(DI);
+        if c.flag(CF) {
+            c.run(0x6580, 3)?;
+        } else if di < 0x138 {
+            c.run(0x6580, 5)?;
+            c.cmp(W, di, 0x138);
+        } else {
+            c.run(0x6580, 5)?;
+            c.cmp(W, di, 0x138);
+            let v = c.byte(di.wrapping_add(0x0a));
+            let v = c.and(B, v as u16, 0x7f);
+            c.set_byte(di.wrapping_add(0x0a), v as u8);
+            c.call(0x7443, 0x658f)?;
+            c.run(0x658f, 2)?;
+        }
+        let es = c.pop();
+        c.set_sreg(ES, es);
+        c.call(0xe283, 0x6593)?;
+        let ax = c.reg(AX);
+        let t = trail_count(&mut c, true, ax);
+        c.run(0x6593, t)?;
+        if trail_end(&mut c, true) {
+            return c.ret();
+        }
+    }
+}
+
+/// 655Dh-656Ch of `loc_0653a` for the byte `b`: AX = `b`:`b`, the flags
+/// of `cmp al, 10h` on its bits 30h, then (`more`) of `test al, 40h`.
+fn trail_test(c: &mut Ctx, b: u8, more: bool) {
+    let bits = c.and(B, b as u16, 0x30);
+    c.cmp(B, bits, 0x10);
+    c.set_reg(AX, ((b as u16) << 8) | b as u16);
+    if more {
+        c.test(B, b as u16, 0x40);
+    }
+}
+
+/// The instructions of `loc_0653a` from 6593h (`recolour`) or 65A7h to
+/// the end of the pass (its `ret` on the last), with AX `ax` there.
+fn trail_count(c: &mut Ctx, recolour: bool, ax: u16) -> u32 {
+    let mut n = 0;
+    if recolour {
+        n += 4;
+        if (ax & 0x0e00) >> 8 < 8 {
+            n += 2;
+            if c.byte(0x4736) & 0x80 != 0 {
+                n += 2;
+            }
+        }
+    }
+    n += 4;
+    if c.reg(DX).wrapping_add(1) >= c.reg(BP) {
+        n += 2;
+    }
+    n += 1;
+    if c.reg(CX) == 1 {
+        n += 1;
+    }
+    n
+}
+
+/// 6593h (`recolour`) or 65A7h to the `loop` of `loc_0653a`, done; true
+/// when CX reached 0.
+fn trail_end(c: &mut Ctx, recolour: bool) -> bool {
+    if recolour {
+        let ax = c.reg(AX);
+        let ax = c.and(W, ax, 0x0ecf);
+        let al = c.or(B, ax & 0xff, 0x20);
+        let ah = ax >> 8;
+        c.set_reg(AX, (ah << 8) | al);
+        c.cmp(B, ah, 8);
+        if ah < 8 {
+            let v = c.byte(0x4736);
+            let v = c.rol1(B, v as u16);
+            c.set_byte(0x4736, v as u8);
+            if c.flag(CF) {
+                let al = c.and(B, al, 0xcf);
+                let al = c.or(B, al, 0x10);
+                c.set_reg8(r8::AL, al as u8);
+            }
+        }
+    }
+    c.stos(B);
+    let (di, bp) = (c.reg(DI), c.reg(BP));
+    let dx = c.reg(DX);
+    let dx = c.inc(W, dx);
+    c.set_reg(DX, dx);
+    c.cmp(W, dx, bp);
+    if dx >= bp {
+        let dx = c.sub(W, dx, bp);
+        c.set_reg(DX, dx);
+        let di = c.sub(W, di, bp);
+        c.set_reg(DI, di);
+    }
+    let cx = c.reg(CX).wrapping_sub(1);
+    c.set_reg(CX, cx);
+    cx == 0
 }

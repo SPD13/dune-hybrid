@@ -224,6 +224,11 @@ struct Deferred {
 const CODE_START: usize = (LOAD_SEG as usize) << 4;
 const CODE_END: usize = CODE_START + 0xf4b0;
 const PATCHED: usize = CODE_START + 0xc13c;
+/// seg000 offsets the listing declares as data (`db`/`dw`/`dd`) that the
+/// program writes: data at 00A8h-00AFh, the circle's span handler at 64EDh,
+/// a blit segment at CC94h, the PIT counter at E8D4h, the saved interrupt
+/// vectors at E956h-E979h.
+const DATA_IN_CODE: [std::ops::Range<u16>; 5] = [0x00a8..0x00b0, 0x64ed..0x64ef, 0xcc94..0xcc96, 0xe8d4..0xe8d5, 0xe956..0xe97a];
 
 /// Driver code checks: at most and at least this far apart (virtual ns).
 const CHECK_MIN_NS: u64 = 1_000_000;
@@ -737,9 +742,17 @@ impl Machine {
         // A call that wrote into the code segment (other than the known
         // patch site) is marked in the report: if it changed code, the Rust
         // version, which keeps the code as it was, runs differently.
+        // Data the program keeps in its code segment (read as data by Rust
+        // too) does not count.
         let code = CODE_START..CODE_END;
-        let code_changed = p.mem[code.clone()].iter().zip(&self.hw.mem[code.clone()]).enumerate().any(|(i, (a, b))| a != b && CODE_START + i != PATCHED)
-            || self.drivers_changed(&p.mem, &self.hw.mem);
+        let code_at = p.mem[code.clone()]
+            .iter()
+            .zip(&self.hw.mem[code.clone()])
+            .enumerate()
+            .find(|&(i, (a, b))| a != b && CODE_START + i != PATCHED && !DATA_IN_CODE.iter().any(|r| r.contains(&(i as u16))))
+            .map(|(i, _)| format!(" at {i:04x}"));
+        let code_changed = code_at.is_some() || self.drivers_changed(&p.mem, &self.hw.mem);
+        let code_at = code_at.unwrap_or_else(|| " (a driver)".into());
         let foreign = self.drivers_foreign(&p.mem);
         let entry_state = (p.cpu.clone(), p.mem.clone());
         let cpu1 = std::mem::replace(&mut self.cpu, p.cpu);
@@ -794,10 +807,11 @@ impl Machine {
         };
         self.hw.io_log.replay = None;
         self.hw.io_log.recording = true;
+        let entry_ns = self.now_at(p.cpu_instructions);
         let rec = self.rec.as_mut().unwrap();
         rec.interp_nested = false;
         rec.busy = false;
-        let diff = diff.map(|d| if code_changed { format!("{d} (the call wrote into the code segment)") } else { d });
+        let diff = diff.map(|d| if code_changed { format!("{d} (the call wrote into the code segment{code_at})") } else { d });
         let diff = diff.map(|d| if foreign { format!("{d} (a driver's code was not the lifted one at the call)") } else { d });
         let st = rec.stats.entry(p.entry).or_default();
         match &diff {
@@ -805,6 +819,13 @@ impl Machine {
                 st.diff += 1;
                 if st.first_diff.is_none() {
                     st.first_diff = Some(d.clone());
+                }
+                // REC_DIFF_LOG=1: every differing call, with the virtual
+                // time and instruction count of its entry.
+                static LOG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                if *LOG.get_or_init(|| std::env::var_os("REC_DIFF_LOG").is_some()) {
+                    let t = entry_ns as f64 / 1e9;
+                    eprintln!("rec diff: {t:.3}s insn {} entry {:x}: {d}", p.cpu_instructions, p.entry);
                 }
             }
             None if bails > 0 => st.bailed += 1,

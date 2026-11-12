@@ -2908,3 +2908,136 @@ pub fn map_panel_5692(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 2);
     c.jump(0x56ed)
 }
+
+/// `loc_00981`: `loc_008f0`, the room drawn (`loc_037b2`), then on into
+/// `copy_active_framebuffer_to_framebuffer_2`.
+pub fn room_0981(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x0981)?;
+    let mut c = Ctx::new(m);
+    c.run(0x0981, 1)?;
+    c.call(0x08f0, 0x0984)?;
+    c.run(0x0984, 1)?;
+    c.call(0x37b2, 0x0987)?;
+    c.run(0x0987, 1)?;
+    c.jump(0xc412)
+}
+
+/// `loc_04913` (BP of the night's transition): HNM 0Eh's first frame
+/// (`hnm_load_first_frame`), then on into `set_sky_palette`.
+pub fn night_video_4913(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4913)?;
+    let mut c = Ctx::new(m);
+    c.run(0x4913, 2)?;
+    c.set_reg(AX, 0x0e);
+    c.call(0xca1b, 0x4919)?;
+    c.run(0x4919, 1)?;
+    c.jump(0x388d)
+}
+
+/// `loc_0a1d0`: [47A5h] FFh.
+pub fn set_47a5_ff(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa1d0)?;
+    let mut c = Ctx::new(m);
+    c.run(0xa1d0, 2)?;
+    c.set_byte(0x47a5, 0xff);
+    c.ret()
+}
+
+/// `loc_0a1dc`: [47A5h] 80h.
+pub fn set_47a5_80(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa1dc)?;
+    let mut c = Ctx::new(m);
+    c.run(0xa1dc, 2)?;
+    c.set_byte(0x47a5, 0x80);
+    c.ret()
+}
+
+/// `loc_0a1ed`: [0C2h] + 1 unless bit 80h of the byte at SI.
+pub fn count_0a1ed(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa1ed)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let b = c.byte(si);
+    let set = b & 0x80 != 0;
+    c.run(0xa1ed, if set { 3 } else { 4 })?;
+    c.test(B, b as u16, 0x80);
+    if !set {
+        let v = c.byte(0xc2);
+        let v = c.inc(B, v as u16);
+        c.set_byte(0xc2, v as u8);
+    }
+    c.ret()
+}
+
+/// `loc_080c7`: a bare `ret` (a callback that does nothing).
+pub fn nothing_80c7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x80c7)?;
+    let mut c = Ctx::new(m);
+    c.run(0x80c7, 1)?;
+    c.ret()
+}
+
+
+/// `loc_02c9a`: [0E8h] 0, `loc_0c2f2` with AL 23h, the
+/// screen copied to framebuffer 2, `loc_096d8` with the state [47C4h];
+/// [1BEAh], [1BF8h], [46DFh] 0; the task C0B6h removed and the task
+/// 2CC7h added (`add_frame_task`, BP 6).
+pub fn screen_2c9a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2c9a)?;
+    let mut c = Ctx::new(m);
+    c.run(0x2c9a, 3)?;
+    c.set_byte(0xe8, 0);
+    c.set_reg8(r8::AL, 0x23);
+    c.call(0xc2f2, 0x2ca4)?;
+    c.run(0x2ca4, 1)?;
+    c.call(0xc412, 0x2ca7)?;
+    c.run(0x2ca7, 2)?;
+    let state = c.word(0x47c4);
+    c.set_reg(AX, state);
+    c.call(0x96d8, 0x2cad)?;
+    c.run(0x2cad, 6)?;
+    let ax = c.reg(AX);
+    c.xor(W, ax, ax);
+    c.set_reg(AX, 0);
+    c.set_word(0x1bea, 0);
+    c.set_word(0x1bf8, 0);
+    c.set_byte(0x46df, 0);
+    c.set_reg(SI, 0xc0b6);
+    c.call(0xda5f, 0x2cbe)?;
+    c.run(0x2cbe, 3)?;
+    c.set_reg(SI, 0x2cc7);
+    c.set_reg(BP, 6);
+    c.jump(0xda25)
+}
+
+/// `loc_02540`: a bare `ret` (a callback that does nothing).
+pub fn nothing_2540(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2540)?;
+    let mut c = Ctx::new(m);
+    c.run(0x2540, 1)?;
+    c.ret()
+}
+
+/// `loc_0a1f7`: AX by the day count [2Ah]: 12F8h below 14h, 134Fh below
+/// 18h, 1370h below 30h, else 12DBh (BL the count); then on into
+/// `loc_01771`.
+pub fn by_day_a1f7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa1f7)?;
+    let mut c = Ctx::new(m);
+    let day = c.byte(0x2a);
+    let steps: [(u16, u8); 3] = [(0x12f8, 0x14), (0x134f, 0x18), (0x1370, 0x30)];
+    let k = steps.iter().position(|&(_, lim)| day < lim);
+    // `mov bl`, then `mov ax` / `cmp` / `jb` per limit tried, the last
+    // `mov ax` when none matched, and the `jmp`.
+    c.run(0xa1f7, 1 + 3 * (k.unwrap_or(2) as u32 + 1) + k.is_none() as u32 + 1)?;
+    c.set_reg8(r8::BL, day);
+    for &(ax, lim) in &steps {
+        c.set_reg(AX, ax);
+        c.cmp(B, day as u16, lim as u16);
+        if day < lim {
+            return c.jump(0x1771);
+        }
+    }
+    c.set_reg(AX, 0x12db);
+    c.jump(0x1771)
+}

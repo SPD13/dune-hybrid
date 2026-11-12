@@ -98,11 +98,19 @@ mod gen_tables {
     }
 }
 
-/// The hand-written ports in use: all of them, or none with `REC_NO_HAND=1`
-/// in the environment (to tell whether a difference comes from one).
+/// The hand-written ports in use: all of them, none with `REC_NO_HAND=1`
+/// in the environment, or all but the entries in `REC_HAND_SKIP` (hex,
+/// comma-separated): to tell whether a difference comes from one.
 fn hand_ports() -> &'static [(u16, Routine, &'static str)] {
-    static OFF: OnceLock<bool> = OnceLock::new();
-    if *OFF.get_or_init(|| std::env::var_os("REC_NO_HAND").is_some_and(|v| v == "1")) { &[] } else { hand::ROUTINES }
+    static PORTS: OnceLock<&'static [(u16, Routine, &'static str)]> = OnceLock::new();
+    PORTS.get_or_init(|| {
+        if std::env::var_os("REC_NO_HAND").is_some_and(|v| v == "1") {
+            return &[];
+        }
+        let Ok(skip) = std::env::var("REC_HAND_SKIP") else { return hand::ROUTINES };
+        let skip: Vec<u16> = skip.split(',').filter_map(|s| u16::from_str_radix(s.trim(), 16).ok()).collect();
+        Vec::leak(hand::ROUTINES.iter().copied().filter(|r| !skip.contains(&r.0)).collect())
+    })
 }
 
 /// Every routine by seg000 entry offset: the hand-written ports, and the

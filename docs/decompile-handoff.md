@@ -164,15 +164,25 @@ twice per lift.
      `lift.sh`.
    - Leave out games where the ladder makes the game overwrite its sound
      driver: check with `REC_DRIVER_FORMS` and `codediff`.
-3. **Re-check the differences marked as the harness's** with every call
-   (`REC_SAMPLES` large, `REC_FROM` near the call). Candidates:
-   - `loc_06447` / `64ed`. The static pass finds no instruction at `64ed`;
-     it may be data.
-   - `vga_slot_22`, `sub_f1a0`, `parse_command_line`.
-   - The sound slots.
-
-   One such mark (`vga_slot_05`) was the real bug.
-4. **Then the readable ports** (`docs/decompile.md`, Next steps 1).
+3. **Re-check (done 2026-11-12, see `decompile.md` section 3):**
+   - `loc_06447`: its mark came from the data word at 64EDh. A real flags
+     difference in its port (the circle walk's calls) is fixed.
+   - Real play with `REC_SAMPLES=2000` in English, German, the ladder, the
+     intro and two late windows: one real bug, in `draw_speech_bubble`
+     (fixed), and nothing else.
+   - Still marked, by the harness's random calls only: `vga_slot_22`,
+     `sub_f1a0`, `parse_command_line`, the sound slots.
+4. **The readable ports** (`docs/decompile.md`, Next steps 1): started.
+   - The routines left without a port: `python tools/lift/unported.py`
+     (entry, size, the listing's label).
+   - About half of them have no label in the listing and start in the
+     middle of an instruction or a routine (`181c` is `into`): call
+     targets only the harness reaches. Leave them generated.
+   - Left on purpose for now: `start`, `game_loop`, `play_intro`,
+     `parse_command_line`, the interrupt handlers (`pit_timer_callback`,
+     `hnm_render_timer_callback`), the XMS and keyboard set-up.
+   - Check each batch with real play in two languages, not only the
+     validation.
 
 ## Diagnostics added (environment variables)
 
@@ -182,6 +192,8 @@ twice per lift.
 | `REC_DRIVER_FORMS=DIR` | Dump a lifted driver whose code changed in place, once per form. |
 | `REC_DRIVERS=graphics,sound` | Use only those lifted drivers (bisecting a divergence). |
 | `REC_SAMPLES=N`, `REC_FROM=SECONDS` | Shadow-check the first N calls per routine, only from that time on. |
+| `REC_DIFF_LOG=1` | Print each differing call with its virtual time and instruction count. |
+| `REC_HAND_SKIP=8f28,...` | Leave those hand ports out (hex entries): which port a difference comes from. |
 | `REC_TRACE_SKIP=1` | When a bail repeats with nothing changed, print what was due. |
 
 **Divergence hunting that worked:**

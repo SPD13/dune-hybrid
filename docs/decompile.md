@@ -178,8 +178,27 @@ in Rust, is checked to its end this way (24,000 such stretches per
 10-minute run).
 
 A call that wrote into the code segment is marked in the report ("the call
-wrote into the code segment"): if it changed code, Rust, which keeps the
-code as loaded, would run differently.
+wrote into the code segment at XXXX", the first such byte): if it changed
+code, Rust, which keeps the code as loaded, would run differently. Bytes
+the listing declares as data and the program writes (00A8h-00AFh, the
+circle's span handler at 64EDh, CC94h, E8D4h, the saved vectors at
+E956h-E979h: `DATA_IN_CODE` in `pc::rec`) don't count: Rust reads them as
+data too. Before that, every call of `loc_06447` was marked (it stores
+its span handler at 64EDh), which hid a real difference in its port.
+
+**Checking every call in real play** (2026-11-12). The report's checks
+stop at 20 calls per routine; `REC_SAMPLES=2000` raises that (a 600 s game
+then takes about 8 minutes and checks about 245,000 calls). `REC_DIFF_LOG=1`
+prints each differing call with its virtual time, so the innermost one
+can be found; `REC_HAND_SKIP=8f28,...` leaves chosen ports out (with
+`REC_NO_HAND=1`, all of them) to tell which port a difference comes from.
+Run on seeds 12 (English) and 21 (German), the phase ladder, the intro and
+two late windows (`REC_FROM=3000`, `3300` in hour-long games), this found
+one real bug: `draw_speech_bubble`, on its path that clears the text
+buffer, counted the jump to 8895h and the 15 instructions there as 15. An
+interrupt was nearly always due inside that stretch after the long `rep
+stosb` before it, so the stretch bailed and the miscount never ran; in a
+German dialogue it ran, and the call and its four callers differed.
 
 The checker was itself tested: a deliberately broken `add` in
 `adjust_sub_resource_pointers` was reported as "reg AX bbd0 vs bb2c", and
@@ -282,7 +301,7 @@ the instruction count (virtual time). `Ctx` holds the bookkeeping:
   `interp` (`INT` and far calls into the drivers), and tail jumps call the
   target port directly.
 
-Ported: 1,089 routines (the small ones first: flags and setters, game time,
+Ported: 1,118 routines (the small ones first: flags and setters, game time,
 location kinds, frame tasks, condition operators, the intro's steps,
 framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
 decompression, voice and music start/stop, DUNE.DAT access, the memory
@@ -314,7 +333,10 @@ keeping resources in memory, RLE images, mouth frames, the speech bubble, redraw
 a rectangle with its particles, the scenes' sprites and polygons, the
 panel's buttons, loading a phrase's voice and lip-sync,
 an HNM frame's chunks; the intro's scene
-entries and other short entries ending in a jump), all equal to the original in every
+entries and other short entries ending in a jump; then, 2026-11-12, the
+troop callbacks the location and raid routines pass in BP (yields, counts
+by job, raids, job changes), the map circle's two span handlers, a frame
+task, the dialogue state and portrait, short entries), all equal to the original in every
 checked call (two 10-minute games with `--call-each 4`, 0 differences), and `--rec on`
 screenshots unchanged. In a replay, a callee that bails (an interrupt due inside it, a timer
 wait) is finished there, with the recorded interrupts and Rust resumed
@@ -586,4 +608,7 @@ graphics driver call, room captures) byte-identical, speed within 3%
    steps, until rounds come back clean. `tools/lift/soak.sh check`,
    `merge.sh`, `lift.sh`; one game at a time.
 4. **The differences marked as the harness's**, re-checked with every call
-   (`REC_SAMPLES`, `REC_FROM`): one such mark hid the graphics bug above.
+   (`REC_SAMPLES`, `REC_FROM`): one such mark hid the graphics bug above;
+   another hid the circle's flags (section 3). Real play in every language
+   is the better oracle for ports: the harness never reached the German
+   dialogue path.
