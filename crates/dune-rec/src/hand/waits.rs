@@ -13,11 +13,17 @@ use pc::{
 /// The timer word (ticks of the PIT interrupt).
 const TIMER: u16 = 0xce7a;
 
-/// `pushf` then `sti`.
-fn pushf_sti(c: &mut Ctx) {
+/// `pushf` then `sti`; `hold`: the STI is the last instruction counted so
+/// far, so its one-instruction hold is still on (else the next instruction
+/// is already in the `run`, and the hold is over).
+fn pushf_sti(c: &mut Ctx, hold: bool) {
     let f = c.m.cpu.flags();
     c.push(f);
-    c.set_flag(IF, true);
+    if hold {
+        c.sti();
+    } else {
+        c.set_flag(IF, true);
+    }
 }
 
 /// `popf`.
@@ -46,7 +52,7 @@ pub fn wait_a_bit(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(ax);
     c.push(cx);
     c.set_reg(CX, ax);
-    pushf_sti(&mut c);
+    pushf_sti(&mut c, true);
     let mut n = ax;
     loop {
         c.run(0xe38f, 1)?;
@@ -103,7 +109,7 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(DI, 0xffff);
     let cx = c.pop();
     c.set_reg(CX, cx);
-    c.set_flag(IF, true);
+    c.sti();
     loop {
         c.run(0xddca, 3)?;
         let t0 = c.word(TIMER);
@@ -208,7 +214,7 @@ pub fn audio_test_frequency(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa87e)?;
     let mut c = Ctx::new(m);
     c.run(0xa87e, 3)?;
-    pushf_sti(&mut c);
+    pushf_sti(&mut c, false);
     c.call(0xae2f, 0xa883)?;
     if c.flag(ZF) {
         c.run(0xa883, 3)?;
@@ -265,7 +271,7 @@ pub fn measure_pit_e85c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, 0);
     c.set_reg(DI, 0x20);
     c.set_word_in(ES, 0x20, 0xe8b8);
-    pushf_sti(&mut c);
+    pushf_sti(&mut c, true);
     loop {
         c.run(0xe86e, 2)?;
         let v = c.byte_in(CS, 0xe8d4);

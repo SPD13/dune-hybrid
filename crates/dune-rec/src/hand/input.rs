@@ -352,9 +352,12 @@ pub fn read_game_port(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.count(1);
     let f = c.pop();
     c.m.cpu.set_flags(f);
+    c.count(1);
+    // Interrupts back on: one that came during the loop is taken here.
+    c.check(0xdd0b, 3)?;
     c.set_reg(DX, cx);
     c.set_reg8(r8::AL, !v);
-    c.count(4);
+    c.count(3);
     c.ret()
 }
 

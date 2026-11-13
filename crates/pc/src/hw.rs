@@ -276,6 +276,8 @@ pub struct Hardware {
     pub audio: Audio,
     /// Diagnostics: log sound/DMA/PIC port traffic (port, value, write?).
     pub trace_ports: Option<Vec<(u64, u16, u8, bool)>>,
+    /// Diagnostics (`TRACE_IRQ`): print sound port writes.
+    pub trace_sb: bool,
     /// Port reads and writes so far.
     pub io_count: u64,
     /// Shadow checking: port traffic recorded during the original's calls
@@ -300,6 +302,7 @@ impl Hardware {
             game_port: 0xf0,
             audio: Audio::new(),
             trace_ports: None,
+            trace_sb: false,
             io_count: 0,
             io_log: IoLog::default(),
             reschedule: false,
@@ -492,6 +495,9 @@ impl Hardware {
             if matches!(port, 0x00..=0x0f | 0x20 | 0x21 | 0x81..=0x87 | 0x220..=0x22f | 0x388..=0x38b) && t.len() < 20000 {
                 t.push((now, port, v, true));
             }
+        }
+        if self.trace_sb && matches!(port, 0x00..=0x0f | 0x81..=0x83 | 0x87 | 0x220..=0x22f) {
+            eprintln!("out {port:03x} {v:02x} now {now} frames {}", self.audio.frames_rendered);
         }
         if matches!(port, 0x00..=0x0f | 0x81..=0x83 | 0x87 | 0x388..=0x38b | 0x220..=0x22f) {
             // Sound state changes take effect at this instant.

@@ -121,6 +121,8 @@ pub fn hnm_render_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail
     let due = c.byte(0xdbb5);
     c.set_byte(0xdbb5, 0);
     c.set_reg(AX, due as u16);
+    // STI; its one-instruction hold is over: the next instruction is
+    // already in the `run` above.
     c.set_flag(IF, true);
     c.push(due as u16);
     c.call(0xcaa0, 0xcedc)?;

@@ -84,6 +84,10 @@ pub struct Rec {
     /// (entries included): after a bail, Rust takes over again at the next
     /// leader the interpreter reaches.
     pub resume: Vec<Option<Routine>>,
+    /// Per seg000 routine entry: the flags (CF..OF bits) its callers read
+    /// after it returns; the shadow check ignores the others in the
+    /// result (all by default; `with_flags_read`).
+    pub flags_read: Vec<u16>,
     /// Shadow mode: calls checked per routine.
     /// seg000's generated code by block start: where a hand port gives up
     /// twice with nothing changed (a case it does not handle), the build
@@ -268,6 +272,15 @@ fn check_only(k: u32) -> bool {
 }
 
 impl Rec {
+    /// The flags each routine's callers read (from `flags_used.py`):
+    /// (entry, mask) for those that read fewer than all.
+    pub fn with_flags_read(mut self, table: &[(u16, u16)]) -> Rec {
+        for &(e, m) in table {
+            self.flags_read[e as usize] = m | !FLAG_BITS;
+        }
+        self
+    }
+
     pub fn new(mode: RecMode, routines: &[(u16, Routine)], leaders: &[(u16, Routine)]) -> Rec {
         let mut table = vec![None; 0x10000];
         let mut resume = vec![None; 0x10000];
@@ -285,6 +298,7 @@ impl Rec {
             mode,
             table,
             resume,
+            flags_read: vec![0xffff; 0x10000],
             generated,
             fell_back: None,
             samples: 20,
@@ -801,7 +815,16 @@ impl Machine {
                     self.cpu.instructions - p.cpu_instructions,
                     cpu1.instructions - p.cpu_instructions
                 )),
-                (None, true) => compare(&cpu1, &mem1, &self.cpu, &self.hw.mem),
+                (None, true) => {
+                    // Flags no caller reads: the original's, so they don't count.
+                    let unread = match self.rec.as_ref() {
+                        Some(r) if p.entry < 0x10000 => FLAG_BITS & !r.flags_read[p.entry as usize],
+                        _ => 0,
+                    };
+                    let mut port = self.cpu.clone();
+                    port.set_flags(port.flags() & !unread | cpu1.flags() & unread);
+                    compare(&cpu1, &mem1, &port, &self.hw.mem)
+                }
             };
             // A port may keep what it read across a stretch (right under
             // `--rec on`, where no interrupt comes while Rust runs); run
@@ -1468,6 +1491,9 @@ fn modrm_len(modrm: u8) -> u16 {
 }
 
 /// First register difference between two CPU states, if any.
+/// CF, PF, AF, ZF, SF and OF: the flags results set.
+const FLAG_BITS: u16 = 0x8d5;
+
 fn compare_cpu(c1: &Cpu, c2: &Cpu) -> Option<String> {
     for (i, (a, b)) in c1.regs.iter().zip(&c2.regs).enumerate() {
         if a != b {

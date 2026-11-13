@@ -28,9 +28,11 @@ use pc::{
 };
 
 mod audio;
+pub mod flags_read;
 mod cursor;
 mod dialogue;
 mod dos;
+mod game;
 mod draw;
 mod files;
 mod frame;
@@ -586,7 +588,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x6b25, troops::stamp_record, "loc_06b25"),
     (0x6e02, troops::repeat_764d, "loc_06e02"),
     (0x6ebf, troops::for_troop_location, "loc_06ebf"),
-    (0x6f48, troops::add_to_troop_15, "loc_06f48"),
+    (0x6f48, troops::add_motivation, "loc_06f48"),
     (0x7085, troops::mark_troop_10, "loc_07085"),
     (0x719c, troops::mark_troop_200_10, "loc_0719c"),
     (0x71b2, troops::call_29f0_f, "loc_071b2"),
@@ -754,7 +756,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x6946, troops::particle_at, "loc_06946"),
     (0x6cfc, troops::grow_location, "loc_06cfc"),
     (0x6edd, troops::add_skill, "loc_06edd"),
-    (0x6f56, troops::add_to_all_troops_15, "loc_06f56"),
+    (0x6f56, troops::add_motivation_to_all, "loc_06f56"),
     (0x68d2, troops::for_each_troop_68da, "loc_068d2"),
     (0x6efd, troops::troop_motivation, "loc_06efd"),
     (0x6fb0, troops::lose_charisma, "loc_06fb0"),
@@ -1432,6 +1434,21 @@ impl Ctx<'_> {
     fn pop(&mut self) -> u16 {
         self.m.cpu.pop(&mut self.m.hw)
     }
+    /// `push` of each register in `regs`, in order (as the original saves
+    /// them; [`Ctx::restore`] gets them back).
+    fn save(&mut self, regs: &[usize]) {
+        for &r in regs {
+            let v = self.reg(r);
+            self.push(v);
+        }
+    }
+    /// `pop` into each register in `regs`, last first.
+    fn restore(&mut self, regs: &[usize]) {
+        for &r in regs.iter().rev() {
+            let v = self.pop();
+            self.set_reg(r, v);
+        }
+    }
     /// A word that a `push` then `pop` left in memory `words` below SP:
     /// the original wrote it, so the port does too.
     fn below_sp(&mut self, words: u16, v: u16) {
@@ -1577,6 +1594,13 @@ impl Ctx<'_> {
         self.m.cpu.mul_div(&mut self.m.hw, W, 4, v as u32);
     }
 
+    /// `STI`: interrupts on after the next instruction (the hold the run
+    /// loop and the generated code keep; `rec_tick` ends it).
+    fn sti(&mut self) {
+        self.set_flag(pc::cpu::IF, true);
+        self.m.cpu.irq_inhibit = true;
+    }
+
     // --- Ports ----------------------------------------------------------
 
     /// `out port, v`, at the time of its instruction.
@@ -1602,8 +1626,11 @@ impl Ctx<'_> {
 
     /// The instruction at `ip`, which ends at `next`, through the
     /// interpreter: `INT` (BIOS, DOS, EMS) and far calls (the drivers'
-    /// tables). It counts itself.
+    /// tables). It counts itself, so the caller's `run` does not cover it:
+    /// an event due at it is checked here, before it (the generated code's
+    /// block check counts it; the plain emulator takes the event first).
     fn interp(&mut self, ip: u16, next: u16) -> Result<(), Bail> {
+        self.check(ip, 1)?;
         self.m.rec_interp(ip, next)
     }
 

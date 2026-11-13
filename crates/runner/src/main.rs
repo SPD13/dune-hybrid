@@ -493,7 +493,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
         println!("rec: {} routines, {mode:?}", routines.len());
-        let rec = pc::rec::Rec::new(mode, routines, dune_rec::leaders());
+        let rec = pc::rec::Rec::new(mode, routines, dune_rec::leaders()).with_flags_read(dune_rec::hand::flags_read::FLAGS_READ);
         let mut rec = rec;
         rec.late_events = args.rec_native;
         // REC_SAMPLES=N: check the first N calls of each routine (default 20).
@@ -669,7 +669,16 @@ fn main() -> ExitCode {
         // from then on.
         let from = std::env::var("STATE_FROM").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
         if std::env::var_os("STATE_HASH").is_some() && m.now_ns() as f64 / 1e9 - t0 >= from {
-            println!("state {shot:04} {:.3}s insn {} {} at {:04x}:{:04x}", m.now_ns() as f64 / 1e9 - t0, m.cpu.instructions, state_hash(&m), m.cpu.sregs[pc::cpu::CS], m.cpu.ip);
+            println!(
+                "state {shot:04} {:.3}s insn {} {} at {:04x}:{:04x} stack {:04x}:{:04x}",
+                m.now_ns() as f64 / 1e9 - t0,
+                m.cpu.instructions,
+                state_hash(&m),
+                m.cpu.sregs[pc::cpu::CS],
+                m.cpu.ip,
+                m.cpu.sregs[pc::cpu::SS],
+                m.cpu.regs[pc::cpu::SP]
+            );
         }
         // STATE_DUMP=1: the memory itself at each shot (`mem-NNNN.bin`), to
         // find what differs between two runs.

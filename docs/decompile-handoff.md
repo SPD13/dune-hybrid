@@ -187,6 +187,12 @@ twice per lift.
      check them, plain emulation against `--rec on`, the whole memory
      every 10 s (`STATE_HASH=1`).
    - Left: see `docs/readable-port-plan.md`, "What is left".
+   - 2026-11-13: the suite is clean (seven games identical to plain
+     emulation, whole state, every 10 s) after four fixes to how Rust
+     code meets interrupts (plan, "The suite made clean"). Readable Rust
+     started: `hand/game.rs` views, 13 troop routines rewritten (plan,
+     stage A "Progress"); the shadow check ignores flags no caller reads
+     (`hand/flags_read.rs`, from `flags_used.py --rust`).
    - Check each batch with real play in two languages, not only the
      validation.
    - Video scenes (2026-11-12): checked in real play with `REC_ONLY` and
@@ -212,6 +218,7 @@ twice per lift.
 | `REC_ONLY=0e77,c8fb,...` | Shadow-check only those entries (long calls then have the pending slots to themselves; much faster). |
 | `REC_BUDGET=N`, `REC_EVENTS=N` | Longest call checked (instructions, default 50,000,000) and recorded events kept (default 2^21): raise both for videos and scenes. |
 | `--save FILE` + event `T:load:1` | Start real play from a save: the game's own load (1000:B3B0) at the next main-loop top. Test saves (Day 1 to 23, never in git): `../dune-hybrid/tests-data/saves/`. |
+| `TRACE_IRQ=INSN` | From that instruction count on, print every interrupt taken, device update, idle skip and sound port write (stderr): diff a plain run against a `--rec on` one to find where interrupt timing parts. |
 | `STATE_HASH=1` | Print the hash of the whole machine state (and of the memory alone) at each screenshot: `hashcmp.sh`, `suite.sh`. |
 | `STATE_FROM=S`, `NO_PNG=1`, `STATE_DUMP=1` | Hashes only from S seconds on (one step there), no PNG files, the memory itself at each shot: finding where two runs part. |
 | `REC_TRACE_SKIP=1` | When a bail repeats with nothing changed, print what was due. |

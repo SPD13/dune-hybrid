@@ -45,17 +45,26 @@ reached in real play). For each:
    them only as hints, and check each against the listing (the clean-room
    rule).
 2. **Drop dead flags.** `tools/lift/flags_used.py` lists, for each
-   routine, the flags any caller reads after calling it. The current
-   result:
+   routine, the flags any caller reads after it returns. It follows the
+   code after every call site (direct ones, and the indirect calls and
+   jumps the coverage runs saw), into callees (what they read on entry,
+   and which flags reach their RET unwritten), and through tail jumps.
+   Whatever it cannot follow counts as read: code never run (not in the
+   generated code), an indirect target no run took. INT and far calls
+   (BIOS, DOS, the drivers) pass the flags through. The current result:
 
    | Routines | Flags their callers read |
    |---|---|
-   | 777 | none: the port can drop every flag-exact helper on its result |
-   | 149 | some: 66 only CF, 11 only ZF |
-   | 263 | unknown: only called indirectly, through tables (assumed all) |
+   | 758 | none: the port can drop every flag-exact helper on its result |
+   | 63 | some (mostly CF or ZF alone) |
+   | 368 | all, or unknown |
 
-   Refining the indirect ones (their call sites are in the coverage
-   files' indirect targets) is the first task of this stage.
+   `flags_used.py --rust` writes the table
+   (`crates/dune-rec/src/hand/flags_read.rs`); the shadow check takes
+   the original's value for every flag no caller reads, so a port that
+   drops them still compares equal. One limit: a flag the port leaves
+   different can still reach memory through a later `PUSHF` or an
+   interrupt's frame on the stack; the whole-run checks would show it.
 3. **Timing as a cost.** Replace the interleaved `c.run` calls with one
    cost per straight path, computed from the listing by a helper (the
    `n` arguments are already sums of path lengths). The bail points stay:
@@ -63,6 +72,32 @@ reached in real play). For each:
    constraint the readable code keeps from the 8086.
 4. Each port, as it is rewritten, still has to pass the shadow check in
    real play (English and German, the saves) and `validate.sh`.
+
+### Progress
+
+Started with the troops (`hand/troops.rs`) and the views in
+`hand/game.rs` (`Troop`, `Location`, the troop state bits, the game
+time, charisma, the location the player is at). Rewritten so far, each
+checked equal call by call in the saves and the harness:
+`troop_activity`, `stamp_record`, `add_motivation` (6F48h),
+`add_motivation_to_all` (6F56h), `mark_troop` and its two entries,
+`add_skill`, `troop_motivation`, `add_location_sum`, `start_troop`,
+`lose_charisma`, `troop_joins`, `troop_skills_decay`.
+
+The shape of a rewritten port: read what it needs through the views,
+work out the result and the instruction count of its path in plain Rust
+(no flag helpers where no caller reads the flags), `c.run(start, cost)`
+once (it bails before anything is written if an interrupt falls inside),
+then write the results. Where the original calls another routine, the
+port still stops there (`c.call`), as that is where an interrupt or the
+callee's own bail can come. Registers the original leaves are still set
+(callers read them); `c.save` / `c.restore` keep its pushes and pops,
+which leave their words in the stack's memory.
+
+To check a batch: `REC_ONLY=<entries> REC_SAMPLES=200` with
+`--rec shadow` in the saves (Day 10, 13, 23: the troops run there, not in
+the first ten minutes of a new game) and with `--call-each 4`, then
+`suite.sh check`.
 
 ## Stage B: native subsystems (whole-run checks)
 
@@ -83,8 +118,7 @@ replace it:
   start in English and German, and from the Day 1, 10, 13 and 23 saves)
   are compared with a recorded reference: the whole memory every 10 s,
   and every screenshot. Until a subsystem stops keeping the 8086 memory
-  in step, the memory must stay identical (once the first task
-  below makes the reference runs agree).
+  in step, the memory must stay identical.
 - **Save files as state**: load a save, play scripted input, write a
   save; the written save (the game's own serialisation of its state) must
   match the reference byte for byte. This is the check that still works
@@ -102,33 +136,41 @@ replace it:
 | `tools/lift/flags_used.py` | Which routines' returned flags any caller reads. |
 | `--save FILE` + event `T:load:1` | Real play from any point of the game (the test saves, Day 1 to 23). |
 
-## First task: make the suite clean
+## The suite made clean (done)
 
-`suite.sh check` (2026-11-12): five of the seven games are identical to
-plain emulation at every 10 s state; Day 1 differs from 100 s, Day 10
-from 230 s, in four bytes: the random generator's state (DS:D826h) and
-its last number (DS:0000). The screens are identical. Both come from the
-`--rec on` run loop and the lifted drivers, not from the hand ports (the
-same with `REC_NO_HAND=1`):
+`suite.sh check` first found two of the seven games different from plain
+emulation (the random generator's state, from 100 s and 230 s). Four
+causes, all in how Rust code met interrupts, none in what a port
+computes:
 
-1. **Loading, 0.787 s (15,740,135 instructions):** the sound driver's IRQ
-   test (driver 03D1h: it starts the card, then counts down in a loop at
-   0409h until the card's interrupt sets [28Eh]) runs one loop pass more
-   (3 instructions) with the lifted sound driver; interpreted
-   (`REC_DRIVERS=graphics,music`), the counts match. From then on the
-   instruction count is off by those few instructions.
-2. **Day 1, 94.749 s (486,829,174 instructions), with the sound driver
-   interpreted:** at 1000:DC2Fh (`redraw_mouse`) the plain run takes the
-   sound card's interrupt within 10 instructions; `--rec on` runs on in
-   Rust and takes it later. Rust code does not stop for that interrupt
-   when it falls due, so the first thing to look at is how `rec_tick`
-   learns of it (`hw.update`'s next event, `reschedule`).
+1. **A hand port's `c.interp` (an INT or far call) ran its instruction
+   without checking for an event due right then.** The generated code
+   counts the INT in its block's check; the hand ports' `run` before it
+   doesn't. `Ctx::interp` now checks first. (Day 1: a timer tick due at
+   `int 33h` in `get_mouse_pos_etc` came after the mouse call instead of
+   before it.)
+2. **A port write that reschedules the devices, mid-block.** The plain
+   run loop updates the devices before the next instruction; Rust code
+   only at its next block start, so the update (and the time it computes
+   the next event from) came a few instructions late. The lifter now
+   starts a block after every `OUT` (and `POPF`, which can turn
+   interrupts on), as it did after `STI`. (Loading: the sound driver's
+   IRQ test loop ran one pass more.)
+3. **`STI` in hand ports without its one-instruction hold** where the
+   STI is the last instruction counted: `Ctx::sti` keeps the hold.
+4. **`POPF` turning interrupts back on in hand ports** (`read_game_port`,
+   E948h): the count now stops right after it, so a pending interrupt is
+   taken there.
 
-Each changes how many passes the main loop's waits make, so `rand` is
-called a different number of times. Tools to find such a point:
-`STATE_FROM=SECONDS` with a small `--shot-every` and `NO_PNG=1` (state
-hashes, CS:IP and the instruction count in a window), `STATE_DUMP=1`
-(the memory at each shot, to compare byte by byte).
+The suite also wasn't hermetic: the game reads and writes its saves in
+the output folder, and saves left there by an earlier run changed the
+next. Each case now starts from an empty folder.
+
+Tools to find such a point: `TRACE_IRQ=INSN` (every interrupt taken,
+every device update and idle skip, every sound port write, from that
+instruction count on; diff a plain run with a `--rec on` one),
+`STATE_FROM=SECONDS` with a small `--shot-every` and `NO_PNG=1`,
+`STATE_DUMP=1`.
 
 ## What is left of the exact ports
 

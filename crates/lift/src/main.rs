@@ -413,6 +413,15 @@ fn explore(seg: &[u8], entry: u16, ind: &Indirect) -> Routine {
                 _ if insn.mnemonic() == Mnemonic::Sti => {
                     r.leaders.insert(next);
                 }
+                // A port write can make an interrupt due at once (an EOI or
+                // a mask to the PIC, a sound card command) or have the
+                // devices rescheduled; POPF can turn interrupts on. The run
+                // loop sees either before the next instruction: a block
+                // start there, so `rec_tick` does too (else the devices'
+                // update and the interrupt come at the block's end).
+                _ if matches!(insn.mnemonic(), Mnemonic::Out | Mnemonic::Popf) => {
+                    r.leaders.insert(next);
+                }
                 // A divide error's handler may return past the DIV (the
                 // program's own skips it): a block start after it.
                 _ if matches!(insn.mnemonic(), Mnemonic::Div | Mnemonic::Idiv) => {

@@ -11,9 +11,8 @@
 #                 `--rec on`), compared with the reference: per case, the
 #                 first state whose memory or screen differs.
 #
-# Memory is compared, not the instruction count: the Rust mode counts one
-# instruction fewer from the loading screen on, with the same memory (a
-# known quirk of the run loop, not of a port).
+# Compared: the whole machine state (CPU, instruction count, memory) and
+# the screens.
 #
 # The saves are game-derived and stay outside git (SAVES, default
 # ../dune-hybrid/tests-data/saves).
@@ -34,11 +33,14 @@ day23g 31 GER $SAVES/day23-DUNE37S1.SAV"
 
 play() { # out-dir name seed lang save extra...
     out=$1; name=$2; seed=$3; lang=$4; save=$5; shift 5
+    # A fresh folder: the game writes and reads its saves there, and a save
+    # the monkey made in an earlier run would change this one.
+    rm -rf "$out/$name"
     ev="61.5:key:1:1,61.6:key:1:0"; extra=""
     if [ "$save" != "-" ]; then ev="$ev,68:load:1"; extra="--save $save"; fi
     STATE_HASH=1 $RUN_HAND --dir "$GAME" --cmd "ADP220 SBP2227 $lang" --events "$ev" $extra \
         --seconds $SECS --monkey $seed:66:0.6 --shot-every 10 --out $out/$name "$@" > $out/$name.log 2>&1
-    grep '^state' $out/$name.log | awk '{split($6,h,"/"); print $2, h[2]}' > $out/$name.st
+    grep '^state' $out/$name.log | awk '{print $2, $5, $6}' > $out/$name.st
     for p in $out/$name/shot-*.png; do
         printf '%s %s\n' "$(basename $p .png | sed 's/shot-//')" "$(sha1sum < $p | cut -c1-16)"
     done > $out/$name.shots
@@ -57,6 +59,6 @@ echo "$CASES" | while read name seed lang save; do
         dm=$(diff $S/ref/$name.st $S/run/$name.st | grep '^<' | head -1)
         ds=$(diff $S/ref/$name.shots $S/run/$name.shots | grep '^<' | head -1)
         n=$(wc -l < $S/ref/$name.st)
-        if [ -z "$dm$ds" ]; then echo "$name: $n states equal"; else echo "$name: DIFFERS memory [$dm] screen [$ds]"; fi
+        if [ -z "$dm$ds" ]; then echo "$name: $n states equal"; else echo "$name: DIFFERS state [$dm] screen [$ds]"; fi
     fi
 done

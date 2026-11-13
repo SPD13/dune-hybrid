@@ -27,6 +27,8 @@ pub fn start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0009, 1)?;
     c.call(0x00b0, 0x000c)?;
     c.run(0x000c, 2)?;
+    // STI; its one-instruction hold is over: the next instruction is
+    // already in the `run` above.
     c.set_flag(IF, true);
     c.call(0x0580, 0x0010)?;
     c.run(0x0010, 1)?;

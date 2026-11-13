@@ -319,7 +319,7 @@ pub struct Audio {
     pub dma: Dma,
     /// Interleaved stereo f32 at [`OUTPUT_RATE`].
     pub out: Vec<f32>,
-    frames_rendered: u64,
+    pub(crate) frames_rendered: u64,
     /// Silence output when the host does not want audio (saves time).
     pub enabled: bool,
 }

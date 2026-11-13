@@ -455,9 +455,12 @@ pub fn install_interrupt_handlers(m: &mut Machine, start: u16) -> Result<(), Bai
             break;
         }
     }
-    c.run(0xe948, 2)?;
+    c.run(0xe948, 1)?;
     let f = c.pop();
     c.m.cpu.set_flags(f);
+    // Interrupts back on (CLI at E91Ch): one that came meanwhile is taken
+    // before the RET.
+    c.run(0xe949, 1)?;
     c.ret()
 }
 

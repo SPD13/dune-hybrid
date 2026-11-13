@@ -275,7 +275,12 @@ impl Machine {
             }
             self.hw.now_ns = now;
             if now >= self.next_event || self.hw.reschedule {
+                let resched = self.hw.reschedule;
+                self.hw.trace_sb = trace_irq_from().is_some_and(|f| self.cpu.instructions >= f);
                 self.next_event = self.hw.update(now);
+                if trace_irq_from().is_some_and(|f| self.cpu.instructions >= f) {
+                    eprintln!("update insn {} at {:04x}:{:04x} now {now} resched {resched} next {} pending {}", self.cpu.instructions, self.cpu.sregs[CS], self.cpu.ip, self.next_event, self.hw.irq_pending());
+                }
                 self.music.refresh(&self.hw.mem);
                 self.gfx.refresh(&self.hw.mem);
                 self.rec_driver_check(now);
@@ -289,6 +294,9 @@ impl Machine {
             if self.cpu.accepts_irq() && self.hw.irq_pending() {
                 if let Some(v) = self.hw.acknowledge_irq() {
                     self.int_counts[v as usize] += 1;
+                    if trace_irq_from().is_some_and(|f| self.cpu.instructions >= f) {
+                        eprintln!("irq {v:02x} insn {} at {:04x}:{:04x} now {now}", self.cpu.instructions, self.cpu.sregs[CS], self.cpu.ip);
+                    }
                     if self.hw.io_log.recording {
                         self.hw.io_log.events.push(hw::IoEvent::Irq { vector: v, at: self.cpu.instructions });
                     }
@@ -395,6 +403,9 @@ impl Machine {
             return false;
         }
         self.idle.pending = false;
+        if trace_irq_from().is_some_and(|f| self.cpu.instructions >= f) {
+            eprintln!("idle insn {} at {:04x}:{:04x} now {} next {}", self.cpu.instructions, self.cpu.sregs[CS], self.cpu.ip, self.now_ns(), self.next_event);
+        }
         if self.next_event > self.now_ns() {
             self.sleep_until = Some(self.next_event);
             self.sleep_is_idle_skip = true;
@@ -927,4 +938,12 @@ impl Machine {
             fm_volume: self.hw.audio.fm_volume(),
         }
     }
+}
+
+/// Diagnostics: `TRACE_IRQ=INSN` prints every interrupt taken, device
+/// update, idle skip and sound port write from that instruction count on
+/// (stderr), to find where two runs part.
+fn trace_irq_from() -> Option<u64> {
+    static FROM: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+    *FROM.get_or_init(|| std::env::var("TRACE_IRQ").ok().and_then(|v| v.parse().ok()))
 }
