@@ -22,6 +22,9 @@
 //! STEP seconds from START on, the way the story does: at the top of the
 //! main loop (1000:D820) it calls `set_game_phase` (1000:121F) with the next
 //! phase, which runs that phase's handler. Late-game code without playing.
+//! `--save FILE` copies a save in as `<out>/saves/DUNE37S1.SAV`; the event
+//! `T:load:1` makes the game load it at the next main-loop top (1000:B3B0,
+//! the mirror menu's load). Real play from any point of the game.
 //!
 //! `--rec shadow` checks the recompiled routines (`crates/dune-rec`) against
 //! the original as the game runs (see `pc::rec`) and prints a report;
@@ -54,6 +57,9 @@ struct Args {
     gfx_trace: Option<PathBuf>,
     /// Start from a snapshot (as saved by the web app or `Machine::save_state`).
     snapshot: Option<PathBuf>,
+    /// `--save FILE`: a save copied in as `<out>/saves/DUNE37S1.SAV` (the
+    /// event `load:1` loads it).
+    save: Option<PathBuf>,
     /// Follow the drawing with the reference HD compositor at this scale.
     hd: Option<usize>,
     /// Also write HD screenshots.
@@ -83,6 +89,8 @@ struct Args {
 
 /// Top of the main loop (`loc_0d820`), where nothing is half done.
 const MAIN_LOOP: u16 = 0xd820;
+/// `loc_0b3b0`: load save CL + 1 (the mirror menu's load).
+const LOAD_SAVE: u16 = 0xb3b0;
 /// `set_game_phase` (AL = phase): raises `[2Ah]`, runs the phase's handler.
 const SET_GAME_PHASE: u16 = 0x121f;
 /// Phases for the ladder. The handler table (word pointers at CS:11E7 +
@@ -105,6 +113,7 @@ fn parse() -> Result<Args, String> {
         wav: None,
         gfx_trace: None,
         snapshot: None,
+        save: None,
         hd: None,
         hd_shots: false,
         hd_pack: None,
@@ -132,6 +141,7 @@ fn parse() -> Result<Args, String> {
             "--wav" => a.wav = Some(v()?.into()),
             "--gfx-trace" => a.gfx_trace = Some(v()?.into()),
             "--snapshot" => a.snapshot = Some(v()?.into()),
+            "--save" => a.save = Some(v()?.into()),
             "--hd" => a.hd = Some(v()?.parse().map_err(|e| format!("{e}"))?),
             "--hd-shots" => a.hd_shots = true,
             "--hd-pack" => a.hd_pack = Some(v()?.into()),
@@ -320,6 +330,32 @@ fn enter_phase(m: &mut Machine, phase: u8) -> Option<RunExit> {
     }
 }
 
+/// Waits (up to 10 virtual seconds) for the top of the main loop, then makes
+/// the game load `DUNE37S<slot>.SAV` from there (`loc_0b3b0` with CL =
+/// slot - 1, the mirror menu's load), as if the loop had called it.
+fn enter_load(m: &mut Machine, slot: u8) -> Option<RunExit> {
+    m.break_at = Some((pc::LOAD_SEG, MAIN_LOOP));
+    let r = m.run_until(m.now_ns() + 10_000_000_000);
+    m.break_at = None;
+    match r {
+        RunExit::Break => {
+            println!("load DUNE37S{slot}.SAV at {:.1}s", m.now_ns() as f64 / 1e9);
+            let (ss, sp) = (m.cpu.sregs[pc::cpu::SS], m.cpu.regs[pc::cpu::SP].wrapping_sub(2));
+            m.cpu.regs[pc::cpu::SP] = sp;
+            let a = (ss as usize * 16 + sp as usize) & 0xf_ffff;
+            m.hw.mem[a..a + 2].copy_from_slice(&MAIN_LOOP.to_le_bytes());
+            m.cpu.regs[pc::cpu::CX] = (m.cpu.regs[pc::cpu::CX] & 0xff00) | slot.wrapping_sub(1) as u16;
+            m.cpu.ip = LOAD_SAVE;
+            None
+        }
+        RunExit::Deadline => {
+            println!("load: main loop not reached in 10 s, skipped");
+            None
+        }
+        other => Some(other),
+    }
+}
+
 /// Random input for coverage runs: mostly left clicks (half of them on the
 /// interface strip at the bottom), some right clicks and keys.
 fn monkey_events(seed: u64, start: f64, step: f64, end: f64) -> Vec<(f64, Vec<String>)> {
@@ -411,6 +447,9 @@ fn main() -> ExitCode {
     // Saves go to <out>/saves; the game directory is only read.
     let saves = args.out.join("saves");
     fs::create_dir_all(&saves).unwrap();
+    if let Some(src) = &args.save {
+        fs::copy(src, saves.join("DUNE37S1.SAV")).unwrap_or_else(|e| panic!("{}: {e}", src.display()));
+    }
     let files = OverlayFs { game: DirFs { root: args.dir.clone() }, saves: DirFs { root: saves } };
     let mut m = Machine::new(&exe, &args.cmd, Box::new(files)).unwrap();
     m.trace_mouse = std::env::var_os("TRACE_MOUSE").is_some();
@@ -554,6 +593,13 @@ fn main() -> ExitCode {
                 "phase" => {
                     let phase = u8::from_str_radix(&ev[1], 16).unwrap();
                     if let Some(r2) = enter_phase(&mut m, phase) {
+                        r = r2;
+                        break;
+                    }
+                }
+                "load" => {
+                    let slot: u8 = ev[1].parse().unwrap();
+                    if let Some(r2) = enter_load(&mut m, slot) {
                         r = r2;
                         break;
                     }

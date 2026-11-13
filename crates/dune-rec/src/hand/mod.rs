@@ -64,6 +64,7 @@ mod troops;
 mod tails;
 mod ui;
 mod video;
+mod videos;
 mod voice;
 
 /// The ports, by entry offset, with the listing's names.
@@ -393,8 +394,10 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xcda0, hnmload::hnm_open_at_body_start, "hnm_open_at_body_start"),
     // Scenes and screens.
     (0xb1af, scenes::ui_draw_book_turning_page, "ui_draw_book_turning_page"),
-    // Unverified (never called to completion in the checking runs):
-    // (0xb1ee, scenes::sub_b1ee, "sub_b1ee"),
+    (0xb1ee, scenes::sub_b1ee, "sub_b1ee"),
+    // Unverified (no run reaches them; the harness's calls quit the game):
+    // (0x1566, videos::repeat_1566, "loc_01566"),
+    // (0x491c, videos::video_491c, "loc_0491c"),
     (0xb236, scenes::sub_b236, "sub_b236"),
     (0xbdfa, scenes::ui_stats_draw_ingame_day_and_charisma, "ui_stats_draw_ingame_day_and_charisma"),
     (0xbe57, scenes::sub_be57, "sub_be57"),
@@ -1010,6 +1013,12 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x97cf, dialogue::line_done, "loc_097cf"),
     (0x9f9e, dialogue::say_dialogue_entry, "loc_09f9e"),
     (0xa172, dialogue::dialogue_state_a172, "loc_0a172"),
+    (0xa125, dialogue::dialogue_state_a125, "loc_0a125"),
+    (0xa244, dialogue::dialogue_scene_a244, "loc_0a244"),
+    (0xa248, dialogue::dialogue_scene_a248, "loc_0a248"),
+    (0xa25b, dialogue::dialogue_scene_a25b, "loc_0a25b"),
+    (0x8403, troops::troop_8403, "loc_08403"),
+    (0x02c1, tails::intro_scene_02c1, "loc_002c1"),
     (0xa28e, dialogue::portrait_a28e, "loc_0a28e"),
     (0x9761, dialogue::start_speaker_dialogue, "loc_09761"),
     (0xd2e2, screens::leave_and_fade, "loc_0d2e2"),
@@ -1172,6 +1181,15 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x4795, tails::night_4795, "loc_04795"),
     (0x0981, tails::room_0981, "loc_00981"),
     (0x4913, tails::night_video_4913, "loc_04913"),
+    // Video scenes (checked with REC_BUDGET raised).
+    (0x0e66, videos::video_0e66, "loc_00e66"),
+    (0x0e6c, videos::video_0e6c, "loc_00e6c"),
+    (0x0e77, videos::video_0e77, "loc_00e77"),
+    (0x37f4, videos::room_37f4, "loc_037f4"),
+    (0x488a, videos::sal_scene_488a, "loc_0488a"),
+    (0x4abe, videos::tail_4abe, "loc_04abe"),
+    (0xc8c1, videos::frame_wait_c8c1, "loc_0c8c1"),
+    (0xc8fb, videos::video_c8fb, "loc_0c8fb"),
     (0x2c9a, tails::screen_2c9a, "loc_02c9a"),
     (0x2540, tails::nothing_2540, "loc_02540"),
     (0xa1f7, tails::by_day_a1f7, "loc_0a1f7"),

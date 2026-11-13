@@ -183,6 +183,15 @@ twice per lift.
      `hnm_render_timer_callback`), the XMS and keyboard set-up.
    - Check each batch with real play in two languages, not only the
      validation.
+   - Video scenes (2026-11-12): checked in real play with `REC_ONLY` and
+     `REC_BUDGET` raised, and from the test saves (`--save`, `load:1`;
+     Day 10, 13 and 23). Two port bugs found that way: `sub_b1ee` counted
+     one instruction too many, and `loc_0a25b` skipped the stack write of
+     `push ds; pop es`. `loc_01566` and `loc_0491c` stay out (no run
+     reaches them).
+   - Indirect calls: the listing writes `call word ptr [x]` for far calls
+     too. Take the generated code's comment (`call far dword ptr`) as the
+     truth: far calls go through `interp`.
 
 ## Diagnostics added (environment variables)
 
@@ -194,6 +203,9 @@ twice per lift.
 | `REC_SAMPLES=N`, `REC_FROM=SECONDS` | Shadow-check the first N calls per routine, only from that time on. |
 | `REC_DIFF_LOG=1` | Print each differing call with its virtual time and instruction count. |
 | `REC_HAND_SKIP=8f28,...` | Leave those hand ports out (hex entries): which port a difference comes from. |
+| `REC_ONLY=0e77,c8fb,...` | Shadow-check only those entries (long calls then have the pending slots to themselves; much faster). |
+| `REC_BUDGET=N`, `REC_EVENTS=N` | Longest call checked (instructions, default 50,000,000) and recorded events kept (default 2^21): raise both for videos and scenes. |
+| `--save FILE` + event `T:load:1` | Start real play from a save: the game's own load (1000:B3B0) at the next main-loop top. Test saves (Day 1 to 23, never in git): `../dune-hybrid/tests-data/saves/`. |
 | `REC_TRACE_SKIP=1` | When a bail repeats with nothing changed, print what was due. |
 
 **Divergence hunting that worked:**

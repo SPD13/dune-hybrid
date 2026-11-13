@@ -238,15 +238,34 @@ const CHECK_MAX_NS: u64 = 100_000_000;
 const MAX_PENDING: usize = 32;
 
 /// Instructions the interpreter may spend finishing one routine; also the
-/// longest call that is checked.
-const BUDGET: u64 = 50_000_000;
+/// longest call that is checked (`REC_BUDGET=N` raises it, for videos and
+/// scenes that run for seconds).
+fn budget() -> u64 {
+    static B: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *B.get_or_init(|| std::env::var("REC_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(50_000_000))
+}
 
 /// `--rec on`: instructions an `INT` or far call may take on the
 /// interpreter before the routine leaves it to the run loop.
 const ON_INTERP_BUDGET: u32 = 20_000;
 
-/// Recorded events kept at most; past this, pending checks are dropped.
-const MAX_EVENTS: usize = 1 << 21;
+/// Recorded events kept at most; past this, pending checks are dropped
+/// (`REC_EVENTS=N` raises it, with `REC_BUDGET`).
+fn max_events() -> usize {
+    static E: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *E.get_or_init(|| std::env::var("REC_EVENTS").ok().and_then(|v| v.parse().ok()).unwrap_or(1 << 21))
+}
+
+/// `REC_ONLY=hex,...`: shadow-check only calls of these seg000 entries
+/// (the long ones then have the pending slots and the time to themselves).
+fn check_only(k: u32) -> bool {
+    static O: std::sync::OnceLock<Option<Vec<u32>>> = std::sync::OnceLock::new();
+    O.get_or_init(|| {
+        std::env::var("REC_ONLY").ok().map(|v| v.split(',').filter_map(|e| u32::from_str_radix(e.trim(), 16).ok()).collect())
+    })
+    .as_ref()
+    .is_none_or(|o| o.contains(&k))
+}
 
 impl Rec {
     pub fn new(mode: RecMode, routines: &[(u16, Routine)], leaders: &[(u16, Routine)]) -> Rec {
@@ -609,7 +628,7 @@ impl Machine {
                 let st = rec.stats.entry(k).or_default();
                 let checked = st.ok + st.diff + st.bailed + st.skipped;
                 let in_flight = rec.pending.iter().filter(|p| p.entry == k).count() as u32;
-                let room = !early && checked + in_flight < rec.samples && rec.pending.len() < MAX_PENDING;
+                let room = !early && checked + in_flight < rec.samples && rec.pending.len() < MAX_PENDING && check_only(k);
                 let (ss, sp) = (self.cpu.sregs[SS], self.cpu.regs[SP]);
                 let ret = self.mem_read16(ss, sp);
                 let ret_cs = self.mem_read16(ss, sp.wrapping_add(2));
@@ -703,7 +722,7 @@ impl Machine {
         // Calls too long to check, or too many recorded events: drop the
         // oldest pending check.
         let first = &rec.pending[0];
-        if self.cpu.instructions - first.cpu.instructions > BUDGET || self.hw.io_log.events.len() > MAX_EVENTS {
+        if self.cpu.instructions - first.cpu.instructions > budget() || self.hw.io_log.events.len() > max_events() {
             let p = rec.pending.remove(0);
             rec.stats.entry(p.entry).or_default().skipped += 1;
             let keep = rec.pending.first().map_or(self.hw.io_log.events.len(), |p| p.log_start);
@@ -862,7 +881,7 @@ impl Machine {
                 just_bailed = false;
                 continue;
             }
-            if self.hw.io_log.mismatch.is_some() || self.cpu.instructions - start > BUDGET {
+            if self.hw.io_log.mismatch.is_some() || self.cpu.instructions - start > budget() {
                 break false;
             }
             let ip = self.cpu.ip;
@@ -1163,7 +1182,7 @@ impl Machine {
         let back = |c: &Cpu| c.sregs[CS] == cs && c.ip == next && c.sregs[SS] == ss && c.regs[SP] == sp;
         if nested {
             self.step_insn()?;
-            return self.interp_until(BUDGET, back);
+            return self.interp_until(budget(), back);
         }
         // The graphics model check watches every instruction: leave these to
         // the run loop then. (Music driver calls are tracked here as there.)
@@ -1353,7 +1372,7 @@ impl Machine {
         let mut own = 0u64;
         let mut frames: Vec<(u16, u16, u16, u16)> = Vec::new();
         while own < pure_n || !frames.is_empty() {
-            if self.hw.io_log.mismatch.is_some() || self.cpu.instructions - start > BUDGET {
+            if self.hw.io_log.mismatch.is_some() || self.cpu.instructions - start > budget() {
                 return Err(Bail);
             }
             // The original's call ended inside the stretch (it left its
@@ -1414,7 +1433,7 @@ impl Machine {
             if self.hw.io_log.replay.is_some() && self.cpu.instructions >= self.hw.io_log.stop_at {
                 return Err(Bail);
             }
-            if self.hw.io_log.mismatch.is_some() || self.cpu.instructions - start > BUDGET {
+            if self.hw.io_log.mismatch.is_some() || self.cpu.instructions - start > budget() {
                 return Err(Bail);
             }
             if self.replay_irq() {

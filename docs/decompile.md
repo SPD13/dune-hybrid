@@ -301,7 +301,7 @@ the instruction count (virtual time). `Ctx` holds the bookkeeping:
   `interp` (`INT` and far calls into the drivers), and tail jumps call the
   target port directly.
 
-Ported: 1,118 routines (the small ones first: flags and setters, game time,
+Ported: 1,133 routines (the small ones first: flags and setters, game time,
 location kinds, frame tasks, condition operators, the intro's steps,
 framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
 decompression, voice and music start/stop, DUNE.DAT access, the memory
@@ -336,7 +336,11 @@ an HNM frame's chunks; the intro's scene
 entries and other short entries ending in a jump; then, 2026-11-12, the
 troop callbacks the location and raid routines pass in BP (yields, counts
 by job, raids, job changes), the map circle's two span handlers, a frame
-task, the dialogue state and portrait, short entries), all equal to the original in every
+task, the dialogue state and portrait, short entries; then the video
+scenes: the chapter video `sub_b1ee`, the worm-suit video, the SAL
+scenes, the video with a callback in BP (`loc_0c8fb`) and its frame
+step, the room's video steps, the dialogue state's charisma step and
+scene table, an intro scene selector), all equal to the original in every
 checked call (two 10-minute games with `--call-each 4`, 0 differences), and `--rec on`
 screenshots unchanged. In a replay, a callee that bails (an interrupt due inside it, a timer
 wait) is finished there, with the recorded interrupts and Rust resumed
@@ -348,8 +352,15 @@ calls in which a port ran all of its own code (it returned without a
 bail, or got to its `ret` or final jump). A jump to code that is no
 routine's entry resumes the generated code there (its block leader)
 rather than bailing. A port no run has checked to completion stays out of the table
-(`sub_b1ee`, and a dozen routines no run reaches: the Emperor's demand,
-some scenes and video steps). Routines that wait for the timer
+(`loc_01566` and `loc_0491c`, which no run reaches, and a dozen others:
+the Emperor's demand, some scenes and video steps). Videos and scenes that run for seconds
+are checked in real play with `REC_ONLY` (only those entries),
+`REC_BUDGET=3000000000 REC_EVENTS=50000000` (the longest call checked,
+and the events kept for it), and from saves at other points of the game
+(`--save FILE`, event `68:load:1`: the game's own load at the main-loop
+top; the Day 10, 13 and 23 saves reach scenes the monkey from the start
+never does). The harness's random calls can't check them: most of those
+calls quit the game. Routines that wait for the timer
 (`copy_pal_and_transition`, the communication device) are checked with
 `--call-only` and `--call-ms 3000`; routines of the late story (the
 night attack's steps, the map panel) from the state the phase ladder

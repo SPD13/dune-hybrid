@@ -3041,3 +3041,33 @@ pub fn by_day_a1f7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x12db);
     c.jump(0x1771)
 }
+
+/// `loc_002c1`: an intro scene by SI: the screen cleared, its routine
+/// from the table CS:20Ah called, then the tall font, `loc_09901`,
+/// `loc_088af` (AX the scene + 117h) and on into `loc_09901`.
+pub fn intro_scene_02c1(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x02c1)?;
+    let mut c = Ctx::new(m);
+    c.run(0x02c1, 2)?;
+    let si = c.reg(SI);
+    c.push(si);
+    c.call(0xc0ad, 0x02c5)?;
+    c.run(0x02c5, 3)?;
+    let si = c.reg(SI);
+    let si = c.add(W, si, si);
+    c.set_reg(SI, si);
+    let bp = c.word_in(pc::cpu::CS, si.wrapping_add(0x20a));
+    c.set_reg(BP, bp);
+    c.call(bp, 0x02ce)?;
+    c.run(0x02ce, 3)?;
+    let ax = c.pop();
+    let ax = c.add(W, ax, 0x117);
+    c.set_reg(AX, ax);
+    c.call(0xd068, 0x02d5)?;
+    c.run(0x02d5, 1)?;
+    c.call(0x9901, 0x02d8)?;
+    c.run(0x02d8, 1)?;
+    c.call(0x88af, 0x02db)?;
+    c.run(0x02db, 1)?;
+    c.jump(0x9901)
+}

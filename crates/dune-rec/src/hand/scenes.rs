@@ -99,7 +99,6 @@ pub fn ui_draw_book_turning_page(m: &mut Machine, start: u16) -> Result<(), Bail
 /// voice flag, transition 34h to B236h (which loads it), then plays it to
 /// its end or a key (no pause meanwhile); closes it, stops the voice,
 /// palette function 37, transition 34h to B23Fh, the frame copied.
-#[allow(dead_code)]
 pub fn sub_b1ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb1ee)?;
     let mut c = Ctx::new(m);
@@ -113,7 +112,7 @@ pub fn sub_b1ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::TRANSITION, 0xb202)?;
     c.run(0xb202, 1)?;
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xb205)?;
-    c.run(0xb205, 3)?;
+    c.run(0xb205, 2)?;
     c.set_byte(g::PAUSE_ALLOWED, 0);
     c.call(code::KB_CLEAR_SCANCODE, 0xb20d)?;
     c.run(0xb20d, 1)?;

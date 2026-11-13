@@ -6271,3 +6271,36 @@ pub fn sum_troop_6155(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     c.ret()
 }
+
+/// `loc_08403`: for the troop SI unless bit 20h of its byte 3: activity
+/// (byte 3, low 4 bits) 1 goes on into `loc_07085`; any other but 6
+/// gets `loc_06acb` with CL 6.
+pub fn troop_8403(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8403)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let b = c.byte(si.wrapping_add(3));
+    if b & 0x20 != 0 {
+        c.run(0x8403, 3)?;
+        c.test(B, b as u16, 0x20);
+        return c.ret();
+    }
+    let al = b & 0x0f;
+    c.run(0x8403, 6 + if al == 1 { 1 } else if al == 6 { 3 } else { 4 })?;
+    c.test(B, b as u16, 0x20);
+    c.set_reg8(r8::AL, b);
+    let al = c.and(B, b as u16, 0x0f);
+    c.set_reg8(r8::AL, al as u8);
+    c.cmp(B, al, 1);
+    if al == 1 {
+        return c.jump(0x7085);
+    }
+    c.cmp(B, al, 6);
+    if al == 6 {
+        return c.ret();
+    }
+    c.set_reg8(r8::CL, 6);
+    c.call(0x6acb, 0x841b)?;
+    c.run(0x841b, 1)?;
+    c.ret()
+}

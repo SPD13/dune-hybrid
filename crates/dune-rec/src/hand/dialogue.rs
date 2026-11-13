@@ -5485,3 +5485,218 @@ pub fn portrait_a28e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, si);
     c.ret()
 }
+
+/// `loc_0a125`: by the dialogue state [47C4h]: 1, the charisma step
+/// below; 3, on into `loc_02239`; 5, [227Eh] 2CCFh; 0Ch, bit 80h of byte
+/// 0Ah of the location [11CEh] cleared (DI it); 0Dh, on into
+/// `loc_02388`. The charisma step: with bit 2 of [0Ah], charisma +28h and
+/// AX -32h; else with [1176h] 1, charisma +0Ah and AX 0Ah; else AX
+/// [1176h]. Then [1176h] = AX + 14h, and [0D5h] 0 from 64h on, else 80h
+/// less a sixth of it.
+pub fn dialogue_state_a125(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa125)?;
+    let mut c = Ctx::new(m);
+    let ax = c.word(SPEED);
+    if ax == 1 {
+        c.run(0xa125, 3)?;
+        c.set_reg(AX, ax);
+        c.cmp(W, ax, 1);
+        let bits = c.byte(0x0a);
+        if bits & 2 != 0 {
+            c.run(0xa186, 4)?;
+            c.test(B, bits as u16, 2);
+            c.set_reg8(r8::AL, 0x28);
+            c.call(0x6f78, 0xa192)?;
+            c.run(0xa192, 2)?;
+            return charisma_tail(&mut c, 0xffce);
+        }
+        let v = c.word(0x1176);
+        if v == 1 {
+            c.run(0xa186, 8)?;
+            c.test(B, bits as u16, 2);
+            c.set_reg(AX, v);
+            c.cmp(W, v, 1);
+            let ax = c.add(W, v, 0x0a);
+            c.set_reg(AX, ax);
+            c.set_reg8(r8::AL, 0x0a);
+            c.call(0x6f78, 0xa1a7)?;
+            c.run(0xa1a7, 1)?;
+            return charisma_tail(&mut c, 0x0a);
+        }
+        c.run(0xa186, 5)?;
+        c.test(B, bits as u16, 2);
+        c.set_reg(AX, v);
+        c.cmp(W, v, 1);
+        return charisma_tail(&mut c, v);
+    }
+    if ax == 3 {
+        c.run(0xa125, 6)?;
+        c.set_reg(AX, ax);
+        c.cmp(W, ax, 1);
+        c.cmp(W, ax, 3);
+        return c.jump(0x2239);
+    }
+    if ax == 5 {
+        c.run(0xa125, 9)?;
+        c.set_reg(AX, ax);
+        c.cmp(W, ax, 1);
+        c.cmp(W, ax, 3);
+        c.cmp(W, ax, 5);
+        c.set_word(0x227e, 0x2ccf);
+        return c.ret();
+    }
+    c.run(0xa125, 9 + if ax == 0x0c { 2 } else { 0 } + 3)?;
+    c.set_reg(AX, ax);
+    c.cmp(W, ax, 1);
+    c.cmp(W, ax, 3);
+    c.cmp(W, ax, 5);
+    c.cmp(W, ax, 0x0c);
+    if ax == 0x0c {
+        let di = c.word(0x11ce);
+        c.set_reg(DI, di);
+        let v = c.byte(di.wrapping_add(0x0a));
+        let v = c.and(B, v as u16, 0x7f);
+        c.set_byte(di.wrapping_add(0x0a), v as u8);
+    }
+    c.cmp(W, ax, 0x0d);
+    if ax == 0x0d {
+        return c.jump(0x2388);
+    }
+    c.ret()
+}
+
+/// A1AAh-A1C3h of `loc_0a125`, with AX `ax` there.
+fn charisma_tail(c: &mut Ctx, ax: u16) -> Result<(), Bail> {
+    let v = ax.wrapping_add(0x14);
+    c.run(0xa1aa, 5 + if v < 0x64 { 4 } else { 0 } + 2)?;
+    let v = c.add(W, ax, 0x14);
+    c.set_reg(AX, v);
+    c.set_word(0x1176, v);
+    let bl = c.reg8(r8::BL);
+    let mut bl = c.xor(B, bl as u16, bl as u16) as u8;
+    c.set_reg8(r8::BL, bl);
+    c.cmp(W, v, 0x64);
+    if v < 0x64 {
+        c.set_reg8(r8::BL, 6);
+        let (q, r) = (v / 6, v % 6);
+        c.set_reg(AX, (r << 8) | q);
+        bl = c.sub(B, 0x80, q) as u8;
+        c.set_reg8(r8::BL, bl);
+    }
+    c.set_byte(0xd5, bl);
+    c.ret()
+}
+
+/// `loc_0a244`: [`dialogue_scene_a25b`]'s set-up with AL 0.
+pub fn dialogue_scene_a244(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa244)?;
+    let mut c = Ctx::new(m);
+    c.run(0xa244, 2 + 5)?;
+    let ax = c.reg(AX);
+    c.xor(B, ax & 0xff, ax & 0xff);
+    c.set_reg8(r8::AL, 0);
+    scene_setup_a24a(&mut c)
+}
+
+/// `loc_0a248`: [`dialogue_scene_a25b`]'s set-up with AL 1.
+pub fn dialogue_scene_a248(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa248)?;
+    let mut c = Ctx::new(m);
+    c.run(0xa248, 1 + 5)?;
+    c.set_reg8(r8::AL, 1);
+    scene_setup_a24a(&mut c)
+}
+
+/// A24Ah-A258h (counted by the caller): [476Dh] AL, [9Fh] 0,
+/// `loc_0d323` with BP 1FFEh and BX 0F66h, then on into
+/// [`dialogue_scene_a25b`] (its return address).
+fn scene_setup_a24a(c: &mut Ctx) -> Result<(), Bail> {
+    let al = c.reg8(r8::AL);
+    c.set_byte(0x476d, al);
+    c.set_byte(0x9f, 0);
+    c.set_reg(BP, 0x1ffe);
+    c.set_reg(BX, 0x0f66);
+    c.call(0xd323, 0xa25b)?;
+    scene_at_a25b(c)
+}
+
+/// `loc_0a25b`: the entry of the table 197Ch (8 bytes each, its word at
+/// +8) for the scene [4780h], searched while the scene is above it; when
+/// found, [47E1h] = 0A01h (BH 10h for an entry whose next word is 38h)
+/// with BH up by 4 x [47D0h] - 2 for [47D0h] from 1, and [47E4h] the
+/// entry's next word's place. SI kept, ES = DS.
+pub fn dialogue_scene_a25b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa25b)?;
+    scene_at_a25b(&mut Ctx::new(m))
+}
+
+fn scene_at_a25b(c: &mut Ctx) -> Result<(), Bail> {
+    let ax = c.word(0x4780);
+    let step = c.string_step(W);
+    let mut di = 0x197cu16;
+    let mut k = 0u32;
+    let w = loop {
+        di = di.wrapping_add(8);
+        let w = c.word(di);
+        di = di.wrapping_add(step);
+        k += 1;
+        if ax <= w {
+            break w;
+        }
+        if k > 10_000 {
+            c.m.cpu.ip = 0xa25b;
+            return Err(Bail);
+        }
+    };
+    let found = ax == w;
+    let next = c.word(di);
+    let al0 = c.byte(0x47d0);
+    // `dec al; js` jumps for AL 0 and 81h-FFh.
+    let n = 6 + 3 * k + 1
+        + if found { 2 + (next == 0x38) as u32 + 3 + if al0 == 0 || al0 > 0x80 { 0 } else { 4 } + 2 } else { 0 }
+        + 2;
+    c.run(0xa25b, n)?;
+    let si = c.reg(SI);
+    c.push(si);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    c.set_reg(AX, ax);
+    c.set_reg(BX, 0x0a01);
+    let mut d = 0x197cu16;
+    for _ in 0..k {
+        d = c.add(W, d, 8);
+        let w = c.word(d);
+        c.cmp(W, ax, w);
+        d = d.wrapping_add(step);
+    }
+    c.set_reg(DI, d);
+    if found {
+        c.cmp(W, next, 0x38);
+        let mut bx = 0x0a01u16;
+        if next == 0x38 {
+            bx = 0x1001;
+        }
+        c.set_reg8(r8::AL, al0);
+        let al = c.dec(B, al0 as u16);
+        c.set_reg8(r8::AL, al as u8);
+        if al & 0x80 == 0 {
+            let al = c.shl1(B, al, 1);
+            c.set_reg8(r8::AL, al as u8);
+            let ax = c.reg(AX);
+            let ax = c.inc(W, ax);
+            c.set_reg(AX, ax);
+            let al = c.shl1(B, ax & 0xff, 1);
+            c.set_reg8(r8::AL, al as u8);
+            let bh = c.add(B, bx >> 8, al);
+            bx = (bh << 8) | (bx & 0xff);
+        }
+        c.set_reg(BX, bx);
+        c.set_word(0x47e1, bx);
+        c.set_word(0x47e4, d);
+    }
+    let si = c.pop();
+    c.set_reg(SI, si);
+    c.ret()
+}
