@@ -41,11 +41,13 @@ mod hnm;
 mod hnmload;
 mod hsq;
 mod input;
+mod irq;
 mod intro;
 mod map;
 mod mouse;
 mod panels;
 mod phases;
+mod main_loop;
 mod math;
 mod records;
 mod resources;
@@ -66,8 +68,17 @@ mod ui;
 mod video;
 mod videos;
 mod voice;
+mod waits;
 
 /// The ports, by entry offset, with the listing's names.
+/// Ports for block leaders that are no routine's entry (the interpreter
+/// and `--rec on` resume there): they replace the generated code's resume
+/// there. Not called, so never shadow-checked: whole-run state hashes
+/// check them (`STATE_HASH=1`).
+pub static RESUMES: &[(u16, Routine, &str)] = &[
+    (0xd820, main_loop::main_loop_top, "game_loop's top"),
+];
+
 pub static ROUTINES: &[(u16, Routine, &str)] = &[
     // Stubs: a bare `ret`.
     (0x0f66, story::nothing, "sub_0f66"),
@@ -395,6 +406,21 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     // Scenes and screens.
     (0xb1af, scenes::ui_draw_book_turning_page, "ui_draw_book_turning_page"),
     (0xb1ee, scenes::sub_b1ee, "sub_b1ee"),
+    // Waits on the timer.
+    (0xe387, waits::wait_a_bit, "wait_a_bit"),
+    (0xddb0, waits::wait_interruptable, "wait_interruptable"),
+    (0xddf0, waits::wait_for_pcm_voice, "wait_for_pcm_voice_interruptable"),
+    (0xa87e, waits::audio_test_frequency, "audio_test_frequency"),
+    // The program's frame and the timer interrupt.
+    (0x0000, main_loop::start, "start"),
+    (0x0580, main_loop::play_intro, "play_intro"),
+    (0xe4ad, main_loop::parse_command_line, "parse_command_line"),
+    (0xd815, main_loop::game_loop, "game_loop"),
+    (0xef6a, irq::pit_timer_callback, "pit_timer_callback"),
+    (0xcec9, irq::hnm_render_timer_callback, "hnm_render_timer_callback"),
+    (0xe85c, waits::measure_pit_e85c, "loc_0e85c"),
+    (0x72a2, troops::tally_72a2, "loc_072a2"),
+    (0x2566, videos::endgame_2566, "loc_02566"),
     // Unverified (no run reaches them; the harness's calls quit the game):
     // (0x1566, videos::repeat_1566, "loc_01566"),
     // (0x491c, videos::video_491c, "loc_0491c"),
@@ -1593,6 +1619,18 @@ impl Ctx<'_> {
             Some(f) => f(self.m, target),
             None => Err(Bail),
         }
+    }
+
+    /// `IRET`: IP, CS and the flags from the stack.
+    fn iret(&mut self) -> Result<(), Bail> {
+        REACHED[self.entry as usize].fetch_add(1, Ordering::Relaxed);
+        let ip = self.pop();
+        let cs = self.pop();
+        let f = self.pop();
+        self.m.cpu.ip = ip;
+        self.m.cpu.sregs[pc::cpu::CS] = cs;
+        self.m.cpu.set_flags(f);
+        Ok(())
     }
 
     /// `RET`.

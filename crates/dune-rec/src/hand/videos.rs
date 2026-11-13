@@ -404,3 +404,257 @@ fn sal_end(c: &mut Ctx) -> Result<(), Bail> {
     c.set_byte(0x4732, 0);
     c.jump(0x2d74)
 }
+
+/// `loc_02566`: the end of the game. The location 1008h's state
+/// (`loc_040e6`, AX kept), `loc_02524` with BX the score AX; [0BEh] the
+/// score's share of [0BCh] (AX x 100h / it, below 200h, halved, at least
+/// 1); the rating BX (7 from C0h, 6 above 80h, 5 at 80h, 4 below; at 4,
+/// [0BEh] 0 when bit 8 of [0BFh]) added to [118Dh] with `loc_0e3b7`'s
+/// value for bits 1-2 of [0C3h]; [0CFh] the difference from the day
+/// (`loc_01ac5`); then the closing scenes: transitions, waits, the
+/// fading frames (`loc_0e353` with BP A44h and 26ACh), voices and music,
+/// on into `loc_02773`.
+pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::{DX, ES};
+    entered(start, 0x2566)?;
+    let mut c = Ctx::new(m);
+    c.run(0x2566, 3)?;
+    c.set_reg(SI, 0x1008);
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.call(0x40e6, 0x256d)?;
+    c.run(0x256d, 3)?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.set_reg(BX, ax);
+    c.call(0x2524, 0x2573)?;
+    // The score x 100h over [0BCh]: a divide error (by 0, or a quotient
+    // over FFFFh) is left to the interpreter.
+    let bx = c.reg(BX);
+    let num = (bx as u32) << 8;
+    let den = c.word(0xbc) as u32;
+    if den == 0 || num / den > 0xffff {
+        c.m.cpu.ip = 0x2573;
+        return Err(Bail);
+    }
+    let (q, r) = ((num / den) as u16, (num % den) as u16);
+    let big = q >= 0x200;
+    c.run(0x2573, 7 + big as u32)?;
+    c.set_reg(AX, bx);
+    c.xor(W, 0, 0);
+    c.set_reg(DX, bx >> 8);
+    c.set_reg(AX, bx << 8);
+    // `div word ptr [0BCh]` (flags overwritten by the `cmp`).
+    c.set_reg(AX, q);
+    c.set_reg(DX, r);
+    c.cmp(W, q, 0x200);
+    let mut ax = if big { 0x1ff } else { q };
+    let half = ax >> 1;
+    c.run(0x2587, 2 + (half == 0) as u32)?;
+    ax = c.shr1(W, ax, 1);
+    if ax == 0 {
+        ax = (ax & 0xff00) | 1;
+    }
+    c.set_reg(AX, ax);
+    let al = ax & 0xff;
+    let flags_bf = c.byte(0xbf);
+    let (rating, ah, n) = if al >= 0xc0 {
+        (7u16, 0x40u16, 5)
+    } else if al > 0x80 {
+        (6, 0x40, 8)
+    } else if al == 0x80 {
+        (5, 0, 12)
+    } else {
+        (4, 8, 16 + (flags_bf & 8 != 0) as u32)
+    };
+    c.run(0x258d, n)?;
+    c.set_byte(0xbe, al as u8);
+    c.set_reg(AX, (0x40 << 8) | al);
+    c.set_reg(BX, 7);
+    c.cmp(B, al, 0xc0);
+    if rating < 7 {
+        c.dec(W, 7);
+        c.cmp(B, al, 0x80);
+    }
+    if rating < 6 {
+        c.dec(W, 6);
+        c.xor(B, 0x40, 0x40);
+        c.cmp(B, al, 0x80);
+    }
+    if rating < 5 {
+        c.dec(W, 5);
+        c.test(B, flags_bf as u16, 8);
+        if flags_bf & 8 != 0 {
+            c.set_byte(0xbe, 0);
+        }
+    }
+    c.set_reg(BX, rating);
+    c.set_reg(AX, (ah << 8) | al);
+    c.run(0x25b3, 8)?;
+    let ah = c.or(B, ah, 0x80);
+    c.set_reg(AX, (ah << 8) | al);
+    c.set_byte(0xbf, ah as u8);
+    c.set_reg(SI, 0x118d);
+    let v = c.word(0x118d);
+    let v = c.add(W, v, rating);
+    c.set_word(0x118d, v);
+    let bl = c.byte(0xc3);
+    c.set_reg(BX, (rating & 0xff00) | bl as u16);
+    let bl = c.shr1(B, bl as u16, 1);
+    let bx = c.and(W, bl, 3);
+    c.set_reg(BX, bx);
+    c.call(0xe3b7, 0x25cb)?;
+    c.run(0x25cb, 2)?;
+    let ax = c.reg(AX);
+    let v = c.word(0x118d);
+    let v = c.add(W, v, ax);
+    c.set_word(0x118d, v);
+    c.call(0x1ac5, 0x25d0)?;
+    c.run(0x25d0, 5)?;
+    let ax = c.reg(AX);
+    let v = c.word(0x118d);
+    let d = c.sub(W, ax, v);
+    let d = c.neg(W, d);
+    c.set_reg(AX, d);
+    c.set_byte(0xcf, d as u8);
+    c.set_word(0x1158, 0);
+    c.call(0x2806, 0x25e0)?;
+    c.run(0x25e0, 1)?;
+    c.call(0x2795, 0x25e3)?;
+    c.run(0x25e3, 1)?;
+    c.call(0xc49a, 0x25e6)?;
+    c.run(0x25e6, 2)?;
+    c.set_reg(AX, 0x2c);
+    c.call(0xc13e, 0x25ec)?;
+    c.run(0x25ec, 1)?;
+    c.call(0xc0f4, 0x25ef)?;
+    c.run(0x25ef, 3)?;
+    c.set_reg(BP, 0x2555);
+    c.set_reg8(r8::AL, 8);
+    c.call(0xc108, 0x25f7)?;
+    c.run(0x25f7, 2)?;
+    c.set_reg(AX, 0x64);
+    c.call(0xddb0, 0x25fd)?;
+    c.run(0x25fd, 4)?;
+    c.set_reg(CX, 0x18);
+    c.set_reg(BP, 0x0a44);
+    c.set_reg8(r8::AL, 6);
+    c.call(0xc108, 0x2608)?;
+    c.run(0x2608, 1)?;
+    c.set_reg(CX, 0x18);
+    let mut cx = 0x18u16;
+    loop {
+        c.run(0x260b, 5)?;
+        c.push(cx);
+        c.set_reg(BP, 0x0a44);
+        c.set_reg(AX, 0x0c);
+        let d = c.dec(W, cx);
+        c.set_reg(CX, d);
+        c.call(0xe353, 0x2616)?;
+        c.run(0x2616, 2)?;
+        cx = c.pop().wrapping_sub(1);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    c.run(0x2619, 2)?;
+    c.set_reg(AX, 0x27);
+    c.call(0xab4f, 0x261f)?;
+    c.run(0x261f, 3)?;
+    c.set_reg(SI, 0x4c60);
+    c.set_reg(BP, 0x15aa);
+    let es = c.word(0xdbd6);
+    c.set_sreg(ES, es);
+    c.interp(0x2629, 0x262d)?;
+    c.run(0x262d, 2)?;
+    c.set_reg(AX, 0xc8);
+    c.call(0xddb0, 0x2633)?;
+    c.run(0x2633, 1)?;
+    c.call(0xaba9, 0x2636)?;
+    c.run(0x2636, 2)?;
+    c.set_reg8(r8::AL, 1);
+    c.call(0xab15, 0x263b)?;
+    c.run(0x263b, 1)?;
+    c.set_reg(CX, 1);
+    let mut cx = 1u16;
+    loop {
+        c.run(0x263e, 2)?;
+        c.push(cx);
+        c.set_reg(SI, 0x15b2);
+        let mut si = 0x15b2u16;
+        loop {
+            c.run(0x2642, 4)?;
+            c.push(si);
+            c.set_reg(BP, 0x26ac);
+            c.set_reg(AX, 0x0c);
+            c.call(0xe353, 0x264c)?;
+            let last = si == 0x161e;
+            c.run(0x264c, 3 + last as u32)?;
+            si = c.pop();
+            c.set_reg(SI, si);
+            c.cmp(W, si, 0x161e);
+            if last {
+                c.call(0xac30, 0x2656)?;
+            }
+            let next = si.wrapping_add(6);
+            let b = c.byte(next);
+            c.run(0x2656, 3)?;
+            si = c.add(W, si, 6);
+            c.set_reg(SI, si);
+            c.cmp(B, b as u16, 0xff);
+            if b == 0xff {
+                break;
+            }
+        }
+        c.run(0x265e, 2)?;
+        cx = c.pop().wrapping_sub(1);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    c.run(0x2661, 1)?;
+    c.call(0x26ac, 0x2664)?;
+    c.run(0x2664, 1)?;
+    let cx0 = c.reg(CX);
+    c.xor(W, cx0, cx0);
+    let mut cx = 0u16;
+    loop {
+        c.run(0x2666, 5)?;
+        cx = c.inc(W, cx);
+        c.push(cx);
+        c.set_reg(CX, cx);
+        c.set_reg(BP, 0x0a44);
+        c.set_reg(AX, 0x0c);
+        c.call(0xe353, 0x2671)?;
+        c.run(0x2671, 3)?;
+        cx = c.pop();
+        c.set_reg(CX, cx);
+        c.cmp(W, cx, 0x19);
+        if cx >= 0x19 {
+            break;
+        }
+    }
+    c.run(0x2677, 3)?;
+    c.set_byte(0x47a9, 1);
+    c.set_reg(BP, 0x2db1);
+    c.call(0xc097, 0x2682)?;
+    c.run(0x2682, 2)?;
+    c.set_reg(AX, 0x2c);
+    c.call(0xc13e, 0x2688)?;
+    c.run(0x2688, 3)?;
+    c.set_reg8(r8::AL, 6);
+    c.set_reg(BP, 0x2555);
+    c.call(0xc108, 0x2690)?;
+    c.run(0x2690, 2)?;
+    c.set_reg(BP, 0x2db1);
+    c.call(0xc097, 0x2696)?;
+    c.run(0x2696, 4)?;
+    c.set_byte(0x47a9, 0);
+    c.set_reg(BP, 0x26a6);
+    c.set_reg8(r8::AL, 8);
+    c.call(0xc108, 0x26a3)?;
+    c.run(0x26a3, 1)?;
+    c.jump(0x2773)
+}

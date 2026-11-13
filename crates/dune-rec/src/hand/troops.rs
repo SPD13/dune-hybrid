@@ -6304,3 +6304,25 @@ pub fn troop_8403(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x841b, 1)?;
     c.ret()
 }
+
+/// `loc_072a2` (a troop callback): for a troop SI whose activity byte 3
+/// is 4, CX up by one and DX up by its byte 17h.
+pub fn tally_72a2(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x72a2)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let b = c.byte(si.wrapping_add(3));
+    c.run(0x72a2, if b == 4 { 6 } else { 3 })?;
+    c.cmp(B, b as u16, 4);
+    if b == 4 {
+        let cx = c.reg(CX);
+        let cx = c.inc(W, cx);
+        c.set_reg(CX, cx);
+        let dx = c.reg(DX);
+        let v = c.byte(si.wrapping_add(0x17));
+        let dl = c.add(B, dx & 0xff, v as u16);
+        let dh = c.adc(B, dx >> 8, 0);
+        c.set_reg(DX, (dh << 8) | dl);
+    }
+    c.ret()
+}

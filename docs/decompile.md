@@ -301,7 +301,7 @@ the instruction count (virtual time). `Ctx` holds the bookkeeping:
   `interp` (`INT` and far calls into the drivers), and tail jumps call the
   target port directly.
 
-Ported: 1,133 routines (the small ones first: flags and setters, game time,
+Ported: 1,146 routines (the small ones first: flags and setters, game time,
 location kinds, frame tasks, condition operators, the intro's steps,
 framebuffer and rectangle copies, fonts and strings, HNM reading, HSQ
 decompression, voice and music start/stop, DUNE.DAT access, the memory
@@ -340,7 +340,12 @@ task, the dialogue state and portrait, short entries; then the video
 scenes: the chapter video `sub_b1ee`, the worm-suit video, the SAL
 scenes, the video with a callback in BP (`loc_0c8fb`) and its frame
 step, the room's video steps, the dialogue state's charisma step and
-scene table, an intro scene selector), all equal to the original in every
+scene table, an intro scene selector; the timer waits and the PIT's
+measurement at start-up, the end of the game; and the program's frame:
+`start`, `play_intro`, `parse_command_line`, `game_loop` (with its top,
+D820h, as a port for a resume point: `hand::RESUMES`), the timer
+interrupt `pit_timer_callback` and `hnm_render_timer_callback`), all
+equal to the original in every
 checked call (two 10-minute games with `--call-each 4`, 0 differences), and `--rec on`
 screenshots unchanged. In a replay, a callee that bails (an interrupt due inside it, a timer
 wait) is finished there, with the recorded interrupts and Rust resumed

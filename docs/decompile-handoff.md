@@ -172,15 +172,21 @@ twice per lift.
      (fixed), and nothing else.
    - Still marked, by the harness's random calls only: `vga_slot_22`,
      `sub_f1a0`, `parse_command_line`, the sound slots.
-4. **The readable ports** (`docs/decompile.md`, Next steps 1): started.
+4. **The exact ports** (`docs/decompile.md`, Next steps 1): done, but for
+   routines no run reaches. Next: **readable Rust**, see
+   [readable-port-plan.md](readable-port-plan.md).
    - The routines left without a port: `python tools/lift/unported.py`
      (entry, size, the listing's label).
    - About half of them have no label in the listing and start in the
      middle of an instruction or a routine (`181c` is `into`): call
      targets only the harness reaches. Leave them generated.
-   - Left on purpose for now: `start`, `game_loop`, `play_intro`,
-     `parse_command_line`, the interrupt handlers (`pit_timer_callback`,
-     `hnm_render_timer_callback`), the XMS and keyboard set-up.
+   - Done (2026-11-12): the timer waits, the end game, `start`,
+     `play_intro`, `parse_command_line`, `game_loop` and the timer
+     interrupt. `start`, the main loop and the interrupt are never called
+     (or never return): `tools/lift/hashcmp.sh` and `tools/lift/suite.sh`
+     check them, plain emulation against `--rec on`, the whole memory
+     every 10 s (`STATE_HASH=1`).
+   - Left: see `docs/readable-port-plan.md`, "What is left".
    - Check each batch with real play in two languages, not only the
      validation.
    - Video scenes (2026-11-12): checked in real play with `REC_ONLY` and
@@ -206,6 +212,8 @@ twice per lift.
 | `REC_ONLY=0e77,c8fb,...` | Shadow-check only those entries (long calls then have the pending slots to themselves; much faster). |
 | `REC_BUDGET=N`, `REC_EVENTS=N` | Longest call checked (instructions, default 50,000,000) and recorded events kept (default 2^21): raise both for videos and scenes. |
 | `--save FILE` + event `T:load:1` | Start real play from a save: the game's own load (1000:B3B0) at the next main-loop top. Test saves (Day 1 to 23, never in git): `../dune-hybrid/tests-data/saves/`. |
+| `STATE_HASH=1` | Print the hash of the whole machine state (and of the memory alone) at each screenshot: `hashcmp.sh`, `suite.sh`. |
+| `STATE_FROM=S`, `NO_PNG=1`, `STATE_DUMP=1` | Hashes only from S seconds on (one step there), no PNG files, the memory itself at each shot: finding where two runs part. |
 | `REC_TRACE_SKIP=1` | When a bail repeats with nothing changed, print what was due. |
 
 **Divergence hunting that worked:**

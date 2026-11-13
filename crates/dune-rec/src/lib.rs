@@ -126,9 +126,20 @@ pub fn routines() -> &'static [(u16, Routine)] {
     })
 }
 
-/// Every block leader of the generated code, with a routine to resume in.
+/// Every block leader of the generated code, with a routine to resume in
+/// (a hand port's for [`hand::RESUMES`], unless `REC_NO_HAND=1`).
 pub fn leaders() -> &'static [(u16, Routine)] {
-    gen_tables::leaders()
+    static ALL: OnceLock<Vec<(u16, Routine)>> = OnceLock::new();
+    ALL.get_or_init(|| {
+        let hand = std::env::var_os("REC_NO_HAND").is_none_or(|v| v != "1");
+        gen_tables::leaders()
+            .iter()
+            .map(|&(e, f)| match hand::RESUMES.iter().find(|r| r.0 == e) {
+                Some(&(_, h, _)) if hand => (e, h),
+                _ => (e, f),
+            })
+            .collect()
+    })
 }
 
 /// Listing names of the routines, by entry offset.

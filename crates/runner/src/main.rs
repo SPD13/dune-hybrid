@@ -356,6 +356,19 @@ fn enter_load(m: &mut Machine, slot: u8) -> Option<RunExit> {
     }
 }
 
+/// FNV-1a over the CPU registers, flags, IP, instruction count and all
+/// memory, and over the memory alone: `cpu+mem/mem`, both hex.
+fn state_hash(m: &Machine) -> String {
+    let fnv = |h: u64, bytes: &[u8]| bytes.iter().fold(h, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
+    let mem = fnv(0xcbf2_9ce4_8422_2325, &m.hw.mem);
+    let mut regs = Vec::new();
+    for r in m.cpu.regs.iter().chain(m.cpu.sregs.iter()).chain([m.cpu.ip, m.cpu.flags()].iter()) {
+        regs.extend_from_slice(&r.to_le_bytes());
+    }
+    regs.extend_from_slice(&m.cpu.instructions.to_le_bytes());
+    format!("{:016x}/{mem:016x}", fnv(mem, &regs))
+}
+
 /// Random input for coverage runs: mostly left clicks (half of them on the
 /// interface strip at the bottom), some right clicks and keys.
 fn monkey_events(seed: u64, start: f64, step: f64, end: f64) -> Vec<(f64, Vec<String>)> {
@@ -577,6 +590,14 @@ fn main() -> ExitCode {
             checkpoint = Some((m.save_state(), t));
         }
         t += args.shot_every;
+        // STATE_FROM=SECONDS: before then, one step to it (fine-grained
+        // state hashes in a window without a shot every step before it).
+        if let Some(from) = std::env::var("STATE_FROM").ok().and_then(|v| v.parse::<f64>().ok())
+            && t < from
+            && std::env::var_os("STATE_HASH").is_some()
+        {
+            t = from;
+        }
         let end = t.min(args.seconds);
         let mut r = RunExit::Deadline;
         while let Some((et, ev)) = events.get(ei) {
@@ -638,7 +659,23 @@ fn main() -> ExitCode {
         }
         audio.extend(m.take_audio());
         m.screen_rgb(&mut rgb);
-        write_png(&args.out.join(format!("shot-{shot:04}.png")), &rgb);
+        // NO_PNG=1: no screenshot files (fine-grained state hashes).
+        if std::env::var_os("NO_PNG").is_none() {
+            write_png(&args.out.join(format!("shot-{shot:04}.png")), &rgb);
+        }
+        // STATE_HASH=1: the whole machine state at each shot (registers,
+        // flags, instruction count, all memory), to compare runs exactly
+        // (`--rec on` against plain emulation). STATE_FROM=SECONDS: only
+        // from then on.
+        let from = std::env::var("STATE_FROM").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+        if std::env::var_os("STATE_HASH").is_some() && m.now_ns() as f64 / 1e9 - t0 >= from {
+            println!("state {shot:04} {:.3}s insn {} {} at {:04x}:{:04x}", m.now_ns() as f64 / 1e9 - t0, m.cpu.instructions, state_hash(&m), m.cpu.sregs[pc::cpu::CS], m.cpu.ip);
+        }
+        // STATE_DUMP=1: the memory itself at each shot (`mem-NNNN.bin`), to
+        // find what differs between two runs.
+        if std::env::var_os("STATE_DUMP").is_some() {
+            fs::write(args.out.join(format!("mem-{shot:04}.bin")), &m.hw.mem).unwrap();
+        }
         if let Some(rec) = &recorder
             && let Some(hd) = rec.borrow().hd.as_ref().map(|f| &f.comp)
         {
