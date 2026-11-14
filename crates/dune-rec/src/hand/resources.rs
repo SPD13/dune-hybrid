@@ -159,16 +159,15 @@ pub fn evaluate_condition_ax(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa396)?;
     let mut c = Ctx::new(m);
     c.run(start, 7)?;
-    let sp = c.reg(SP);
-    let sp = c.sub(W, sp, 0x32);
+    // 32h bytes on the stack for the terms.
+    let sp = c.reg(SP).wrapping_sub(0x32);
     c.set_reg(SP, sp);
     c.set_reg(BP, sp);
-    let ax = c.reg(AX);
-    let index = c.shl1(W, ax, 1);
+    let index = c.reg(AX) << 1;
     c.set_reg(AX, index);
     let (table, seg) = (c.word(g::CONDITIONS), c.word(g::CONDITIONS + 2));
     c.set_sreg(ES, seg);
-    let at = c.add(W, table, index);
+    let at = table.wrapping_add(index);
     let script = c.word_in(ES, at.wrapping_sub(2));
     c.set_reg(SI, script);
     c.call(code::READ_CONDIT_OPERAND, 0xa3aa)?;
@@ -182,27 +181,21 @@ pub fn evaluate_condition_ax(m: &mut Machine, start: u16) -> Result<(), Bail> {
             if op == 0xff {
                 c.run(0xa3ac, 3)?;
                 c.lods(B, ES);
-                c.cmp(B, 0xff, 0xff);
                 break 'term;
             }
             if op & 0x80 != 0 {
                 // Close the term: [BP] = its value, [BP+2] = the operator.
                 c.run(0xa3ac, 10)?;
                 c.lods(B, ES);
-                c.cmp(B, op as u16, 0xff);
-                c.test(B, op as u16, 0x80);
                 let (bp, dx, ax) = (c.reg(BP), c.reg(DX), c.reg(AX));
                 c.set_word_in(SS, bp, dx);
                 c.set_word_in(SS, bp.wrapping_add(2), ax);
-                let bp = c.add(W, bp, 4);
-                c.set_reg(BP, bp);
+                c.set_reg(BP, bp.wrapping_add(4));
                 c.call(code::READ_CONDIT_OPERAND, 0xa3aa)?;
                 continue 'term;
             }
             c.run(0xa3ac, 7)?;
             c.lods(B, ES);
-            c.cmp(B, op as u16, 0xff);
-            c.test(B, op as u16, 0x80);
             c.set_reg8(super::r8::BL, op);
             c.call(code::READ_CONDIT_OPERAND, 0xa3bb)?;
             c.run(0xa3bb, 1)?;
@@ -216,12 +209,10 @@ pub fn evaluate_condition_ax(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if sp == bp {
         c.run(0xa3cb, 6)?;
         c.set_reg(SI, sp);
-        c.cmp(W, sp, bp);
         return finish(&mut c);
     }
     c.run(0xa3cb, 10)?;
     c.set_reg(SI, sp);
-    c.cmp(W, sp, bp);
     let dx = c.reg(DX);
     c.set_word_in(SS, bp, dx);
     let first = c.lods(W, DS);
@@ -233,7 +224,6 @@ pub fn evaluate_condition_ax(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(code::EVALUATE_OPERATOR, 0xa3de)?;
         let (si, bp) = (c.reg(SI), c.reg(BP));
         c.run(0xa3de, if si < bp { 6 } else { 5 })?;
-        c.cmp(W, si, bp);
         if si >= bp {
             return finish(&mut c);
         }
@@ -242,11 +232,10 @@ pub fn evaluate_condition_ax(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `add sp, 32h; or dx, dx; ret` (A3E2), counted by the caller.
 fn finish(c: &mut Ctx) -> Result<(), Bail> {
-    let sp = c.reg(SP);
-    let sp = c.add(W, sp, 0x32);
+    let sp = c.reg(SP).wrapping_add(0x32);
     c.set_reg(SP, sp);
     let dx = c.reg(DX);
-    c.or(W, dx, dx);
+    c.or(W, dx, dx); // the exit's flags: ZF for false
     c.ret()
 }
 

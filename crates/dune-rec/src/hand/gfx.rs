@@ -714,12 +714,9 @@ pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if loaded {
         c.run(start, 3 + 8)?;
         c.set_reg(DI, 0x15f);
-        let v = c.code_word(0x161);
-        c.cmp(W, v, 0);
     } else {
         c.run(start, 7)?;
         c.set_reg(DI, 0x15f);
-        c.cmp(W, 0, 0);
         let cs = c.sreg(CS);
         c.push(cs);
         let es = c.pop();
@@ -738,7 +735,7 @@ pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x42a5, 1 + 8)?;
         let si = c.reg(SI);
         let v = c.word_in(CS, si);
-        let v = c.add(W, v, 0x167);
+        let v = pure::add(W, v, 0x167);
         c.set_word_in(CS, si, v);
     }
     c.set_word(0x487e, 1);
@@ -746,7 +743,7 @@ pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0x11c9, 8);
     let p = c.code_word(0x167);
     let q = c.code_word(p);
-    let si = c.add(W, p, q);
+    let si = pure::add(W, p, q);
     c.set_reg(SI, si);
     c.set_word(0xaa6e, si);
     c.set_reg(AX, 0x39);

@@ -433,17 +433,15 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let big = q >= 0x200;
     c.run(0x2573, 7 + big as u32)?;
     c.set_reg(AX, bx);
-    c.xor(W, 0, 0);
     c.set_reg(DX, bx >> 8);
     c.set_reg(AX, bx << 8);
     // `div word ptr [0BCh]` (flags overwritten by the `cmp`).
     c.set_reg(AX, q);
     c.set_reg(DX, r);
-    c.cmp(W, q, 0x200);
     let mut ax = if big { 0x1ff } else { q };
     let half = ax >> 1;
     c.run(0x2587, 2 + (half == 0) as u32)?;
-    ax = c.shr1(W, ax, 1);
+    ax = pure::shr1(W, ax, 1);
     if ax == 0 {
         ax = (ax & 0xff00) | 1;
     }
@@ -463,19 +461,7 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0xbe, al as u8);
     c.set_reg(AX, (0x40 << 8) | al);
     c.set_reg(BX, 7);
-    c.cmp(B, al, 0xc0);
-    if rating < 7 {
-        c.dec(W, 7);
-        c.cmp(B, al, 0x80);
-    }
-    if rating < 6 {
-        c.dec(W, 6);
-        c.xor(B, 0x40, 0x40);
-        c.cmp(B, al, 0x80);
-    }
     if rating < 5 {
-        c.dec(W, 5);
-        c.test(B, flags_bf as u16, 8);
         if flags_bf & 8 != 0 {
             c.set_byte(0xbe, 0);
         }
@@ -483,30 +469,30 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, rating);
     c.set_reg(AX, (ah << 8) | al);
     c.run(0x25b3, 8)?;
-    let ah = c.or(B, ah, 0x80);
+    let ah = pure::or(B, ah, 0x80);
     c.set_reg(AX, (ah << 8) | al);
     c.set_byte(0xbf, ah as u8);
     c.set_reg(SI, 0x118d);
     let v = c.word(0x118d);
-    let v = c.add(W, v, rating);
+    let v = pure::add(W, v, rating);
     c.set_word(0x118d, v);
     let bl = c.byte(0xc3);
     c.set_reg(BX, (rating & 0xff00) | bl as u16);
-    let bl = c.shr1(B, bl as u16, 1);
-    let bx = c.and(W, bl, 3);
+    let bl = pure::shr1(B, bl as u16, 1);
+    let bx = pure::and(W, bl, 3);
     c.set_reg(BX, bx);
     c.call(0xe3b7, 0x25cb)?;
     c.run(0x25cb, 2)?;
     let ax = c.reg(AX);
     let v = c.word(0x118d);
-    let v = c.add(W, v, ax);
+    let v = pure::add(W, v, ax);
     c.set_word(0x118d, v);
     c.call(0x1ac5, 0x25d0)?;
     c.run(0x25d0, 5)?;
     let ax = c.reg(AX);
     let v = c.word(0x118d);
-    let d = c.sub(W, ax, v);
-    let d = c.neg(W, d);
+    let d = pure::sub(W, ax, v);
+    let d = pure::neg(W, d);
     c.set_reg(AX, d);
     c.set_byte(0xcf, d as u8);
     c.set_word(0x1158, 0);
@@ -540,7 +526,7 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(cx);
         c.set_reg(BP, 0x0a44);
         c.set_reg(AX, 0x0c);
-        let d = c.dec(W, cx);
+        let d = pure::dec(W, cx);
         c.set_reg(CX, d);
         c.call(0xe353, 0x2616)?;
         c.run(0x2616, 2)?;
@@ -585,16 +571,14 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x264c, 3 + last as u32)?;
             si = c.pop();
             c.set_reg(SI, si);
-            c.cmp(W, si, 0x161e);
             if last {
                 c.call(0xac30, 0x2656)?;
             }
             let next = si.wrapping_add(6);
             let b = c.byte(next);
             c.run(0x2656, 3)?;
-            si = c.add(W, si, 6);
+            si = pure::add(W, si, 6);
             c.set_reg(SI, si);
-            c.cmp(B, b as u16, 0xff);
             if b == 0xff {
                 break;
             }
@@ -609,12 +593,10 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x2661, 1)?;
     c.call(0x26ac, 0x2664)?;
     c.run(0x2664, 1)?;
-    let cx0 = c.reg(CX);
-    c.xor(W, cx0, cx0);
     let mut cx = 0u16;
     loop {
         c.run(0x2666, 5)?;
-        cx = c.inc(W, cx);
+        cx = pure::inc(W, cx);
         c.push(cx);
         c.set_reg(CX, cx);
         c.set_reg(BP, 0x0a44);
@@ -623,7 +605,6 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x2671, 3)?;
         cx = c.pop();
         c.set_reg(CX, cx);
-        c.cmp(W, cx, 0x19);
         if cx >= 0x19 {
             break;
         }

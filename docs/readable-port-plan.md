@@ -144,7 +144,8 @@ anything could still see those flags: it reads a flag itself, calls or
 jumps to a routine that reads flags on entry or one the analysis doesn't
 know (for a jump into the middle of one, what is read from there on:
 `flags_used.py --at`), calls through a register (not a loop over a
-literal list of targets), has an INT or far call run, or hands its
+literal list of targets), has an INT or far call run that doesn't get
+the flags of a call just before it, or hands its
 context to a helper that could (followed through the helpers), or can
 stop where the original goes on reading flags (a `run` that is not a
 call's return: `check_stops.py`). Reading DF (the string direction) is

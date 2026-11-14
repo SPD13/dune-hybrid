@@ -1,7 +1,7 @@
 //! Arithmetic helpers: trig table, random numbers, register save/restore.
 
 use super::pure;
-use super::{B, Ctx, W, entered, globals as g, r8};
+use super::{Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
     cpu::{AX, BP, BX, CF, CX, DI, DX, SI, SP, SS, Width},
@@ -346,76 +346,58 @@ pub fn unpack_signed(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// from 20h·the smaller over the larger (signed), DX kept; CF clear (set,
 /// AX untouched, for (0, 0)).
 pub fn direction_256(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::CF;
     entered(start, 0x514e)?;
     let mut c = Ctx::new(m);
     let (bx, dx) = (c.reg(BX), c.reg(DX));
-    let nb = bx & 0x8000 != 0;
+    let (nb, nd) = (bx & 0x8000 != 0, dx & 0x8000 != 0);
     let ax = if nb { bx.wrapping_neg() } else { bx };
-    let nd = dx & 0x8000 != 0;
     let cx = if nd { dx.wrapping_neg() } else { dx };
     let mut n = 3 + nb as u32 + 4 + nd as u32 + 2;
+    // |DX|, |BX| (AX, CX; DI the DX kept).
+    let regs = |c: &mut Ctx| {
+        c.set_reg(AX, ax);
+        c.set_reg(DI, dx);
+        c.set_reg(CX, cx);
+    };
     if cx >= ax {
         n += 2;
         if cx < 1 {
+            // (0, 0): CF set, nothing else.
             c.run(start, n + 1)?;
-            or_neg(&mut c, bx, dx);
-            c.cmp(W, cx, ax);
-            c.cmp(W, cx, 1);
+            regs(&mut c);
+            c.set_flag(CF, true);
             return c.ret();
         }
+        // Nearer the x axis: 20h · BX / DX, a quarter on.
         n += 7 + 3;
         c.run(start, n)?;
-        or_neg(&mut c, bx, dx);
-        c.cmp(W, cx, ax);
-        c.cmp(W, cx, 1);
+        regs(&mut c);
         c.set_reg(AX, 0x20);
         c.set_reg(CX, dx);
-        c.m.cpu.mul_div(&mut c.m.hw, W, 5, bx as u32);
-        c.m.cpu.mul_div(&mut c.m.hw, W, 7, dx as u32);
+        c.m.cpu.mul_div(&mut c.m.hw, W, 5, bx as u32); // imul bx
+        c.m.cpu.mul_div(&mut c.m.hw, W, 7, dx as u32); // idiv cx
         c.set_reg(DX, dx);
-        c.or(W, dx, dx);
-        let al = c.reg8(r8::AL);
-        let v = c.add(B, al as u16, if nd { 0xc0 } else { 0x40 });
-        c.set_reg8(r8::AL, v as u8);
-        c.set_flag(pc::cpu::CF, false);
+        let al = c.reg8(r8::AL).wrapping_add(if nd { 0xc0 } else { 0x40 });
+        c.set_reg8(r8::AL, al);
+        c.set_flag(CF, false);
         return c.ret();
     }
+    // Nearer the y axis: -(20h · DX / BX), half a turn on for BX positive.
     n += 2 + 6 + (!nb) as u32 + 3;
     c.run(start, n)?;
-    or_neg(&mut c, bx, dx);
-    c.cmp(W, cx, ax);
-    c.cmp(W, ax, 1);
+    regs(&mut c);
     c.set_reg(AX, 0x20);
-    c.m.cpu.mul_div(&mut c.m.hw, W, 5, dx as u32);
-    c.m.cpu.mul_div(&mut c.m.hw, W, 7, bx as u32);
+    c.m.cpu.mul_div(&mut c.m.hw, W, 5, dx as u32); // imul dx
+    c.m.cpu.mul_div(&mut c.m.hw, W, 7, bx as u32); // idiv bx
     c.set_reg(DX, dx);
-    c.or(W, bx, bx);
-    let mut al = c.reg8(r8::AL) as u16;
+    let mut al = c.reg8(r8::AL);
     if !nb {
-        al = c.sub(B, al, 0x80);
+        al = al.wrapping_sub(0x80);
     }
-    let v = c.neg(B, al);
-    c.set_reg8(r8::AL, v as u8);
-    c.set_flag(pc::cpu::CF, false);
+    c.set_reg8(r8::AL, al.wrapping_neg());
+    c.set_flag(CF, false);
     c.ret()
-}
-
-/// The start of `loc_0514e`: AX = |BX|, DI = DX, CX = |DX| (flags as the
-/// original's `or`/`neg`).
-fn or_neg(c: &mut Ctx, bx: u16, dx: u16) {
-    c.or(W, bx, bx);
-    let mut ax = bx;
-    if bx & 0x8000 != 0 {
-        ax = c.neg(W, bx);
-    }
-    c.set_reg(AX, ax);
-    c.or(W, dx, dx);
-    c.set_reg(DI, dx);
-    let mut cx = dx;
-    if dx & 0x8000 != 0 {
-        cx = c.neg(W, dx);
-    }
-    c.set_reg(CX, cx);
 }
 
 /// `loc_05133`: the direction from (DI, CX) to (DX, BX) in 256ths: the

@@ -21,8 +21,9 @@ those flags:
   (but a loop's literal list of targets);
 - it hands its context to a helper that could (the same rules, followed
   through the helpers it hands it on to; the helpers stay as they are);
-- it has an INT or far call run (`c.interp`): an INT pushes the flags and
-  its service sees them;
+- it has an INT or far call run (`c.interp`) whose flags are not those of
+  a call just before it: an INT pushes the flags and its service sees
+  them;
 - it can stop (a `c.run` that is not a call's return) where the original
   goes on reading flags (`flags_used.py --at`);
 - a flag helper spans lines (the script works line by line).
@@ -112,6 +113,34 @@ def loop_targets(text, var):
     return None
 
 
+FLAG_SETTERS = re.compile(r'c\.(add|sub|and|or|xor|inc|dec|neg|shl1|shr1|shl|shr|rol1|ror1|rcl1|rcr1|adc|sbb|'
+                          r'cmp|test|set_flag|rep|rep_counted|mul8|mul16|aam|scas|cmps)\(|'
+                          r'string_op|mul_div|set_flags|\.shift\(|\.logic\(|'
+                          r'\b(?!c\b)\w+\((?:&mut c|c)[,)]')  # a helper: unknown
+
+
+def interps_after_calls(text):
+    """Whether every `c.interp` (an INT or far call, which sees the flags)
+    gets the flags of a call or another `c.interp` just before it: back
+    from it on the same straight path (no block boundary) to a call
+    without anything that sets flags in between."""
+    lines = text.split('\n')
+    for i, line in enumerate(lines):
+        if 'c.interp(' not in line:
+            continue
+        ok = False
+        for j in range(i - 1, -1, -1):
+            l = lines[j]
+            if re.search(r'c\.(call|interp)\(', l) and not FLAG_SETTERS.search(l.split('c.call(')[0].split('c.interp(')[0]):
+                ok = True
+                break
+            if FLAG_SETTERS.search(l) or '{' in l or '}' in l:
+                break
+        if not ok:
+            return False
+    return True
+
+
 def port_entries(text):
     """A port's entries: its `entered(start, ..)`, or the arms of its
     `match start`."""
@@ -165,9 +194,10 @@ def blocker(text, consts, seen):
     for a in re.findall(r'c\.run\(0x([0-9a-f]+),', text):
         if int(a, 16) not in rets and read_at.get(int(a, 16), True):
             return f'stops at {a} where flags are read'
-    if 'c.interp(' in text:
+    if 'c.interp(' in text and not interps_after_calls(text):
         # An INT pushes the flags and its service sees them; a far call's
-        # code isn't followed by the analysis.
+        # code isn't followed by the analysis. Fine only where the flags
+        # it gets are a call's.
         return 'an INT or far call sees the flags'
     for kind, target in re.findall(r'c\.(call|jump)\(([^,)]+)', text):
         t = target.strip()

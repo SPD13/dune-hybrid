@@ -1100,24 +1100,19 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
         }
     }
     c.run(0xc6b0, n)?;
-    c.cmp(B, k as u16, 0);
     if k & 0x80 == 0 {
         c.set_reg(AX, my);
-        c.cmp(W, my, r[3]);
         if lt(my, r[3]) {
-            let a = c.add(W, my, 0x10);
+            let a = pure::add(W, my, 0x10);
             c.set_reg(AX, a);
-            c.cmp(W, a, r[1]);
             if lt(r[1], a) {
                 c.set_reg(AX, mx);
-                c.cmp(W, mx, r[2]);
                 if lt(mx, r[2]) {
-                    let a = c.add(W, mx, 0x10);
+                    let a = pure::add(W, mx, 0x10);
                     c.set_reg(AX, a);
                     c.set_reg(BX, r[0]);
-                    let bh = c.and(B, r[0] >> 8, 0xf);
+                    let bh = pure::and(B, r[0] >> 8, 0xf);
                     c.set_reg(BX, (bh << 8) | (r[0] & 0xff));
-                    c.cmp(W, a, bx0);
                     if hit {
                         c.set_reg(AX, 0xdbec);
                         c.push(0xdbec);
@@ -1158,13 +1153,11 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     let ops: [(u16, u16, bool); 4] = [(r[0], v[0], true), (r[1], v[1], true), (r[2], v[2], false), (r[3], v[3], false)];
     for (i, (a, b, low)) in ops.into_iter().enumerate() {
         c.lods(W, DS);
-        c.cmp(W, a, b);
         let take = if low { lt(a, b) } else { lt(b, a) };
         let val = if take { b } else { a };
         c.set_reg(AX, val);
         if i >= 2 {
             let lo = if i == 2 { x0 } else { y0 };
-            c.cmp(W, val, lo);
             if !lt(lo, val) {
                 c.ret()?;
                 return ret_mouse_tail(&mut c);
@@ -1177,7 +1170,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     let count = c.word(0x3cbe);
     c.run(0xc71b, 4)?;
     let sp = c.reg(SP);
-    let sp = c.sub(W, sp, 0x200);
+    let sp = pure::sub(W, sp, 0x200);
     c.set_reg(SP, sp);
     c.set_reg(DI, sp);
     c.set_reg(CX, count);
@@ -1199,19 +1192,14 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
             let mut n = 2;
             let mut meets = false;
             c.check(0xc738, 16)?;
-            c.cmp(B, f as u16, 0);
             if f & 0x80 == 0 {
                 n += 2;
-                c.cmp(W, p[0], bp);
                 if lt(p[0], bp) {
                     n += 2;
-                    c.cmp(W, p[1], ax);
                     if lt(p[1], ax) {
                         n += 2;
-                        c.cmp(W, p[2], dx);
                         if lt(dx, p[2]) {
                             n += 2;
-                            c.cmp(W, p[3], bx);
                             if lt(bx, p[3]) {
                                 n += 2;
                                 meets = true;
@@ -1222,10 +1210,10 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
             }
             if meets {
                 c.set_word(di, si);
-                di = c.add(W, di, 2);
+                di = pure::add(W, di, 2);
                 c.set_reg(DI, di);
             }
-            si = c.add(W, si, 0x11);
+            si = pure::add(W, si, 0x11);
             c.set_reg(SI, si);
             c.set_reg(CX, count - 1 - k);
             c.count(n + 2);
@@ -1233,7 +1221,9 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
         let len = di.wrapping_sub(sp) >> 1;
         c.run(0xc75b, 4)?;
         c.set_reg(CX, di);
-        let d = c.sub(W, di, sp);
+        let d = pure::sub(W, di, sp);
+        // The handler (through [2786h]) sees the flags of `shr cx, 1` on
+        // its first pass, and its own after.
         let h = c.shr1(W, d, 1);
         c.set_reg(CX, h);
         if len != 0 {
@@ -1253,8 +1243,6 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
                 }
                 c.run(0xc76a, 7)?;
                 let bx = c.reg(BX);
-                let s0 = c.reg(SI);
-                c.xor(W, s0, s0);
                 let s = c.word(bx.wrapping_sub(2));
                 c.set_word(bx.wrapping_sub(2), 0);
                 c.set_reg(SI, s);
@@ -1286,14 +1274,10 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
         9
     };
     c.run(0xc780, n)?;
-    c.cmp(B, f as u16, 0);
     if f == 0 {
-        c.cmp(W, b, 0x89);
         if n > 4 {
-            c.cmp(W, h, 0x7e);
         }
         if n > 6 {
-            c.cmp(W, l, 0xc2);
         }
         if n == 9 {
             c.call(0x1797, 0xc7a2)?;
@@ -1303,7 +1287,6 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
         let s = c.word(ov);
         c.run(at, 3 + if s != 0 { 2 } else { 0 })?;
         c.set_reg(SI, s);
-        c.or(W, s, s);
         if s == 0 {
             break;
         }
@@ -1320,7 +1303,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     c.call(0xc51e, 0xc7cf)?;
     c.run(0xc7cf, 2)?;
     let sp = c.reg(SP);
-    let s = c.add(W, sp, 0x200);
+    let s = pure::add(W, sp, 0x200);
     c.set_reg(SP, s);
     c.ret()?;
     ret_mouse_tail(&mut c)

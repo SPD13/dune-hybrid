@@ -3,6 +3,7 @@
 //! so the port bails (or, in a shadow replay, settles the interrupt) at
 //! the tick, as the original meets it.
 
+use super::pure;
 use super::{B, Ctx, W, r8, entered};
 use pc::{
     Machine,
@@ -240,7 +241,7 @@ pub fn audio_test_frequency(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let t = c.word(TIMER);
     let bx = c.pop();
     c.set_reg(BX, bx);
-    let d = c.sub(W, t, bx);
+    let d = pure::sub(W, t, bx);
     c.set_reg(AX, d);
     c.set_reg(CX, 0x800);
     c.mul16(0x800);

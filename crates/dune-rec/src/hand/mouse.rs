@@ -74,7 +74,6 @@ pub fn define_mouse_range(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.reg(r);
         c.set_word(g::MOUSE_RANGE + 2 * i as u16, v);
     }
-    c.test(B, args as u16, 0x40);
     if none {
         return c.ret();
     }
