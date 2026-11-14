@@ -212,7 +212,8 @@ pub fn ems_copy(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let room = 0x4000u16.wrapping_sub(p);
         let below = room < cx;
         let n = if below { room } else { cx };
-        c.run(at(0x1b), 7 + !below as u32 + 3)?;
+        // (The two `rep` copies' iterations counted in the `run`s.)
+        c.run(at(0x1b), 7 + !below as u32 + 3 + (n >> 1) as u32)?;
         let frame = c.word_in(CS, 0xed3c);
         c.set_sreg(seg, frame);
         c.set_reg(DX, cx);
@@ -226,11 +227,11 @@ pub fn ems_copy(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DX, left);
         let h = c.shr1(W, n, 1);
         c.set_reg(CX, h);
-        c.rep(0xa5);
-        c.run(at(0x35), 2)?;
+        c.rep_counted(0xa5);
+        c.run(at(0x35), 2 + (n & 1) as u32)?;
         let cl = c.adc(B, 0, 0);
         c.set_reg(CX, cl);
-        c.rep(0xa4);
+        c.rep_counted(0xa4);
         c.run(at(0x39), 2 + if left == 0 { 2 } else { 3 })?;
         c.set_reg(CX, left);
         if left == 0 {
@@ -397,15 +398,18 @@ pub fn init_extended_memory_allocator(m: &mut Machine, start: u16) -> Result<(),
     let b = c.shl1(W, n, 1);
     c.set_reg(CX, b);
     c.call(0xf0f6, 0xeaad)?;
-    c.run(0xeaad, 4)?;
+    // The words cleared (the count pushed before; the `rep stosw`
+    // iterations counted in the `run`).
+    let sp = c.reg(pc::cpu::SP);
+    let n = c.word_in(SS, sp);
+    c.run(0xeaad, 4 + n as u32)?;
     let (di, es) = (c.word(0xce6a), c.word(0xce6c));
     c.set_reg(DI, di);
     c.set_sreg(ES, es);
-    let n = c.pop();
+    c.pop();
     c.set_reg(CX, n);
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
-    c.rep(0xab);
+    c.rep_counted(0xab);
     c.run(0xeab6, 1)?;
     c.ret()
 }
@@ -1029,7 +1033,8 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use super::r8;
     entered(start, 0xe594)?;
     let mut c = Ctx::new(m);
-    c.run(0xe594, 8)?;
+    // (The `rep stosb` clearing 3CBCh..DD1Dh counted too.)
+    c.run(0xe594, 8 + (0xdd1d - 0x3cbc))?;
     c.set_reg(AX, 0x1f4b);
     c.set_sreg(ES, 0x1f4b);
     c.set_reg(CX, 0xdd1d);
@@ -1039,7 +1044,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_flag(DF, false);
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
-    c.rep(0xaa);
+    c.rep_counted(0xaa);
     c.run(0xe5a6, 6)?;
     let lim = c.word(2);
     c.set_reg(AX, lim);

@@ -362,7 +362,8 @@ pub fn irulx_draw_or_clear_subtitle(m: &mut Machine, start: u16) -> Result<(), B
     if !draw && c.flag(pc::cpu::DF) {
         return Err(Bail);
     }
-    c.run(start, 6 + if draw { 3 } else { 5 })?;
+    // (Not drawing: the `rep stosw` iterations counted too.)
+    c.run(start, 6 + if draw { 3 } else { 5 + 0xb40 })?;
     c.set_reg(AX, si);
     c.set_word(0x3622, si);
     let a = pure::sub(W, si, 0x35a8);
@@ -378,7 +379,7 @@ pub fn irulx_draw_or_clear_subtitle(m: &mut Machine, start: u16) -> Result<(), B
     c.set_sreg(pc::cpu::ES, es);
     c.set_reg(AX, 0);
     c.set_reg(CX, 0xb40);
-    c.rep(0xab);
+    c.rep_counted(0xab);
     c.run(0xcf6f, 1)?;
     c.ret()
 }

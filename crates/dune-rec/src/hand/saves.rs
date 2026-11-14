@@ -162,8 +162,8 @@ pub fn restore_from_save_memory(m: &mut Machine, start: u16) -> Result<(), Bail>
         }
         c.set_reg(DI, to);
         c.set_reg(CX, n);
-        c.run(if insns == 4 { at + 8 } else { at + 6 }, 1)?; // the rep
-        c.rep(0xa4); // rep movsb
+        c.run(if insns == 4 { at + 8 } else { at + 6 }, 1 + n as u32)?; // the rep and its iterations
+        c.rep_counted(0xa4); // rep movsb
     }
     c.run(0xb4ba, 1)?;
     c.ret()
@@ -1010,7 +1010,7 @@ pub fn unrle_image_to_tmp_buffer(m: &mut Machine, start: u16) -> Result<(), Bail
             let lit = al & 0x80 == 0;
             let len = if lit { 1 + al as u16 } else { 1u8.wrapping_sub(al) as u16 };
             let left = bx.wrapping_sub(len);
-            c.run(0xc2c3, 3 + if lit { 5 } else { 6 })?;
+            c.run(0xc2c3, 3 + if lit { 5 } else { 6 } + len as u32)?; // the `rep` iterations too
             c.lods(B, DS);
             c.test(B, al as u16, 0x80);
             if lit {
@@ -1024,11 +1024,11 @@ pub fn unrle_image_to_tmp_buffer(m: &mut Machine, start: u16) -> Result<(), Bail
             bx = c.sub(W, bx, len);
             c.set_reg(BX, bx);
             if lit {
-                c.rep(0xa4);
+                c.rep_counted(0xa4);
                 c.run(0xc2d2, 1 + (left == 0) as u32)?;
             } else {
                 c.lods(B, DS);
-                c.rep(0xaa);
+                c.rep_counted(0xaa);
                 c.run(0xc2e1, 1)?;
             }
             if bx == 0 {

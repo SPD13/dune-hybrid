@@ -1258,7 +1258,10 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let top = c.word_in(SS, 0x39b9);
         let left = top.wrapping_sub(src);
         let last = left <= 0x1000;
-        c.run(0xf1c1, 9 + if last { 5 } else { 2 })?;
+        // (The `rep movsw` iterations counted too: the last block's
+        // paragraphs · 8 words, else 8000h.)
+        let words = if last { left.wrapping_shl(3) } else { 0x8000 };
+        c.run(0xf1c1, 9 + if last { 5 } else { 2 } + words as u32)?;
         c.set_sreg(ES, dst);
         let d = pure::add(W, dst, best);
         c.set_reg(DX, d);
@@ -1272,7 +1275,7 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(CX, a);
             let n = pure::shl1(W, a, 3);
             c.set_reg(CX, n);
-            c.rep(0xa5);
+            c.rep_counted(0xa5);
             c.run(0xf1ed, 5)?;
             let ss = c.sreg(SS);
             c.push(ss);
@@ -1286,7 +1289,7 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
         c.set_reg(CX, 0x8000);
-        c.rep(0xa5);
+        c.rep_counted(0xa5);
         c.run(0xf1db, 3)?;
         let es = c.sreg(ES);
         c.set_reg(DX, es);

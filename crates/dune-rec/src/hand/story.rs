@@ -1152,7 +1152,7 @@ pub fn shift_list_1191(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2a34)?;
     let mut c = Ctx::new(m);
     let v = c.byte(0x1190).wrapping_sub(1);
-    c.run(start, 3 + (v == 0) as u32 + 7)?;
+    c.run(start, (3 + (v == 0) as u32 + 7) + 0x12)?; // the `rep` iterations too
     c.set_reg(SI, 0x1190);
     let b = c.byte(0x1190);
     let v = pure::dec(B, b as u16);
@@ -1169,7 +1169,7 @@ pub fn shift_list_1191(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let es = c.pop();
     c.set_sreg(pc::cpu::ES, es);
     c.set_reg(CX, 0x12);
-    c.rep(0xa5);
+    c.rep_counted(0xa5);
     c.run(0x2a4c, 4)?;
     c.set_reg(AX, 0);
     c.stos(W);
@@ -3334,7 +3334,7 @@ pub fn start_phase_15(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn select_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x331e)?;
     let mut c = Ctx::new(m);
-    c.run(start, 24)?;
+    c.run(start, (24) + 7)?; // the `rep` iterations too
     let (si, di) = (c.reg(SI), c.reg(DI));
     c.set_word(0x11ce, di);
     c.push(si);
@@ -3359,7 +3359,7 @@ pub fn select_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, di.wrapping_add(0x14));
     c.set_reg(DI, 0x55);
     c.set_reg(CX, 7);
-    c.rep(0xa4);
+    c.rep_counted(0xa4);
     c.run(0x3359, 2)?;
     let d = c.pop();
     c.set_reg(DI, d);

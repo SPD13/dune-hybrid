@@ -404,7 +404,7 @@ pub fn draw_1b48_and_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `ops`): the 6 UI elements at SI copied to 1B8Eh, the rect at 2458h
 /// (`loc_0d741`), and the copies drawn.
 pub(super) fn set_buttons(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
-    c.run(at, prefix + 5)?;
+    c.run(at, (prefix + 5) + 0x2a)?; // the `rep` iterations too
     ops(c);
     let ds = c.sreg(pc::cpu::DS);
     c.push(ds);
@@ -412,7 +412,7 @@ pub(super) fn set_buttons(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&m
     c.set_sreg(ES, es);
     c.set_reg(DI, BUTTONS);
     c.set_reg(CX, 0x2a);
-    c.rep(0xa5);
+    c.rep_counted(0xa5);
     c.run(0xd735, 1)?;
     c.call(0xd741, 0xd738)?;
     c.run(0xd738, 3)?;

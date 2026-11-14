@@ -211,10 +211,9 @@ Things that bit:
   them itself, but the `run` before it doesn't cover them, so an
   interrupt due inside the iterations would be taken after the port's
   stretch, a few instructions late. `c.rep_counted` is the `rep` whose
-  iterations the `run` before it counted (`c.run(at, n + CX)`): 28 of the
-  44 `rep` sites use it now (a constant CX, a CX known before the `run`,
-  or a `run` right before the `rep`); the rest set CX in ways a script
-  couldn't follow (a follow-up).
+  iterations the `run` before it counted (`c.run(at, n + CX)`): every
+  `rep` site uses it (the count worked out before the `run`: a constant,
+  the register, a word on the stack, the copy's size).
 - **Stretches through an interrupt.** When the replay runs a stretch
   through an interrupt, it checks the stretch by interpreting it without
   the interrupt and comparing with the port's state. Its result flags no

@@ -2014,7 +2014,10 @@ pub fn globe_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let rest = bx2.wrapping_sub(ax);
     let cxr = dx.wrapping_sub(rest);
     let split = cxr & 0x8000 == 0;
-    c.run(0xb7d2, 15 + 5 * narrow as u32 + 4 + aneg as u32 + 4 + 4)?;
+    // (The `rep movsb` iterations counted in the `run`s: the row in one
+    // copy, or up to the row's end and then from its start.)
+    let first = if split { rest } else { dx };
+    c.run(0xb7d2, 15 + 5 * narrow as u32 + 4 + aneg as u32 + 4 + 4 + first as u32)?;
     c.push(dx0);
     c.push(di0);
     c.push(ds0);
@@ -2058,21 +2061,21 @@ pub fn globe_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, n);
         let s = pure::add(W, si, a);
         c.set_reg(SI, s);
-        c.rep(0xa4);
+        c.rep_counted(0xa4);
     } else {
         c.set_reg(CX, r);
         c.set_reg(BX, cr);
         c.push(si);
         let s = pure::add(W, si, a);
         c.set_reg(SI, s);
-        c.rep(0xa4);
-        c.run(0xb81a, 3)?;
+        c.rep_counted(0xa4);
+        c.run(0xb81a, 3 + cxr as u32)?;
         let s = c.pop();
         c.set_reg(SI, s);
         let (x, y) = (c.reg(CX), c.reg(BX));
         c.set_reg(CX, y);
         c.set_reg(BX, x);
-        c.rep(0xa4);
+        c.rep_counted(0xa4);
     }
     c.run(0xb81f, 5)?;
     let v = c.pop();
