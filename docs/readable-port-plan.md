@@ -134,6 +134,17 @@ are being converted by hand: everything but the flags a driver call or
 an indirect call sees. `pushf` / `popf` pairs still push the exact flags
 (the word stays below SP, in the dead stack, but is written).
 
+The engine modules (dos, files, hnm, input, draw, frame, text) were
+then done the same way, by hand: each flag helper kept is commented
+with its reader (an exit the callers read, an INT or driver call, a
+callee that reads flags on entry, a stop where the original reads them).
+576 flag-helper calls are left in the hand ports, nearly all of them
+such readers'. The start-up before the game's timer handler
+(`measure_pit_e85c`, `initialize_mouse`, `initialize_joystick`,
+`read_game_port`, `open_dune_dat`) keeps its flags at every stop (see
+"Where a port stops"), and `parse_command_line` still differs in the
+harness, so those are left as they are.
+
 **Dead flags dropped everywhere else, mechanically.**
 `tools/lift/drop_flags.py` takes each port whose callers read no flags
 and removes its flag-only statements (a port that reads a flag only right
