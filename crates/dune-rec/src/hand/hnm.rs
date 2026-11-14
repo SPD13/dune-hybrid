@@ -365,19 +365,17 @@ pub fn irulx_draw_or_clear_subtitle(m: &mut Machine, start: u16) -> Result<(), B
     c.run(start, 6 + if draw { 3 } else { 5 })?;
     c.set_reg(AX, si);
     c.set_word(0x3622, si);
-    let a = c.sub(W, si, 0x35a8);
-    let a = c.shr1(W, a, 2);
+    let a = pure::sub(W, si, 0x35a8);
+    let a = pure::shr1(W, a, 2);
     c.set_reg(AX, a);
     if draw {
         c.set_reg(BX, 0xbe);
-        c.xor(W, 0, 0);
         c.set_reg(DX, 0);
         return super::draw::draw_sprite_clobbering_bx_dx(c.m, 0xc22f);
     }
     c.set_reg(DI, 0xed80);
     let es = c.word(0xdbd8);
     c.set_sreg(pc::cpu::ES, es);
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.set_reg(CX, 0xb40);
     c.rep(0xab);

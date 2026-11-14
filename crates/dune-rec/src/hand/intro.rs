@@ -569,7 +569,6 @@ pub fn sound_at_frame_11(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 4)?;
     let ax = c.word(g::HNM_FRAME);
     c.set_reg(AX, ax);
-    c.cmp(B, ax & 0xff, 0x0b);
     if ax & 0xff == 0x0b {
         c.call(0xac30, 0x4941)?;
         c.run(0x4941, 1)?;

@@ -59,10 +59,10 @@ pub fn sky_palette_for_game_time(m: &mut Machine, start: u16) -> Result<(), Bail
     // mov ah, al; shr ah, 1 (twice); and ax, 1C0Fh: the flags of the `and`
     // only depend on its result.
     let ah = (time as u8 >> 2) as u16;
-    let ax = c.and(W, ah << 8 | time & 0xff, 0x1c0f);
+    let ax = pure::and(W, ah << 8 | time & 0xff, 0x1c0f);
     let (slot, group4) = (ax & 0xff, ax >> 8);
     let base = c.byte(g::SKY_PALETTE_BY_SLOT + slot);
-    let id = c.add(B, base as u16, group4) as u8;
+    let id = pure::add(B, base as u16, group4) as u8;
     c.set_reg(AX, group4 << 8 | id as u16);
     c.set_reg(BX, g::SKY_PALETTE_BY_SLOT & 0xff00);
     c.set_reg8(r8::BL, id);
@@ -122,19 +122,15 @@ pub fn run_clock_ticks(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let cx = c.reg(CX);
         if cx as i16 <= 0 {
             c.run(0x0fe1, 4)?;
-            c.or(W, cx, cx);
             c.set_byte(TICKING, 0);
             return c.ret();
         }
         let pending = c.byte(0x46dd) != 0;
         c.run(0x0fe1, 7 + pending as u32)?;
-        c.or(W, cx, cx);
         c.push(cx);
         let reset = c.word(0x146e);
         c.set_reg(AX, reset);
         c.set_word(0x46db, reset);
-        let v = c.byte(0x46dd);
-        c.cmp(B, v as u16, 0);
         if pending {
             c.call(0x1b23, 0x0ff6)?;
             c.run(0x0ff6, 3)?;
@@ -142,7 +138,7 @@ pub fn run_clock_ticks(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x0ff6, 3)?;
         }
         let t = c.word(g::GAME_TIME);
-        let t = c.inc(W, t);
+        let t = pure::inc(W, t);
         c.set_word(g::GAME_TIME, t);
         c.set_byte(0x46dd, 1);
         c.call(0x1b23, 0x1002)?;

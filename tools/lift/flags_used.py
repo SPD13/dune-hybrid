@@ -29,12 +29,34 @@ repo = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
 src = open(os.path.join(repo, 'crates/dune-rec/src/generated.rs'), encoding='utf-8').read()
 
 insn = {}
-for a, text in re.findall(r'// ([0-9a-f]{4}): (.*)', src):
+order = re.findall(r'// ([0-9a-f]{4}): (.*)', src)
+for a, text in order:
     insn.setdefault(int(a, 16), text.strip())
 addrs = sorted(insn)
-nxt = {a: addrs[i + 1] for i, a in enumerate(addrs[:-1])}
+# The next instruction: the next address decoded, unless code decoded from
+# elsewhere overlaps (an entry in the middle of an instruction, which only
+# the harness reaches): then the one the generated code lists after it in
+# its block (the instruction's own length).
+listed = {}
+for (a, _), (b, _) in zip(order, order[1:]):
+    a, b = int(a, 16), int(b, 16)
+    if 0 < b - a <= 6:
+        listed.setdefault(a, set()).add(b)
+nxt = {}
+for i, a in enumerate(addrs[:-1]):
+    after = listed.get(a)
+    nxt[a] = addrs[i + 1] if not after or addrs[i + 1] in after else min(after)
 table = re.search(r'pub static ROUTINES[^=]*=\s*&\[(.*?)\];', src, re.S).group(1)
-entries = sorted({int(a, 16) for a in re.findall(r'\(0x([0-9a-f]+),', table)})
+table_entries = {int(a, 16) for a in re.findall(r'\(0x([0-9a-f]+),', table)}
+entries = set()
+# Also every direct call target and every hand port's entry: some start in
+# the code of a generated routine (`setup_lip_sync_data_from_sprite_sheet`
+# at 91A0h, inside 9197h's), and a call to one must know what it reads.
+entries |= {int(a, 16) for a in re.findall(r'// [0-9a-f]{4}: call 0x([0-9A-F]+)\s*$', src, re.M)}
+hand_entries = {int(a, 16) for a in re.findall(r'\(0x([0-9a-f]+), \w+::',
+                                              open(os.path.join(repo, 'crates/dune-rec/src/hand/mod.rs'), encoding='utf-8').read())}
+entries |= hand_entries
+entries = sorted(table_entries | {a for a in entries if a in insn})
 
 ALL = set('CZSOPA')
 # Flags each mnemonic reads / writes (8086; undefined results count as written).
@@ -77,17 +99,69 @@ def owner(a):
 lift_data = os.environ.get('LIFT_DATA', os.path.join(repo, '..', 'dune-lift'))
 cov_dir = os.path.join(lift_data, 'cov')
 IND = {}
+ran = set()  # seg000 instructions run in the games (not the harness)
 for f in sorted(os.listdir(cov_dir)) if os.path.isdir(cov_dir) else []:
     for line in open(os.path.join(cov_dir, f), encoding='utf-8'):
         p = line.split()
+        if len(p) == 2 and p[0] == 'i' and not f.startswith('cov-ce'):
+            ran.add(int(p[1], 16))
         if len(p) >= 3 and p[0] == 'j' and p[1].startswith('1000:') and p[2].startswith('1000:'):
-            IND.setdefault(int(p[1][5:], 16), set()).add(int(p[2][5:], 16))
+            tg = int(p[2][5:], 16)
+            # The call-each harness calls through registers holding anything
+            # (`call bp` in C097h with a random BP): of its targets only the
+            # routines with a port count; the others start in the middle of
+            # an instruction and no game reaches them.
+            if f.startswith('cov-ce') and tg not in hand_entries:
+                continue
+            IND.setdefault(int(p[1][5:], 16), set()).add(tg)
 
 
 def far(t):
     """A far call or an INT: into BIOS, DOS or a driver, which give the
     flags back (IRET) or set their own. An INT also reads them (see walk)."""
     return t.startswith('int ') or (t.startswith('call ') and ('far' in t or 'dword' in t))
+
+
+def reach(e):
+    """The instructions run from `e`: fall-through, direct jumps (both ways
+    of conditional ones), calls stepped over and their targets."""
+    seen, todo = set(), [e]
+    while todo and len(seen) < 20000:
+        a = todo.pop()
+        if a in seen or a not in insn:
+            continue
+        seen.add(a)
+        t = insn[a]
+        op = t.split()[0]
+        tg = target(t)
+        if t.startswith('call ') and not far(t) and tg is not None and 'ptr' not in t:
+            todo.append(tg)
+        if op in ('ret', 'retf', 'iret', 'hlt'):
+            continue
+        if op == 'jmp':
+            if tg is not None and 'far' not in t and 'ptr' not in t:
+                todo.append(tg)
+            continue
+        if (op in JCC or op in ('loop', 'jcxz')) and tg is not None:
+            todo.append(tg)
+        if a in nxt:
+            todo.append(nxt[a])
+    return seen
+
+
+# Entries in the middle of an instruction of the ported routines' code
+# (the harness calls them; no game does): not routines. A RET after one is
+# the real routine's.
+real = set()
+for h in sorted(hand_entries):
+    if h not in real:
+        real |= reach(h)
+inside = set()
+for a in real:
+    if a in nxt:
+        inside.update(range(a + 1, nxt[a]))
+junk = {e for e in entries if e in inside and e not in hand_entries}
+entries = [e for e in entries if e not in junk]
 
 
 LIMIT = 200  # instructions followed from a return or a routine's entry
@@ -158,7 +232,10 @@ def walk(start, after_return):
             out |= live & set(READS[op])
         if op in ('ret', 'retf', 'iret'):
             if after_return:
-                out |= live & context_read(owner(a))
+                # The RET returns to the callers of the routine the walk
+                # started in (or of those that jump into its code), even
+                # when it is in another routine's code it jumped to.
+                out |= live & context_read(owner(start))
             else:
                 passed |= live
             continue
@@ -209,13 +286,18 @@ def walk(start, after_return):
     return out if after_return else (out, passed)
 
 
-for e in entries:
+# The targets of indirect calls that aren't routines (the harness calls
+# through BP with anything in it): what they read on entry comes from
+# their code, as for a routine, without making them routines (owner()).
+starts = entries + sorted({x for site, tgs in IND.items() if insn.get(site, '').startswith('call ')
+                           for x in tgs if x in insn} - set(entries))
+for e in starts:
     IN[e] = set()
     PASS[e] = set()
 changed = True
 while changed:
     changed = False
-    for e in entries:
+    for e in starts:
         fl, ps = walk(e, False)
         if fl != IN[e] or ps != PASS[e]:
             IN[e], PASS[e] = fl, ps
@@ -234,6 +316,14 @@ for a, t in insn.items():
         if tg is not None and a in nxt:
             calls.setdefault(tg, []).append(nxt[a])
 
+def ghost(a):
+    """A jump no game makes: in a routine without a port that nothing
+    calls, and never run but by the harness (code decoded from the middle
+    of an instruction)."""
+    o = owner(a)
+    return o not in hand_entries and o not in calls and a not in ran
+
+
 # Indirect calls and jumps seen in the coverage runs.
 jumped = {}  # target -> routines that jump there indirectly
 # Routine -> routines that jump into its middle: a RET in its code then
@@ -247,7 +337,7 @@ for site, tgs in IND.items():
         if t.startswith('call ') and not far(t) and site in nxt:
             if nxt[site] not in calls.setdefault(tg, []):
                 calls[tg].append(nxt[site])
-        elif t.startswith('jmp') and 'far' not in t and 'dword' not in t and owner(site) is not None:
+        elif t.startswith('jmp') and 'far' not in t and 'dword' not in t and owner(site) is not None and not ghost(site):
             jumped.setdefault(tg, set()).add(owner(site))
 
 # Direct jumps into another routine's entry (tail calls), and code that
@@ -300,7 +390,7 @@ def owners_of(tg):
 
 for a, t in insn.items():
     op = t.split()[0]
-    if (op in JCC or op == 'jmp') and 'far' not in t and 'ptr' not in t:
+    if (op in JCC or op == 'jmp') and 'far' not in t and 'ptr' not in t and not ghost(a):
         tg = target(t)
         if tg in entry_set and owner(a) not in (None, tg):
             jumped.setdefault(tg, set()).add(owner(a))
@@ -317,7 +407,7 @@ for e in entries:
     if i > 0:
         prev = addrs[i - 1]
         t = insn[prev]
-        if nxt.get(prev) == e and not any(t.startswith(x) for x in ('ret', 'retf', 'iret', 'jmp', 'hlt')) and owner(prev) not in (None, e):
+        if nxt.get(prev) == e and not any(t.startswith(x) for x in ('ret', 'retf', 'iret', 'jmp', 'hlt')) and owner(prev) not in (None, e) and not ghost(prev):
             jumped.setdefault(e, set()).add(owner(prev))
 
 # Routines nothing reaches in any run: assume all flags read.

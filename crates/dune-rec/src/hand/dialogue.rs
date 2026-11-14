@@ -223,83 +223,77 @@ pub fn stamp_record_time(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// The dialogue table: 4-byte entries from AA78h (SS), byte 2 its kinds.
 const DIALOGUES: u16 = 0xaa78;
 
-/// From B150: DI = the last of CX entries of the code-segment word list at
-/// SI (from SI + DX, then every 2; an entry's low 11 bits index
+/// From B150: DI = the last of `left` (CX) entries of the code-segment
+/// word list at `at` (SI; from SI + DX, then every 2; an entry's low 11 bits index
 /// [`DIALOGUES`], 0 ends) whose kind bits BL are 0 or BH; ZF from
-/// `or di, di`. Counts the instructions (`apply` false) or does them.
-fn scan_dialogues(c: &mut Ctx, apply: bool) -> u32 {
-    let (mut si, mut dx, mut cx) = (c.reg(SI), c.reg(DX), c.reg(CX));
-    let bx = c.reg(BX);
-    let (bl, bh) = (bx as u8, (bx >> 8) as u8);
-    let mut di = 0u16;
-    let mut n = 1;
-    if apply {
-        c.xor(W, 0, 0);
-        c.set_reg(DI, 0);
-    }
+/// `or di, di`. Reads only: the registers it leaves and its cost.
+fn scan_dialogues(c: &mut Ctx, mut at: u16, mut step: u16, mut left: u16) -> Scan {
+    let [mask, kind] = c.reg(BX).to_le_bytes();
+    let mut s = Scan { found: 0, at, step, left, bp: c.reg(BP), al: None, cost: 1 };
     loop {
-        si = if apply { c.add(W, si, dx) } else { si.wrapping_add(dx) };
-        dx = if apply { c.or(W, dx, 2) } else { dx | 2 };
-        let w = c.code_word(si);
-        let bp = if apply { c.and(W, w, 0x7ff) } else { w & 0x7ff };
-        if apply {
-            c.set_reg(BP, bp);
-        }
-        n += 5;
-        if bp == 0 {
+        at = at.wrapping_add(step);
+        step |= 2;
+        let number = c.code_word(at) & 0x7ff;
+        s.cost += 5;
+        s.bp = number;
+        if number == 0 {
             break;
         }
-        let bp = if apply {
-            let b = c.shl1(W, bp, 2);
-            c.add(W, b, DIALOGUES)
-        } else {
-            (bp << 2).wrapping_add(DIALOGUES)
-        };
-        let kinds = c.byte_in(SS, bp.wrapping_add(2));
-        let al = if apply { c.and(B, kinds as u16, bl as u16) as u8 } else { kinds & bl };
-        n += 6;
-        if apply {
-            c.set_reg(BP, bp);
-            c.set_reg8(r8::AL, al);
-        }
-        let take = if al == 0 {
-            true
-        } else {
-            if apply {
-                c.cmp(B, al as u16, bh as u16);
-            }
-            n += 2;
-            al == bh
-        };
-        if take {
-            di = si;
-            cx = cx.wrapping_sub(1);
-            n += 2;
-            if apply {
-                c.set_reg(DI, di);
-                c.set_reg(CX, cx);
-            }
-            if cx == 0 {
+        let entry = (number << 2).wrapping_add(DIALOGUES);
+        let kinds = c.byte_in(SS, entry.wrapping_add(2)) & mask;
+        s.bp = entry;
+        s.al = Some(kinds);
+        s.cost += if kinds == 0 { 6 } else { 8 };
+        if kinds == 0 || kinds == kind {
+            s.found = at;
+            left = left.wrapping_sub(1);
+            s.cost += 2;
+            if left == 0 {
                 break;
             }
         }
     }
-    if apply {
-        c.set_reg(SI, si);
-        c.set_reg(DX, dx);
-        c.or(W, di, di);
+    s.at = at;
+    s.step = step;
+    s.left = left;
+    s.cost += 2;
+    s
+}
+
+/// What [`scan_dialogues`] leaves: DI, SI, DX, CX, BP, AL (when an entry
+/// was looked at) and its instruction count.
+struct Scan {
+    found: u16,
+    at: u16,
+    step: u16,
+    left: u16,
+    bp: u16,
+    al: Option<u8>,
+    cost: u32,
+}
+
+/// The registers of a [`Scan`] set, and its exit's flags.
+fn scan_done(c: &mut Ctx, s: &Scan) -> Result<(), Bail> {
+    c.set_reg(DI, s.found);
+    c.set_reg(SI, s.at);
+    c.set_reg(DX, s.step);
+    c.set_reg(CX, s.left);
+    c.set_reg(BP, s.bp);
+    if let Some(al) = s.al {
+        c.set_reg8(r8::AL, al);
     }
-    n + 2
+    c.or(W, s.found, s.found); // the exit's flags
+    c.ret()
 }
 
 /// `loc_0b150`: see [`scan_dialogues`].
 pub fn scan_dialogues_from(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb150)?;
     let mut c = Ctx::new(m);
-    let n = scan_dialogues(&mut c, false);
-    c.run(start, n)?;
-    scan_dialogues(&mut c, true);
-    c.ret()
+    let [at, step, left] = [SI, DX, CX].map(|r| c.reg(r));
+    let scan = scan_dialogues(&mut c, at, step, left);
+    c.run(start, scan.cost)?;
+    scan_done(&mut c, &scan)
 }
 
 /// `loc_0b147`: [`scan_dialogues`] of the list at A8h (from AAh), for
@@ -307,20 +301,9 @@ pub fn scan_dialogues_from(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn scan_dialogues_a8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb147)?;
     let mut c = Ctx::new(m);
-    let (si, dx, cx) = (c.reg(SI), c.reg(DX), c.reg(CX));
-    c.set_reg(SI, 0xa8);
-    c.set_reg(DX, 2);
-    c.set_reg(CX, 1);
-    let n = scan_dialogues(&mut c, false);
-    c.set_reg(SI, si);
-    c.set_reg(DX, dx);
-    c.set_reg(CX, cx);
-    c.run(start, 3 + n)?;
-    c.set_reg(SI, 0xa8);
-    c.set_reg(DX, 2);
-    c.set_reg(CX, 1);
-    scan_dialogues(&mut c, true);
-    c.ret()
+    let scan = scan_dialogues(&mut c, 0xa8, 2, 1);
+    c.run(start, 3 + scan.cost)?;
+    scan_done(&mut c, &scan)
 }
 
 /// `loc_0af00`: the dialogue buttons 4, 8 and 0Ch (the UI elements at
@@ -479,7 +462,6 @@ pub fn skip_strings(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let count = c.reg(AX);
     if count & 0xff == 0 {
         c.run(start, 4)?;
-        c.or(B, 0, 0);
         c.set_word(TEXT_LEFT, 8);
         return c.ret();
     }
@@ -495,7 +477,6 @@ pub fn skip_strings(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x9a6f, if left == 1 { 5 } else { 3 })?;
         c.set_reg(BX, left - 1);
     }
-    c.dec(W, 1);
     let end = c.reg(DI);
     c.set_reg(SI, end);
     c.set_word(TEXT_LEFT, 8);
@@ -537,7 +518,7 @@ pub fn blit_dialogue_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_08df0`: with bit 1 of [4799h], it is cleared when one of the
-/// [`ENTRIES`] (count first, then 6-byte entries) has a first word and a
+/// [`LINES`] (count first, then 6-byte entries) has a first word and a
 /// second of 1Eh or more. SI kept; CX the entries left, AX the last first
 /// word.
 pub fn check_dialogue_entries(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -549,12 +530,12 @@ pub fn check_dialogue_entries(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let step = c.string_step(W);
-    let count = c.word(ENTRIES);
+    let count = c.word(LINES);
     if count == 0 {
         // `loop` from 0 would go 65536 times: left to the interpreter.
         return Err(Bail);
     }
-    let mut at = ENTRIES.wrapping_add(step);
+    let mut at = LINES.wrapping_add(step);
     let mut cost = 6;
     let (mut found, mut left, mut first) = (false, 0, 0);
     for k in 0..count {
@@ -583,9 +564,6 @@ pub fn check_dialogue_entries(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.restore(&[SI]);
     c.ret()
 }
-
-/// Dialogue entries ([0A9D0h]): a count, then 6 bytes each.
-const ENTRIES: u16 = 0xa9d0;
 
 /// `loc_093df`: the speaker AL (CL) starts talking: [47BEh] = AX with
 /// AL·8; its bit in [0Eh] and [14h]; its record (FD8h + 10h·AL) at
@@ -809,7 +787,6 @@ pub fn start_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word(0x47c8, text);
         c.set_word(TEXT_AT, text);
         c.set_reg(SI, previous);
-        c.or(W, previous, previous);
         return c.ret();
     }
     let k = c.byte(0xea);
@@ -819,7 +796,6 @@ pub fn start_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(TEXT_AT, text);
     c.set_reg(SI, 0);
     if map_up {
-        c.cmp(B, k as u16, 0);
         return c.ret();
     }
     let talker = c.word(TALKER);
@@ -1186,13 +1162,11 @@ pub fn map_mode_2_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mode = c.byte(MAP_SCREEN);
     if mode != 2 {
         c.run(start, 3)?;
-        c.cmp(B, mode as u16, 2);
         return c.ret();
     }
     let b = c.byte(c.reg(SI).wrapping_add(2));
     if b & 0x10 != 0 {
         c.run(start, 6)?;
-        c.test(B, b as u16, 0x10);
         c.set_byte(MAP_SCREEN, 1);
         return c.ret();
     }
@@ -1252,7 +1226,6 @@ pub fn drop_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, text);
     // `or ax,ax`: its flags are returned, also through
     // `remove_frame_task` when that finds no task.
-    c.or(W, text, text);
     if text == 0 {
         return c.ret();
     }
@@ -1502,12 +1475,12 @@ pub fn add_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_08e16`: the text at SI broken into lines of the width [478Fh]
 /// (BX the room left, DL the words on the line, DH the lines): each line's
-/// spacing stored from [`ENTRIES`] + 2 on (`store_spacing`). CR ends a
+/// spacing stored from [`LINES`] + 2 on (`store_spacing`). CR ends a
 /// line (its entry then 6, 0), spaces are skipped, a word takes its width
 /// (`word_width`, CX) + 6; one that doesn't fit goes on the next line, or
 /// with the room only short by its trailing 6, ends this one. At the end
 /// (a byte with bit 7) the last line, an empty entry, and the line count
-/// at [`ENTRIES`]; C8h there for a word that fits no line. ES = DS.
+/// at [`LINES`]; C8h there for a word that fits no line. ES = DS.
 pub fn break_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8e16)?;
     let mut c = Ctx::new(m);
@@ -1517,7 +1490,7 @@ pub fn break_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let es = c.pop();
     c.set_sreg(ES, es);
     c.set_byte(0x478c, 0);
-    c.set_reg(DI, ENTRIES + 2);
+    c.set_reg(DI, LINES + 2);
     let width = c.word(0x478f);
     c.set_reg(BX, width);
     c.set_reg(DX, 0);
@@ -1587,7 +1560,7 @@ pub fn break_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x8e55, 8)?;
             if words_on_line(&c) == 0 {
                 c.set_reg(BX, short);
-                c.set_word(ENTRIES, 0xc8);
+                c.set_word(LINES, 0xc8);
                 return c.ret();
             }
             c.set_reg(BX, short.wrapping_add(need));
@@ -1607,7 +1580,7 @@ pub fn break_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let lines = c.reg(DX) >> 8;
     c.set_reg(DX, lines);
-    c.set_word(ENTRIES, lines);
+    c.set_word(LINES, lines);
     c.ret()
 }
 
@@ -2023,50 +1996,7 @@ pub fn show_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xcf70, 0x88cf)?;
     c.run(0x88cf, 1)?;
     c.call(0x88f1, 0x88d2)?;
-    c.run(0x88d2, 3)?;
-    c.set_reg(DI, 0xa6b0);
-    c.push(0xa6b0);
-    c.call(0x8944, 0x88d9)?;
-    let map_screen = c.byte(MAP_SCREEN) >= 2;
-    if map_screen && c.byte(0x46d9) == 0 {
-        c.run(0x88d9, 21)?;
-        let text = c.pop();
-        c.set_reg(SI, text);
-        c.set_word(BOX_SHOWN, 1);
-        let flag = !c.byte(0xfb) & 0x80;
-        c.set_byte(0x1c06, flag);
-        let ds = c.sreg(DS);
-        c.push(ds);
-        let es = c.pop();
-        c.set_sreg(ES, es);
-        c.set_reg(DI, 0x1be2);
-        c.set_reg(AX, 0);
-        for _ in 0..4 {
-            c.stos(W);
-        }
-        c.set_reg8(r8::AL, 0x80);
-        c.stos(W);
-        c.xor(W, 0, 0); // `xor ax,ax` above: its flags are returned
-        return c.ret();
-    }
-    let text = c.word_in(SS, c.reg(SP));
-    let first = c.byte(text);
-    let control = first & 0x80 != 0;
-    c.run(0x88d9, 3 + if map_screen { 2 } else { 0 } + if control { 4 } else { 5 })?;
-    let text = c.pop();
-    c.set_reg(SI, text);
-    c.lods(B, DS);
-    if control {
-        c.or(B, first as u16, first as u16);
-        return c.ret();
-    }
-    let si = c.reg(SI).wrapping_sub(1);
-    c.set_reg(SI, si);
-    c.call(0x8b11, 0x88ea)?;
-    let b = c.byte(c.reg(SI));
-    c.run(0x88ea, if b >= 0xfe { 3 } else { 4 })?;
-    c.cmp(B, b as u16, 0xfe);
-    c.ret()
+    show_text_88d2(&mut c)
 }
 
 /// `loc_09efd`: the voice for the text: [47DDh] = [`TALKING`]; when
@@ -2134,8 +2064,9 @@ pub fn close_dialogue(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_09c2d`: the dialogue rect reset (13Fh, C7h, 0, 0) and grown by
-/// the 3-byte entries of the lists 4540h and 4608h each missing from the
-/// other ([`rects_missing`]), then clamped.
+/// the head sprites shown and kept ([`HEAD_SPRITES`],
+/// [`HEAD_SPRITES_KEPT`]) each missing from the other
+/// ([`rects_missing`]), then clamped.
 pub fn diff_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9c2d)?;
     let mut c = Ctx::new(m);
@@ -2143,21 +2074,18 @@ pub fn diff_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     c.run(start, 10)?;
-    c.set_word(0xd834, 0x13f);
-    c.set_word(0xd836, 0xc7);
-    c.xor(W, 0, 0);
-    c.set_reg(AX, 0);
-    c.set_word(0xd838, 0);
-    c.set_word(0xd83a, 0);
+    for (at, v) in [0x13fu16, 0xc7, 0, 0].into_iter().enumerate() {
+        c.set_word(RECT_D834 + 2 * at as u16, v);
+    }
     let ds = c.sreg(DS);
     c.set_reg(AX, ds);
     c.set_sreg(ES, ds);
-    c.set_reg(SI, 0x4540);
-    c.set_reg(DI, 0x4608);
+    c.set_reg(SI, HEAD_SPRITES_KEPT);
+    c.set_reg(DI, HEAD_SPRITES);
     c.call(0x9c54, 0x9c4e)?;
     c.run(0x9c4e, 2)?;
-    c.set_reg(SI, 0x4608);
-    c.set_reg(DI, 0x4540);
+    c.set_reg(SI, HEAD_SPRITES);
+    c.set_reg(DI, HEAD_SPRITES_KEPT);
     rects_missing_at(&mut c, 0x9c54)
 }
 
@@ -2176,205 +2104,153 @@ pub fn rects_missing(m: &mut Machine, start: u16) -> Result<(), Bail> {
     rects_missing_at(&mut c, start)
 }
 
+/// [`rects_missing`] from `start`: the entries of the list SI (a count
+/// word, then 3 bytes each) looked up in the list ES:DI by a `cmpsw` and
+/// a `cmpsb` (the two compares' `lahf` bytes `and`ed, AX); each one
+/// missing grows the rect ([`grow_dialogue_rect`], with SI on the entry,
+/// DI past the list, CX 0, and the outer count and the list on the
+/// stack). Then [`rects_tail`].
 fn rects_missing_at(c: &mut Ctx, start: u16) -> Result<(), Bail> {
-    let mut at = start;
-    let mut resume = false;
-    loop {
-        // A first pass counts the stretch (registers, flags and the stack
-        // below SP undone), the second one does it.
-        let regs = c.m.cpu.regs;
-        let flags = c.m.cpu.flags();
-        let sp = c.reg(SP);
-        // The slots the stretch can push to or pop and push again.
-        let slots: Vec<(u16, u16)> = (0..8u16).map(|i| sp.wrapping_sub(8).wrapping_add(2 * i)).map(|a| (a, c.word_in(SS, a))).collect();
-        let r = rects_walk(c, resume);
-        c.m.cpu.regs = regs;
-        c.m.cpu.set_flags(flags);
-        for &(a, w) in &slots {
-            c.set_word_in(SS, a, w);
-        }
-        // A bail leaves CS:IP at the stretch's first instruction.
-        let Ok((n, call)) = r else {
-            c.m.cpu.ip = at;
-            return Err(Bail);
-        };
-        c.run(at, n)?;
-        rects_walk(c, resume)?;
-        if !call {
-            break;
-        }
-        c.call(0x9cc6, 0x9c72)?;
-        at = 0x9c72;
-        resume = true;
+    let list = c.reg(DI);
+    let mut si = c.reg(SI);
+    let count = c.word(si);
+    let size = c.word_in(ES, list);
+    if count == 0 || size == 0 {
+        // `loop` from 0 would go 65536 times: left to the interpreter.
+        c.m.cpu.ip = start;
+        return Err(Bail);
     }
+    si = si.wrapping_add(2);
+    let (mut from, mut cost) = (start, 2u32);
+    // The stretch's pushes (`Some`) and pops (`None`), done after its
+    // `run`.
+    let mut stacked: Vec<Option<u16>> = Vec::new();
+    let (mut di, mut ax) = (list, c.reg(AX));
+    for left in (1..=count).rev() {
+        cost += 4;
+        di = list.wrapping_add(2);
+        let mut found = false;
+        for _ in 0..size {
+            let [a0, a1, a2] = [0u16, 1, 2].map(|i| c.byte(si.wrapping_add(i)));
+            let [b0, b1, b2] = [0u16, 1, 2].map(|i| c.byte_in(ES, di.wrapping_add(i)));
+            let word_flags = pure::lahf_cmp(W, (a1 as u16) << 8 | a0 as u16, (b1 as u16) << 8 | b0 as u16);
+            let byte_flags = pure::lahf_cmp(B, a2 as u16, b2 as u16);
+            ax = (byte_flags as u16) << 8 | (word_flags & byte_flags) as u16;
+            cost += 8;
+            di = di.wrapping_add(3);
+            if word_flags & byte_flags & 0x40 != 0 {
+                found = true;
+                si = si.wrapping_add(3);
+                break;
+            }
+            cost += 2;
+        }
+        if !found {
+            // Missing: the rect grown by it.
+            cost += 1;
+            c.run(from, cost)?;
+            replay_stack(c, &stacked);
+            stacked.clear();
+            c.push(left);
+            c.push(list);
+            c.set_reg(SI, si);
+            c.set_reg(DI, di);
+            c.set_reg(CX, 0);
+            c.set_reg(AX, ax);
+            c.call(0x9cc6, 0x9c72)?;
+            si = c.reg(SI).wrapping_add(3);
+            ax = c.reg(AX);
+            (from, cost) = (0x9c72, 1);
+            stacked.extend([None, None]);
+        } else {
+            stacked.extend([Some(left), Some(list), None, None]);
+        }
+        cost += 3;
+        di = list;
+    }
+    c.run(from, cost)?;
+    replay_stack(c, &stacked);
+    c.set_reg(SI, si);
+    c.set_reg(DI, di);
+    c.set_reg(CX, 0);
+    c.set_reg(AX, ax);
     rects_tail(c)
 }
 
-/// The loops of `loc_09c54` from the entry (or after the call at 9C6Fh)
-/// up to the next call (true) or their end: the count.
-fn rects_walk(c: &mut Ctx, resume: bool) -> Result<(u32, bool), Bail> {
-    let mut n = 0u32;
-    // 0: the outer loop's top, 1: the inner loop, 2: past an entry.
-    let mut at;
-    if resume {
-        let si = c.reg(SI);
-        let s = c.add(W, si, 3);
-        c.set_reg(SI, s);
-        n += 1;
-        at = 2;
-    } else {
-        let v = c.lods(W, DS);
-        c.set_reg(CX, v);
-        n += 2;
-        if v == 0 {
-            return Err(Bail);
-        }
-        at = 0;
-    }
-    loop {
-        if n > 400_000 {
-            return Err(Bail);
-        }
-        match at {
-            0 => {
-                let (cx, di) = (c.reg(CX), c.reg(DI));
-                c.push(cx);
-                c.push(di);
-                let k = c.word(di);
-                c.set_reg(CX, k);
-                let d = c.add(W, di, 2);
-                c.set_reg(DI, d);
-                n += 4;
-                if k == 0 {
-                    return Err(Bail);
-                }
-                at = 1;
-            }
-            1 => {
-                c.m.cpu.string_op(&mut c.m.hw, 0xa7, None, 0);
-                let f1 = c.m.cpu.flags() as u8;
-                c.m.cpu.string_op(&mut c.m.hw, 0xa6, None, 0);
-                let f2 = c.m.cpu.flags() as u8;
-                let al = c.and(B, f1 as u16, f2 as u16);
-                c.set_reg(AX, (f2 as u16) << 8 | al);
-                c.test(B, al, 0x40);
-                n += 8;
-                if al & 0x40 != 0 {
-                    at = 2;
-                    continue;
-                }
-                let si = c.reg(SI);
-                let s = c.sub(W, si, 3);
-                c.set_reg(SI, s);
-                let cx = c.reg(CX).wrapping_sub(1);
-                c.set_reg(CX, cx);
-                n += 2;
-                if cx == 0 {
-                    return Ok((n + 1, true));
-                }
-            }
-            _ => {
-                let d = c.pop();
-                c.set_reg(DI, d);
-                let cx = c.pop().wrapping_sub(1);
-                c.set_reg(CX, cx);
-                n += 3;
-                if cx == 0 {
-                    return Ok((n, false));
-                }
-                at = 0;
+/// The pushes and pops a stretch of [`rects_missing_at`] made, in order.
+fn replay_stack(c: &mut Ctx, stacked: &[Option<u16>]) {
+    for op in stacked {
+        match *op {
+            Some(v) => c.push(v),
+            None => {
+                c.pop();
             }
         }
     }
 }
 
-/// `loc_09c54` from 9C79h: the rect's bottom by the voice line.
+/// `loc_09c54` from 9C79h: the rect's bottom lowered to the voice's line
+/// (`loc_0abcc`, the lip sync frame's [0DC28h] + 2), unless the voice's line
+/// part [`NUMBER_PART`] is 81h or none plays or the speaker is 9 or 0Ch;
+/// the rect's right edge 13Fh when that is not below its top. Then
+/// [`rects_tail_9ca6`].
 fn rects_tail(c: &mut Ctx) -> Result<(), Bail> {
-    let k = c.byte(0x47e1);
-    if k == 0x81 {
-        return rects_tail_9ca6(c, 0x9c79, 2, |c| c.cmp(B, 0x81, 0x81));
+    if c.byte(NUMBER_PART) == 0x81 {
+        c.run(0x9c79, 2)?;
+        return rects_tail_9ca6(c);
     }
     c.run(0x9c79, 3)?;
-    c.cmp(B, k as u16, 0x81);
     c.call(0xabcc, 0x9c83)?;
     if c.flag(ZF) {
-        return rects_tail_9ca6(c, 0x9c83, 1, |_| {});
+        c.run(0x9c83, 1)?;
+        return rects_tail_9ca6(c);
     }
-    let ax = c.word(TALKER);
-    let al = ax as u8;
-    if al == 9 {
-        c.run(0x9c83, 5)?;
-        c.set_reg(AX, ax);
-        c.cmp(B, 9, 9);
+    let talker = c.word(TALKER);
+    if matches!(talker as u8, 9 | 0x0c) {
+        c.run(0x9c83, if talker as u8 == 9 { 5 } else { 7 })?;
+        c.set_reg(AX, talker);
         return c.ret();
     }
-    if al == 0x0c {
-        c.run(0x9c83, 7)?;
-        c.set_reg(AX, ax);
-        c.cmp(B, 0x0c, 9);
-        c.cmp(B, 0x0c, 0x0c);
+    let sync = c.word(0xdc28);
+    let line = c.word(sync.wrapping_add(2));
+    let [top, bottom] = [RECT_D834 + 2, RECT_D834 + 6].map(|a| c.word(a));
+    if line >= bottom {
+        c.run(0x9c83, 10)?;
+        c.set_reg(SI, sync);
+        c.set_reg(AX, line);
+        return rects_tail_9ca6(c);
+    }
+    let above = (line as i16) <= (top as i16);
+    c.run(0x9c83, if above { 15 } else { 13 })?;
+    c.set_reg(SI, sync);
+    c.set_reg(AX, line);
+    c.set_word(RECT_D834 + 6, line);
+    if above {
+        c.set_word(RECT_D834, 0x13f);
         return c.ret();
     }
-    let si = c.word(0xdc28);
-    let v = c.word(si.wrapping_add(2));
-    let bottom = c.word(0xd83a);
-    let pre = |c: &mut Ctx| {
-        c.set_reg(AX, ax);
-        c.cmp(B, al as u16, 9);
-        c.cmp(B, al as u16, 0x0c);
-        c.set_reg(SI, si);
-        c.set_reg(AX, v);
-        c.cmp(W, v, bottom);
-    };
-    if v >= bottom {
-        return rects_tail_9ca6(c, 0x9c83, 10, pre);
-    }
-    let top = c.word(0xd836);
-    let le = (v as i16) <= (top as i16);
-    let ops = |c: &mut Ctx| {
-        pre(c);
-        c.set_word(0xd83a, v);
-        c.cmp(W, v, top);
-    };
-    if le {
-        c.run(0x9c83, 13 + 2)?;
-        ops(c);
-        c.set_word(0xd834, 0x13f);
-        return c.ret();
-    }
-    rects_tail_9ca6(c, 0x9c83, 13, ops)
+    rects_tail_9ca6(c)
 }
 
-/// From 9CA6h (after `pre` instructions from `at` with `ops`): for
-/// [47E1h] 80h the bottom up to 4Ch.
-fn rects_tail_9ca6(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
-    let k = c.byte(0x47e1);
-    if k != 0x80 {
-        c.run(at, pre + 3)?;
-        ops(c);
-        c.cmp(B, k as u16, 0x80);
+/// From 9CA6h: for [`NUMBER_PART`] 80h the bottom up to 4Ch (and the
+/// right edge 13Fh when that is not below the top).
+fn rects_tail_9ca6(c: &mut Ctx) -> Result<(), Bail> {
+    if c.byte(NUMBER_PART) != 0x80 {
+        c.run(0x9ca6, 3)?;
         return c.ret();
     }
-    let bottom = c.word(0xd83a);
+    let [top, bottom] = [RECT_D834 + 2, RECT_D834 + 6].map(|a| c.word(a));
     if 0x4c >= bottom {
-        c.run(at, pre + 2 + 3 + 1)?;
-        ops(c);
-        c.cmp(B, 0x80, 0x80);
+        c.run(0x9ca6, 6)?;
         c.set_reg(AX, 0x4c);
-        c.cmp(W, 0x4c, bottom);
         return c.ret();
     }
-    let top = c.word(0xd836);
-    let gt = 0x4c > (top as i16);
-    c.run(at, pre + 2 + 3 + 3 + if gt { 1 } else { 2 })?;
-    ops(c);
-    c.cmp(B, 0x80, 0x80);
+    let below = 0x4c > (top as i16);
+    c.run(0x9ca6, if below { 9 } else { 10 })?;
     c.set_reg(AX, 0x4c);
-    c.cmp(W, 0x4c, bottom);
-    c.set_word(0xd83a, 0x4c);
-    c.cmp(W, 0x4c, top);
-    if !gt {
-        c.set_word(0xd834, 0x13f);
+    c.set_word(RECT_D834 + 6, 0x4c);
+    if !below {
+        c.set_word(RECT_D834, 0x13f);
     }
     c.ret()
 }
@@ -2405,54 +2281,49 @@ pub fn two_heads_text_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_097cf`: the end of a dialogue line (lip sync stopped). With a
-/// speaker ([47C4h] not FFFFh): the troop [47A2h] marked talked to (+0Fh
-/// bit 20h set, 4 cleared), [47E1h] 0, the dialogue box closed; in a map
-/// mode the panel redrawn on the front buffer and its buttons ([11CAh]
-/// 0 meanwhile), `loc_037f4`, `loc_0c4dd`, [11CAh] 0. Else by [47A4h]:
-/// bit 7 ends the dialogue (gauge dropped, state cleared, the text
-/// dropped; before stage 74h the view and head back up, from stage 64h
-/// to 73h `loc_036d3` and a wait, again); else the speaker's gauge (off
-/// with bit 40h of +0Fh), and in a dialogue the text redrawn, or with
-/// bit 0 of [47A4h] clear the view and head back up.
+/// speaker ([`TALKER`] not FFFFh): the speaker [`SPEAKER`] marked talked
+/// to (+0Fh bit 20h set, 4 cleared), [`NUMBER_PART`] 0, the dialogue box
+/// closed (`loc_08c8a`). With the head held ([`HEAD_HELD`]) the panel
+/// redrawn on the front buffer and its buttons ([11CAh] 0 meanwhile),
+/// `loc_037f4`, `loc_0c4dd`, [11CAh] 0. Else by [`LINE_STATE`]: bit 7
+/// ends the dialogue (the speaker's gauge off with bit 40h of +0Fh, then
+/// [`line_end_9858`]); else the gauge, and in a dialogue ([`IN_DIALOGUE`])
+/// the text redrawn ([`text_redraw_9840`]), or with bit 0 of
+/// [`LINE_STATE`] clear the view and head back up ([`view_back_9879`]).
 pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x97cf)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(0xa7a5, 0x97d2)?;
-    let sp = c.word(TALKER);
-    if sp == 0xffff {
+    if c.word(TALKER) == 0xffff {
         c.run(0x97d2, 3)?;
-        c.cmp(W, sp, 0xffff);
         return c.ret();
     }
-    let mode = c.byte(0x11c9);
+    let held = c.byte(HEAD_HELD) != 0;
+    let speaker = c.word(SPEAKER);
+    let bits = c.byte(speaker.wrapping_add(0x0f));
     c.run(0x97d2, 9)?;
-    c.cmp(W, sp, 0xffff);
-    let si = c.word(SPEAKER);
-    c.set_reg(SI, si);
-    let f = c.byte(si.wrapping_add(0x0f));
-    let f = c.or(B, f as u16, 0x20);
-    let f = c.and(B, f, 0xfb);
-    c.set_byte(si.wrapping_add(0x0f), f as u8);
-    c.set_word(0x47e1, 0);
-    c.cmp(B, mode as u16, 0);
-    c.call(0x8c8a, if mode != 0 { 0x97f5 } else { 0x980f })?;
-    if mode != 0 {
+    c.set_reg(SI, speaker);
+    c.set_byte(speaker.wrapping_add(0x0f), (bits | 0x20) & 0xfb);
+    c.set_word(NUMBER_PART, 0);
+    c.call(0x8c8a, if held { 0x97f5 } else { 0x980f })?;
+    if held {
+        // The panel redrawn on the front buffer (`loc_098b2` through
+        // `loc_0c097`; it reads the flags `loc_08c8a` left).
         c.run(0x97f5, 2)?;
         c.set_reg(BP, 0x98b2);
         c.call(0xc097, 0x97fb)?;
         c.run(0x97fb, 4)?;
-        c.xor(B, 0, 0);
-        let old = c.byte(0x11ca);
+        let buttons = c.byte(0x11ca);
         c.set_byte(0x11ca, 0);
-        let ax = c.reg(AX) & 0xff00 | old as u16;
+        let ax = c.reg(AX) & 0xff00 | buttons as u16;
         c.set_reg(AX, ax);
         c.push(ax);
         c.call(0x2ffb, 0x9805)?;
         c.run(0x9805, 4)?;
-        let a = c.pop();
-        c.set_reg(AX, a);
-        c.set_byte(0x11ca, a as u8);
+        let ax = c.pop();
+        c.set_reg(AX, ax);
+        c.set_byte(0x11ca, ax as u8);
         c.call(0x37f4, 0x4ac1)?;
         c.run(0x4ac1, 1)?;
         c.call(0xc4dd, 0x4ac4)?;
@@ -2460,64 +2331,64 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(0x11ca, 0);
         return c.ret();
     }
-    let st = c.byte(0x47a4);
-    let si = c.word(SPEAKER);
-    if st & 0x80 != 0 {
-        let gauge = c.byte(si.wrapping_add(0x0f)) & 0x40 != 0;
-        c.run(0x980f, 3 + 3 + gauge as u32)?;
-        c.cmp(B, st as u16, 0);
-        c.set_reg(SI, si);
+    let state = c.byte(LINE_STATE);
+    let speaker = c.word(SPEAKER);
+    let gauge = c.byte(speaker.wrapping_add(0x0f)) & 0x40 != 0;
+    if state & 0x80 != 0 {
+        c.run(0x980f, 6 + gauge as u32)?;
+        c.set_reg(SI, speaker);
         c.set_word(0x1c06, 0);
-        c.test(B, if gauge { 0x40 } else { 0 }, 0x40);
         if gauge {
             c.call(0x9673, 0x9858)?;
         }
         return line_end_9858(&mut c);
     }
-    let talk = c.byte(0x2b);
-    let gauge = c.byte(si.wrapping_add(0x0f)) & 0x40 != 0;
-    c.run(0x980f, 5 + if talk != 0 { 2 } else { 0 } + 3)?;
-    c.cmp(B, st as u16, 0);
-    c.set_reg(SI, si);
-    c.cmp(B, talk as u16, 0);
-    if talk != 0 {
+    let talk = c.byte(IN_DIALOGUE) != 0;
+    c.run(0x980f, if talk { 10 } else { 8 })?;
+    c.set_reg(SI, speaker);
+    if talk {
+        // The gauge's or `loc_09655`'s return comes back to the text
+        // redraw.
         c.set_reg(AX, 0x9840);
         c.push(0x9840);
     }
-    c.test(B, if gauge { 0x40 } else { 0 }, 0x40);
     if gauge {
-        if talk == 0 {
+        if !talk {
             return add_speaker_gauge(c.m, 0x9673);
         }
-        // The jump with 9840h pushed: its return lands there.
         c.pop();
         c.call(0x9673, 0x9840)?;
         return text_redraw_9840(&mut c);
     }
     c.call(0x9655, 0x9831)?;
-    let t2 = c.byte(0x2b);
-    let b0 = c.byte(0x47a4) & 1 != 0;
-    if t2 != 0 || b0 {
-        c.run(0x9831, if t2 != 0 { 3 } else { 5 })?;
-        c.cmp(B, t2 as u16, 0);
-        if t2 == 0 {
-            c.test(B, b0 as u16, 1);
-        }
-        if talk == 0 {
+    let talk_now = c.byte(IN_DIALOGUE) != 0;
+    let keep_view = c.byte(LINE_STATE) & 1 != 0;
+    if talk_now || keep_view {
+        c.run(0x9831, if talk_now { 3 } else { 5 })?;
+        if !talk {
             return c.ret();
         }
         c.pop();
         return text_redraw_9840(&mut c);
     }
-    if talk != 0 {
+    if talk {
+        // To the view with 9840h still pushed: left to the original.
         c.m.cpu.ip = 0x9831;
         return Err(Bail);
     }
     c.run(0x9831, 4)?;
-    c.cmp(B, 0, 0);
-    c.test(B, 0, 1);
     view_back_9879(&mut c)
 }
+
+/// The dialogue's state bits: 80h ends it with this line, 1 keeps the
+/// view.
+const LINE_STATE: u16 = 0x47a4;
+/// Set during a dialogue scene.
+const IN_DIALOGUE: u16 = 0x2b;
+/// The talking head held ([`super::globals::HEAD_ANIMATION_BLOCKED`]).
+const HEAD_HELD: u16 = 0x11c9;
+/// The game's stage (64h to 73h: a wait after each line).
+const STAGE: u16 = 0x23;
 
 /// `loc_09840`: the text dropped, the game area to the screen,
 /// `loc_0c4dd`.
@@ -2530,41 +2401,33 @@ fn text_redraw_9840(c: &mut Ctx) -> Result<(), Bail> {
     super::draw::sub_c4dd(c.m, 0xc4dd)
 }
 
-/// From 9858h: the dialogue state cleared and its text dropped; from
-/// stage 64h to 73h `loc_036d3` and a wait of C8h (again), else the view
-/// back ([`view_back_9879`]).
+/// From 9858h: the dialogue state cleared (the kept head sprites, the
+/// box, the text's flags but bits 6 and 7, [47C8h], bit 7 of
+/// [`LINE_STATE`]) and its text dropped; from stage 64h to 73h the scene
+/// redrawn on the front buffer (`loc_037b2` through `loc_0c097`),
+/// `loc_036d3` and a wait of C8h, again; else the view back
+/// ([`view_back_9879`]).
 fn line_end_9858(c: &mut Ctx) -> Result<(), Bail> {
-    let mut i = 0;
-    loop {
-        i += 1;
-        if i > 100 {
-            c.m.cpu.ip = 0x9858;
-            return Err(Bail);
-        }
+    for _ in 0..100 {
         c.run(0x9858, 7)?;
-        c.xor(W, 0, 0);
         c.set_reg(AX, 0);
-        c.set_word(0x4540, 0);
+        c.set_word(HEAD_SPRITES_KEPT, 0);
         c.set_word(BOX_SHOWN, 0);
-        let v = c.byte(TEXT_FLAGS);
-        let v = c.and(B, v as u16, 0x3f);
-        c.set_byte(TEXT_FLAGS, v as u8);
+        let flags = c.byte(TEXT_FLAGS);
+        c.set_byte(TEXT_FLAGS, flags & 0x3f);
         c.set_word(0x47c8, 0);
-        let v = c.byte(0x47a4);
-        let v = c.and(B, v as u16, 0x7f);
-        c.set_byte(0x47a4, v as u8);
+        let state = c.byte(LINE_STATE);
+        c.set_byte(LINE_STATE, state & 0x7f);
         c.call(0x9b8b, 0x9870)?;
-        let st = c.byte(0x23);
-        let d = st.wrapping_sub(0x64);
-        c.run(0x9870, 4)?;
-        c.set_reg8(r8::AL, st);
-        let a = c.sub(B, st as u16, 0x64);
-        c.set_reg8(r8::AL, a as u8);
-        c.cmp(B, a, 0x10);
-        if d >= 0x10 {
+        let stage = c.byte(STAGE).wrapping_sub(0x64);
+        if stage >= 0x10 {
+            c.run(0x9870, 4)?;
+            c.set_reg8(r8::AL, stage);
             return view_back_9879(c);
         }
-        c.run(0x9898, 2)?;
+        c.run(0x9870, 6)?;
+        c.set_reg8(r8::AL, stage);
+        c.cmp(B, stage as u16, 0x10); // `loc_0c097` reads the flags
         c.set_reg(BP, 0x37b2);
         c.call(0xc097, 0x989e)?;
         c.run(0x989e, 1)?;
@@ -2575,18 +2438,19 @@ fn line_end_9858(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x98a7, 2)?;
         c.set_word(0x1c06, 0);
     }
+    c.m.cpu.ip = 0x9858;
+    Err(Bail)
 }
 
-/// From 9879h: the view back: `loc_02efb`, outside the map modes
+/// From 9879h: the view back: `loc_02efb`, with the head not held
 /// `setup_3090`, `loc_037b2`, the buffers and palette, `gfx_call_25`,
 /// `loc_0c4dd`, the head up.
 fn view_back_9879(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x9879, 1)?;
     c.call(0x2efb, 0x987c)?;
-    let k = c.byte(0x11c9);
+    let held = c.byte(HEAD_HELD) != 0;
     c.run(0x987c, 3)?;
-    c.cmp(B, k as u16, 0);
-    if k == 0 {
+    if !held {
         c.call(0x3090, 0x9886)?;
         c.run(0x9886, 1)?;
     }
@@ -2601,282 +2465,233 @@ fn view_back_9879(c: &mut Ctx) -> Result<(), Bail> {
 
 /// `loc_09f9e`: say the first usable entry of the dialogue list SI (4
 /// bytes each, FFFFh ends it: CF): one not yet said (bit 7 of its flags,
-/// unless bit 6 or it matches the mask [47C2h]) whose condition holds
+/// unless bit 6 or it matches the mask [`MODE`]) whose condition holds
 /// (`evaluate_condition_ax`, condition id from bytes 1 and 2). Its flags
-/// word goes to [47DEh] and its phrase (word 2, bytes swapped, low 10
-/// bits + 800h) is shown: through the text buffer [47BCh] (a phrase
-/// starting with a code of 80h or more cuts the buffer back one entry)
-/// or directly ([`show_phrase`], not with [0C6h]). Then `loc_0c85b`;
-/// unless a phrase runs ([47B6h]) its action (low 4 bits: the table at
-/// CS:A107h), for bits 0Ch the entry noted in the CS list [11BDh], the
-/// entry marked said, [19h] FFh, and SI past it (FFFFh when [47A8h] was
-/// set). Outside the map views for a speaker below 10h: the portrait
-/// brought (before the phrase) and the scene redrawn, `loc_02ebf` with
-/// [4774h], and with no [0EAh] above 0 the voice started and the hook
-/// [227Eh] (reset to F66h) run. [28E7h] = [28E8h] unless [0FBh] is
-/// negative. CF clear.
+/// word goes to [`ENTRY_FLAGS`] and its phrase (word 2, bytes swapped, low
+/// 10 bits + 800h) is shown: through the text buffer (a phrase starting
+/// with a code of 80h or more cuts the buffer back one entry) or directly
+/// ([`show_phrase`], not with [0C6h]). Then `loc_0c85b`; unless a phrase
+/// runs ([`PHRASE_RUNNING`]) its action (low 4 bits: the table at
+/// CS:A107h), for bits 0Ch the entry noted in the CS list [`NOTED`], the
+/// entry marked said, [19h] FFh, and SI past it (FFFFh when
+/// [`LAST_ENTRY`] was set). Outside the map views for a speaker below
+/// 10h: the portrait brought (before the phrase) and the scene redrawn,
+/// `loc_02ebf` with [4774h], and with no [0EAh] above 0 the voice started
+/// and the hook [`ENTRY_HOOK`] (reset to F66h) run. [`MAP_SCREEN`] =
+/// [28E8h] unless [0FBh] is negative. CF clear.
 pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::CF;
     entered(start, 0x9f9e)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let si = c.reg(SI);
-    c.set_word(0x477c, si);
+    let list = c.reg(SI);
+    c.set_word(0x477c, list);
     c.call(0x94f3, 0x9fa5)?;
     c.run(0x9fa5, 1)?;
-    c.set_word(0x47bc, 0xa6b0);
-    // The list: the first entry to say.
-    let mut i = 0;
-    loop {
-        i += 1;
-        if i > 4000 {
-            c.m.cpu.ip = 0x9fab;
-            return Err(Bail);
-        }
-        let si = c.reg(SI);
-        let ax = c.word(si);
-        if ax == 0xffff {
+    c.set_word(APPEND_AT, TEXT_BUFFER);
+    // The first entry to say.
+    let mut found = false;
+    for _ in 0..4000 {
+        let entry = c.reg(SI);
+        let head = c.word(entry);
+        if head == 0xffff {
             c.run(0x9fab, 5)?;
-            c.set_reg(AX, ax);
-            c.cmp(W, ax, 0xffff);
-            c.set_flag(pc::cpu::CF, true);
+            c.set_reg(AX, head);
+            c.cmp(W, head, 0xffff); // the exit's flags
+            c.set_flag(CF, true);
             return c.ret();
         }
-        let al = ax as u8;
+        let [flags, condition] = head.to_le_bytes();
         let mask = c.byte(MODE);
-        let said = al & 0x80 != 0 && al & 0x40 == 0;
-        let skip = said && al & mask != 0;
-        let n = 5 + if al & 0x80 == 0 { 0 } else if al & 0x40 != 0 { 2 } else { 4 };
-        if skip {
-            c.run(0x9fab, n + 2)?;
-        } else {
-            c.run(0x9fab, n + 7)?;
-        }
-        c.set_reg(AX, ax);
-        c.cmp(W, ax, 0xffff);
-        c.test(B, al as u16, 0x80);
-        let mut ax = ax;
-        if al & 0x80 != 0 {
-            c.test(B, al as u16, 0x40);
-            if al & 0x40 == 0 {
-                let a = c.and(B, al as u16, mask as u16);
-                ax = ax & 0xff00 | a;
-                c.set_reg(AX, ax);
-            }
-        }
-        if skip {
-            let s = c.add(W, si, 4);
-            c.set_reg(SI, s);
+        let said_once = flags & 0x80 != 0 && flags & 0x40 == 0;
+        let tests = if flags & 0x80 == 0 { 0 } else if flags & 0x40 != 0 { 2 } else { 4 };
+        if said_once && flags & mask != 0 {
+            c.run(0x9fab, 5 + tests + 2)?;
+            c.set_reg(AX, head & 0xff00 | (flags & mask) as u16);
+            c.set_reg(SI, entry.wrapping_add(4));
             continue;
         }
-        c.push(si);
-        let b2 = c.byte(si.wrapping_add(2));
-        let h = c.rol1(B, b2 as u16);
-        let h = c.rol1(B, h);
-        let h = c.and(B, h, 3);
-        c.set_reg(AX, h << 8 | ax >> 8);
+        let high = c.byte(entry.wrapping_add(2)).rotate_left(2) & 3;
+        c.run(0x9fab, 5 + tests + 7)?;
+        c.push(entry);
+        c.set_reg(AX, (high as u16) << 8 | condition as u16);
         c.call(0xa396, 0x9fd0)?;
-        let zf = c.flag(ZF);
-        c.run(0x9fd0, if zf { 4 } else { 2 })?;
-        let s = c.pop();
-        c.set_reg(SI, s);
-        if zf {
-            let s = c.add(W, s, 4);
-            c.set_reg(SI, s);
-            continue;
+        let holds = !c.flag(ZF);
+        c.run(0x9fd0, if holds { 2 } else { 4 })?;
+        let entry = c.pop();
+        if holds {
+            c.set_reg(SI, entry);
+            found = true;
+            break;
         }
-        break;
+        c.set_reg(SI, entry.wrapping_add(4));
+    }
+    if !found {
+        c.m.cpu.ip = 0x9fab;
+        return Err(Bail);
     }
     // The portrait first, outside the map views.
-    let v = c.byte(0x46eb);
-    let sp = c.word(TALKER);
-    if v != 0 {
+    let map_view = c.byte(MAP_MODE) != 0;
+    let talker = c.word(TALKER);
+    if map_view {
         c.run(0x9fd8, 2)?;
-        c.cmp(B, v as u16, 0);
-    } else if sp >= 0x10 {
+    } else if talker >= 0x10 {
         c.run(0x9fd8, 5)?;
-        c.cmp(B, 0, 0);
-        c.set_reg(AX, sp);
-        c.cmp(W, sp, 0x10);
+        c.set_reg(AX, talker);
     } else {
         c.run(0x9fd8, 8)?;
-        c.cmp(B, 0, 0);
-        c.set_reg(AX, sp);
-        c.cmp(W, sp, 0x10);
-        let si = c.reg(SI);
-        c.push(si);
-        c.push(sp);
+        c.set_reg(AX, talker);
+        let entry = c.reg(SI);
+        c.push(entry);
+        c.push(talker);
         c.call(0xa0f1, 0x9fec)?;
         c.run(0x9fec, 1)?;
         c.call(0x1803, 0x9fef)?;
         c.run(0x9fef, 1)?;
         c.call(0x3af9, 0x9ff2)?;
         c.run(0x9ff2, 2)?;
-        let a = c.pop();
-        c.set_reg(AX, a);
+        let talker = c.pop();
+        c.set_reg(AX, talker);
         c.call(0x91a0, 0x9ff6)?;
         c.run(0x9ff6, 1)?;
-        let s = c.pop();
-        c.set_reg(SI, s);
+        let entry = c.pop();
+        c.set_reg(SI, entry);
     }
     // The phrase.
-    let si = c.reg(SI);
-    let di = c.word(0x47bc);
+    let entry = c.reg(SI);
+    let append = c.word(APPEND_AT);
+    let entry_flags = c.word(entry);
+    let phrase = c.word(entry.wrapping_add(2)).swap_bytes() & 0x3ff | 0x800;
     c.run(0x9ff7, 10)?;
-    c.push(si);
-    let f = c.lods(W, DS);
-    c.set_word(0x47de, f);
-    let p = c.lods(W, DS).swap_bytes();
-    let p = c.and(W, p, 0x3ff);
-    let p = c.or(W, p, 0x800);
-    c.set_reg(AX, p);
-    c.set_reg(DI, di);
-    c.cmp(W, di, 0xa6b0);
-    if di != 0xa6b0 {
+    c.push(entry);
+    c.set_word(ENTRY_FLAGS, entry_flags);
+    c.set_reg(SI, entry.wrapping_add(4));
+    c.set_reg(AX, phrase);
+    c.set_reg(DI, append);
+    if append != TEXT_BUFFER {
         c.run(0xa00f, 2)?;
-        c.set_reg(SI, p);
+        c.set_reg(SI, phrase);
         c.call(0xcf70, 0xa014)?;
-        let si = c.reg(SI);
-        let b = c.byte_in(ES, si);
-        if b >= 0x80 {
+        let at = c.reg(SI);
+        if c.byte_in(ES, at) >= 0x80 {
+            // A code first: the buffer cut back one entry.
             c.run(0xa014, 7)?;
-            c.cmp(B, b as u16, 0x80);
-            let a = c.pop();
-            let a = c.sub(W, a, 4);
-            c.set_reg(AX, a);
-            c.push(a);
+            let entry = c.pop().wrapping_sub(4);
+            c.set_reg(AX, entry);
+            c.push(entry);
             let di = c.reg(DI);
             c.set_byte(di.wrapping_sub(1), 0xff);
         } else {
             c.run(0xa014, 3)?;
-            c.cmp(B, b as u16, 0x80);
             c.call(0x88f1, 0xa029)?;
             c.run(0xa029, 1)?;
             c.call(0x8944, 0xa02c)?;
         }
         c.run(0xa02c, 2)?;
-        c.set_reg(SI, 0xa6b0);
+        c.set_reg(SI, TEXT_BUFFER);
         c.call(0x8b11, 0xa032)?;
         c.run(0xa032, 1)?;
     } else {
-        let k = c.byte(0xc6);
-        c.run(0xa034, if k != 0 { 2 } else { 3 })?;
-        c.cmp(B, k as u16, 0);
-        if k == 0 {
+        let book = c.byte(0xc6) != 0;
+        c.run(0xa034, if book { 2 } else { 3 })?;
+        if !book {
             c.call(0x88af, 0xa03e)?;
         }
     }
-    c.run(0xa03e, 2)?;
-    let s = c.pop();
-    c.set_reg(SI, s);
+    c.run(0xa03e, 1)?;
+    let entry = c.pop();
+    c.set_reg(SI, entry);
+    entry_said_a03f(&mut c)
+}
+
+/// From A03Fh (`say_dialogue_entry`'s end, which `loc_0a03f` jumps to):
+/// `loc_0c85b`; unless a phrase runs the entry's action and marks; the
+/// scene and the voice; [`MAP_SCREEN`]; CF clear.
+pub(super) fn entry_said_a03f(c: &mut Ctx) -> Result<(), Bail> {
+    use pc::cpu::{CF, CS};
+    c.run(0xa03f, 1)?;
     c.call(0xc85b, 0xa042)?;
     // The entry's action and marks, unless a phrase runs.
-    let busy = c.word(0x47b6);
-    if busy != 0 {
+    if c.word(PHRASE_RUNNING) != 0 {
         c.run(0xa042, 2)?;
-        c.cmp(W, busy, 0);
     } else {
-        let si = c.reg(SI);
-        let act = c.byte(si) & 0x0f;
-        c.run(0xa042, if act != 0 { 12 } else { 5 })?;
-        c.cmp(W, 0, 0);
-        let a = c.and(B, act as u16, 0x0f);
-        c.set_reg8(r8::AL, a as u8);
-        if act != 0 {
-            c.xor(B, 0, 0);
-            c.set_reg(AX, a);
-            c.push(si);
-            let a = c.dec(W, a);
-            let a = c.shl1(W, a, 1);
-            c.set_reg(AX, a);
-            let bx = c.add(W, 0xa107, a);
-            c.set_reg(BX, bx);
-            let to = c.word_in(pc::cpu::CS, bx);
-            c.call(to, 0xa05d)?;
+        let entry = c.reg(SI);
+        let action = c.byte(entry) & 0x0f;
+        c.run(0xa042, if action != 0 { 12 } else { 5 })?;
+        c.set_reg8(r8::AL, action);
+        if action != 0 {
+            c.push(entry);
+            let offset = (action as u16 - 1) * 2;
+            c.set_reg(AX, offset);
+            // The action's flags are those of `add bx, ax` (an indirect
+            // call: its target could read them).
+            let at = c.add(W, 0xa107, offset);
+            c.set_reg(BX, at);
+            let handler = c.word_in(CS, at);
+            c.call(handler, 0xa05d)?;
             c.run(0xa05d, 1)?;
-            let s = c.pop();
-            c.set_reg(SI, s);
+            let entry = c.pop();
+            c.set_reg(SI, entry);
         }
-        let si = c.reg(SI);
-        let b2 = c.byte(si.wrapping_add(2));
-        let fl = c.byte(si);
-        let note = b2 & 0x0c != 0 && fl & 0x80 == 0;
-        let n = 3 + if b2 & 0x0c == 0 { 0 } else if fl & 0x80 != 0 { 2 } else { 15 };
-        let had = c.byte(0x47a8);
-        c.run(0xa05e, n + 7 + if had != 0 { 1 } else { 0 })?;
-        let a = c.and(B, b2 as u16, 0x0c);
-        c.set_reg8(r8::AL, a as u8);
-        if b2 & 0x0c != 0 {
-            c.test(B, fl as u16, 0x80);
-        }
+        let entry = c.reg(SI);
+        let kind = c.byte(entry.wrapping_add(2)) & 0x0c;
+        let flags = c.byte(entry);
+        let note = kind != 0 && flags & 0x80 == 0;
+        let last = c.byte(LAST_ENTRY);
+        let tests = if kind == 0 { 0 } else if flags & 0x80 != 0 { 2 } else { 15 };
+        c.run(0xa05e, 3 + tests + 7 + (last != 0) as u32)?;
+        c.set_reg8(r8::AL, kind);
         if note {
-            let a = c.sub(W, si, 0xaa78);
-            let a = c.shr1(W, a, 2);
-            let bl = c.byte(TALKER);
-            let b = c.shl1(B, bl as u16, 3);
-            c.set_reg8(r8::BL, b as u8);
-            let h = c.or(B, a >> 8, b);
-            let a = h << 8 | a & 0xff;
-            c.set_reg(AX, a);
-            let bp = c.word(0x11bd);
-            c.set_reg(BP, bp);
-            c.set_word_in(pc::cpu::CS, bp, a);
-            c.set_word_in(pc::cpu::CS, bp.wrapping_add(2), 0);
-            let v = c.add(W, bp, 2);
-            c.set_word(0x11bd, v);
+            // Noted in the CS list: the entry's number, the speaker in
+            // bits 11 to 15.
+            let talker = c.byte(TALKER) << 3;
+            c.set_reg8(r8::BL, talker);
+            let number = entry.wrapping_sub(DIALOGUES) >> 2 | (talker as u16) << 8;
+            c.set_reg(AX, number);
+            let noted = c.word(NOTED);
+            c.set_reg(BP, noted);
+            c.set_word_in(CS, noted, number);
+            c.set_word_in(CS, noted.wrapping_add(2), 0);
+            c.set_word(NOTED, noted.wrapping_add(2));
         }
         c.set_byte(0x19, 0xff);
-        let fl = c.byte(si);
-        let fl = c.or(B, fl as u16, 0x80);
-        c.set_byte(si, fl as u8);
-        let s = c.add(W, si, 4);
-        c.set_reg(SI, s);
-        c.xor(B, 0, 0);
-        c.set_byte(0x47a8, 0);
-        c.set_reg8(r8::AL, had);
-        c.or(B, had as u16, had as u16);
-        if had != 0 {
+        c.set_byte(entry, flags | 0x80);
+        c.set_reg(SI, entry.wrapping_add(4));
+        c.set_byte(LAST_ENTRY, 0);
+        c.set_reg8(r8::AL, last);
+        if last != 0 {
             c.set_reg(SI, 0xffff);
         }
     }
     // Outside the map views: the scene and the voice.
-    let v = c.byte(0x46eb);
-    let sp = c.word(TALKER);
-    if v != 0 || sp >= 0x10 {
-        c.run(0xa0aa, if v != 0 { 2 } else { 4 })?;
-        c.cmp(B, v as u16, 0);
-        if v == 0 {
-            c.cmp(W, sp, 0x10);
-        }
+    let map_view = c.byte(MAP_MODE) != 0;
+    if map_view || c.word(TALKER) >= 0x10 {
+        c.run(0xa0aa, if map_view { 2 } else { 4 })?;
     } else {
         c.run(0xa0aa, 6)?;
-        c.cmp(B, 0, 0);
-        c.cmp(W, sp, 0x10);
-        let si = c.reg(SI);
-        c.push(si);
+        let entry = c.reg(SI);
+        c.push(entry);
         c.call(0x978e, 0xa0bc)?;
-        let w = c.byte(0x4774);
-        c.run(0xa0bc, if w != 0 { 5 } else { 3 })?;
-        let s = c.pop();
-        c.set_reg(SI, s);
-        c.cmp(B, w as u16, 0);
-        if w != 0 {
-            c.push(s);
+        let redraw = c.byte(0x4774) != 0;
+        c.run(0xa0bc, if redraw { 5 } else { 3 })?;
+        let entry = c.pop();
+        c.set_reg(SI, entry);
+        if redraw {
+            c.push(entry);
             c.call(0x2ebf, 0xa0c8)?;
             c.run(0xa0c8, 1)?;
-            let s = c.pop();
-            c.set_reg(SI, s);
+            let entry = c.pop();
+            c.set_reg(SI, entry);
         }
-        let e = c.byte(0xea);
-        let up = (e as i8) > 0;
-        c.run(0xa0c9, if up { 2 } else { 3 })?;
-        c.cmp(B, e as u16, 0);
-        if !up {
+        let quiet = (c.byte(0xea) as i8) > 0;
+        c.run(0xa0c9, if quiet { 2 } else { 3 })?;
+        if !quiet {
             c.call(0xe270, 0xa0d3)?;
             c.run(0xa0d3, 1)?;
             c.call(0x9efd, 0xa0d6)?;
             c.run(0xa0d6, 3)?;
-            let hook = c.word(0x227e);
-            c.set_word(0x227e, 0xf66);
+            let hook = c.word(ENTRY_HOOK);
+            c.set_word(ENTRY_HOOK, 0xf66);
             c.set_reg(AX, hook);
             c.call(hook, 0xa0df)?;
             c.run(0xa0df, 1)?;
@@ -2884,44 +2699,56 @@ pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     let fb = c.byte(0xfb);
-    let neg = fb & 0x80 != 0;
-    c.run(0xa0e2, if neg { 4 } else { 6 })?;
-    c.cmp(B, fb as u16, 0);
-    if !neg {
-        let v = c.byte(0x28e8);
-        c.set_reg8(r8::AL, v);
-        c.set_byte(0x28e7, v);
+    c.run(0xa0e2, if fb & 0x80 != 0 { 4 } else { 6 })?;
+    if fb & 0x80 == 0 {
+        let screen = c.byte(0x28e8);
+        c.set_reg8(r8::AL, screen);
+        c.set_byte(MAP_SCREEN, screen);
     }
-    c.set_flag(pc::cpu::CF, false);
+    c.cmp(B, fb as u16, 0); // the exit's flags
+    c.set_flag(CF, false);
     c.ret()
 }
 
-/// `loc_09761`: the speaker AX ([47C4h]; 0Eh describes the troop
-/// [4756h] first) starts its dialogue: its list (entry 8 * AX + 7 of
-/// the table at AA76h), the text set up, the mask [47C2h] 80h, then the
-/// first entry said ([`say_dialogue_entry`]).
+/// The text buffer a dialogue's phrases are put together in.
+const TEXT_BUFFER: u16 = 0xa6b0;
+/// The flags word of the entry being said.
+const ENTRY_FLAGS: u16 = 0x47de;
+/// Not 0 while a phrase runs.
+const PHRASE_RUNNING: u16 = 0x47b6;
+/// The next free word of the noted entries' list (in CS).
+const NOTED: u16 = 0x11bd;
+/// Set when the entry said ends the list.
+const LAST_ENTRY: u16 = 0x47a8;
+/// Run once after an entry's voice starts.
+const ENTRY_HOOK: u16 = 0x227e;
+
+/// `loc_09761`: the speaker AX ([`TALKER`]; 0Eh describes the troop
+/// [4756h] first) starts its dialogue: its list (entry 8 · AX + 7 of
+/// the table [`PHRASES`]), the text set up, the mask [`MODE`] 80h, then
+/// the first entry said ([`say_dialogue_entry`]).
 pub fn start_speaker_dialogue(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9761)?;
     let mut c = Ctx::new(m);
-    let ax = c.reg(AX);
-    c.run(start, if ax as u8 == 0x0e { 5 } else { 3 })?;
-    c.set_word(TALKER, ax);
-    c.cmp(B, ax & 0xff, 0x0e);
-    if ax as u8 == 0x0e {
-        let si = c.word(0x4756);
-        c.set_reg(SI, si);
+    let talker = c.reg(AX);
+    let troop = talker as u8 == 0x0e;
+    c.run(start, if troop { 5 } else { 3 })?;
+    c.set_word(TALKER, talker);
+    let talker = if troop {
+        let troop = c.word(0x4756);
+        c.set_reg(SI, troop);
         c.call(0x31f6, 0x976f)?;
         c.run(0x976f, 1)?;
         c.set_reg(AX, 0x0e);
-    }
+        0x0e
+    } else {
+        talker
+    };
+    let group = talker << 3 | 7;
+    let list = c.word(PHRASES.wrapping_add(group << 1));
     c.run(0x9772, 8)?;
-    let ax = c.reg(AX);
-    let a = c.shl1(W, ax, 3);
-    let a = c.or(W, a, 7);
-    c.set_reg(AX, a);
-    let s = c.shl1(W, a, 1);
-    let si = c.word(s.wrapping_sub(0x558a));
-    c.set_reg(SI, si);
+    c.set_reg(AX, group);
+    c.set_reg(SI, list);
     c.call(0x9f40, 0x9786)?;
     c.run(0x9786, 2)?;
     c.set_byte(MODE, 0x80);
@@ -2929,164 +2756,124 @@ pub fn start_speaker_dialogue(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `sub_9468`: the dialogue's next line, unless the cursor's UI is the
-/// list 1FFEh (`loc_0d41b`): the text set up, [226Dh] 0Ah, [1Bh] 0; from
-/// the pending list [47BAh] (else entry [47BEh] of the table AA76h) the
-/// first sayable entry ([`say_dialogue_entry`]; the speaker's number
-/// told first), the list kept in [47BAh] and the panel faded; when a
-/// list runs out the next of its group of 4 ([47BEh] up); with none left
-/// the screen left (speaker 0Dh: from the group of 8 again, mask 20h).
-/// Bails while a phrase runs ([47B6h]).
+/// list 1FFEh (`loc_0d41b`; CF clear then): see [`next_line_from_9472`].
 pub fn next_dialogue_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9468)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(0xd41b, 0x946b)?;
-    let bp = c.reg(BP);
-    if bp == 0x1ffe {
+    let ui = c.reg(BP);
+    if ui == 0x1ffe {
         c.run(0x946b, 3)?;
-        c.cmp(W, bp, 0x1ffe);
+        c.cmp(W, ui, 0x1ffe); // the exit's flags
         return c.ret();
     }
     c.run(0x946b, 2)?;
-    c.cmp(W, bp, 0x1ffe);
     next_line_from_9472(&mut c)
 }
 
-/// `sub_9468` from 9472h (see [`next_dialogue_line`]).
+/// `sub_9468` from 9472h: the text set up, [226Dh] 0Ah, [1Bh] 0; from
+/// the pending list [`PENDING`] (else entry [`GROUP`] of the table
+/// [`PHRASES`]) the first sayable entry ([`say_dialogue_entry`]; the
+/// speaker's number told first), the list kept in [`PENDING`] and the
+/// panel faded; when a list runs out the next of its group of 4
+/// ([`GROUP`] up); with none left the screen left (speaker 0Dh: from the
+/// group of 8 again, mask 20h). Bails while a phrase runs
+/// ([`PHRASE_RUNNING`]).
 pub(super) fn next_line_from_9472(c: &mut Ctx) -> Result<(), Bail> {
+    use pc::cpu::CF;
     c.run(0x9472, 1)?;
     c.call(0x9f40, 0x9475)?;
-    let busy = c.word(0x47b6);
-    if busy != 0 {
+    if c.word(PHRASE_RUNNING) != 0 {
         c.m.cpu.ip = 0x9475;
         return Err(Bail);
     }
-    let si = c.word(0x47ba);
-    c.run(0x9475, 7 + if si == 0 { 1 } else { 0 })?;
+    let pending = c.word(PENDING);
+    c.run(0x9475, if pending == 0 { 8 } else { 7 })?;
     c.set_byte(0x226d, 0x0a);
     c.set_byte(0x1b, 0);
-    c.cmp(W, 0, 0);
-    c.set_reg(SI, si);
-    c.or(W, si, si);
-    // 0: 9492h (the list of entry SI), 1: 949Ah (the list SI).
-    let mut at = 1;
-    if si == 0 {
-        let e = c.word(0x47be);
-        c.set_reg(SI, e);
-        at = 0;
+    c.set_reg(SI, pending);
+    // From a group's number (9492h) or a list (949Ah).
+    let mut list = pending != 0;
+    if !list {
+        let group = c.word(GROUP);
+        c.set_reg(SI, group);
     }
-    let mut i = 0;
-    loop {
-        i += 1;
-        if i > 1000 {
-            c.m.cpu.ip = if at == 0 { 0x9492 } else { 0x949a };
-            return Err(Bail);
-        }
-        if at == 0 {
+    for _ in 0..1000 {
+        if !list {
+            let group = c.reg(SI);
+            let first = c.word(PHRASES.wrapping_add(group << 1));
             c.run(0x9492, 3)?;
-            let si = c.reg(SI);
-            c.set_reg(AX, si);
-            let s = c.shl1(W, si, 1);
-            let l = c.word(s.wrapping_sub(0x558a));
-            c.set_reg(SI, l);
+            c.set_reg(AX, group);
+            c.set_reg(SI, first);
         }
-        let si = c.reg(SI);
-        if si != 0xffff {
+        list = false;
+        let at = c.reg(SI);
+        if at != 0xffff {
             c.run(0x949a, 3)?;
-            c.cmp(W, si, 0xffff);
             c.call(0x9b49, 0x94a2)?;
             c.run(0x94a2, 1)?;
             c.call(0x9f9e, 0x94a5)?;
-            let si = c.reg(SI);
-            if !c.flag(pc::cpu::CF) {
+            let next = c.reg(SI);
+            if !c.flag(CF) {
                 c.run(0x94a5, 3)?;
-                c.set_word(0x47ba, si);
+                c.set_word(PENDING, next);
                 return fade_panel_tail(c.m);
             }
-            let e = c.word(0x47be).wrapping_add(1);
+            // The list ran out: the next of its group of 4.
+            let group = c.word(GROUP).wrapping_add(1);
             c.run(0x94a5, 8)?;
-            c.set_word(0x47ba, si);
-            c.set_reg(AX, e.wrapping_sub(1));
-            let e = c.inc(W, e.wrapping_sub(1));
-            c.set_word(0x47be, e);
-            c.set_reg(SI, e);
-            let a = c.and(W, e, 3);
-            c.set_reg(AX, a);
-            if a != 0 {
-                at = 0;
+            c.set_word(PENDING, next);
+            c.set_word(GROUP, group);
+            c.set_reg(SI, group);
+            c.set_reg(AX, group & 3);
+            if group & 3 != 0 {
                 continue;
             }
         } else {
             c.run(0x949a, 2)?;
-            c.cmp(W, si, 0xffff);
         }
         // 94B9h: the group ran out.
-        let sp = c.word(TALKER);
-        if sp != 0x0d {
+        if c.word(TALKER) != 0x0d {
             c.run(0x94b9, 3)?;
-            c.cmp(W, sp, 0x0d);
             return super::screens::leave_and_fade(c.m, 0xd2e2);
         }
-        let si = c.reg(SI);
-        c.run(0x94b9, 2 + 2 + if si == 0xffff { 1 } else { 0 } + 4)?;
-        c.cmp(W, sp, 0x0d);
-        c.cmp(W, si, 0xffff);
-        let s = if si == 0xffff { c.word(0x47be) } else { si };
-        let s = c.and(W, s, 0xfff8);
-        c.set_reg(SI, s);
-        c.set_word(0x47be, s);
+        let at = c.reg(SI);
+        let group = if at == 0xffff { c.word(GROUP) } else { at } & 0xfff8;
+        c.run(0x94b9, 8 + (at == 0xffff) as u32)?;
+        c.set_reg(SI, group);
+        c.set_word(GROUP, group);
         c.set_byte(MODE, 0x20);
-        at = 0;
     }
+    c.m.cpu.ip = 0x9492;
+    Err(Bail)
 }
+
+/// The list the dialogue goes on from (0: from [`GROUP`]).
+const PENDING: u16 = 0x47ba;
+/// The dialogue's group (an entry of [`PHRASES`]; 4 to a speaker's mood,
+/// 8 to a speaker).
+const GROUP: u16 = 0x47be;
 
 /// `jmp loc_0d280` from 94DAh.
 fn fade_panel_tail(m: &mut Machine) -> Result<(), Bail> {
     super::screens::fade_panel(m, 0xd280)
 }
 
-/// `sub_945b`: with [479Eh] the next line ([`next_dialogue_line`]); else
-/// the speaker [47C4h] started afresh (`loc_093aa`: lip sync, portrait,
-/// text box, its dialogue group by `loc_093df`) and its line from 9472h.
+/// `sub_945b`: with a box shown ([`BOX_SHOWN`]) the next line
+/// ([`next_dialogue_line`]); else the speaker [`TALKER`] started afresh
+/// ([`phrase_93aa`]).
 pub fn dialogue_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x945b)?;
     let mut c = Ctx::new(m);
-    let k = c.word(BOX_SHOWN);
-    if k != 0 {
+    if c.word(BOX_SHOWN) != 0 {
         c.run(start, 2)?;
-        c.cmp(W, k, 0);
         return next_dialogue_line(c.m, 0x9468);
     }
-    c.run(start, 4 + 5)?;
-    c.cmp(W, 0, 0);
-    let sp = c.word(TALKER);
-    c.set_reg(AX, sp);
-    c.xor(B, 0, 0);
-    let ax = sp & 0xff;
-    c.set_reg(AX, ax);
-    c.set_word(0x47e1, 0);
-    c.push(ax);
-    c.set_word(TALKER, ax);
-    c.call(0x91a0, 0x93b9)?;
-    for (at, to) in [(0x93b9u16, 0x3af9u16), (0x93bc, 0x9197), (0x93bf, 0x9908)] {
-        c.run(at, 1)?;
-        c.call(to, at + 3)?;
-    }
-    c.run(0x93c2, 3)?;
-    let si = c.word(0x47c8);
-    c.set_reg(SI, si);
-    c.set_word(0x4540, 0);
-    c.call(0x9bac, 0x93cf)?;
-    for (at, to) in [(0x93cfu16, 0x1834u16), (0x93d2, 0xc0f4), (0x93d5, 0xc4dd)] {
-        c.run(at, 1)?;
-        c.call(to, at + 3)?;
-    }
-    c.run(0x93d8, 2)?;
-    let a = c.pop();
-    c.set_reg(AX, a);
-    c.call(0x93df, 0x93dc)?;
-    c.run(0x93dc, 1)?;
-    next_line_from_9472(&mut c)
+    let talker = c.word(TALKER);
+    c.run(start, 4)?;
+    c.set_reg(AX, talker);
+    phrase_93aa(&mut c)
 }
 
 /// `loc_09f8b`: [`say_dialogue_entry`] with the mask [47C2h] 20h
@@ -3105,75 +2892,65 @@ pub fn say_entry_mask_20(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0b039`: the book page for the entry at CS:[11BFh]: [0C6h] bits 1,
-/// 2 cleared; into the text buffer A6B0h ([47BCh]) the heading
-/// (`find_in_2426` code's top 5 bits + F3h) and the entry's phrase
-/// (its record at AA7Ah + 4 * low 11 bits, kept in [477Ch]); the text
-/// ended and shown, its frame (2408h), the portrait; a mark (sprite 4 of
-/// 32h) when the text ends above 8Ah; except on the first page (AAh) the
+/// `loc_0b039`: the book page for the entry at CS:[[`BOOK_PAGE`]]: [0C6h]
+/// bits 1, 2 cleared; into the text buffer ([`APPEND_AT`]) the heading
+/// (`find_in_2426` code's top 5 bits + F3h) and the entry's phrase (its
+/// record at AA7Ah + 4 · low 11 bits, kept in [477Ch]); the text ended
+/// and shown, its frame (2408h), the portrait; a mark (sprite 4 of 32h)
+/// when the text ends above 8Ah; except on the first page (AAh) the
 /// heading phrase 103h + bits 2..3 of the record; the page number
 /// ((entry - AAh) / 2 + 1, a leading 0 blank) at (132h, 3) in colour
 /// 53h; and with [243Eh] the icons 2412h at it - 0Bh ([1C30h] 80h, else
 /// 0).
 pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::CS;
     entered(start, 0xb039)?;
     let mut c = Ctx::new(m);
+    let mode = c.byte(0xc6);
+    let page = c.word(BOOK_PAGE);
+    let entry = c.word_in(CS, page);
     c.run(start, 8)?;
-    let v = c.byte(0xc6);
-    let v = c.and(B, v as u16, 0xf9);
-    c.set_byte(0xc6, v as u8);
-    c.set_reg(SI, 0xa6b0);
-    c.set_word(0x47bc, 0xa6b0);
-    c.push(0xa6b0);
-    let p = c.word(0x11bf);
-    let e = c.word_in(pc::cpu::CS, p);
-    c.set_reg(SI, e);
-    c.set_reg(AX, e);
+    c.set_byte(0xc6, mode & 0xf9);
+    c.set_word(APPEND_AT, TEXT_BUFFER);
+    c.push(TEXT_BUFFER);
+    c.set_reg(SI, entry);
+    c.set_reg(AX, entry);
     c.call(0xb254, 0xb052)?;
+    // The heading: phrase F3h + the top 5 bits of the code found.
     c.run(0xb052, 7)?;
-    let ax = c.reg(AX);
-    let h = c.shr1(B, ax >> 8, 3);
-    c.xor(B, 0, 0);
-    let a = c.add(W, h, 0xf3);
-    c.set_reg(AX, a);
+    let heading = (c.reg(AX) >> 11) + 0xf3;
+    c.set_reg(AX, heading);
     c.call(0xb126, 0xb062)?;
+    // The entry's phrase.
+    let entry = c.reg(SI);
+    let record = (entry & 0x7ff) << 2;
+    let record = record.wrapping_add(0xaa7a);
+    let phrase = c.word(record);
     c.run(0xb062, 12)?;
-    let si = c.reg(SI);
-    let s = c.and(W, si, 0x7ff);
-    let s = c.shl1(W, s, 2);
-    let s = c.add(W, s, 0xaa7a);
-    c.set_reg(SI, s);
-    c.set_word(0x477c, s);
-    let r = c.lods(W, DS);
-    let s = c.pop();
-    c.set_reg(SI, s);
-    c.push(r);
-    let x = r.swap_bytes();
-    let h = c.and(B, x >> 8, 3);
-    let h = c.or(B, h, 8);
-    c.set_reg(AX, h << 8 | x & 0xff);
+    c.set_word(0x477c, record);
+    let buffer = c.pop();
+    c.set_reg(SI, buffer);
+    c.push(phrase);
+    let phrase = phrase.swap_bytes();
+    c.set_reg(AX, phrase & 0xff | (phrase >> 8 & 3 | 8) << 8);
     c.call(0xb126, 0xb080)?;
+    let end = c.word(APPEND_AT);
     c.run(0xb080, 3)?;
-    let di = c.word(0x47bc);
-    c.set_reg(DI, di);
-    c.set_byte(di.wrapping_sub(1), 0xff);
+    c.set_reg(DI, end);
+    c.set_byte(end.wrapping_sub(1), 0xff);
     c.call(0x88e1, 0xb08b)?;
     c.run(0xb08b, 2)?;
     c.set_reg(SI, 0x2408);
     c.call(0xc551, 0xb091)?;
     c.run(0xb091, 1)?;
     c.call(0x1797, 0xb094)?;
-    let end = c.word(0xd82e);
-    let mid = 0x8cu16.wrapping_sub(end) >> 1;
-    let b = mid.wrapping_add(end);
-    let mark = b < 0x8a;
-    c.run(0xb094, 7 + if mark { 3 } else { 0 })?;
-    c.set_reg(AX, end);
-    let bx = c.sub(W, 0x8c, end);
-    let bx = c.shr1(W, bx, 1);
-    let bx = c.add(W, bx, end);
-    c.set_reg(BX, bx);
-    c.cmp(W, bx, 0x8a);
+    // The mark, when the text ends high enough.
+    let text_end = c.word(super::globals::FONT_Y);
+    let middle = (0x8cu16.wrapping_sub(text_end) >> 1).wrapping_add(text_end);
+    let mark = middle < 0x8a;
+    c.run(0xb094, if mark { 10 } else { 7 })?;
+    c.set_reg(AX, text_end);
+    c.set_reg(BX, middle);
     if mark {
         c.set_reg(DX, 0x93);
         c.set_reg(AX, 0x32);
@@ -3182,17 +2959,13 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, 4);
         c.call(0xc22f, 0xb0b5)?;
     }
-    let page = c.word(0x11bf);
-    let first = page == 0xaa;
-    c.run(0xb0b5, 3 + if first { 0 } else { 8 })?;
-    let r = c.pop();
-    c.set_reg(AX, r);
-    c.cmp(W, page, 0xaa);
+    // The heading phrase, but on the first page.
+    let first = c.word(BOOK_PAGE) == 0xaa;
+    c.run(0xb0b5, if first { 3 } else { 11 })?;
+    let record = c.pop();
+    c.set_reg(AX, record);
     if !first {
-        let a = c.and(W, r, 0x0c);
-        let a = c.shr1(W, a, 2);
-        let a = c.add(W, a, 0x103);
-        c.set_reg(AX, a);
+        c.set_reg(AX, ((record & 0x0c) >> 2) + 0x103);
         c.set_reg(BX, 0x8b);
         c.set_reg(DX, 0xfa);
         c.set_reg(CX, 0x64);
@@ -3202,79 +2975,76 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, 3);
     c.set_reg(DX, 0x132);
     c.call(0xd04e, 0xb0dd)?;
-    let page = c.word(0x11bf);
-    let n = (page.wrapping_sub(0xaa) >> 1).wrapping_add(1) as u8;
-    let tens = n / 10;
-    c.run(0xb0dd, 10 + if tens == 0 { 1 } else { 0 } + 2)?;
-    c.set_word(0xdbe4, 0x53);
-    let a = c.sub(W, page, 0xaa);
-    let a = c.shr1(W, a, 1);
-    let a = c.inc(W, a);
-    c.set_reg(AX, a);
-    c.aam(10);
-    let ax = c.reg(AX);
-    let ax = c.add(W, ax, 0x3030).swap_bytes();
-    c.cmp(B, ax & 0xff, 0x30);
-    let ax = if ax & 0xff == 0x30 { ax & 0xff00 | 0x20 } else { ax };
-    c.set_reg(AX, ax);
-    c.push(ax);
+    // The page number, two digits (a leading 0 blank).
+    let number = ((c.word(BOOK_PAGE).wrapping_sub(0xaa) >> 1).wrapping_add(1)) as u8;
+    let (tens, units) = (number / 10, number % 10);
+    c.run(0xb0dd, if tens == 0 { 13 } else { 12 })?;
+    c.set_word(super::globals::TEXT_COLOUR, 0x53);
+    let tens = if tens == 0 { b' ' } else { b'0' + tens };
+    let digits = u16::from_le_bytes([tens, b'0' + units]);
+    c.set_reg(AX, digits);
+    c.push(digits);
     c.call(0xd12f, 0xb0fd)?;
     c.run(0xb0fd, 3)?;
-    let ax = c.pop();
-    c.set_reg(AX, ax & 0xff00 | ax >> 8);
+    let digits = c.pop();
+    c.set_reg(AX, digits & 0xff00 | digits >> 8);
     c.call(0xd12f, 0xb103)?;
+    // The icons.
     let icons = c.word(0x243e);
-    c.run(0xb103, 4 + if icons != 0 { 7 } else { 1 })?;
+    c.run(0xb103, if icons != 0 { 11 } else { 5 })?;
     c.set_byte(0x1c30, 0);
     c.set_reg(AX, icons);
-    c.or(W, icons, icons);
     if icons == 0 {
+        c.or(W, icons, icons); // the exit's flags
         return c.ret();
     }
     c.set_byte(0x1c30, 0x80);
     c.set_reg(SI, 0x2412);
-    let a = c.add(W, icons, 0xfff5);
-    c.set_reg(AX, a);
-    c.set_word(0x2412, a);
-    c.set_word(0x2418, a);
-    c.set_word(0x241e, a);
+    let x = icons.wrapping_sub(0x0b);
+    c.set_reg(AX, x);
+    for at in [0x2412u16, 0x2418, 0x241e] {
+        c.set_word(at, x);
+    }
     c.call(0xc21b, 0xb125)?;
     c.run(0xb125, 1)?;
     c.ret()
 }
 
+/// The book's page: an entry of the CS list (AAh the first).
+const BOOK_PAGE: u16 = 0x11bf;
+
 /// `loc_08ccd`: the text box for the phrase SI: [4799h] 9, colour F0h,
-/// then the box (BP, on the stack segment) and its margins [4784h..478Ah]
-/// by the situation: the map views 2244h (the troop's description
-/// `loc_079ee` first unless [46EFh]); no speaker 224Ch; [0C6h] 2265h in
-/// colour 64h (`loc_0d082`); at night 2275h in colour 6, no margins;
-/// without subtitles ([28E7h] 0) 223Ch in colour 0Fh ([4799h] 1); else
-/// the first of the 3 boxes from 2224h whose height takes the broken
-/// lines (`break_lines`, [0A9D0h] lines of 0Ah plus the margins), a
-/// smaller one kept by a coin toss, and with none fitting (the last one,
-/// its margins dropped, ZF from the old [478Ah]) returning broken. The
-/// lines broken for the box's width less the margins ([478Fh]); CF clear.
+/// then the box (BP, on the stack segment) and its margins
+/// ([`MARGINS`]: left, right, top, bottom) by the situation: the map
+/// views 2244h (the troop's description `loc_079ee` first unless
+/// [46EFh]); no speaker 224Ch; the book ([0C6h]) 2265h in colour 64h
+/// (`loc_0d082`); in the intro ([227Dh]) 2275h in colour 6, no margins;
+/// without [`MAP_SCREEN`] 223Ch in colour 0Fh ([4799h] 1); else the
+/// first of the 3 boxes from 2224h whose height takes the broken lines
+/// (`break_lines`, [`LINES`] lines of 0Ah plus the margins), a smaller
+/// one kept by a coin toss, and with none fitting the last one, its top
+/// and bottom margins dropped, returned with its lines unbroken again
+/// (AX the old bottom margin). Else the lines broken for the box's width
+/// less the margins ([`box_8ddb`]). CF clear.
 pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8ccd)?;
     let mut c = Ctx::new(m);
-    let v = c.byte(0x46eb);
-    let head = |c: &mut Ctx| {
-        c.set_byte(0x4799, 9);
-        c.set_word(0xdbe4, 0xf0);
-    };
-    if v != 0 {
-        let t = c.word(0x46ef);
-        c.run(start, 6 + if t == 0 { 1 } else { 0 })?;
-        head(&mut c);
-        c.cmp(B, v as u16, 0);
-        c.cmp(W, t, 0);
-        if t == 0 {
+    let map_view = c.byte(MAP_MODE) != 0;
+    let talker = c.word(TALKER);
+    let book = c.byte(0xc6) != 0;
+    let intro = c.byte(0x227d) != 0;
+    let screen = c.byte(MAP_SCREEN) != 0;
+    if map_view {
+        let described = c.word(0x46ef) != 0;
+        c.run(start, if described { 6 } else { 7 })?;
+        text_defaults(&mut c);
+        if !described {
             c.call(0xe270, 0x8ce9)?;
             c.run(0x8ce9, 3)?;
             let es = c.sreg(ES);
             c.push(es);
-            let si = c.word(0x46f1);
-            c.set_reg(SI, si);
+            let troop = c.word(0x46f1);
+            c.set_reg(SI, troop);
             c.call(0x79ee, 0x8cf1)?;
             c.run(0x8cf1, 2)?;
             let es = c.pop();
@@ -3282,205 +3052,168 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(0xe283, 0x8cf5)?;
         }
         c.run(0x8cf5, 2)?;
-        c.set_reg(BP, 0x2244);
+        c.set_reg(BP, MAP_BOX);
         return box_8ddb(&mut c);
     }
-    let sp = c.word(TALKER);
-    if sp == 0xffff {
+    if talker == 0xffff {
         c.run(start, 15)?;
-        head(&mut c);
-        c.cmp(B, 0, 0);
-        c.cmp(W, sp, 0xffff);
-        margins(&mut c, 0x48, 0x10, 8, 8);
+        text_defaults(&mut c);
+        margins(&mut c, [0x48, 0x10, 8, 8]);
         c.set_reg(BP, 0x224c);
         return box_8ddb(&mut c);
     }
-    let k = c.byte(0xc6);
-    if k != 0 {
+    if book {
         c.run(start, 18)?;
-        head(&mut c);
-        c.cmp(B, 0, 0);
-        c.cmp(W, sp, 0xffff);
-        c.cmp(B, k as u16, 0);
+        text_defaults(&mut c);
         c.set_reg(BP, 0x2265);
-        margins(&mut c, 0x3c, 0x32, 0x0a, 0x0a);
-        c.set_byte(0xdbe4, 0x64);
+        margins(&mut c, [0x3c, 0x32, 0x0a, 0x0a]);
+        c.set_byte(super::globals::TEXT_COLOUR, 0x64);
         c.call(0xd082, 0x8d40)?;
         c.run(0x8d40, 1)?;
         return box_8ddb(&mut c);
     }
-    let night = c.byte(0x227d);
-    if night != 0 {
+    if intro {
         c.run(start, 18)?;
-        head(&mut c);
-        c.cmp(B, 0, 0);
-        c.cmp(W, sp, 0xffff);
-        c.cmp(B, 0, 0);
-        c.cmp(B, night as u16, 0);
-        c.set_byte(0xdbe4, 6);
+        text_defaults(&mut c);
+        c.set_byte(super::globals::TEXT_COLOUR, 6);
         c.set_reg(BP, 0x2275);
-        c.xor(W, 0, 0);
         c.set_reg(AX, 0);
-        for a in [0x4788u16, 0x478a, 0x4784, 0x4786] {
-            c.set_word(a, 0);
+        for at in MARGINS {
+            c.set_word(at, 0);
         }
         return box_8ddb(&mut c);
     }
-    let sub = c.byte(0x28e7);
-    let pre = |c: &mut Ctx| {
-        head(c);
-        c.cmp(B, 0, 0);
-        c.cmp(W, sp, 0xffff);
-        c.cmp(B, 0, 0);
-        c.cmp(B, 0, 0);
-        c.cmp(B, sub as u16, 0);
-    };
-    if sub == 0 {
+    if !screen {
         c.run(start, 23)?;
-        pre(&mut c);
+        text_defaults(&mut c);
         c.set_byte(0x4799, 1);
-        c.set_byte(0xdbe4, 0x0f);
+        c.set_byte(super::globals::TEXT_COLOUR, 0x0f);
         c.set_reg(BP, 0x223c);
-        c.xor(W, 0, 0);
-        c.set_word(0x478a, 0);
-        let a = c.inc(W, 0);
-        c.set_word(0x4788, a);
         c.set_reg(AX, 0x10);
-        c.set_word(0x4784, 0x10);
-        c.set_word(0x4786, 0x10);
+        for (at, v) in MARGINS.into_iter().zip([0x10, 0x10, 1, 0]) {
+            c.set_word(at, v);
+        }
         return box_8ddb(&mut c);
     }
+    // The first of the 3 boxes the lines fit in.
     c.run(start, 14)?;
-    pre(&mut c);
-    c.set_reg(BP, 0x2224);
+    text_defaults(&mut c);
+    let mut frame = 0x2224u16;
+    c.set_reg(BP, frame);
     c.set_reg(CX, 3);
-    let mut at = 0x8d90u16;
     loop {
-        let bp = c.reg(BP);
-        c.run(at, 7)?;
-        width_478f(&mut c, bp);
-        let (si, cx) = (c.reg(SI), c.reg(CX));
-        c.push(si);
-        c.push(cx);
+        c.run(0x8d90, 7)?;
+        width_478f(&mut c, frame);
+        let (text, left) = (c.reg(SI), c.reg(CX));
+        c.push(text);
+        c.push(left);
         c.call(0x8e16, 0x8da3)?;
-        let lines = c.word(0xa9d0) as u8;
-        let h = (lines as u16) * 10;
-        let (m1, m2) = (c.word(0x4788), c.word(0x478a));
-        let need = h.wrapping_add(m1).wrapping_add(m2);
-        let bp = c.reg(BP);
-        let cap = c.word_in(SS, bp.wrapping_add(6));
-        let fits = need < cap;
-        let cx = c.word_in(SS, c.reg(SP));
-        let last = !fits && cx.wrapping_sub(1) == 0;
+        let lines = c.byte(LINES);
+        let [_, _, top, bottom] = MARGINS.map(|a| c.word(a));
+        let need = (lines as u16 * 10).wrapping_add(top).wrapping_add(bottom);
+        let fits = need < c.word_in(SS, frame.wrapping_add(6));
+        let left = c.word_in(SS, c.reg(SP)).wrapping_sub(1);
+        let last = !fits && left == 0;
         c.run(0x8da3, 9 + if fits { 1 } else { 2 } + if last { 6 } else { 0 })?;
-        let cx = c.pop();
-        c.set_reg(CX, cx);
-        let s = c.pop();
-        c.set_reg(SI, s);
-        c.set_reg(AX, 0x0a00 | lines as u16);
-        c.mul8(0x0a);
-        let a = c.add(W, h, m1);
-        let a = c.add(W, a, m2);
-        c.set_reg(AX, a);
-        c.cmp(W, a, cap);
+        c.pop();
+        c.pop();
+        c.set_reg(SI, text);
+        c.set_reg(CX, left);
+        c.set_reg(AX, need);
         if fits {
-            let cx = c.dec(W, cx);
-            c.set_reg(CX, cx);
-            if cx == 0 {
-                c.run(0x8dce, 3)?;
-                c.set_flag(pc::cpu::CF, false);
+            // Kept, unless it's the largest and a coin toss says the next.
+            // (`dec cx`'s ZF stays exact: a stop at 8DCEh resumes the
+            // original at its `je`.)
+            c.dec(W, left.wrapping_add(1));
+            c.run(0x8dce, 3)?;
+            if left == 0 {
+                c.set_flag(pc::cpu::CF, false); // the exit's flags (`clc`)
                 return c.ret();
             }
-            c.run(0x8dce, 3)?;
             c.set_reg(BX, 1);
             c.call(0xe3b7, 0x8dd6)?;
-            if c.flag(pc::cpu::ZF) {
+            if c.flag(ZF) {
                 c.run(0x8dd6, 3)?;
-                c.set_flag(pc::cpu::CF, false);
+                c.set_flag(pc::cpu::CF, false); // the exit's flags (`clc`)
                 return c.ret();
             }
             c.run(0x8dd6, 2)?;
-            let bp = c.reg(BP);
-            let b = c.add(W, bp, 8);
-            c.set_reg(BP, b);
+            c.set_reg(BP, frame.wrapping_add(8));
             return box_8ddb(&mut c);
         }
-        let b = c.add(W, bp, 8);
-        c.set_reg(BP, b);
-        let cx = cx.wrapping_sub(1);
-        c.set_reg(CX, cx);
-        if cx == 0 {
-            let b = c.sub(W, b, 8);
-            c.set_reg(BP, b);
-            c.xor(W, 0, 0);
-            c.set_word(0x4788, 0);
-            let old = c.word(0x478a);
-            c.set_word(0x478a, 0);
-            c.set_reg(AX, old);
-            c.or(W, old, old);
+        if last {
+            c.set_word(MARGINS[2], 0);
+            c.set_word(MARGINS[3], 0);
+            c.set_reg(AX, bottom);
+            c.set_reg(BP, frame);
+            c.or(W, bottom, bottom); // the exit's flags
             return c.ret();
         }
-        at = 0x8d90;
+        frame = frame.wrapping_add(8);
+        c.set_reg(BP, frame);
     }
 }
 
-/// The margins [4784h], [4786h], [4788h], [478Ah] (the `mov al` steps).
-fn margins(c: &mut Ctx, a: u16, b: u16, d: u16, e: u16) {
-    c.set_reg(AX, a);
-    c.set_word(0x4784, a);
-    let ax = c.reg(AX) & 0xff00 | b;
-    c.set_reg(AX, ax);
-    c.set_word(0x4786, ax);
-    let ax = ax & 0xff00 | d;
-    c.set_reg(AX, ax);
-    c.set_word(0x4788, ax);
-    let _ = e;
-    c.set_word(0x478a, ax);
+/// A text box's margins: left, right, top, bottom.
+const MARGINS: [u16; 4] = [0x4784, 0x4786, 0x4788, 0x478a];
+
+/// The first two steps of [`text_box_for`]: [4799h] 9, the text colour
+/// F0h.
+fn text_defaults(c: &mut Ctx) {
+    c.set_byte(0x4799, 9);
+    c.set_word(super::globals::TEXT_COLOUR, 0xf0);
+}
+
+/// The margins set as the original does (`mov ax, left`, then `mov al`
+/// for each of the others: AH stays 0; the last two are the same).
+fn margins(c: &mut Ctx, values: [u16; 4]) {
+    for (at, v) in MARGINS.into_iter().zip(values) {
+        c.set_word(at, v);
+    }
+    c.set_reg(AX, values[3]);
 }
 
 /// The width for the box BP less the margins into [478Fh].
-fn width_478f(c: &mut Ctx, bp: u16) {
-    let w = c.word_in(SS, bp.wrapping_add(4));
-    let (a, b) = (c.word(0x4784), c.word(0x4786));
-    let x = c.sub(W, w, a);
-    let x = c.sub(W, x, b);
-    c.set_reg(AX, x);
-    c.set_word(0x478f, x);
+fn width_478f(c: &mut Ctx, frame: u16) {
+    let width = c.word_in(SS, frame.wrapping_add(4));
+    let [left, right] = [MARGINS[0], MARGINS[1]].map(|a| c.word(a));
+    let inner = width.wrapping_sub(left).wrapping_sub(right);
+    c.set_reg(AX, inner);
+    c.set_word(0x478f, inner);
 }
 
-/// From 8DDBh: the lines broken for the box BP; CF clear.
+/// From 8DDBh: the lines broken for the box BP ([`break_lines`] with its
+/// inner width); CF clear.
 fn box_8ddb(c: &mut Ctx) -> Result<(), Bail> {
-    let bp = c.reg(BP);
+    let frame = c.reg(BP);
     c.run(0x8ddb, 6)?;
-    width_478f(c, bp);
-    let si = c.reg(SI);
-    c.push(si);
+    width_478f(c, frame);
+    let text = c.reg(SI);
+    c.push(text);
     c.call(0x8e16, 0x8ded)?;
     c.run(0x8ded, 3)?;
-    let s = c.pop();
-    c.set_reg(SI, s);
-    c.set_flag(pc::cpu::CF, false);
+    let text = c.pop();
+    c.set_reg(SI, text);
+    c.set_flag(pc::cpu::CF, false); // the exit's flags (`clc`)
     c.ret()
 }
 
 /// `setup_lip_sync_data_from_current`: [`setup_lip_sync_data_from_sprite_sheet`]
-/// for the speaker [47C4h], if any.
+/// for the speaker [`TALKER`], if any.
 pub fn setup_lip_sync_data_from_current(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9197)?;
     let mut c = Ctx::new(m);
-    let sp = c.word(TALKER);
-    if sp == 0xffff {
+    let talker = c.word(TALKER);
+    if talker == 0xffff {
         c.run(start, 4)?;
-        c.set_reg(AX, sp);
-        c.cmp(W, sp, 0xffff);
+        c.set_reg(AX, talker);
         return c.ret();
     }
     if c.flag(pc::cpu::DF) {
         return Err(Bail);
     }
     c.run(start, 3)?;
-    c.set_reg(AX, sp);
-    c.cmp(W, sp, 0xffff);
+    c.set_reg(AX, talker);
     lip_sync_setup_at(&mut c)
 }
 
@@ -3500,82 +3233,73 @@ pub fn setup_lip_sync_data_from_sprite_sheet(m: &mut Machine, start: u16) -> Res
     lip_sync_setup_at(&mut c)
 }
 
+/// From 91A0h: the head for the speaker AX (see
+/// [`setup_lip_sync_data_from_sprite_sheet`]).
 fn lip_sync_setup_at(c: &mut Ctx) -> Result<(), Bail> {
-    let ax = c.reg(AX);
-    let f = c.byte(0x10a7);
-    let n = if ax != 0x0c { 3 } else if f & 0x10 == 0 { 5 } else { 6 };
-    c.run(0x91a0, n + 1)?;
-    c.set_word(0xf0, 0);
-    c.cmp(W, ax, 0x0c);
-    if ax == 0x0c {
-        c.test(B, f as u16, 0x10);
-        if f & 0x10 != 0 {
-            c.set_word(0xf0, 0x0a);
-        }
-    }
+    use super::globals::SPRITE_SHEET;
+    let talker = c.reg(AX);
+    let alt = talker == 0x0c && c.byte(0x10a7) & 0x10 != 0;
+    c.run(0x91a0, if talker != 0x0c { 4 } else if alt { 7 } else { 6 })?;
+    c.set_word(0xf0, if alt { 0x0a } else { 0 });
     c.call(0x9123, 0x91bb)?;
-    let ax = c.reg(AX);
-    let cur = c.word(0x22a6);
-    if ax == cur {
+    let head = c.reg(AX);
+    if head == c.word(HEAD) {
         c.run(0x91bb, 2)?;
-        c.cmp(W, ax, cur);
         return open_talking_head_resource(c.m, 0x920f);
     }
+    // A new head: the text closed, its resource opened.
     c.run(0x91bb, 4)?;
-    c.cmp(W, ax, cur);
-    c.push(ax);
+    c.push(head);
     c.call(0x98b2, 0x91c5)?;
     c.run(0x91c5, 4)?;
-    let a = c.pop();
-    c.set_reg(AX, a);
-    c.set_word(0x22a6, a);
-    c.set_reg(SI, a);
+    let head = c.pop();
+    c.set_reg(AX, head);
+    c.set_word(HEAD, head);
+    c.set_reg(SI, head);
     c.call(0x920f, 0x91ce)?;
+    // Its text width into the three boxes from 2224h.
     c.run(0x91ce, 28)?;
-    let si = c.reg(SI);
-    let w = c.byte(si.wrapping_add(0x22a8));
-    c.xor(B, 0, 0);
-    c.set_reg(AX, w as u16);
-    for a in [0x2224u16, 0x222c, 0x2234] {
-        c.set_word(a, w as u16);
+    let head = c.reg(SI);
+    let width = c.byte(head.wrapping_add(0x22a8)) as u16;
+    c.set_reg(AX, width);
+    for at in [0x2224u16, 0x222c, 0x2234] {
+        c.set_word(at, width);
     }
     let ds = c.sreg(DS);
     c.push(ds);
     c.push(ds);
-    let e = c.pop();
-    c.set_sreg(ES, e);
-    let (p, s) = (c.word(0xdbb0), c.word(0xdbb2));
-    c.set_reg(SI, p);
-    c.set_sreg(DS, s);
-    let bx = c.word(p);
-    c.set_reg(BX, bx);
-    let o = c.word(bx.wrapping_add(p).wrapping_sub(2));
-    let si = c.add(W, p, o);
-    let si = c.add(W, si, 4);
-    c.set_reg(SI, si);
-    c.set_reg(DI, 0x1bf0);
-    for _ in 0..4 {
-        c.movs(W);
+    let es = c.pop();
+    c.set_sreg(ES, es);
+    // The speaker box (1BF0h) from the sheet's first sprite: the 4
+    // words after its header.
+    let (table, sheet) = (c.word(SPRITE_SHEET), c.word(SPRITE_SHEET + 2));
+    c.set_sreg(DS, sheet);
+    let count = c.word(table);
+    let sprite = table.wrapping_add(c.word(table.wrapping_add(count).wrapping_sub(2))).wrapping_add(4);
+    for k in 0..4 {
+        let w = c.word(sprite.wrapping_add(k * 2));
+        c.set_word_in(ES, 0x1bf0 + k * 2, w);
     }
-    let si = c.reg(SI);
-    c.set_reg(AX, si);
-    let a = c.add(W, si, 2);
-    c.set_reg(AX, a);
-    c.set_word_in(SS, 0x47cc, a);
-    let o = c.word(si);
-    let si = c.add(W, si, o);
-    c.set_reg(SI, si);
-    let bx = c.word(si);
-    c.set_reg(BX, bx);
-    let o = c.word(bx.wrapping_add(si).wrapping_sub(2));
-    let di = c.add(W, si, o);
-    c.set_reg(DI, di);
-    let d = c.pop();
-    c.set_sreg(DS, d);
-    c.set_word(0x47ca, si);
-    c.set_word(0x47d2, di);
+    // The lip sync tables: [47CCh] (on SS) after the box, [47CAh] the
+    // next block, [47D2h] the block its last word points to.
+    let after = sprite.wrapping_add(8);
+    c.set_word_in(SS, 0x47cc, after.wrapping_add(2));
+    let block = after.wrapping_add(c.word(after));
+    let count = c.word(block);
+    let last = block.wrapping_add(c.word(block.wrapping_add(count).wrapping_sub(2)));
+    c.set_reg(AX, after.wrapping_add(2));
+    c.set_reg(BX, count);
+    c.set_reg(SI, block);
+    c.set_reg(DI, last);
+    let ds = c.pop();
+    c.set_sreg(DS, ds);
+    c.set_word(0x47ca, block);
+    c.set_word(0x47d2, last);
     c.ret()
 }
+
+/// The talking head loaded (its resource).
+const HEAD: u16 = 0x22a6;
 
 /// `loc_090bd`: the dialogue list 1F7Eh's second item (+6 the phrase BX,
 /// +8 its handler DX) for the speaker SI (its number in byte 0Eh, AL):
@@ -3642,159 +3366,128 @@ pub fn speaker_list_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
     super::cursor::install_ui_list_d338(c.m, 0xd338)
 }
 
-/// `loc_09215`: a click in the dialogue: in the action list 1F0Eh (room
-/// mode) on a speaker (`loc_09285`, CF; CL its record) its record's
-/// handler (+4 of the record FD8h + 10h * CL), from 0Fh the phrase
-/// CL - 0Fh (`loc_09381`); 2Fh goes on at `loc_042e9` (not ported:
+/// `loc_09215`: a click in the dialogue: in the action list 1F0Eh (the
+/// head not held) on a speaker (`loc_09285`, CF; CL its record) its
+/// record's handler ([`record_handler_9234`]), from 0Fh the phrase
+/// CL - 0Fh ([`phrase_9381`]); 2Fh goes on at `loc_042e9` (not ported:
 /// bails). Off the speakers in the first room of a place (not a
 /// palace's, by day) below y 98h the move up (`ui_click_room_up`). In the
-/// speaker list 1F7Eh (`loc_092c9`): the current phrase [47C4h] again
-/// goes to the next line (`sub_945b`); another the panel reset and its
-/// handler.
+/// speaker list 1F7Eh (`loc_092c9`): the current speaker [`TALKER`]
+/// again goes to the next line ([`dialogue_line`]); another the panel
+/// reset and its handler.
 pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::CF;
     entered(start, 0x9215)?;
     let mut c = Ctx::new(m);
     c.run(0x9215, 1)?;
     c.call(0xd41b, 0x9218)?;
-    let bp = c.reg(BP);
-    if bp == 0x1f0e {
-        let mode = c.byte(0x11c9);
+    let list = c.reg(BP);
+    if list == 0x1f0e {
+        let held = c.byte(HEAD_HELD);
         c.run(0x9218, 5)?;
-        c.cmp(W, bp, 0x1f0e);
-        c.cmp(B, mode as u16, 0);
-        if mode != 0 {
+        if held != 0 {
+            c.cmp(B, held as u16, 0); // the exit's flags
             return c.ret();
         }
         c.call(0x9285, 0x9228)?;
-        if !c.flag(pc::cpu::CF) {
-            let b = c.byte(0x0b);
-            let bx = c.reg(BX);
-            let b8 = c.byte(8);
-            let night = c.byte(0x2b);
-            let n = if b != 1 {
+        if !c.flag(CF) {
+            // Off the speakers: the move up, in the first room of a place
+            // (not a palace's, by day) below y 98h.
+            let room = c.byte(0x0b);
+            let y = c.reg(BX);
+            let place = c.byte(8);
+            let talk = c.byte(IN_DIALOGUE);
+            let cost = if room != 1 {
                 4
-            } else if bx >= 0x98 {
+            } else if y >= 0x98 {
                 6
-            } else if b8 == 0x21 {
+            } else if place == 0x21 {
                 8
             } else {
                 10
             };
-            c.run(0x9228, n)?;
-            c.cmp(B, b as u16, 1);
-            if b == 1 {
-                c.cmp(W, bx, 0x98);
-                if bx < 0x98 {
-                    c.cmp(B, b8 as u16, 0x21);
-                    if b8 != 0x21 {
-                        c.cmp(B, night as u16, 0);
-                        if night == 0 {
-                            return super::story::room_move(c.m, 0x3f15);
-                        }
-                    }
-                }
-            }
+            c.run(0x9228, cost)?;
+            // The exit's flags: the last test's.
+            match cost {
+                4 => c.cmp(B, room as u16, 1),
+                6 => c.cmp(W, y, 0x98),
+                8 => c.cmp(B, place as u16, 0x21),
+                _ if talk == 0 => return super::story::room_move(c.m, 0x3f15),
+                _ => c.cmp(B, talk as u16, 0),
+            };
             return c.ret();
         }
-        let cl = c.reg8(r8::CL);
-        if cl == 0x2f {
+        let record = c.reg8(r8::CL);
+        if record == 0x2f {
             c.m.cpu.ip = 0x9228;
             return Err(Bail);
         }
-        if cl < 0x0f {
+        if record < 0x0f {
             c.run(0x9228, 5)?;
-            c.cmp(B, cl as u16, 0x2f);
-            c.cmp(B, cl as u16, 0x0f);
             return record_handler_9234(&mut c);
         }
         c.run(0x9228, 8)?;
-        c.cmp(B, cl as u16, 0x2f);
-        c.cmp(B, cl as u16, 0x0f);
-        let v = c.sub(B, cl as u16, 0x0f) as u8;
-        c.set_reg8(r8::CL, v);
-        c.set_reg8(r8::AL, v);
+        c.set_reg8(r8::CL, record - 0x0f);
+        c.set_reg8(r8::AL, record - 0x0f);
         return phrase_9381(&mut c);
     }
-    if bp != 0x1f7e {
+    if list != 0x1f7e {
         c.run(0x9218, 5)?;
-        c.cmp(W, bp, 0x1f0e);
-        c.cmp(W, bp, 0x1f7e);
+        c.cmp(W, list, 0x1f7e); // the exit's flags
         return c.ret();
     }
     c.run(0x9218, 5)?;
-    c.cmp(W, bp, 0x1f0e);
-    c.cmp(W, bp, 0x1f7e);
     c.call(0x92c9, 0x9251)?;
-    if !c.flag(pc::cpu::CF) {
+    if !c.flag(CF) {
         c.run(0x9251, 2)?;
         return c.ret();
     }
-    let cx = c.reg(CX);
-    let p = c.word(TALKER);
-    if cx == p {
+    let speaker = c.reg(CX);
+    if speaker == c.word(TALKER) {
         c.run(0x9251, 4)?;
-        c.cmp(W, cx, p);
         return dialogue_line(c.m, 0x945b);
     }
     c.run(0x9251, 5)?;
-    c.cmp(W, cx, p);
-    c.push(cx);
+    c.push(speaker);
     c.call(0xd2bd, 0x9260)?;
     c.run(0x9260, 2)?;
-    let cx = c.pop();
-    c.set_reg(CX, cx);
+    let speaker = c.pop();
+    c.set_reg(CX, speaker);
     record_handler_9234(&mut c)
 }
 
-/// `loc_09234`: the handler of the record CL (+4 of FD8h + 10h * CL).
+/// `loc_09234`: the handler of the record CL (+4 of FD8h + 10h · CL).
 fn record_handler_9234(c: &mut Ctx) -> Result<(), Bail> {
+    let record = c.reg8(r8::CL) as u16;
     c.run(0x9234, 5)?;
-    let cl = c.reg8(r8::CL);
-    c.set_reg8(r8::AL, 0x10);
-    c.mul8(cl);
-    let ax = c.reg(AX);
-    let si = c.add(W, ax, 0x0fd8);
-    c.set_reg(AX, si);
-    c.set_reg(SI, si);
-    let to = c.word(si.wrapping_add(4));
+    // The handler is reached by an indirect jump: the flags of the
+    // address's `add` go with it.
+    let at = c.add(W, record * 0x10, 0x0fd8);
+    c.set_reg(AX, at);
+    c.set_reg(SI, at);
+    let to = c.word(at.wrapping_add(4));
     c.jump(to)
 }
 
 /// `loc_09381`: the phrase AL (0 from 9; 8 is the one before [476Bh],
 /// 0 when none) of the table 4758h: [476Ch] noted, its record's phase
 /// (`loc_01ebe`) and the troop described (`loc_031f6`), then the
-/// phrase 0Fh said (`loc_093aa`).
+/// phrase 0Fh said ([`phrase_93aa`]).
 fn phrase_9381(c: &mut Ctx) -> Result<(), Bail> {
-    let al = c.reg8(r8::AL);
-    let a1 = if al >= 9 { 0 } else { al };
-    let k = c.byte(0x476b);
-    let v = k.wrapping_sub(1);
-    let a2 = if a1 != 8 { a1 } else if v & 0x80 != 0 { 0 } else { v };
-    let n = 2 + (al >= 9) as u32 + 2 + if a1 == 8 { 3 + (v & 0x80 != 0) as u32 } else { 0 } + 7;
-    c.run(0x9381, n)?;
-    c.cmp(B, al as u16, 9);
-    if al >= 9 {
-        c.xor(W, 0, 0);
-        c.set_reg(AX, 0);
-    }
-    c.cmp(B, a1 as u16, 8);
-    if a1 == 8 {
-        c.set_reg8(r8::AL, k);
-        c.dec(B, k as u16);
-        c.set_reg8(r8::AL, v);
-        if v & 0x80 != 0 {
-            c.xor(W, 0, 0);
-            c.set_reg(AX, 0);
-        }
-    }
-    c.set_byte(0x476c, a2);
-    c.xor(B, 0, 0);
-    let ax = a2 as u16;
-    let ax2 = c.add(W, ax, ax);
-    c.set_reg(AX, ax2);
-    let si = c.add(W, 0x4758, ax2);
-    let si = c.word(si);
-    c.set_reg(SI, si);
+    let asked = c.reg8(r8::AL);
+    let asked = if asked >= 9 { None } else { Some(asked) };
+    let last = c.byte(0x476b).wrapping_sub(1);
+    let phrase = match asked {
+        Some(8) if last & 0x80 == 0 => last,
+        Some(8) | None => 0,
+        Some(k) => k,
+    };
+    let cost = 2 + asked.is_none() as u32 + 2 + if asked == Some(8) { 3 + (last & 0x80 != 0) as u32 } else { 0 } + 7;
+    let record = c.word(0x4758 + phrase as u16 * 2);
+    c.run(0x9381, cost)?;
+    c.set_byte(0x476c, phrase);
+    c.set_reg(AX, phrase as u16 * 2);
+    c.set_reg(SI, record);
     c.call(0x1ebe, 0x93a5)?;
     c.run(0x93a5, 1)?;
     c.call(0x31f6, 0x93a8)?;
@@ -3803,67 +3496,71 @@ fn phrase_9381(c: &mut Ctx) -> Result<(), Bail> {
     phrase_93aa(c)
 }
 
-/// `loc_093aa`: the phrase AL said: [47E1h] 0, [47C4h] the phrase, the
-/// speaker's lips and head (`setup_lip_sync_data_from_sprite_sheet`,
+/// `loc_093aa`: the speaker AL starts afresh: [`NUMBER_PART`] 0,
+/// [`TALKER`] AL, its lips and head (`setup_lip_sync_data_from_sprite_sheet`,
 /// `loc_03af9`, `..._from_current`, `loc_09908`), the text [47C8h]
-/// (`loc_09bac`, [4540h] 0), the frame (`loc_01834`, `loc_0c0f4`,
-/// `loc_0c4dd`), the phrase's line (`loc_093df`); then the next line.
+/// (`loc_09bac`, the kept head sprites dropped), the frame
+/// (`loc_01834`, `loc_0c0f4`, `loc_0c4dd`), its dialogue group
+/// (`loc_093df`); then the next line ([`next_line_from_9472`]).
 fn phrase_93aa(c: &mut Ctx) -> Result<(), Bail> {
+    let talker = c.reg(AX) & 0xff;
     c.run(0x93aa, 5)?;
-    c.xor(B, 0, 0);
-    let ax = c.reg8(r8::AL) as u16;
-    c.set_reg(AX, ax);
-    c.set_word(0x47e1, 0);
-    c.push(ax);
-    c.set_word(TALKER, ax);
+    c.set_reg(AX, talker);
+    c.set_word(NUMBER_PART, 0);
+    c.push(talker);
+    c.set_word(TALKER, talker);
     c.call(0x91a0, 0x93b9)?;
     for (at, to) in [(0x93b9u16, 0x3af9u16), (0x93bc, 0x9197), (0x93bf, 0x9908)] {
         c.run(at, 1)?;
         c.call(to, at + 3)?;
     }
+    let text = c.word(0x47c8);
     c.run(0x93c2, 3)?;
-    let si = c.word(0x47c8);
-    c.set_reg(SI, si);
-    c.set_word(0x4540, 0);
+    c.set_reg(SI, text);
+    c.set_word(HEAD_SPRITES_KEPT, 0);
     c.call(0x9bac, 0x93cf)?;
     for (at, to) in [(0x93cfu16, 0x1834u16), (0x93d2, 0xc0f4), (0x93d5, 0xc4dd)] {
         c.run(at, 1)?;
         c.call(to, at + 3)?;
     }
     c.run(0x93d8, 2)?;
-    let ax = c.pop();
-    c.set_reg(AX, ax);
+    let talker = c.pop();
+    c.set_reg(AX, talker);
     c.call(0x93df, 0x93dc)?;
     c.run(0x93dc, 1)?;
     next_line_from_9472(c)
 }
 
 /// `loc_08b11`: the text SI laid out in its box: the old box closed
-/// (`loc_08c8a`), the new one placed (`loc_08ccd`; CF: no room, done),
-/// drawn (`draw_speech_bubble`, `loc_08df0`) and the pen at [4791h] /
-/// [4793h]. The layout A9D0h (line count, then per line its width
-/// count, offset and spacing) is placed by [4799h]: bits 2-3 spread the
-/// lines (4: the line height [479Ah] from the room [478Dh]; 8 / 0Ch:
-/// centred, 8 halved), bit 1 centres the first line (once). Each line:
-/// its words (space / CR runs end a word, a negative byte the line),
-/// 1 the colour pair [0DBE4h] swapped, 6 / 8 the font switches
-/// (`loc_0d075` / `loc_0d068`), others drawn ([2518h]); words spaced by
-/// DX ([479Ch] of them one wider). Lines step by [479Ah] (taken from
-/// [478Dh]); at the end the pen kept, SI back on the last byte, and for
-/// the picture 223Ch ([479Eh]) its outline (`loc_09046`) and the back
-/// buffer made current.
+/// (`loc_08c8a`), the new one placed ([`text_box_for`]; CF: no room,
+/// done), drawn ([`draw_speech_bubble`], [`check_dialogue_entries`]) and
+/// the pen at [`PEN`]. The lines ([`LINES`]: a count, then per line its
+/// word count, offset and spacing) are placed by [`TEXT_STYLE`]: bits 2-3
+/// spread them (4: the line height [`LINE_HEIGHT`] from the room
+/// [`ROOM`]; 8 / 0Ch: the block centred, 8 halved), bit 1 centres each
+/// line by its offset, bit 0 spaces words by the line's spacing (not on
+/// the last line; once cleared, by the first line). Each line: its words
+/// (space / CR runs end a word, a negative byte the line), 1 swaps the
+/// colour pair [`TEXT_COLOUR`](super::globals::TEXT_COLOUR), 6 / 8 the
+/// font switches (`loc_0d075` / `loc_0d068`), others are drawn (the font
+/// routine [2518h]); words spaced by DX ([479Ch] of them one wider).
+/// Lines step by [`LINE_HEIGHT`] (taken from [`ROOM`]); at the end the
+/// pen kept, SI back on the last byte, and for the picture box 223Ch its
+/// outline ([`outline_picture`]) and the front buffer made current.
 pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use super::globals::{FONT_LINE_X, FONT_LINE_Y, FONT_X, FONT_Y};
+    use pc::cpu::CF;
     entered(start, 0x8b11)?;
     let mut c = Ctx::new(m);
-    c.run(0x8b11, 2)?;
-    let si = c.reg(SI);
-    c.push(si);
+    c.run(start, 2)?;
+    let text = c.reg(SI);
+    c.push(text);
     c.call(0x8c8a, 0x8b15)?;
     c.run(0x8b15, 2)?;
-    let si = c.pop();
-    c.set_reg(SI, si);
+    let text = c.pop();
+    c.set_reg(SI, text);
     c.call(0x8ccd, 0x8b19)?;
-    if c.flag(pc::cpu::CF) {
+    if c.flag(CF) {
         c.run(0x8b19, 2)?;
         return c.ret();
     }
@@ -3871,291 +3568,229 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x8f28, 0x8b1e)?;
     c.run(0x8b1e, 1)?;
     c.call(0x8df0, 0x8b21)?;
+    let [x, y] = PEN.map(|a| c.word(a));
     c.run(0x8b21, 3)?;
-    let (dx, bx) = (c.word(0x4791), c.word(0x4793));
-    c.set_reg(DX, dx);
-    c.set_reg(BX, bx);
+    c.set_reg(DX, x);
+    c.set_reg(BX, y);
     c.call(0xd04e, 0x8b2c)?;
-    let f = c.byte(0x4799);
-    let a = f & 0x0c;
-    let w0 = c.word_in(SS, 0xa9d0);
-    let room = c.word(0x478d);
-    let head = |c: &mut Ctx| {
-        c.set_reg(BP, 0xa9d0);
-        c.set_word(0x479a, 0x0a);
-        c.set_reg8(r8::AL, f);
-        c.and(B, f as u16, 0x0c);
-        c.set_reg8(r8::AL, a);
-    };
-    if a == 0 {
-        c.run(0x8b2c, 5)?;
-        head(&mut c);
-    } else if a < 8 {
-        let b1 = w0.wrapping_sub(1);
-        c.run(0x8b2c, 5 + 2 + 6 + if b1 != 0 { 3 } else { 5 })?;
-        head(&mut c);
-        c.cmp(B, a as u16, 8);
-        c.set_reg(BX, w0);
-        c.xor(W, 0, 0);
-        c.set_reg(DX, 0);
-        c.set_reg(AX, room);
-        let ax = c.sub(W, room, 8);
-        c.set_reg(AX, ax);
-        c.dec(W, w0);
-        c.set_reg(BX, b1);
-        if b1 != 0 {
-            c.m.cpu.mul_div(&mut c.m.hw, W, 6, b1 as u32);
-            let q = c.reg(AX);
-            c.set_word(0x479a, q);
-        } else {
-            let h = c.shr1(W, ax, 1);
-            c.set_reg(AX, h);
-            let x = c.word(0xd82c);
+    // The lines spread over the box.
+    let spread = c.byte(TEXT_STYLE) & 0x0c;
+    let count = c.word_in(SS, LINES);
+    let room = c.word(ROOM);
+    match spread {
+        0 => {
+            c.run(0x8b2c, 5)?;
+            c.set_reg(BP, LINES);
+            c.set_word(LINE_HEIGHT, 0x0a);
+            c.set_reg8(r8::AL, 0);
+        }
+        4 => {
+            // The room shared between the lines (one line: centred).
+            let gaps = count.wrapping_sub(1);
+            let room = room.wrapping_sub(8);
+            c.run(0x8b2c, if gaps != 0 { 16 } else { 18 })?;
+            c.set_reg(BP, LINES);
+            c.set_word(LINE_HEIGHT, 0x0a);
+            c.set_reg(BX, gaps);
+            if gaps != 0 {
+                c.set_reg(AX, room / gaps);
+                c.set_reg(DX, room % gaps);
+                c.set_word(LINE_HEIGHT, room / gaps);
+            } else {
+                c.set_reg(AX, room >> 1);
+                let x = c.word(FONT_X);
+                c.set_reg(DX, x);
+                let y = c.word(FONT_Y).wrapping_add(room >> 1);
+                c.set_reg(BX, y);
+                c.call(0xd04e, 0x8b64)?;
+                c.run(0x8b64, 1)?;
+            }
+        }
+        _ => {
+            // The block's height ([`ROOM`] from now on) centred in the
+            // room (8: the space halved; 0Ch: at the bottom).
+            let height = (count & 0xff) * 10;
+            let space = room.saturating_sub(height);
+            let space = if spread == 8 { space >> 1 } else { space };
+            c.run(0x8b2c, 14 + (room < height) as u32 + 3 + (spread == 8) as u32 + 3)?;
+            c.set_reg(BP, LINES);
+            c.set_word(LINE_HEIGHT, 0x0a);
+            // `pushf` / `popf` around the height: the word stays below SP.
+            c.cmp(B, spread as u16, 8);
+            let flags = c.m.cpu.flags();
+            c.push(flags);
+            c.pop();
+            c.set_reg(AX, height);
+            c.set_word(ROOM, height);
+            let x = c.word(FONT_X);
             c.set_reg(DX, x);
-            let y = c.word(0xd82e);
-            let b = c.add(W, h, y);
-            c.set_reg(BX, b);
-            c.call(0xd04e, 0x8b64)?;
-            c.run(0x8b64, 1)?;
+            let y = c.word(FONT_Y).wrapping_add(space);
+            c.set_reg(BX, y);
+            c.call(0xd04e, 0x8b8b)?;
         }
-    } else {
-        let prod = (w0 & 0xff) * 10;
-        let under = room < prod;
-        c.run(0x8b2c, 5 + 2 + 7 + under as u32 + 3 + (a == 8) as u32 + 3)?;
-        head(&mut c);
-        c.cmp(B, a as u16, 8);
-        let fl = c.m.cpu.flags();
-        c.push(fl);
-        c.set_reg(AX, w0);
-        c.set_reg8(r8::AH, 0x0a);
-        c.mul8(0x0a);
-        c.set_reg(BX, room);
-        let mut bx = c.sub(W, room, prod);
-        if under {
-            c.xor(W, bx, bx);
-            bx = 0;
-        }
-        c.set_reg(BX, bx);
-        c.set_word(0x478d, prod);
-        let fl = c.pop();
-        c.m.cpu.set_flags(fl);
-        if a == 8 {
-            bx = c.shr1(W, bx, 1);
-            c.set_reg(BX, bx);
-        }
-        let x = c.word(0xd82c);
-        c.set_reg(DX, x);
-        let y = c.word(0xd82e);
-        let b = c.add(W, bx, y);
-        c.set_reg(BX, b);
-        c.call(0xd04e, 0x8b8b)?;
     }
+    // The lines.
     c.run(0x8b8b, 2)?;
-    let bp = c.reg(BP);
-    let n = c.word_in(SS, bp);
-    c.set_reg(DX, n);
-    let bp = c.add(W, bp, 2);
-    c.set_reg(BP, bp);
-    loop {
-        // 8B91h: a line.
-        let bp = c.reg(BP);
-        let cx = c.word_in(SS, bp);
-        let dx2 = c.word_in(SS, bp.wrapping_add(2));
-        let bx2 = c.word_in(SS, bp.wrapping_add(4));
-        c.run(0x8b91, 7 + (cx == 0) as u32)?;
-        let dx = c.reg(DX);
-        c.push(dx);
-        c.set_reg(CX, cx);
-        let b = c.add(W, bp, 2);
-        c.set_reg(DX, dx2);
-        c.set_reg(BX, bx2);
-        let b = c.add(W, b, 4);
-        c.set_reg(BP, b);
-        if cx != 0 {
-            line_8ba3(&mut c, cx, dx2, bx2)?;
+    c.set_reg(DX, count);
+    c.set_reg(BP, LINES + 2);
+    for _ in 0..0x100 {
+        let line = c.reg(BP);
+        let [words, offset, spacing] = [0u16, 2, 4].map(|k| c.word_in(SS, line.wrapping_add(k)));
+        let left = c.reg(DX);
+        c.run(0x8b91, if words == 0 { 8 } else { 7 })?;
+        c.push(left);
+        c.set_reg(CX, words);
+        c.set_reg(DX, offset);
+        c.set_reg(BX, spacing);
+        c.set_reg(BP, line.wrapping_add(6));
+        if words != 0 {
+            line_8ba3(&mut c, words, offset, spacing)?;
         }
-        // 8C47h: the next line.
-        let step = c.word(0x479a);
-        let room = c.word(0x478d);
-        let under = room < step;
-        c.run(0x8c47, 6 + under as u32 + 1)?;
-        let x = c.word(0xd830);
+        // The pen to the next line.
+        let height = c.word(LINE_HEIGHT);
+        let room = c.word(ROOM);
+        let [x, y] = [FONT_LINE_X, FONT_LINE_Y].map(|a| c.word(a));
+        c.run(0x8c47, if room < height { 8 } else { 7 })?;
         c.set_reg(DX, x);
-        let y = c.word(0xd832);
-        c.set_reg(BX, y);
-        c.set_reg(AX, step);
-        let b = c.add(W, y, step);
-        c.set_reg(BX, b);
-        let r = c.sub(W, room, step);
-        c.set_word(0x478d, if under { 0 } else { r });
+        c.set_reg(BX, y.wrapping_add(height));
+        c.set_reg(AX, height);
+        c.set_word(ROOM, room.saturating_sub(height));
         c.call(0xd04e, 0x8c63)?;
         let sp = c.reg(SP);
         let left = c.word_in(SS, sp).wrapping_sub(1);
-        c.run(0x8c63, 3 + (left != 0) as u32)?;
+        c.run(0x8c63, if left != 0 { 4 } else { 3 })?;
         c.pop();
-        c.dec(W, left.wrapping_add(1));
         c.set_reg(DX, left);
         if left == 0 {
-            break;
+            // The pen kept, SI back on the last byte.
+            let boxed = c.word(BOX_SHOWN);
+            let [x, y] = [FONT_LINE_X, FONT_LINE_Y].map(|a| c.word(a));
+            c.run(0x8c6a, 8)?;
+            c.set_reg(DX, x);
+            c.set_reg(BX, y);
+            c.set_word(PEN[0], x);
+            c.set_word(PEN[1], y);
+            let text = c.reg(SI).wrapping_sub(1);
+            c.set_reg(SI, text);
+            if boxed != 0x223c {
+                return c.ret();
+            }
+            c.call(0x9046, 0x8c86)?;
+            c.run(0x8c86, 1)?;
+            return super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c);
         }
     }
-    let k = c.word(BOX_SHOWN);
-    c.run(0x8c6a, 7 + 1)?;
-    let (x, y) = (c.word(0xd830), c.word(0xd832));
-    c.set_reg(DX, x);
-    c.set_reg(BX, y);
-    c.set_word(0x4791, x);
-    c.set_word(0x4793, y);
-    let si = c.reg(SI);
-    let si = c.dec(W, si);
-    c.set_reg(SI, si);
-    c.cmp(W, k, 0x223c);
-    if k != 0x223c {
-        return c.ret();
-    }
-    c.call(0x9046, 0x8c86)?;
-    c.run(0x8c86, 1)?;
-    super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
+    c.m.cpu.ip = 0x8b91;
+    Err(Bail)
 }
+
+/// How the text is laid out (see [`layout_text`]).
+const TEXT_STYLE: u16 = 0x4799;
+/// The pen where the text starts (x, y).
+const PEN: [u16; 2] = [0x4791, 0x4793];
+/// The text's lines as [`break_lines`] leaves them: a count, then 6
+/// bytes each (its words, offset, spacing).
+const LINES: u16 = 0xa9d0;
+/// The step from line to line.
+const LINE_HEIGHT: u16 = 0x479a;
+/// The room left in the box below the pen.
+const ROOM: u16 = 0x478d;
 
 /// `loc_08ba3`: a line of CX words with the offset DX / spacing BX (see
 /// [`layout_text`]).
-fn line_8ba3(c: &mut Ctx, cx: u16, dx2: u16, bx2: u16) -> Result<(), Bail> {
-    let f = c.byte(0x4799);
-    if f & 2 != 0 {
-        let cl = cx as u8;
-        let d = cl.wrapping_sub(1);
-        c.run(0x8ba3, 2 + 4 + (d != 0) as u32 + 12)?;
-        c.test(B, f as u16, 2);
-        c.set_reg8(r8::AL, dx2 as u8);
-        c.set_reg8(r8::DL, cl);
-        c.dec(B, cl as u16);
-        c.set_reg8(r8::DL, d);
-        if d != 0 {
-            c.mul8(d);
-        }
-        let al = c.reg8(r8::AL);
-        let s = c.add(B, al as u16, bx2 & 0xff);
-        c.set_reg8(r8::AL, s as u8);
-        c.set_reg8(r8::DL, s as u8);
-        c.set_reg8(r8::AL, cl);
-        let a3 = c.dec(B, cl as u16);
-        c.xor(B, 0, 0);
-        let ax = a3;
-        let ax = c.shl1(W, ax, 1);
-        let dx = c.reg(DX);
-        let dx = c.sub(W, dx, ax);
-        let ax = c.shl1(W, ax, 1);
-        c.set_reg(AX, ax);
-        let dx = c.sub(W, dx, ax);
-        let dx = c.shr1(W, dx, 1);
-        c.set_reg(DX, dx);
-        let v = c.word(0xd82c);
-        let v = c.add(W, v, dx);
-        c.set_word(0xd82c, v);
-        let g = c.and(B, f as u16, 0xfe);
-        c.set_byte(0x4799, g as u8);
+fn line_8ba3(c: &mut Ctx, words: u16, offset: u16, spacing: u16) -> Result<(), Bail> {
+    use super::globals::FONT_X;
+    let style = c.byte(TEXT_STYLE);
+    if style & 2 != 0 {
+        // Centred: the pen moved by half of what the words leave.
+        let gaps = (words as u8).wrapping_sub(1);
+        let width = if gaps != 0 { (offset as u8).wrapping_mul(gaps) } else { offset as u8 };
+        let width = width.wrapping_add(spacing as u8);
+        let k = gaps as u16;
+        let shift = (offset & 0xff00 | width as u16).wrapping_sub(k << 1).wrapping_sub(k << 2) >> 1;
+        c.run(0x8ba3, 2 + 4 + (gaps != 0) as u32 + 12)?;
+        c.set_reg(AX, k << 2);
+        c.set_reg(DX, shift);
+        let x = c.word(FONT_X).wrapping_add(shift);
+        c.set_word(FONT_X, x);
+        c.set_byte(TEXT_STYLE, style & 0xfe);
     } else {
         c.run(0x8ba3, 2)?;
-        c.test(B, f as u16, 2);
     }
+    // Spacing by the line's own, but on the last line or without bit 0.
     let sp = c.reg(SP);
-    let lines = c.word_in(SS, sp);
-    let f = c.byte(0x4799);
-    let plain = lines == 1 || f & 1 == 0;
-    c.run(0x8bd1, 4 + if lines == 1 { 0 } else { 2 } + if plain { 2 } else { 0 } + 1)?;
-    c.pop();
-    c.set_reg(AX, lines);
-    c.push(lines);
-    c.cmp(W, lines, 1);
-    if lines != 1 {
-        c.test(B, f as u16, 1);
-    }
+    let left = c.word_in(SS, sp);
+    let style = c.byte(TEXT_STYLE);
+    let plain = left == 1 || style & 1 == 0;
+    c.run(0x8bd1, 4 + if left == 1 { 0 } else { 2 } + if plain { 2 } else { 0 } + 1)?;
+    c.set_reg(AX, left);
     if plain {
         c.set_reg(DX, 6);
         c.set_reg(BX, 0);
     }
-    let bx = c.reg(BX);
-    c.set_word(0x479c, bx);
-    // 8BE9h: the characters.
+    let wide = c.reg(BX);
+    c.set_word(0x479c, wide);
+    let mut words = words;
     loop {
-        let si = c.reg(SI);
-        let al = c.byte(si);
-        let tests: &[u8] = &[0x20, 0x0d, 0x06, 0x08, 0x01];
-        let hit = tests.iter().position(|&t| t == al);
-        let cmps = |c: &mut Ctx, upto: usize| {
-            c.lods(B, DS);
-            c.or(B, al as u16, al as u16);
-            for &t in &tests[..upto] {
-                c.cmp(B, al as u16, t as u16);
-            }
-        };
-        if al & 0x80 != 0 {
+        let at = c.reg(SI);
+        let ch = c.byte(at);
+        if ch & 0x80 != 0 {
             c.run(0x8be9, 3)?;
-            cmps(c, 0);
+            c.lods(B, DS);
         } else {
-            match hit {
-                Some(0) | Some(1) => {
-                    let k = hit.unwrap();
-                    c.run(0x8be9, 3 + 2 * (k as u32 + 1))?;
-                    cmps(c, k + 1);
+            match ch {
+                b' ' | b'\r' => {
+                    c.run(0x8be9, if ch == b' ' { 5 } else { 7 })?;
+                    c.lods(B, DS);
                     skip_blanks_8c19(c)?;
                 }
-                Some(2) | Some(3) => {
-                    let k = hit.unwrap();
-                    c.run(0x8be9, 3 + 2 * (k as u32 + 1) + 1)?;
-                    cmps(c, k + 1);
-                    let (to, ret) = if k == 2 { (0xd075u16, 0x8c12u16) } else { (0xd068, 0x8c17) };
-                    c.call(to, ret)?;
-                    c.run(ret, 1)?;
+                6 | 8 => {
+                    let (to, back, cost) = if ch == 6 { (0xd075u16, 0x8c12u16, 10) } else { (0xd068, 0x8c17, 12) };
+                    c.run(0x8be9, cost)?;
+                    c.lods(B, DS);
+                    c.call(to, back)?;
+                    c.run(back, 1)?;
                     continue;
                 }
-                Some(_) => {
-                    c.run(0x8be9, 3 + 10 + 4)?;
-                    cmps(c, 5);
-                    let v = c.word(0xdbe4);
-                    let v = v.rotate_left(8);
-                    c.set_reg(AX, v);
-                    c.set_word(0xdbe4, v);
+                1 => {
+                    let colours = c.word(super::globals::TEXT_COLOUR).rotate_left(8);
+                    c.run(0x8be9, 17)?;
+                    c.lods(B, DS);
+                    c.set_reg(AX, colours);
+                    c.set_word(super::globals::TEXT_COLOUR, colours);
                     continue;
                 }
-                None => {
-                    c.run(0x8be9, 3 + 10 + 1)?;
-                    cmps(c, 5);
-                    let to = c.word(0x2518);
-                    c.call(to, 0x8c45)?;
+                _ => {
+                    let draw = c.word(super::globals::FONT_DRAW);
+                    c.run(0x8be9, 14)?;
+                    c.lods(B, DS);
+                    c.cmp(B, ch as u16, 1); // the font routine is called with these
+                    c.call(draw, 0x8c45)?;
                     c.run(0x8c45, 1)?;
                     continue;
                 }
             }
         }
         // 8C26h: a word ends.
-        let cx = c.reg(CX).wrapping_sub(1);
-        if cx == 0 {
+        words = words.wrapping_sub(1);
+        if words == 0 {
             c.run(0x8c26, 2)?;
-            c.dec(W, 1);
             c.set_reg(CX, 0);
             return Ok(());
         }
-        let k = c.word(0x479c);
-        c.run(0x8c26, 2 + 4 + if k != 0 { 2 } else { 0 } + 3)?;
-        let cx0 = c.reg(CX);
-        c.dec(W, cx0);
-        c.set_reg(CX, cx);
-        let dx = c.reg(DX);
-        c.push(dx);
-        let p = c.word(0xd82c);
-        let mut x = c.add(W, dx, p);
-        c.cmp(W, k, 0);
-        if k != 0 {
-            x = c.inc(W, x);
-            let k2 = c.dec(W, k);
-            c.set_word(0x479c, k2);
+        let wider = c.word(0x479c);
+        let gap = c.reg(DX);
+        let x = c.word(FONT_X).wrapping_add(gap).wrapping_add((wider != 0) as u16);
+        c.run(0x8c26, if wider != 0 { 11 } else { 9 })?;
+        c.set_reg(CX, words);
+        if wider != 0 {
+            c.set_word(0x479c, wider - 1);
         }
-        c.set_reg(DX, x);
-        c.set_word(0xd82c, x);
-        let dx = c.pop();
-        c.set_reg(DX, dx);
+        c.set_word(FONT_X, x);
+        // DX (the gap) pushed and popped around the sum: it stays below
+        // SP.
+        c.push(gap);
+        c.pop();
     }
 }
 
@@ -4163,23 +3798,13 @@ fn line_8ba3(c: &mut Ctx, cx: u16, dx2: u16, bx2: u16) -> Result<(), Bail> {
 /// the word's end (`loc_08c26`, counted by the caller's loop).
 fn skip_blanks_8c19(c: &mut Ctx) -> Result<(), Bail> {
     loop {
-        let si = c.reg(SI);
-        let b = c.byte(si);
-        if b == 0x20 {
-            c.run(0x8c19, 4)?;
-            c.cmp(B, b as u16, 0x20);
-        } else if b == 0x0d {
-            c.run(0x8c19, 6)?;
-            c.cmp(B, b as u16, 0x20);
-            c.cmp(B, b as u16, 0x0d);
-        } else {
-            c.run(0x8c19, 4)?;
-            c.cmp(B, b as u16, 0x20);
-            c.cmp(B, b as u16, 0x0d);
-            return Ok(());
+        let at = c.reg(SI);
+        match c.byte(at) {
+            b' ' => c.run(0x8c19, 4)?,
+            b'\r' => c.run(0x8c19, 6)?,
+            _ => return c.run(0x8c19, 4),
         }
-        let si = c.inc(W, si);
-        c.set_reg(SI, si);
+        c.set_reg(SI, at.wrapping_add(1));
     }
 }
 
@@ -4429,80 +4054,73 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
     }
 }
 
-/// `loc_088d2`: the phrase SI formatted into the text buffer A6B0h
-/// (`format_interpolated_string`); in the subtitle modes (from 2 of
-/// [28E7h]) outside a dialogue scene ([46D9h] 0) the speech record
-/// 1BE2h reset instead ([479Eh] 1, [1C06h] 80h unless [0FBh] is
-/// negative); else a phrase not starting with a code shown
-/// (`loc_08b11`). Bails with DF set.
+/// `loc_088d2`: the phrase SI formatted into the text buffer
+/// ([`format_interpolated_string`]); with [`MAP_SCREEN`] 2 or more
+/// outside a dialogue scene ([46D9h] 0) the speech record 1BE2h reset
+/// instead ([`BOX_SHOWN`] 1, [1C06h] 80h unless [0FBh] is negative);
+/// else a phrase not starting with a code laid out ([`layout_text`]).
+/// Bails with DF set.
 pub fn format_and_show(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x88d2)?;
     let mut c = Ctx::new(m);
     if c.flag(pc::cpu::DF) {
         return Err(Bail);
     }
-    c.run(start, 3)?;
-    c.set_reg(DI, 0xa6b0);
-    c.push(0xa6b0);
+    show_text_88d2(&mut c)
+}
+
+/// From 88D2h (see [`format_and_show`]; [`show_phrase`] runs on into it).
+fn show_text_88d2(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0x88d2, 3)?;
+    c.set_reg(DI, TEXT_BUFFER);
+    c.push(TEXT_BUFFER);
     c.call(0x8944, 0x88d9)?;
-    let mode = c.byte(0x28e7);
-    let scene = c.byte(0x46d9);
-    if mode >= 2 && scene == 0 {
+    let screen = c.byte(MAP_SCREEN);
+    let scene = c.byte(0x46d9) != 0;
+    if screen >= 2 && !scene {
         if c.flag(pc::cpu::DF) {
             c.m.cpu.ip = 0x88d9;
             return Err(Bail);
         }
+        let shown = !c.byte(0xfb) & 0x80;
         c.run(0x88d9, 21)?;
-        let s = c.pop();
-        c.set_reg(SI, s);
-        c.cmp(B, mode as u16, 2);
-        c.cmp(B, 0, 0);
+        let text = c.pop();
+        c.set_reg(SI, text);
         c.set_word(BOX_SHOWN, 1);
-        let f = c.byte(0xfb);
-        c.set_reg8(r8::AL, !f);
-        let a = c.and(B, (!f) as u16, 0x80);
-        c.set_byte(0x1c06, a as u8);
+        c.set_byte(0x1c06, shown);
         let ds = c.sreg(DS);
         c.push(ds);
-        let v = c.pop();
-        c.set_sreg(ES, v);
+        let es = c.pop();
+        c.set_sreg(ES, es);
         c.set_reg(DI, 0x1be2);
-        c.xor(W, 0, 0);
         c.set_reg(AX, 0);
         for _ in 0..4 {
             c.stos(W);
         }
         c.set_reg8(r8::AL, 0x80);
         c.stos(W);
+        c.xor(W, 0, 0); // the exit's flags
         return c.ret();
     }
-    let si = c.word_in(SS, c.reg(SP));
-    let b = c.byte(si);
-    let pre = 3 + if mode >= 2 { 2 } else { 0 };
-    if b & 0x80 != 0 {
-        c.run(0x88d9, pre + 4)?;
-    } else {
-        c.run(0x88d9, pre + 5)?;
-    }
-    let s = c.pop();
-    c.set_reg(SI, s);
-    c.cmp(B, mode as u16, 2);
-    if mode >= 2 {
-        c.cmp(B, scene as u16, 0);
-    }
+    let sp = c.reg(SP);
+    let text = c.word_in(SS, sp);
+    let first = c.byte(text);
+    let tests = if screen >= 2 { 5 } else { 3 };
+    c.run(0x88d9, tests + if first & 0x80 != 0 { 4 } else { 5 })?;
+    c.pop();
+    c.set_reg(SI, text);
     c.lods(B, DS);
-    c.or(B, b as u16, b as u16);
-    if b & 0x80 != 0 {
+    if first & 0x80 != 0 {
+        c.or(B, first as u16, first as u16); // the exit's flags
         return c.ret();
     }
-    let si = c.reg(SI);
-    let si = c.dec(W, si);
-    c.set_reg(SI, si);
+    let back = c.reg(SI).wrapping_sub(1);
+    c.set_reg(SI, back);
     c.call(0x8b11, 0x88ea)?;
-    let si = c.reg(SI);
-    let v = c.byte(si);
-    c.run(0x88ea, if v >= 0xfe { 3 } else { 4 })?;
-    c.cmp(B, v as u16, 0xfe);
+    let at = c.reg(SI);
+    let end = c.byte(at);
+    c.run(0x88ea, if end >= 0xfe { 3 } else { 4 })?;
+    c.cmp(B, end as u16, 0xfe); // the exit's flags
     c.ret()
 }
 
@@ -4751,7 +4369,7 @@ fn frame_8fd1(c: &mut Ctx) -> Result<(), Bail> {
     c.set_word(0x1bea, 0x80);
     c.set_word(0x1bee, 0x7bed);
     let v = c.word(0x1be4);
-    let v = c.sub(W, v, 2);
+    let v = c.sub(W, v, 2); // the driver's far call sees these flags
     c.set_word(0x1be4, v);
     let al = c.byte(0x18f2);
     c.set_reg8(r8::AL, al);
@@ -4759,8 +4377,7 @@ fn frame_8fd1(c: &mut Ctx) -> Result<(), Bail> {
     c.set_sreg(ES, es);
     c.interp(0x8fea, 0x8fee)?;
     c.run(0x8fee, 3)?;
-    let v = c.word(0x1be4);
-    let v = c.add(W, v, 2);
+    let v = c.word(0x1be4).wrapping_add(2);
     c.set_word(0x1be4, v);
     let v = c.pop();
     c.set_reg(SI, v);
@@ -4799,30 +4416,22 @@ fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
     c.push(ds);
     let v = c.pop();
     c.set_sreg(ES, v);
-    let al = c.reg8(r8::AL);
-    c.xor(B, al as u16, al as u16);
     c.set_reg8(r8::AL, 0);
     c.rep(0xaa);
     c.run(0x9017, 4)?;
-    c.set_reg(AX, 0x4c6f);
-    let a = c.and(B, 0x6f, 0xf0);
-    c.set_reg(AX, 0x4c00 | a);
-    c.set_word(0x22fc, 0x4c00 | a);
+    c.set_reg(AX, 0x4c60);
+    c.set_word(0x22fc, 0x4c60);
     c.call(0xc085, 0x9022)?;
     // The `jmp`, then 8895h to its `ret`: 15 instructions.
     c.run(0x9022, 1 + 15)?;
-    let f = c.byte(0xfb);
-    let a = !f;
-    let a = c.and(B, a as u16, 0x80);
-    c.set_reg8(r8::AL, a as u8);
-    c.set_byte(0x1c06, a as u8);
+    let shown = !c.byte(0xfb) & 0x80;
+    c.set_reg8(r8::AL, shown);
+    c.set_byte(0x1c06, shown);
     let ds = c.sreg(DS);
     c.push(ds);
     let v = c.pop();
     c.set_sreg(ES, v);
     c.set_reg(DI, 0x1be2);
-    let ax = c.reg(AX);
-    c.xor(W, ax, ax);
     c.set_reg(AX, 0);
     for _ in 0..4 {
         c.stos(W);
@@ -5058,71 +4667,57 @@ pub fn dialogue_scene_a25b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     scene_at_a25b(&mut Ctx::new(m))
 }
 
+/// The search of [`dialogue_scene_a25b`].
 fn scene_at_a25b(c: &mut Ctx) -> Result<(), Bail> {
-    let ax = c.word(0x4780);
+    let scene = c.word(super::globals::TALKING_HEAD_TIME);
     let step = c.string_step(W);
-    let mut di = 0x197cu16;
-    let mut k = 0u32;
-    let w = loop {
-        di = di.wrapping_add(8);
-        let w = c.word(di);
-        di = di.wrapping_add(step);
-        k += 1;
-        if ax <= w {
+    // `scasw` from 197Ch + 8, every 8 + 2, while the scene is above.
+    let mut at = 0x197cu16;
+    let mut tried = 0u32;
+    let entry = loop {
+        at = at.wrapping_add(8);
+        let w = c.word(at);
+        at = at.wrapping_add(step);
+        tried += 1;
+        if scene <= w {
             break w;
         }
-        if k > 10_000 {
+        if tried > 10_000 {
             c.m.cpu.ip = 0xa25b;
             return Err(Bail);
         }
     };
-    let found = ax == w;
-    let next = c.word(di);
-    let al0 = c.byte(SENTENCE_KIND);
+    let found = scene == entry;
+    let next = c.word(at);
+    let kind = c.byte(SENTENCE_KIND);
     // `dec al; js` jumps for AL 0 and 81h-FFh.
-    let n = 6 + 3 * k + 1
-        + if found { 2 + (next == 0x38) as u32 + 3 + if al0 == 0 || al0 > 0x80 { 0 } else { 4 } + 2 } else { 0 }
+    let raised = kind != 0 && kind <= 0x80;
+    let cost = 6 + 3 * tried + 1
+        + if found { 2 + (next == 0x38) as u32 + 3 + if raised { 4 } else { 0 } + 2 } else { 0 }
         + 2;
-    c.run(0xa25b, n)?;
+    c.run(0xa25b, cost)?;
     let si = c.reg(SI);
     c.push(si);
     let ds = c.sreg(DS);
     c.push(ds);
     let es = c.pop();
     c.set_sreg(ES, es);
-    c.set_reg(AX, ax);
+    c.set_reg(AX, scene);
     c.set_reg(BX, 0x0a01);
-    let mut d = 0x197cu16;
-    for _ in 0..k {
-        d = c.add(W, d, 8);
-        let w = c.word(d);
-        c.cmp(W, ax, w);
-        d = d.wrapping_add(step);
-    }
-    c.set_reg(DI, d);
+    c.set_reg(DI, at);
     if found {
-        c.cmp(W, next, 0x38);
-        let mut bx = 0x0a01u16;
-        if next == 0x38 {
-            bx = 0x1001;
+        let mut part = if next == 0x38 { 0x1001u16 } else { 0x0a01 };
+        let al = kind.wrapping_sub(1);
+        c.set_reg8(r8::AL, al);
+        if raised {
+            let ax = (scene & 0xff00 | (al << 1) as u16) + 1;
+            let al = (ax as u8) << 1;
+            c.set_reg(AX, ax & 0xff00 | al as u16);
+            part = part.wrapping_add((al as u16) << 8);
         }
-        c.set_reg8(r8::AL, al0);
-        let al = c.dec(B, al0 as u16);
-        c.set_reg8(r8::AL, al as u8);
-        if al & 0x80 == 0 {
-            let al = c.shl1(B, al, 1);
-            c.set_reg8(r8::AL, al as u8);
-            let ax = c.reg(AX);
-            let ax = c.inc(W, ax);
-            c.set_reg(AX, ax);
-            let al = c.shl1(B, ax & 0xff, 1);
-            c.set_reg8(r8::AL, al as u8);
-            let bh = c.add(B, bx >> 8, al);
-            bx = (bh << 8) | (bx & 0xff);
-        }
-        c.set_reg(BX, bx);
-        c.set_word(0x47e1, bx);
-        c.set_word(0x47e4, d);
+        c.set_reg(BX, part);
+        c.set_word(NUMBER_PART, part);
+        c.set_word(NUMBER_RECORD, at);
     }
     let si = c.pop();
     c.set_reg(SI, si);

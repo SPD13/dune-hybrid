@@ -76,3 +76,14 @@ pub fn ror1(w: Width, a: u16) -> u16 {
     let r = a as u32 & mask(w);
     (((r >> 1) | ((r & 1) << (w.bits() - 1))) & mask(w)) as u16
 }
+
+/// What `lahf` loads after `cmp a, b` (SF ZF 0 AF 0 PF 1 CF): code that
+/// keeps a compare's flags as data.
+pub fn lahf_cmp(w: Width, a: u16, b: u16) -> u8 {
+    let r = sub(w, a, b);
+    let top = if w == Width::W { 0x8000 } else { 0x80 };
+    let cf = (a as u32 & mask(w)) < (b as u32 & mask(w));
+    let af = (a ^ b ^ r) & 0x10 != 0;
+    let pf = (r as u8).count_ones() % 2 == 0;
+    (r & top != 0) as u8 * 0x80 | (r == 0) as u8 * 0x40 | af as u8 * 0x10 | pf as u8 * 4 | 2 | cf as u8
+}

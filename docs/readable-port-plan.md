@@ -57,17 +57,37 @@ reached in real play). For each:
    port runs only from its entry). `--why ADDR` shows where a mask comes
    from. An INT counts as reading all flags (its service sees them).
    When the analysis changes, `tools/lift/recheck_dropped.py BASE` puts
-   the ports the tools converted back to their exact form where the
-   conversion's rules would now refuse them (masks only shrink safely).
+   the ports the tools converted (those with `pure::`) back to their
+   exact form where the conversion's rules would now refuse them (masks
+   only shrink safely); hand rewrites it only lists, for a look.
    Whatever it cannot follow counts as read: code never run (not in the
    generated code), an indirect target no run took. INT and far calls
-   (BIOS, DOS, the drivers) pass the flags through. The current result:
+   (BIOS, DOS, the drivers) pass the flags through.
+
+   Besides the generated code's routines, every direct call target and
+   every hand port's entry counts as a routine (some start inside a
+   generated routine's code: `setup_lip_sync_data_from_sprite_sheet` at
+   91A0h), and the targets of indirect calls get what they read on entry
+   from their own code. The call-each harness calls through registers
+   holding anything (`call bp` in C097h with a random BP): of its
+   indirect targets only those with a port count. An entry that starts in
+   the middle of an instruction of the ported routines' code (only the
+   harness reaches one) is no routine: a RET after it belongs to the real
+   one. And the instruction after another is the one the generated code
+   lists next in its block, not the next address decoded (code decoded
+   from such an entry overlaps it). What is read after a call follows the
+   code on to a RET, and that RET returns to the callers of the routine
+   the call was made in (or of the routines that jump into its code),
+   whichever routine's code the RET is in. A jump counts only where a
+   game could make it: not from a routine without a port that nothing
+   calls, at an instruction no game ran (code decoded from the middle of
+   an instruction, which only the harness reaches). The current result:
 
    | Routines | Flags their callers read |
    |---|---|
-   | 712 | none: the port can drop every flag-exact helper on its result |
-   | 61 | some (mostly CF or ZF alone) |
-   | 416 | all, or unknown |
+   | 821 | none: the port can drop every flag-exact helper on its result |
+   | 111 | some (mostly CF or ZF alone) |
+   | 257 | all, or unknown |
 
    `flags_used.py --rust` writes the table
    (`crates/dune-rec/src/hand/flags_read.rs`); the shadow check takes
@@ -96,14 +116,21 @@ as they are: `troop_ptr` (the flags of byte 3 against 80h),
 `set_troop_bit_10` family (CF made by `stc` / `cmc` over a test, kept
 by `pushf` / `popf` and returned).
 
-Dialogue (`hand/dialogue.rs`) is about half done the same way: the
-phrase and sentence steps, the text's frame task, line breaking, the
-speakers and their gauges, the phrase over the map, the talking head and
-speech bubble, the dialogue state routines. Left as they are: the rect
-comparisons (`rects_missing` and on: flags as data, the `and` of two
-string compares), `line_done` and its tails (a pushed return address,
-calls through BP), `layout_text`, `format_interpolated_string`,
-`say_dialogue_entry`, the book page and text box.
+Dialogue (`hand/dialogue.rs`) is done the same way: the phrase and
+sentence steps, the text's frame task, the text's layout and line
+breaking, the speakers and their gauges, the phrase over the map, the
+talking head and speech bubble, the book page and text box, the entries
+said, the clicks, the head's lip sync set-up and the rects the head
+changed (the `lahf` bytes of its compares as data, `pure::lahf_cmp`).
+What flag helpers are left are the exits' flags and those an indirect
+call or the driver sees.
+
+Map, story, the globe, UI, voice and panels: their ports whose callers
+read no flags but which the tool below can't convert (a driver call, a
+flag used as data such as `rcl` from a seed, a `pushf` / `popf` pair)
+are being converted by hand: everything but the flags a driver call or
+an indirect call sees. `pushf` / `popf` pairs still push the exact flags
+(the word stays below SP, in the dead stack, but is written).
 
 **Dead flags dropped everywhere else, mechanically.**
 `tools/lift/drop_flags.py` takes each port whose callers read no flags
@@ -113,12 +140,21 @@ helpers into their flag-free forms (`hand/pure.rs`: `pure::add(W, a, b)`
 for `c.add(W, a, b)`, same results). It leaves a port alone when
 anything could still see those flags: it reads a flag itself, calls or
 jumps to a routine that reads flags on entry or one the analysis doesn't
-know, calls through a register, has an INT or far call run, or hands its
-context to a helper that could (followed through the helpers).
+know (for a jump into the middle of one, what is read from there on:
+`flags_used.py --at`), calls through a register (not a loop over a
+literal list of targets), has an INT or far call run, or hands its
+context to a helper that could (followed through the helpers), or can
+stop where the original goes on reading flags (a `run` that is not a
+call's return: `check_stops.py`). Reading DF (the string direction) is
+no reason: no operation sets it. A port
+whose callers do read flags is converted too when it never returns
+itself: it ends only in tails to routines that read no flags and pass
+none through to their RET, so its callers see theirs. A port with
+several entries (`match start`) counts the masks of all of them.
 `tools/lift/drop_unused_reads.py` then removes the reads only the
-dropped compares used. This converted about 330 ports across the other
-modules (story 58, map 46, the tails, UI, panels, screens and more). The
-ports whose callers read flags (about 430) need their exit flags kept,
+dropped compares used. This converted about 400 ports across the other
+modules (story, map, the tails, UI, panels, screens and more). The
+ports whose callers read flags (about 390) need their exit flags kept,
 which a line-by-line tool can't place safely: they are for the hand
 rewrite, module by module.
 
@@ -136,7 +172,7 @@ Things that bit:
 
 - **Flags on entry.** A port that drops flags must still set those the
   routine it calls or jumps to reads on entry: `flags_used.py --in` lists
-  them (55 routines read any; CF for the troop callbacks, given by the
+  them (33 routines read any; CF for the troop callbacks, given by the
   loops).
 - **Where a port stops.** A port stops (bails) at the start of any
   `run` when an interrupt is due there, and the interpreter goes on from
@@ -147,6 +183,11 @@ Things that bit:
   original's code from there might read them: `flags_used.py --at ADDR..`
   lists what each such address reads; in the troops every such point that
   reads any comes right after a call, where the flags are the callee's.
+  `tools/lift/check_stops.py` lists the `run` addresses that are not a
+  call's return and from which the original reads flags: there the
+  port's flags must stay exact (`transfer_sd_block` stops before an `adc`
+  that reads the CF of its `shr`; `text_box_for` before a `je` after
+  `dec cx`).
 - **Flags at the exits.** A routine whose callers read flags (mask not 0)
   returns them exact: the readable port does the original's last
   flag-setting instruction of that path with the flag helper (one line,

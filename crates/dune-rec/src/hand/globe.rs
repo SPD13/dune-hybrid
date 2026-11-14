@@ -177,9 +177,8 @@ pub fn globe_slide_decorations_open(m: &mut Machine, start: u16) -> Result<(), B
         let more = (x as i16) > -0x6a;
         c.run(0xb908, if more { 3 } else { 4 })?;
         let x0 = c.word(g::GLOBE_DECORATIONS_X);
-        let x = c.sub(W, x0, 0x10);
+        let x = pure::sub(W, x0, 0x10);
         c.set_word(g::GLOBE_DECORATIONS_X, x);
-        c.cmp(W, x, 0xff96);
         if !more {
             return c.ret();
         }
@@ -388,7 +387,7 @@ pub fn frieze_sides_closed_book(m: &mut Machine, start: u16) -> Result<(), Bail>
     for (from, to) in [(g::BOOK_PAGE, 0x0a), (g::BOOK_PAGE + 1, 0x18)] {
         let v = c.byte(from) as i8 as u16;
         c.set_reg(AX, v);
-        let v = c.add(W, v, 0x41);
+        let v = pure::add(W, v, 0x41);
         c.set_reg(AX, v);
         c.set_word(g::BOOK_COUNTERS + to, v);
     }
@@ -467,7 +466,7 @@ pub fn map_cell_scaled(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xb5c8, 4)?;
     let ax = c.reg(AX);
-    let z = c.xor(W, ax, ax);
+    let z = pure::xor(W, ax, ax);
     c.set_reg(AX, z);
     c.m.cpu.mul_div(&mut c.m.hw, W, 6, bp as u32); // div bp
     let q = c.reg(AX);
@@ -510,49 +509,24 @@ pub fn map_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb647)?;
     let mut c = Ctx::new(m);
     let zoom = c.byte(HOTSPOT_KINDS) & 0x80 != 0;
-    let bx = c.reg(BX);
-    let row8 = bx.wrapping_mul(8);
-    let neg = row8 & 0x8000 != 0;
-    let cl = if zoom { 2 } else { 0 };
+    let shift = if zoom { 2 } else { 0 };
+    let (along, row) = (c.reg(DX), c.reg(BX));
+    let y = (row.wrapping_sub(c.word(CENTRE + 2)) << shift).wrapping_add(c.word(SCREEN_CENTRE + 2));
+    // The row's width (the latitude table's word 2, doubled).
+    let index = row.wrapping_mul(8);
+    let neg = index & 0x8000 != 0;
+    let index = if neg { index.wrapping_neg() } else { index };
+    let width = c.word_in(SS, index.wrapping_add(LATITUDES + 2)).wrapping_mul(2);
+    // `imul bp`, then DX:AX shifted by the zoom.
+    let offset = along.wrapping_sub(c.word(CENTRE));
+    let x = ((offset as i16 as i32 * width as i16 as i32) as u32) << shift;
     c.run(start, 3 + zoom as u32 + 8 + neg as u32 + 6 + if zoom { 3 * 2 } else { 0 } + 2)?;
-    c.xor(W, 0, 0);
-    let k = c.byte(HOTSPOT_KINDS);
-    c.test(B, k as u16, 0x80);
-    c.set_reg(CX, cl);
-    let cy = c.word(CENTRE + 2);
-    let y = c.sub(W, bx, cy);
-    let y = c.shl(W, y, cl as u8);
-    let sy = c.word(SCREEN_CENTRE + 2);
-    let y = c.add(W, y, sy);
+    c.set_reg(CX, 0);
     c.set_reg(BX, y);
-    let mut bp = c.shl1(W, bx, 3);
-    if neg {
-        bp = c.neg(W, bp);
-    }
-    let w = c.word_in(SS, bp.wrapping_add(LATITUDES + 2));
-    let w = c.add(W, w, w);
-    c.set_reg(BP, w);
-    let dx = c.reg(DX);
-    let cx0 = c.word(CENTRE);
-    let d = c.sub(W, dx, cx0);
-    c.set_reg(AX, d);
-    c.set_reg(DX, d);
-    c.m.cpu.mul_div(&mut c.m.hw, W, 5, w as u32); // imul bp
-    if zoom {
-        for _ in 0..2 {
-            let ax = c.reg(AX);
-            let ax = c.shl1(W, ax, 1);
-            c.set_reg(AX, ax);
-            let dx = c.reg(DX);
-            let dx = c.rcl1(W, dx);
-            c.set_reg(DX, dx);
-        }
-        c.set_reg(CX, 0);
-    }
-    let dx = c.reg(DX);
-    let sx = c.word(SCREEN_CENTRE);
-    let dx = c.add(W, dx, sx);
-    c.set_reg(DX, dx);
+    c.set_reg(BP, width);
+    c.set_reg(AX, x as u16);
+    let screen_x = c.word(SCREEN_CENTRE);
+    c.set_reg(DX, ((x >> 16) as u16).wrapping_add(screen_x));
     c.ret()
 }
 
@@ -567,23 +541,9 @@ pub fn span_b683(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cx = bp2.wrapping_neg();
     let take = cx < dx2;
     c.run(start, if sf { 3 } else { 4 } + 4 + take as u32 + 1)?;
-    if sf {
-        c.set_reg(BP, dx);
-        let d = c.add(W, bp, dx);
-        c.set_reg(DX, d);
-    } else {
-        let b = c.sub(W, bp, dx);
-        let b = c.neg(W, b);
-        c.set_reg(BP, b);
-    }
-    let bp = c.reg(BP);
-    let cx = c.neg(W, bp);
+    c.set_reg(BP, bp2);
+    c.set_reg(DX, if take { bp2 } else { dx2 });
     c.set_reg(CX, cx);
-    let dx = c.reg(DX);
-    c.cmp(W, cx, dx);
-    if take {
-        c.set_reg(DX, bp);
-    }
     c.ret()
 }
 
@@ -593,47 +553,41 @@ pub fn step_b5cf(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb5cf)?;
     let mut c = Ctx::new(m);
     let (ax, bx) = (c.reg(AX), c.reg(BX));
-    let (ah, bh, bl) = ((ax >> 8) as u8, (bx >> 8) as u8, bx as u8);
-    let n = if ah == 0 {
+    let [step, _] = ax.to_le_bytes();
+    let [mut bl, mut bh] = bx.to_le_bytes();
+    let [_, ah] = ax.to_le_bytes();
+    // BH += AH; its carry (a borrow going back) moves the row BL, which
+    // stays in 62h..9Eh (signed: past it the step is undone).
+    let cost = if ah == 0 {
         5
-    } else if ah & 0x80 == 0 {
-        let (_, carry) = bh.overflowing_add(ah);
-        if !carry { 8 } else if (bl.wrapping_add(1) as i8) < 0x62 { 11 } else { 14 }
     } else {
-        let (_, carry) = bh.overflowing_add(ah);
-        if carry { 8 } else if (bl.wrapping_sub(1) as i8) > (0x9e_u8 as i8) { 11 } else { 13 }
-    };
-    c.run(start, n)?;
-    c.or(B, ah as u16, ah as u16);
-    if ah != 0 {
-        let (mut bh, mut bl) = (bh, bl);
+        let (sum, carry) = bh.overflowing_add(ah);
+        bh = sum;
         if ah & 0x80 == 0 {
-            bh = c.add(B, bh as u16, ah as u16) as u8;
-            if c.flag(pc::cpu::CF) {
-                bl = c.inc(B, bl as u16) as u8;
-                c.cmp(B, bl as u16, 0x62);
-                if (bl as i8) >= 0x62 {
-                    bl = c.dec(B, bl as u16) as u8;
-                    bh = c.sub(B, bh as u16, ah as u16) as u8;
-                }
+            if !carry {
+                8
+            } else if (bl.wrapping_add(1) as i8) < 0x62 {
+                bl = bl.wrapping_add(1);
+                11
+            } else {
+                bh = bh.wrapping_sub(ah);
+                14
             }
+        } else if carry {
+            8
+        } else if (bl.wrapping_sub(1) as i8) > (0x9e_u8 as i8) {
+            bl = bl.wrapping_sub(1);
+            11
         } else {
-            bh = c.add(B, bh as u16, ah as u16) as u8;
-            if !c.flag(pc::cpu::CF) {
-                bl = c.dec(B, bl as u16) as u8;
-                c.cmp(B, bl as u16, 0x9e);
-                if (bl as i8) <= (0x9e_u8 as i8) {
-                    bl = c.inc(B, bl as u16) as u8;
-                    bh = c.sub(B, bh as u16, ah as u16) as u8;
-                }
-            }
+            bh = bh.wrapping_sub(ah);
+            13
         }
-        c.set_reg(BX, (bh as u16) << 8 | bl as u16);
-    }
-    let al = ax as u8 as i8 as u16;
-    c.set_reg(AX, al);
-    let dx = c.reg(DX);
-    let dx = c.add(W, dx, al);
+    };
+    c.run(start, cost)?;
+    c.set_reg(BX, u16::from_le_bytes([bl, bh]));
+    let step = step as i8 as u16;
+    c.set_reg(AX, step);
+    let dx = c.reg(DX).wrapping_add(step);
     c.set_reg(DX, dx);
     c.ret()
 }
@@ -675,13 +629,13 @@ pub fn read_map_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xb542, n)?;
     let ax = c.pop();
     c.set_reg(CX, ax);
-    let half = c.shr1(W, ax, 1);
+    let half = pure::shr1(W, ax, 1);
     c.set_reg(AX, half);
-    let mut di = c.sub(W, di, half);
-    let mut dx = c.sub(W, dx, half);
+    let mut di = pure::sub(W, di, half);
+    let mut dx = pure::sub(W, dx, half);
     if borrow {
-        dx = c.add(W, dx, bp);
-        di = c.add(W, di, bp);
+        dx = pure::add(W, dx, bp);
+        di = pure::add(W, di, bp);
     }
     let mut si = c.reg(SI);
     for _ in 0..count {
@@ -689,13 +643,12 @@ pub fn read_map_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::AL, v);
         c.m.cpu.write8(&mut c.m.hw, pc::cpu::DS, si, v);
         c.set_word(si.wrapping_add(1), di);
-        si = c.add(W, si, 3);
-        di = c.inc(W, di);
-        dx = c.inc(W, dx);
-        c.cmp(W, dx, bp);
+        si = pure::add(W, si, 3);
+        di = pure::inc(W, di);
+        dx = pure::inc(W, dx);
         if dx >= bp {
-            dx = c.sub(W, dx, bp);
-            di = c.sub(W, di, bp);
+            dx = pure::sub(W, dx, bp);
+            di = pure::sub(W, di, bp);
         }
     }
     c.set_reg(SI, si);
@@ -721,10 +674,9 @@ pub fn read_map_rows(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let clamp = (top as i16) < -0x62;
     c.run(start, 6 + clamp as u32 + 1 + 2)?;
     c.push(cx);
-    let half = c.shr1(W, cx, 1);
+    let half = pure::shr1(W, cx, 1);
     c.set_reg(SI, half);
-    let mut y = c.sub(W, bx, half);
-    c.cmp(W, y, 0xff9e);
+    let mut y = pure::sub(W, bx, half);
     if clamp {
         y = 0xff9e;
     }
@@ -739,7 +691,7 @@ pub fn read_map_rows(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let ax = c.pop();
         c.set_reg(AX, ax);
         let bx = c.reg(BX);
-        let bx = c.inc(W, bx);
+        let bx = pure::inc(W, bx);
         c.set_reg(BX, bx);
         c.set_reg(CX, cx);
         if cx == 0 {
@@ -1189,9 +1141,6 @@ pub fn set_globe_tilt_and_rotation(m: &mut Machine, start: u16) -> Result<(), Ba
     let d = c.reg(DX);
     c.set_word(0x494c, d);
     c.set_word(0x494e, 0);
-    c.cmp(W, bx, 0x20);
-    let a1 = if lo { 0x20 } else { bx };
-    c.cmp(W, a1, 0xffe0);
     c.set_reg(AX, a);
     c.set_word(0x2460, a);
     c.call(0xb9f6, 0xba9c)?;
@@ -1299,10 +1248,8 @@ pub fn enter_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(to, at + 3)?;
     }
     c.run(0xb8cf, 5)?;
-    let v = c.byte(0xdd03);
-    let v = c.inc(B, v as u16);
-    c.set_byte(0xdd03, v as u8);
-    c.xor(B, 0, 0);
+    let v = c.byte(0xdd03).wrapping_add(1);
+    c.set_byte(0xdd03, v);
     c.set_reg8(r8::AL, 0);
     c.set_reg(DX, 0xffff);
     c.set_reg(BP, 0xb827);
@@ -1360,11 +1307,11 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0185, 5 * 0xc5f9)?;
     for i in 0..0xc5f9u16 {
         let v = c.lods(B, ES);
-        let bx = c.shl1(W, v, 1);
+        let bx = pure::shl1(W, v, 1);
         c.set_reg(BX, bx);
         let a = bx.wrapping_add(d);
         let w = c.word(a);
-        let w = c.inc(W, w);
+        let w = pure::inc(W, w);
         c.set_word(a, w);
         c.set_reg(CX, 0xc5f8 - i);
     }
@@ -1390,24 +1337,22 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word(si.wrapping_add(2), dx);
         c.set_word(si.wrapping_add(6), di);
         let v = c.byte_in(ES, di);
-        let v = c.or(B, v as u16, 0x40);
+        let v = pure::or(B, v as u16, 0x40);
         c.m.cpu.write8(&mut c.m.hw, ES, di, v as u8);
         let es = c.word(0xdbb2);
         c.set_sreg(ES, es);
         let t = c.byte_in(ES, di);
         c.set_reg8(r8::AL, t);
         c.set_byte(si.wrapping_add(0x10), t);
-        c.xor(W, 0, 0);
-        let bx = c.shl1(W, t as u16, 1);
+        let bx = pure::shl1(W, t as u16, 1);
         c.set_reg(BX, bx);
         let n = c.word(bx.wrapping_add(0x4c60));
         c.set_reg8(r8::CL, 4);
         let n = c.m.cpu.shift(5, W, n as u32, 4) as u16;
         c.set_reg(AX, n);
         c.set_byte(si.wrapping_add(0x11), n as u8);
-        let s = c.add(W, si, 0x1c);
+        let s = pure::add(W, si, 0x1c);
         c.set_reg(SI, s);
-        c.cmp(B, nx as u16, 0xff);
         if nx == 0xff {
             break;
         }
@@ -1425,9 +1370,8 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let di = c.reg(DI);
         let nx = c.byte(di.wrapping_add(0x1c));
         c.run(0x01d7, if nx == 0xff { 4 } else { 3 })?;
-        let d = c.add(W, di, 0x1c);
+        let d = pure::add(W, di, 0x1c);
         c.set_reg(DI, d);
-        c.cmp(B, nx as u16, 0xff);
         if nx == 0xff {
             return c.ret();
         }
@@ -1466,33 +1410,23 @@ pub fn globe_or_map_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bp = c.reg(BP);
     if bp != 0x204a && bp != 0x2062 {
         c.run(0xbc22, 5)?;
-        c.cmp(W, bp, 0x204a);
-        c.cmp(W, bp, 0x2062);
         return c.ret();
     }
     c.run(0xbc22, if bp == 0x204a { 4 } else { 5 })?;
-    c.cmp(W, bp, 0x204a);
-    if bp != 0x204a {
-        c.cmp(W, bp, 0x2062);
-    }
     c.call(0xbc4e, 0xbc31)?;
     let bp = c.reg(BP);
     if c.flag(CF) {
         if bp == 0x2062 {
             c.run(0xbc31, 4)?;
-            c.cmp(W, bp, 0x2062);
             return c.ret();
         }
         c.run(0xbc31, 7)?;
-        c.cmp(W, bp, 0x2062);
         c.set_reg(BP, 0x2062);
         c.set_reg(BX, 0xd917);
-        c.xor(W, 0, 0);
         c.set_reg(CX, 0);
         return super::cursor::install_ui_list(c.m, 0xd33a);
     }
     c.run(0xbc31, 4)?;
-    c.cmp(W, bp, 0x204a);
     if bp == 0x204a {
         return c.ret();
     }
@@ -2042,24 +1976,13 @@ fn found_bbec(c: &mut Ctx) -> Result<(), Bail> {
 /// [197Eh], ax`, counted by the caller.
 fn clamp_197e(c: &mut Ctx, bx: u16) {
     let ax = c.word(0x197e);
-    c.set_reg(AX, ax);
-    c.or(W, ax, ax);
     c.set_reg(DX, ax);
     let neg = ax & 0x8000 != 0;
-    let mut a = ax;
-    if neg {
-        a = c.neg(W, ax);
-        c.set_reg(AX, a);
-    }
-    c.cmp(W, a, bx);
-    if a >= bx {
-        c.set_reg(AX, bx);
-        c.or(W, ax, ax);
-        let mut v = bx;
-        if neg {
-            v = c.neg(W, bx);
-            c.set_reg(AX, v);
-        }
+    let size = if neg { ax.wrapping_neg() } else { ax };
+    c.set_reg(AX, size);
+    if size >= bx {
+        let v = if neg { bx.wrapping_neg() } else { bx };
+        c.set_reg(AX, v);
         c.set_word(0x197e, v);
     }
 }
@@ -2086,7 +2009,6 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if f & 0x80 != 0 {
         let n = clamp_197e_count(&mut c, 0x4b);
         c.run(0xb6c3, 2 + 6 + 4 + n + 7)?;
-        c.test(B, f as u16, 0x80);
         let ds = c.sreg(DS);
         c.push(ds);
         let v = c.pop();
@@ -2100,7 +2022,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let dx = c.word(0x197c);
         c.set_reg(DX, dx);
         let t = c.word(0x197e);
-        let a = c.sub(W, t, 0x12);
+        let a = c.sub(W, t, 0x12); // the driver's far call sees these flags
         c.set_reg(AX, a);
         let di = c.word(0xdcfe);
         let es = c.word(0xdd00);
@@ -2126,47 +2048,35 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     };
     let a0 = t_after.wrapping_sub(half);
     let back = (a0 << 3) & 0x8000 != 0;
+    // The view's centre and size (VIEW: left, top, right, bottom).
     c.run(0xb6c3, 2 + 22 + 4 + n + 10 + if back { 2 } else { 1 })?;
-    c.test(B, f as u16, 0x80);
     c.set_reg(DI, 0x4c60);
-    c.set_reg(AX, e7);
-    let w = c.sub(W, e7, e3);
-    c.set_reg(AX, w);
-    let d = c.shr1(W, w, 1);
-    let d = c.add(W, d, e3);
-    c.set_reg(DX, d);
-    c.set_word(0xdcf6, d);
-    c.set_word(0xdcf2, w);
-    let a = c.sub(W, e9, e5);
-    let a = c.dec(W, a);
-    let b = c.shr1(W, a, 1);
-    let b = c.add(W, b, e5);
-    c.set_reg(BX, b);
-    c.set_word(0xdcf8, b);
-    let a = c.inc(W, a);
-    c.set_word(0xdcf4, a);
-    let a = c.dec(W, a);
-    let a = c.shr1(W, a, 1);
-    c.set_reg(AX, a);
-    c.set_reg(CX, a);
-    c.set_reg(BX, 0x56);
-    let l = c.sub(W, 0x56, a);
-    c.set_reg(BX, l);
+    let width = e7.wrapping_sub(e3);
+    let x = (width >> 1).wrapping_add(e3);
+    c.set_reg(DX, x);
+    c.set_word(0xdcf6, x);
+    c.set_word(0xdcf2, width);
+    let rows = e9.wrapping_sub(e5).wrapping_sub(1);
+    let y = (rows >> 1).wrapping_add(e5);
+    c.set_reg(BX, y);
+    c.set_word(0xdcf8, y);
+    c.set_word(0xdcf4, rows.wrapping_add(1));
+    c.set_reg(CX, half);
+    c.set_reg(BX, lim);
     clamp_197e(&mut c, lim);
     c.set_reg(BP, 0x4948);
     let dx = c.word(0x197c);
     c.set_reg(DX, dx);
-    let a = c.sub(W, t_after, half);
-    c.set_reg(AX, a);
-    c.push(a);
+    // The first latitude row: 4948h + 8 · (row - half), from the end
+    // backwards when that is negative.
+    let first = t_after.wrapping_sub(half);
+    c.push(first);
     let cnt = c.word(0xdcf4);
     c.set_reg(CX, cnt);
-    let mut s = c.shl1(W, a, 3);
-    if back {
-        s = c.neg(W, s);
-    }
+    let s = first << 3;
+    let s = if back { s.wrapping_neg() } else { s };
     c.set_reg(AX, s);
-    let bp = c.add(W, 0x4948, s);
+    let bp = 0x4948u16.wrapping_add(s);
     c.set_reg(BP, bp);
     let mut backward = back;
     let mut resume_b7a5 = false;
@@ -2182,8 +2092,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.push(cx);
                 c.set_reg(CX, w0);
                 c.set_reg(BX, w1);
-                let v = c.neg(W, w0);
-                c.set_reg(CX, v);
+                c.set_reg(CX, w0.wrapping_neg());
                 if empty {
                     backward = false;
                     c.call(0xb7d2, 0xb7a8)?;
@@ -2194,8 +2103,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let sp = c.reg(SP);
                 let cx = c.word_in(SS, sp).wrapping_sub(1);
                 c.run(0xb794, 3 + (cx == 0) as u32)?;
-                let bp = c.reg(BP);
-                let bp = c.sub(W, bp, 8);
+                let bp = c.reg(BP).wrapping_sub(8);
                 c.set_reg(BP, bp);
                 c.pop();
                 c.set_reg(CX, cx);
@@ -2214,8 +2122,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let sp = c.reg(SP);
         let cx = c.word_in(SS, sp).wrapping_sub(1);
         c.run(0xb7a8, 3)?;
-        let bp = c.reg(BP);
-        let bp = c.add(W, bp, 8);
+        let bp = c.reg(BP).wrapping_add(8);
         c.set_reg(BP, bp);
         c.pop();
         c.set_reg(CX, cx);
@@ -2238,7 +2145,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x4c60);
     let a = c.pop();
     c.set_reg(AX, a);
-    c.test(B, f as u16, 0x40);
+    c.test(B, f as u16, 0x40); // the driver's far call sees these flags
     if f & 0x40 != 0 {
         return c.ret();
     }

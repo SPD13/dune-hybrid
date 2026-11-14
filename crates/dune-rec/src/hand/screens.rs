@@ -69,10 +69,8 @@ pub fn leave_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, if kind == 0x0f { 7 } else { 8 })?;
     c.set_reg(SI, si);
     c.set_reg(DI, di);
-    let b = c.byte(di);
-    let al = c.and(B, b as u16, 0x0f);
-    c.set_reg8(r8::AL, al as u8);
-    c.cmp(B, al, 0x0f);
+    c.set_reg8(r8::AL, kind);
+    c.cmp(B, kind as u16, 0x0f); // the handler (an indirect call) could see these
     if kind == 0x0f {
         return c.ret();
     }
@@ -105,9 +103,8 @@ pub fn leave_screens(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(TRANSITION, 0x80);
         c.set_reg(SI, list);
         c.lods(B, pc::cpu::DS);
-        c.cmp(B, b as u16, 0xff);
         if b != 0xff {
-            let al = c.and(B, b as u16, 0x0f);
+            let al = pure::and(B, b as u16, 0x0f);
             c.set_reg8(r8::AL, al as u8);
         }
         if stop {
@@ -303,8 +300,8 @@ pub fn draw_rect_2458(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.word(0x1b0c);
     let d = v.wrapping_sub(3);
     c.run(start, if d >= 3 { 5 } else { 7 })?;
-    let d = c.sub(W, v, 3);
     c.set_reg(AX, d);
+    // The driver's far call sees these flags.
     c.cmp(W, d, 3);
     if d >= 3 {
         return c.ret();
@@ -471,10 +468,10 @@ pub fn draw_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd775, 11)?;
     c.set_reg(SI, si);
     let a = c.byte(0x1152) as i8 as u16;
-    let a = c.add(W, a, 0x41);
+    let a = pure::add(W, a, 0x41);
     c.set_word(si + 0x0a, a);
     let b = c.byte(0x1153) as i8 as u16;
-    let b = c.add(W, b, 0x41);
+    let b = pure::add(W, b, 0x41);
     c.set_reg(AX, b);
     c.set_word(si + 0x18, b);
     c.set_reg(CX, 2);
@@ -799,11 +796,9 @@ pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.word(0xdd0f);
     if k == 0 {
         c.run(start, 3)?;
-        c.cmp(W, 0, 0);
         return c.ret();
     }
     c.run(start, 3)?;
-    c.cmp(W, k, 0);
     for (at, to, back) in [(0xbdc2u16, 0xc08eu16, 0xbdc5u16), (0xbdc5, 0xdbb2, 0xbdc8), (0xbdc8, 0xbdfa, 0xbdcb), (0xbdcb, 0xbed7, 0xbdce)] {
         if at != 0xbdc2 {
             c.run(at, 1)?;
@@ -812,7 +807,7 @@ pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xbdce, 4)?;
     let t = c.word(2);
-    let t = c.and(W, t, 0xfff0);
+    let t = pure::and(W, t, 0xfff0);
     c.set_reg(AX, t);
     c.set_word(0x115c, t);
     c.call(0xd075, 0xbdda)?;
@@ -861,8 +856,7 @@ pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let es = c.pop();
     c.set_sreg(ES, es);
     let mut cx = 6u16;
-    for &(a, b, eq) in &ops {
-        c.cmp(B, a, b);
+    for &(_, _, eq) in &ops {
         let (s, d) = (c.reg(SI), c.reg(DI));
         c.set_reg(SI, s.wrapping_add(step));
         c.set_reg(DI, d.wrapping_add(step));
@@ -871,9 +865,9 @@ pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if eq {
             let d = c.reg(DI).wrapping_sub(1);
             let v = c.byte(d);
-            let v = c.dec(B, v as u16);
+            let v = pure::dec(B, v as u16);
             c.set_byte(d, v as u8);
-            let x = c.inc(W, cx);
+            let x = pure::inc(W, cx);
             c.set_reg(CX, x.wrapping_sub(1));
         }
     }
@@ -1310,7 +1304,6 @@ pub fn redraw_map_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let f = c.byte(0x473e);
     c.run(0x4386, if f != 0 { 4 } else { 3 })?;
-    c.cmp(B, f as u16, 0);
     if f != 0 {
         c.set_reg(AX, 0x24);
         c.call(0xc13e, 0x4393)?;
@@ -1441,18 +1434,14 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.pop();
     c.set_sreg(ES, v);
     c.set_reg(DI, 0x1f0f);
-    c.xor(B, 0, 0);
     c.set_reg8(r8::AL, 0);
     c.stos(B);
     c.set_reg(BX, bx);
     c.set_reg(DX, dx);
-    c.cmp(B, bx & 0xff, 0x80);
-    // After `lodsw; cmp ..`: `sbb ah, ah; and ah, 40h; stosw; movsw`, the
-    // entry's flag byte 40h when CF.
-    let flagged = |c: &mut Ctx, v: u16| {
-        let h = c.sbb(B, v >> 8, v >> 8);
-        let h = c.and(B, h, 0x40);
-        c.set_reg(AX, h << 8 | v & 0xff);
+    // An entry read (`lodsw`) and stored with its high byte 40h when
+    // disabled (`cmp ..; sbb ah, ah; and ah, 40h; stosw; movsw`).
+    let flagged = |c: &mut Ctx, v: u16, off: bool| {
+        c.set_reg(AX, if off { 0x4000 } else { 0 } | v & 0xff);
         c.stos(W);
         c.movs(W);
     };
@@ -1465,22 +1454,19 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if place {
         c.run(0x2f13, 5)?;
         copy(&mut c, 0x220c, 2);
-        c.cmp(B, dx & 0xff, 1);
         if dx as u8 == 1 {
             let t = c.byte(0x2b);
             if t != 0 {
+                // In a dialogue: the talk entries, the last one off from
+                // phase 4Fh.
                 c.run(0x2f1d, 15)?;
-                c.cmp(B, t as u16, 0);
                 copy(&mut c, 0x2218, 4);
                 c.set_reg(SI, 0x2214);
-                let p = c.byte(0x2a);
-                // `cmp` is between `lodsw` and `sbb`.
+                let phase = c.byte(0x2a);
                 let v = c.lods(W, DS);
-                c.cmp(B, p as u16, 0x4f);
-                flagged(&mut c, v);
+                flagged(&mut c, v, phase < 0x4f);
             } else {
                 c.run(0x2f1d, 5)?;
-                c.cmp(B, 0, 0);
                 let di = c.reg(DI);
                 c.push(di);
                 let p = c.word(0x114e);
@@ -1491,22 +1477,17 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_reg(DI, d);
                 c.set_reg(SI, 0x21dc);
                 let v = c.lods(W, DS);
-                let k = c.byte(0x46ff);
-                c.cmp(B, k as u16, 1);
-                flagged(&mut c, v);
+                let skills = c.byte(0x46ff);
+                flagged(&mut c, v, skills < 1);
             }
         } else {
             let bh = (bx >> 8) as u8;
             if bh != 1 {
                 c.run(0x2f58, 2)?;
-                c.cmp(B, bh as u16, 1);
             } else if dx as u8 != 8 {
                 c.run(0x2f58, 4)?;
-                c.cmp(B, 1, 1);
-                c.cmp(B, dx & 0xff, 8);
                 let nine = dx as u8 == 9;
                 c.run(0x2f99, if nine { 5 } else { 2 })?;
-                c.cmp(B, dx & 0xff, 9);
                 if nine {
                     copy(&mut c, 0x21f0, 2);
                 }
@@ -1514,40 +1495,23 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let c8 = c.byte(0xc8);
                 if c8 == 0 {
                     c.run(0x2f58, 6)?;
-                    c.cmp(B, 1, 1);
-                    c.cmp(B, 8, 8);
-                    c.cmp(B, 0, 0);
                 } else {
-                    let cl = c.byte(0xc9);
-                    let a9 = c.byte(0x47a9);
-                    c.run(0x2f58, 15 + if a9 != 0 { 1 } else { 0 } + 11 + 2)?;
-                    c.cmp(B, 1, 1);
-                    c.cmp(B, 8, 8);
-                    c.cmp(B, c8 as u16, 0);
+                    // A sietch's troops: the first entry off without any
+                    // there ([0C9h]; its phrase 26h then, 28h in a call),
+                    // the second once they're all there.
+                    let here = c.byte(0xc9);
+                    let calling = c.byte(0x47a9) != 0;
+                    c.run(0x2f58, 15 + calling as u32 + 11 + 2)?;
                     c.set_reg(SI, 0x21e8);
                     let v = c.lods(W, DS);
-                    c.set_reg8(r8::CL, cl);
-                    c.cmp(B, cl as u16, 1);
-                    let h = c.sbb(B, v >> 8, v >> 8);
-                    let ch = c.add(B, 0x27, h);
-                    c.cmp(B, a9 as u16, 0);
-                    let ch = if a9 != 0 { 0x28 } else { ch };
-                    c.set_reg8(r8::CH, ch as u8);
-                    c.set_byte(0x1248, ch as u8);
-                    let h = c.and(B, h, 0x40);
-                    c.set_reg(AX, h << 8 | v & 0xff);
-                    c.stos(W);
-                    c.movs(W);
+                    c.set_reg8(r8::CL, here);
+                    let none = here < 1;
+                    let phrase = if calling { 0x28 } else if none { 0x26 } else { 0x27 };
+                    c.set_reg8(r8::CH, phrase);
+                    c.set_byte(0x1248, phrase);
+                    flagged(&mut c, v, none);
                     let v = c.lods(W, DS);
-                    c.cmp(B, cl as u16, c8 as u16);
-                    let cf = c.flag(CF);
-                    c.set_flag(CF, !cf);
-                    let h = c.sbb(B, v >> 8, v >> 8);
-                    let h = c.and(B, h, 0x40);
-                    c.set_reg(AX, h << 8 | v & 0xff);
-                    c.stos(W);
-                    c.movs(W);
-                    c.cmp(B, 8, 9);
+                    flagged(&mut c, v, here >= c8);
                 }
             }
         }
@@ -1558,20 +1522,16 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mode = c.byte(0x11c9);
     if mode & 3 == 0 {
         c.run(0x2faa, 13)?;
-        c.test(B, mode as u16, 3);
         copy(&mut c, 0x220c, 2);
         c.set_reg(SI, 0x2214);
         let v = c.lods(W, DS);
-        let p = c.byte(0x2a);
-        c.cmp(B, p as u16, 0x4f);
-        flagged(&mut c, v);
+        let phase = c.byte(0x2a);
+        flagged(&mut c, v, phase < 0x4f);
         c.call(0x1ae0, 0x2fc9)?;
-        let al = c.reg8(r8::AL);
-        c.run(0x2fc9, 3 + if al >= 0x0b { 1 } else { 0 } + 3)?;
-        c.set_reg(SI, 0x21e0);
-        c.cmp(B, al as u16, 0x0b);
-        let si = if al >= 0x0b { c.add(W, 0x21e0, 4) } else { 0x21e0 };
-        copy(&mut c, si, 2);
+        // By the time of day (`loc_01ae0`): 21E0h or, from 0Bh, 21E4h.
+        let hour = c.reg8(r8::AL);
+        c.run(0x2fc9, 3 + if hour >= 0x0b { 1 } else { 0 } + 3)?;
+        copy(&mut c, if hour >= 0x0b { 0x21e4 } else { 0x21e0 }, 2);
         c.run(0x2fa3, 4)?;
         copy(&mut c, 0x21f4, 2);
         return end_2ff7(&mut c);
@@ -1580,12 +1540,9 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let p = c.byte(0x2a);
     let n = if cb == 0 { 3 } else if p < 0x32 { 6 } else { 9 };
     c.run(0x2faa, 2 + n + 5)?;
-    c.test(B, mode as u16, 3);
     c.set_reg(SI, 0x21fc);
-    c.cmp(B, cb as u16, 0);
     if cb != 0 {
         c.set_reg(SI, 0x2200);
-        c.cmp(B, p as u16, 0x32);
         if p >= 0x32 {
             c.movs(W);
             c.movs(W);
@@ -1601,7 +1558,6 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// From 2FF7h: the list's end word.
 fn end_2ff7(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x2ff7, 3)?;
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.stos(W);
     c.ret()

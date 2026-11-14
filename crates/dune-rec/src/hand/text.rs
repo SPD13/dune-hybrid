@@ -135,10 +135,6 @@ pub fn check_amr_or_eng_language(m: &mut Machine, start: u16) -> Result<(), Bail
     let english = language == 0 || language == 3;
     c.run(0xcfa3, if language == 0 { 8 } else if english { 10 } else { 7 })?;
     c.set_reg8(r8::AL, language);
-    c.or(B, language as u16, language as u16);
-    if language != 0 {
-        c.cmp(B, language as u16, 3);
-    }
     if english {
         c.set_reg8(r8::AL, 2);
         c.set_byte(g::VOICE_LANGUAGE, 2);
@@ -390,8 +386,6 @@ pub fn word_width(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let n1 = pre + 2 + if wr == 0xd0ff { 2 } else { 0 } + sp as u32;
         c.run(0x8eda, n1)?;
         c.lods(B, DS);
-        if wr == 0xd0ff {
-        }
         if sp {
             c.call(0xd0e3, 0x8efe)?;
             if !c.flag(pc::cpu::CF) {

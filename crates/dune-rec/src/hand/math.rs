@@ -24,9 +24,8 @@ pub fn trig_lookup(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.below_sp(1, bx);
     // The flags go through the original's operations (a shift leaves some
     // of them as the previous operation set them).
-    c.shl1(W, bx, 3);
     let entry = if negative {
-        let e = c.neg(W, offset);
+        let e = pure::neg(W, offset);
         c.set_flag(CF, offset != 0);
         e
     } else {
@@ -35,14 +34,14 @@ pub fn trig_lookup(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let value = c.word(g::TRIG_TABLE.wrapping_add(entry));
     let scale = c.word(g::TRIG_TABLE.wrapping_add(entry).wrapping_add(2));
     let ax = if negative {
-        let v = c.neg(W, value);
+        let v = pure::neg(W, value);
         c.set_flag(CF, value != 0);
         v
     } else {
         value
     };
     c.set_reg(AX, ax);
-    let bp = c.shl1(W, scale, 1);
+    let bp = pure::shl1(W, scale, 1);
     c.set_reg(BP, bp);
     c.ret()
 }
@@ -430,20 +429,15 @@ pub fn direction_between(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let half = (by as i16) < -0x80 || (by as i16) >= 0x80;
     let n = 6 + if (by as i16) < -0x80 { 0 } else { 2 } + if half { 2 } else { 0 } + 2;
     c.run(start, n)?;
-    let b = c.sub(W, bx, cx);
-    let mut b = c.neg(W, b);
-    let d = c.sub(W, dx, di);
-    let mut d = c.neg(W, d);
-    c.cmp(W, b, 0xff80);
-    if (b as i16) >= -0x80 {
-        c.cmp(W, b, 0x80);
-    }
+    let b = pure::sub(W, bx, cx);
+    let mut b = pure::neg(W, b);
+    let d = pure::sub(W, dx, di);
+    let mut d = pure::neg(W, d);
     if half {
         b = c.m.cpu.shift(7, W, b as u32, 1) as u16;
         d = c.m.cpu.shift(7, W, d as u32, 1) as u16;
     }
     c.set_reg(DX, d);
-    c.xor(B, 0, 0);
     c.set_reg(BX, (b & 0xff) << 8);
     direction_256(c.m, 0x514e)
 }

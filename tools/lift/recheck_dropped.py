@@ -10,8 +10,8 @@ rewrites came later). Every port that differs from its BASE form is
 checked again with `drop_flags.py`'s rules on that form, with the current
 masks (`hand/flags_read.rs`) and entry reads (`flags_used.py --in`); one
 it would no longer convert gets its BASE form back. Ports that differ by
-a hand rewrite are only reported (CHECK): their exits and calls need a
-look.
+a hand rewrite (no `pure::` in them) are only reported (CHECK): their
+exits and calls need a look.
 
 Masks only shrink safely: run this whenever `flags_used.py` changes.
 """
@@ -51,12 +51,17 @@ for path in sorted(glob.glob(os.path.join(REPO, 'crates/dune-rec/src/hand/*.rs')
         fn, body = m.group(1), m.group(0)
         if fn not in before or before[fn] == body:
             continue
-        e = re.search(r'entered\(start, 0x([0-9a-f]+)\)', body)
-        mask = d.masks.get(int(e.group(1), 16), 0x8d5) if e else 0x8d5
-        why = 'callers read flags' if mask else d.blocker(before[fn], consts, set())
+        starts = d.port_entries(before[fn])
+        mask = max((d.masks.get(a, 0x8d5) for a in starts), default=0x8d5)
+        if mask and not d.only_tails(before[fn]):
+            why = 'callers read flags'
+        else:
+            why = d.blocker(before[fn], consts, set())
         if not why:
             continue
-        if name in hand and 'pure::' not in body:
+        if 'pure::' not in body:
+            # A hand rewrite (the tool's conversions use `pure::`): its
+            # exits and calls need a look, not the old form back.
             print(f'CHECK {name} {fn}: {why}')
             continue
         print(f'restore {name} {fn}: {why}')

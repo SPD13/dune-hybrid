@@ -338,12 +338,12 @@ pub fn create_voc_file_name_from_bx(m: &mut Machine, start: u16) -> Result<(), B
     let ax = c.reg(AX);
     c.push(ax);
     let bl = c.reg8(r8::BL);
-    let letter = c.add(B, bl as u16, 0x41) as u8;
+    let letter = pure::add(B, bl as u16, 0x41) as u8;
     c.set_reg8(r8::AL, letter);
     c.stos(B);
     for _ in 0..2 {
         let di = c.reg(DI);
-        let di = c.inc(W, di);
+        let di = pure::inc(W, di);
         c.set_reg(DI, di);
     }
     c.stos(B);
@@ -380,11 +380,8 @@ pub fn create_voc_file_name_from_bx(m: &mut Machine, start: u16) -> Result<(), B
     c.run(0xa8e0, n + 5 + if none { 0 } else { 2 } + 2)?;
     c.stos(B);
     c.set_reg8(r8::AL, b'O');
-    c.cmp(B, ea as u16, 0);
     if (ea as i8) <= 0 {
-        c.cmp(B, b6 as u16, 0x80);
         if b6 == 0x80 {
-            c.cmp(B, b4 as u16, 1);
             if b4 != 1 {
                 c.set_reg8(r8::AL, b'I');
             }
@@ -394,10 +391,10 @@ pub fn create_voc_file_name_from_bx(m: &mut Machine, start: u16) -> Result<(), B
     c.set_reg8(r8::AL, b' ');
     let bh = c.reg8(r8::BH);
     let bh = c.m.cpu.shift(5, B, bh as u32, (cl & 0x1f) as u32) as u8;
-    let bh = c.or(B, bh as u16, extra as u16) as u8;
+    let bh = pure::or(B, bh as u16, extra as u16) as u8;
     c.set_reg8(r8::BH, bh);
     if !none {
-        let l = c.add(B, bh as u16, 0x41) as u8;
+        let l = pure::add(B, bh as u16, 0x41) as u8;
         c.set_reg8(r8::AL, l);
     }
     c.stos(B);
@@ -653,35 +650,25 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if sc >= 0x11 {
         c.run(0xc86b, 5)?;
         c.set_reg(SI, sc);
-        c.cmp(W, sc, 0x11);
         return c.ret();
     }
+    // The scene's place (27B6h, 4 bytes a scene): none, no sound.
     let p = sc << 2;
     let (dx, bx) = (c.word(p.wrapping_add(0x27b6)), c.word(p.wrapping_add(0x27b8)));
+    let night = c.byte(0x227d);
     if dx | bx == 0 {
         c.run(0xc86b, 12)?;
-        c.set_reg(SI, sc);
-        c.cmp(W, sc, 0x11);
-        let s = c.shl1(W, sc, 2);
-        c.set_reg(SI, s);
-        c.set_reg(DX, dx);
-        c.set_reg(BX, bx);
-        let a = c.or(W, bx, dx);
-        c.set_reg(AX, a);
-        return c.ret();
+    } else {
+        c.run(0xc86b, 11 + 3 + if night == 0 { 3 } else { 0 })?;
     }
-    let night = c.byte(0x227d);
-    c.run(0xc86b, 11 + 3 + if night == 0 { 3 } else { 0 })?;
-    c.set_reg(SI, sc);
-    c.cmp(W, sc, 0x11);
-    let s = c.shl1(W, sc, 2);
-    c.set_reg(SI, s);
+    c.set_reg(SI, p);
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
-    let a = c.or(W, bx, dx);
-    c.set_reg(AX, a);
+    c.set_reg(AX, bx | dx);
+    if dx | bx == 0 {
+        return c.ret();
+    }
     c.set_reg(SI, 0x2792);
-    c.cmp(B, night as u16, 0);
     if night == 0 {
         c.push(bx);
         c.set_reg(BX, 1);
@@ -698,7 +685,6 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if al == 0 {
             c.run(0xc8a3, 4)?;
             c.lods(B, DS);
-            c.or(B, 0, 0);
             c.call(0xc4dd, 0xc8c0)?;
             c.run(0xc8c0, 1)?;
             return c.ret();
@@ -706,7 +692,7 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if al & 0x80 != 0 {
             c.run(0xc8a3, 6)?;
             c.lods(B, DS);
-            c.or(B, al as u16, al as u16);
+            c.or(B, al as u16, al as u16); // the wait (`loc_0e387`) pushes these flags
             c.set_reg(AX, 0x12c);
             c.call(0xe387, 0xc8b0)?;
             c.run(0xc8b0, 1)?;
@@ -714,10 +700,8 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0xc8a3, 8)?;
         c.lods(B, DS);
-        c.or(B, al as u16, al as u16);
         let si = c.reg(SI);
         c.push(si);
-        c.xor(B, 0, 0);
         c.set_reg(AX, al as u16);
         c.set_reg(BP, al as u16);
         c.call(0xc8c1, 0xc8ba)?;
@@ -741,16 +725,17 @@ pub fn transfer_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let seg = c.word(0xdbde);
     c.set_reg(SI, p);
     c.set_sreg(DS, seg);
-    let len = c.lods(W, DS);
-    let ax = c.sub(W, len, 4);
-    c.set_reg(AX, ax);
-    let cx = c.shr1(W, ax, 1);
-    c.set_reg(CX, cx);
+    // The block less its 4-byte header: words, then the odd byte
+    // (`shr ax, 1`; `adc cl, cl` with CL 0 after the words). The `shr`
+    // stays exact: a stop at AA84h resumes the original at the `adc`.
+    let size = c.lods(W, DS).wrapping_sub(4);
+    c.set_reg(AX, size);
+    let words = c.shr1(W, size, 1);
+    c.set_reg(CX, words);
     c.rep(0xa5);
     c.run(0xaa84, 2)?;
-    let cl = c.reg8(r8::CL);
-    let cl = c.adc(B, cl as u16, cl as u16);
-    c.set_reg8(r8::CL, cl as u8);
+    let cl = c.reg8(r8::CL).wrapping_mul(2) | (size & 1) as u8;
+    c.set_reg8(r8::CL, cl);
     c.rep(0xa4);
     c.run(0xaa88, 6)?;
     let ds = c.pop();
@@ -1277,7 +1262,6 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.word(0xdc26);
     if k == 0 {
         c.run(0xa7c5, 4)?;
-        c.cmp(W, 0, 0);
         c.call(0xa9e7, 0xa7d1)?;
         if !c.flag(ZF) {
             c.run(0xa7d1, 1)?;
@@ -1294,11 +1278,11 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let dx = now.wrapping_sub(bx);
     if dx & 0x8000 != 0 {
         c.run(0xa7c5, 3 + 10 + 1)?;
-        frame_regs(&mut c, k, now, t_hi, t_lo, cx, si);
+        frame_regs(&mut c, now, t_hi, t_lo, cx, si);
         return feed_a9b9(&mut c);
     }
     c.run(0xa7c5, 3 + 10)?;
-    frame_regs(&mut c, k, now, t_hi, t_lo, cx, si);
+    frame_regs(&mut c, now, t_hi, t_lo, cx, si);
     loop {
         c.run(0xa7f3, 2)?;
         let di = c.reg(DI);
@@ -1319,19 +1303,17 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let (x, b2) = dx.overflowing_sub(cx);
         let below = b2 || x < b1 as u16;
         c.run(0xa7f7, 2 + 3 + if below { 0 } else { 3 })?;
-        let v = c.pop();
-        c.set_reg(DI, v);
-        let d = c.sub(W, di, si);
-        c.set_reg(DI, d);
-        let x = c.sbb(W, dx, cx);
-        c.set_reg(DX, x);
+        c.pop();
+        // DX:DI less a frame's length; the frame's time BX:BP on by one.
+        let left = ((dx as u32) << 16 | di as u32).wrapping_sub((cx as u32) << 16 | si as u32);
+        c.set_reg(DI, left as u16);
+        c.set_reg(DX, (left >> 16) as u16);
         if below {
             break;
         }
-        let b = c.add(W, bp, si);
-        c.set_reg(BP, b);
-        let h = c.adc(W, bx, cx);
-        c.set_reg(BX, h);
+        let due = ((bx as u32) << 16 | bp as u32).wrapping_add((cx as u32) << 16 | si as u32);
+        c.set_reg(BP, due as u16);
+        c.set_reg(BX, (due >> 16) as u16);
     }
     c.run(0xa806, 3)?;
     let (bx, bp) = (c.reg(BX), c.reg(BP));
@@ -1344,21 +1326,15 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// From A7D5h: DX the time past the next frame, DI 0, BX:BP the next
 /// frame's time, CX:SI the step (counted by the caller).
-fn frame_regs(c: &mut Ctx, k: u16, now: u16, t_hi: u16, t_lo: u16, cx: u16, si: u16) {
-    c.cmp(W, k, 0);
-    c.set_reg(DX, now);
-    c.xor(W, 0, 0);
+fn frame_regs(c: &mut Ctx, now: u16, t_hi: u16, t_lo: u16, cx: u16, si: u16) {
+    // BX:BP = the frame's time + its length (CX:SI); DX how far now is.
+    let due = ((t_hi as u32) << 16 | t_lo as u32).wrapping_add((cx as u32) << 16 | si as u32);
     c.set_reg(DI, 0);
-    c.set_reg(BX, t_hi);
-    c.set_reg(BP, t_lo);
     c.set_reg(CX, cx);
     c.set_reg(SI, si);
-    let bp = c.add(W, t_lo, si);
-    c.set_reg(BP, bp);
-    let bx = c.adc(W, t_hi, cx);
-    c.set_reg(BX, bx);
-    let dx = c.sub(W, now, bx);
-    c.set_reg(DX, dx);
+    c.set_reg(BP, due as u16);
+    c.set_reg(BX, (due >> 16) as u16);
+    c.set_reg(DX, now.wrapping_sub((due >> 16) as u16));
 }
 
 /// `loc_0a789`: the next phrase [0DC30h] (taken): none stops the task
@@ -1512,17 +1488,13 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let ax = c.word(0xdc1c);
     c.run(0xaa0f, if ax == 0xffff { 4 } else { 5 })?;
-    c.set_reg(AX, ax);
-    let a = c.inc(W, ax);
-    c.set_reg(AX, a);
+    c.set_reg(AX, ax.wrapping_add(1));
     if ax == 0xffff {
         return c.ret();
     }
     c.set_byte(0x376a, 0xff);
     c.call(0xac14, 0xaa1d)?;
     c.run(0xaa1d, 7)?;
-    let ax = c.reg(AX);
-    c.xor(W, ax, ax);
     c.set_reg(AX, 0);
     c.set_word(0x3811, 0);
     c.set_word(0x3817, 0);
@@ -1533,16 +1505,13 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, e);
     c.call(0xaa70, 0xaa30)?;
     c.run(0xaa30, 7)?;
-    let v = c.word(0x3815);
-    let v = c.sub(W, v, 0x20);
+    let v = c.word(0x3815).wrapping_sub(0x20);
     c.set_word(0x3815, v);
-    c.set_reg(CX, v);
     c.set_word(0x381d, v);
-    let n = c.add(W, v, 6);
-    c.set_reg(CX, n);
+    c.set_reg(CX, v.wrapping_add(6));
     c.set_reg(SI, 0x1a);
     let di = c.reg(DI);
-    c.xor(W, di, di);
+    c.xor(W, di, di); // `xor di, di`: the driver's far call sees these flags
     c.set_reg(DI, 0);
     c.m.cpu.string_op(&mut c.m.hw, 0xa4, Some(ES), 0xf3);
     c.run(0xaa48, 9)?;

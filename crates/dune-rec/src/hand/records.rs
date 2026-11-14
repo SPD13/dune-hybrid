@@ -264,11 +264,11 @@ pub fn location_coords(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     c.run(start, 10)?;
-    let off = c.sub(W, di, 0x100);
+    let off = pure::sub(W, di, 0x100);
     c.set_reg(AX, off);
     c.m.cpu.mul_div(&mut c.m.hw, B, 6, LOCATION_SIZE as u32); // div bl
     let n = c.reg8(r8::AL);
-    let n = c.inc(B, n as u16) as u8;
+    let n = pure::inc(B, n as u16) as u8;
     let kind = c.byte(di.wrapping_add(8));
     c.set_reg(BX, (n as u16) << 8 | 0x80);
     c.set_reg(DX, (kind as u16) << 8 | 1);

@@ -585,7 +585,6 @@ pub fn add_point_to_ring(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.stos(W);
     c.set_reg(AX, bx);
     c.stos(W);
-    c.cmp(W, end, POINTS_RING_END);
     let next = if wrap { POINTS_RING } else { end };
     c.set_reg(DI, next);
     c.set_word(POINTS_NEXT, next);

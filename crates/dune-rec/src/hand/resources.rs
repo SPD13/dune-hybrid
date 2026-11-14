@@ -321,7 +321,6 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(0xceeb);
     n += 4 + (k == 6) as u32 + 4;
     c.run(start, n)?;
-    c.xor(W, 0, 0);
     let mut bx = 0u16;
     c.set_reg(DI, 0xd7f4);
     let ds = c.sreg(DS);
@@ -331,24 +330,21 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for si in ev {
         c.set_reg(SI, si);
         let w = c.word(si);
-        c.cmp(W, w, 0xffff);
         if w == 0xffff {
-            bx = c.add(W, bx, 2);
+            bx = pure::add(W, bx, 2);
             continue;
         }
         let a = c.word(si.wrapping_add(2)).swap_bytes();
-        let a = c.and(W, a, 0x3ff);
-        let a = c.dec(W, a);
+        let a = pure::and(W, a, 0x3ff);
+        let a = pure::dec(W, a);
         c.set_reg(AX, a);
         c.stos(W);
-        bx = c.and(W, bx, 0xfff0);
-        bx = c.add(W, bx, 0x10);
-        c.cmp(W, bx, 0x110);
+        bx = pure::and(W, bx, 0xfff0);
+        bx = pure::add(W, bx, 0x10);
     }
     c.set_reg(BX, bx);
     c.set_reg8(super::r8::AL, k);
     c.set_reg(SI, if k == 6 { 0xc7 } else { 0xbb });
-    c.cmp(B, k as u16, 6);
     c.set_reg(DI, 0xceec);
     c.push(ds);
     let v = c.pop();
@@ -356,8 +352,7 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xf0b9, 0xcff9)?;
     c.run(0xcff9, 6)?;
     let k = c.byte(0xceeb);
-    let a = c.add(B, 0xc0, k as u16);
-    c.xor(B, 0, 0);
+    let a = pure::add(B, 0xc0, k as u16);
     c.set_reg(AX, a);
     c.set_reg(SI, a);
     let (di, es) = (c.word(0x47ac), c.word(0x47ae));
@@ -370,16 +365,14 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = (0x9au8).wrapping_add(k);
     let cur = c.byte(0x477e);
     c.run(0xd00d, 5 + if a == cur { 1 } else { 6 })?;
-    let a = c.add(B, 0x9a, k as u16);
+    let a = pure::add(B, 0x9a, k as u16);
     c.set_reg8(super::r8::AL, a as u8);
-    c.cmp(B, a, cur as u16);
     if a as u8 == cur {
         return c.ret();
     }
     let si = c.reg(SI);
     c.push(si);
     c.set_byte(0x477e, a as u8);
-    c.xor(B, 0, 0);
     c.set_reg(AX, a);
     c.set_reg(SI, a);
     let (di, es) = (c.word(0x47b0), c.word(0x47b2));

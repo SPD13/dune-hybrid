@@ -68,10 +68,6 @@ pub fn sub_0b21(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let fb = c.byte(g::BYTE_00FB);
     let skip = view == 0 && fb & 0x80 != 0;
     c.run(0x0b30, if view != 0 { 4 } else if skip { 5 } else { 6 })?;
-    c.cmp(B, view as u16, 0);
-    if view == 0 {
-        c.cmp(B, fb as u16, 0);
-    }
     if !skip {
         c.set_word(g::WORD_3CBE, 0);
     }
@@ -175,7 +171,7 @@ pub fn comm_fade_out_glow(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let step = c.word(g::COMM_STEP);
         let more = step.wrapping_sub(1) & 0x8000 == 0;
         c.run(0x278d, if more { 2 + 3 } else { 3 })?;
-        let step = c.dec(W, step);
+        let step = pure::dec(W, step);
         c.set_word(g::COMM_STEP, step);
         if !more {
             return super::ui::comm_draw_panels(c.m, 0x274e);
@@ -461,40 +457,28 @@ pub fn draw_talking_head_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> 
         c.run(0x9d30, 22)?;
         let cx = c.reg(CX);
         c.push(cx);
+        // A part: its sprite, at the head's origin plus its x, y.
         let sprite = c.lods(B, DS);
-        let ah = c.reg8(r8::AH);
-        c.xor(B, ah as u16, ah as u16);
         c.set_reg8(r8::AH, 0);
-        c.set_reg(BP, sprite);
-        let x = c.lods(B, DS);
+        let x = c.lods(B, DS).wrapping_add(c.word(g::HEAD_ORIGIN_X));
         c.set_reg(DX, x);
-        let y = c.lods(B, DS);
+        let y = c.lods(B, DS).wrapping_add(c.word(g::HEAD_ORIGIN_Y));
         c.set_reg(BX, y);
-        let ox = c.word(g::HEAD_ORIGIN_X);
-        let dx = c.add(W, x, ox);
-        c.set_reg(DX, dx);
-        let oy = c.word(g::HEAD_ORIGIN_Y);
-        let bx = c.add(W, y, oy);
-        c.set_reg(BX, bx);
         let si = c.reg(SI);
         c.push(si);
-        let bp = c.dec(W, sprite);
-        c.set_reg(BP, bp);
         let fb = c.word(g::FRAMEBUFFER_ACTIVE);
         c.set_sreg(ES, fb);
         let (sheet, seg) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
-        c.set_reg(SI, sheet);
         c.set_sreg(DS, seg);
-        let index = c.shl1(W, bp, 1);
+        let index = sprite.wrapping_sub(1) << 1;
         c.set_reg(BP, index);
-        let off = c.word_in(DS, index.wrapping_add(sheet));
-        let si = c.add(W, sheet, off);
-        c.set_reg(SI, si);
+        let header = sheet.wrapping_add(c.word_in(DS, index.wrapping_add(sheet)));
+        c.set_reg(SI, header);
         let size = c.lods(W, DS);
         c.set_reg(DI, size);
         c.lods(W, DS);
         let ah = c.reg8(r8::AH);
-        c.xor(B, ah as u16, ah as u16);
+        c.xor(B, ah as u16, ah as u16); // `xor ah, ah`: the driver's far call sees these flags
         c.set_reg8(r8::AH, 0);
         let ax = c.reg(AX);
         c.set_reg(CX, ax);
@@ -1143,7 +1127,6 @@ pub fn leave_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte(0x2b);
     c.run(0x18de, if v == 0 { 4 } else { 4 })?;
     c.set_byte(0x46df, 0);
-    c.cmp(B, v as u16, 0);
     if v == 0 {
         return c.ret();
     }
@@ -1168,10 +1151,9 @@ pub fn scene_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0x54);
     c.set_reg8(r8::DL, 0x37);
     if !zf {
-        let dx = c.reg(DX);
-        let dx = c.dec(W, dx);
+        let dx = c.reg(DX).wrapping_sub(1);
         c.set_reg(DX, dx);
-        c.cmp(B, bl as u16, 0x0a);
+        c.cmp(B, bl as u16, 0x0a); // the driver's far call sees these flags
     }
     if !picture {
         c.interp(0x0d1e, 0x0d22)?;
@@ -1182,7 +1164,6 @@ pub fn scene_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0d26, 3)?;
     let dl = c.reg8(r8::DL);
     c.set_reg(AX, dl as u16);
-    c.xor(B, 0, 0);
     c.call(0xc1f4, 0x0d2d)?;
     c.run(0x0d2d, 1)?;
     let si = c.reg(SI);
@@ -1216,7 +1197,6 @@ pub fn settings_ui_draw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x55);
     c.call(0xc13e, 0xa406)?;
     c.run(0xa406, 4)?;
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     let (dx, bx) = (c.word(0x2886), c.word(0x2888));
     c.set_reg(DX, dx);
@@ -1319,29 +1299,23 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         5
     };
     c.run(0xa592, n)?;
-    let ax = c.sub(W, bx, top);
-    c.set_reg(AX, ax);
-    c.set_reg8(r8::BL, 7);
-    c.m.cpu.mul_div(&mut c.m.hw, B, 6, 7); // div bl
+    // The column (`div bl` by 7: AH the rest) picks the entry.
+    c.set_reg(AX, (ax % 7) << 8 | al as u16);
     c.set_reg(BX, 0x28cf);
-    c.set_reg8(r8::AL, al);
-    c.cmp(B, al as u16, 7);
     if al == 7 {
         return c.ret();
     }
     if al > 7 {
-        let m8 = c.sub(B, al as u16, 8);
-        c.set_reg8(r8::AL, m8 as u8);
-        c.set_byte(0x28e7, m8 as u8);
+        let mode = al - 8;
+        c.set_reg8(r8::AL, mode);
+        c.set_byte(0x28e7, mode);
         return settings_ui_draw(c.m, 0xa3f9);
     }
-    c.cmp(B, al as u16, lang as u16);
     if al == lang {
         return c.ret();
     }
-    let v = c.byte(0x28e7);
-    let v = c.and(B, v as u16, 0xfd);
-    c.set_byte(0x28e7, v as u8);
+    let v = c.byte(0x28e7) & 0xfd;
+    c.set_byte(0x28e7, v);
     c.set_byte(0xceeb, al);
     c.call(0xcfe4, 0xa5db)?;
     c.run(0xa5db, 1)?;

@@ -4,6 +4,7 @@
 //! They run for seconds: they are checked with `REC_BUDGET` raised (see
 //! `docs/decompile.md`, section 3).
 
+use super::pure;
 use super::{B, Ctx, W, entered, r8};
 use pc::{
     Machine,
@@ -115,7 +116,7 @@ pub fn repeat_1566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x1566, 1)?;
     let v = c.byte(0x227d);
-    let v = c.inc(B, v as u16);
+    let v = pure::inc(B, v as u16);
     c.set_byte(0x227d, v as u8);
     loop {
         c.run(0x156a, 3)?;
@@ -125,11 +126,11 @@ pub fn repeat_1566(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let n = c.byte(0x46d7);
         let last = n == 1;
         c.run(0x1573, if last { 4 } else { 2 })?;
-        let n = c.dec(B, n as u16);
+        let n = pure::dec(B, n as u16);
         c.set_byte(0x46d7, n as u8);
         if last {
             let v = c.byte(0x227d);
-            let v = c.dec(B, v as u16);
+            let v = pure::dec(B, v as u16);
             c.set_byte(0x227d, v as u8);
             return c.ret();
         }
@@ -308,7 +309,6 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let al = c.reg(AX) & 0xff;
     if al < 8 {
         c.run(0x4894, 4)?;
-        c.cmp(B, al, 8);
         let bx = c.reg(AX);
         c.set_reg(BX, bx);
         c.call(0xdbb2, 0x489d)?;
@@ -319,8 +319,6 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.push(bx);
             c.call(0xca60, 0x48a6)?;
             c.run(0x48a6, 2)?;
-            let ax = c.reg(AX);
-            c.xor(W, ax, ax);
             c.set_reg(AX, 0);
             c.call(0x4ec6, 0x48ab)?;
             let bx = c.word_in(SS, c.reg(pc::cpu::SP));
@@ -329,7 +327,6 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.run(0x48ab, 5)?;
                 c.pop();
                 c.set_reg(BX, bx);
-                c.cmp(W, video, 2);
                 continue;
             }
             let want = if bx == 6 { 0x3c } else { 0x16 };
@@ -338,11 +335,8 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x48ab, if want != frame { n + 2 } else { n + 1 })?;
             c.pop();
             c.set_reg(BX, bx);
-            c.cmp(W, video, 2);
             c.set_reg(AX, 0x3c);
-            c.cmp(W, bx, 6);
             c.set_reg(AX, want);
-            c.cmp(W, want, frame);
             if want == frame {
                 break;
             }
@@ -362,8 +356,6 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return sal_end(&mut c);
     }
     c.run(0x4894, 4)?;
-    c.cmp(B, al, 8);
-    c.cmp(B, al, 9);
     if al == 9 {
         c.run(0x48dd, 2)?;
         c.set_reg(BP, 0xc4cd);

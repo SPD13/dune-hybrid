@@ -399,10 +399,6 @@ pub fn hnm_initialize_memory_handler(m: &mut Machine, start: u16) -> Result<(), 
     let big = c.word(0x39a9);
     let clear4 = mem & 2 != 0 || big < 0x15e;
     c.run(start, if mem & 2 != 0 { 2 } else { 4 } + if clear4 { 2 } else { 0 })?;
-    c.test(B, mem as u16, 2);
-    if mem & 2 == 0 {
-        c.cmp(W, big, 0x15e);
-    }
     if clear4 {
         c.set_reg(AX, 2);
         loop {
@@ -411,10 +407,9 @@ pub fn hnm_initialize_memory_handler(m: &mut Machine, start: u16) -> Result<(), 
             c.run(0xce81, 4 + if ax < 9 { 1 } else { 0 })?;
             let bx = c.reg(BX);
             let f = c.byte(bx);
-            let f = c.and(B, f as u16, 0xfb);
+            let f = pure::and(B, f as u16, 0xfb);
             c.set_byte(bx, f as u8);
-            let ax = c.inc(W, ax.wrapping_sub(1));
-            c.cmp(W, ax, 9);
+            let ax = pure::inc(W, ax.wrapping_sub(1));
             c.set_reg(AX, ax);
             if ax >= 9 {
                 break;
@@ -424,10 +419,7 @@ pub fn hnm_initialize_memory_handler(m: &mut Machine, start: u16) -> Result<(), 
     let mem = c.byte(0x2943);
     let clear80 = mem & 3 != 0;
     c.run(0xce8a, 2 + if clear80 { 2 } else { 0 })?;
-    c.test(B, mem as u16, 3);
     if clear80 {
-        let ax = c.reg(AX);
-        c.xor(W, ax, ax);
         c.set_reg(AX, 0);
         loop {
             c.call(code::HNM_FLAG_NAME_PTR, 0xce96)?;
@@ -435,10 +427,9 @@ pub fn hnm_initialize_memory_handler(m: &mut Machine, start: u16) -> Result<(), 
             c.run(0xce96, 4 + if ax < 0x25 { 1 } else { 0 })?;
             let bx = c.reg(BX);
             let f = c.byte(bx);
-            let f = c.and(B, f as u16, 0x7f);
+            let f = pure::and(B, f as u16, 0x7f);
             c.set_byte(bx, f as u8);
-            let ax = c.inc(W, ax.wrapping_sub(1));
-            c.cmp(W, ax, 0x25);
+            let ax = pure::inc(W, ax.wrapping_sub(1));
             c.set_reg(AX, ax);
             if ax >= 0x25 {
                 break;
@@ -455,8 +446,7 @@ pub fn hnm_initialize_memory_handler(m: &mut Machine, start: u16) -> Result<(), 
         let more = ax < 8;
         c.run(0xcea6, 4 + if more { 2 } else { 1 })?;
         c.pop();
-        let ax = c.inc(W, ax.wrapping_sub(1));
-        c.cmp(W, ax, 8);
+        let ax = pure::inc(W, ax.wrapping_sub(1));
         c.set_reg(AX, ax);
         if !more {
             return super::hnm::hnm_close_resource(c.m, 0xca01);

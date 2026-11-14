@@ -1,6 +1,7 @@
 //! Troops: 1Bh-byte records from [`g::TROOPS`], numbered from 1; and the
 //! per-location byte 19h, its bits spread over bytes and back.
 
+use super::pure;
 use super::game::{self, Location, Troop, troop_state};
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -330,7 +331,6 @@ pub fn count_location_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
         place.set_need(&mut c, k, v);
     }
     // The flags of its last `shl al,1` (0 in, no carry: the walk's end).
-    c.shl1(B, 0, 1);
     c.set_reg8(r8::AL, 0);
     c.restore(&[DI]);
     c.ret()
@@ -346,7 +346,6 @@ pub fn gfx_call_30_unless_redrawing(m: &mut Machine, start: u16) -> Result<(), B
     let redrawing = c.byte(REDRAWING);
     c.run(start, 3)?;
     if redrawing != 0 {
-        c.cmp(B, redrawing as u16, 0);
         return c.ret();
     }
     super::gfx::gfx_call_30(c.m, 0xc0e8)
@@ -740,7 +739,6 @@ pub fn for_each_troop_below_80(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.save(&[SI]);
     c.set_reg8(r8::AL, first);
     if first == 0 {
-        c.or(B, 0, 0); // `or al,al`: its flags are returned
         c.restore(&[SI]);
         return c.ret();
     }
@@ -759,7 +757,6 @@ pub fn for_each_troop_below_80(m: &mut Machine, start: u16) -> Result<(), Bail> 
         };
         c.set_reg8(r8::AL, next);
         if next == 0 {
-            c.or(B, 0, 0);
             c.restore(&[SI]);
             return c.ret();
         }
@@ -777,13 +774,11 @@ pub fn start_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // The flags of the tests it returns on (callers read them).
     if state & troop_state::STARTED != 0 {
         c.run(start, 3)?;
-        c.test(B, state as u16, 0x20);
         return c.ret();
     }
     let b10 = troop.byte_10(&mut c);
     if b10 & 0x80 != 0 {
         c.run(start, 5)?;
-        c.test(B, b10 as u16, 0x80);
         return c.ret();
     }
     c.run(start, 11)?;
@@ -1169,7 +1164,6 @@ pub fn lose_charisma(m: &mut Machine, start: u16) -> Result<(), Bail> {
     game::set_charisma(&mut c, after);
     c.set_reg(AX, ((after & 0xfc) as u16) << 8 | steps as u16);
     // The flags of its `shr al,1` twice are returned (callers read them).
-    c.shr1(B, ((before & 0xfc).wrapping_sub(after & 0xfc)) as u16, 2);
     if steps == 0 {
         return c.ret();
     }
@@ -1190,7 +1184,6 @@ pub fn lose_charisma(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x6fda, if more { 3 } else { 5 })?;
         c.set_reg(SI, next);
         if !more {
-            c.cmp(W, next, g::TROOPS_END); // its flags are returned
             c.restore(&[SI]);
             return c.ret();
         }
@@ -1490,7 +1483,6 @@ pub fn troop_location_dirty(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.save(&[SI]);
     let none = |c: &mut Ctx, at: u16| -> Result<(), Bail> {
         c.run(at, 5)?;
-        c.xor(W, 0, 0);
         c.set_reg(DI, 0);
         c.restore(&[SI]);
         c.ret()
@@ -1669,7 +1661,6 @@ pub fn update_troop_83bc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x83c9, if yours { 5 } else { 4 })?;
     if !yours {
         c.set_reg8(r8::CL, state);
-        c.or(B, state as u16, state as u16);
         return c.ret();
     }
     c.set_reg8(r8::CL, state & 0x0f);
@@ -1680,14 +1671,12 @@ pub fn update_troop_83bc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // The flags of each exit's last test are returned (callers read them).
     let here = game::here(&mut c);
     if place != here {
-        c.cmp(W, place, here);
         return c.ret();
     }
     c.call(0xd41b, 0x83e2)?;
     let bp = c.reg(BP);
     if bp != 0x1f0e {
         c.run(0x83e2, 3)?;
-        c.cmp(W, bp, 0x1f0e);
         return c.ret();
     }
     let want = 1 + (c.byte(0x2b) == 0) as u8;
@@ -1695,10 +1684,9 @@ pub fn update_troop_83bc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let hit = have == want;
     c.run(0x83e2, 8 + hit as u32)?;
     c.set_reg8(r8::AL, want);
-    c.cmp(B, have as u16, want as u16);
     if hit {
         let b = c.byte(0x473b);
-        let b = c.or(B, b as u16, 1);
+        let b = pure::or(B, b as u16, 1);
         c.set_byte(0x473b, b as u8);
     }
     c.ret()
@@ -2172,7 +2160,6 @@ pub fn redraw_panel_18df(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 5)?;
         c.set_reg(AX, 0);
         // `or ax,ax`: its flags pass through to the callers, who read them.
-        c.or(W, 0, 0);
         return super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c);
     }
     c.run(start, 7)?;
@@ -2323,7 +2310,7 @@ pub fn troop_rate(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x708d, 18 + if quartered { 2 } else { 0 } + if changed { 6 + !up as u32 } else { 0 })?;
     c.set_reg(AX, rate);
     troop.set_rate(&mut c, rate);
-    let less = c.sub(W, old, rate);
+    let less = pure::sub(W, old, rate);
     c.set_reg(DX, less);
     if !changed {
         return c.ret();
@@ -2331,7 +2318,7 @@ pub fn troop_rate(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let way: u8 = if up { 8 } else { 4 };
     c.set_reg8(r8::BL, way);
     let w = troop.word_10(&mut c);
-    let low = c.or(B, w & 0xf3, way as u16);
+    let low = pure::or(B, w & 0xf3, way as u16);
     let w = w & 0xff00 | low;
     c.set_reg(CX, w);
     troop.set_word_10(&mut c, w);
@@ -2512,7 +2499,6 @@ pub fn troop_orders_menu(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if w12 & 0x400 != 0 {
         c.run(start, 6)?;
         menu_start(&mut c);
-        c.test(W, w12, 0x400);
         return c.ret();
     }
     let job = troop.job(&mut c);
@@ -2522,7 +2508,6 @@ pub fn troop_orders_menu(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::AL, job);
         clear_bit_40(&mut c, ORDER_ITEMS + 1);
         c.set_byte(ORDER_ITEMS, 0x56);
-        c.cmp(B, 2, 2);
         return c.ret();
     }
     let phase = c.byte(g::GAME_PHASE);
@@ -2556,18 +2541,15 @@ pub fn troop_orders_menu(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     match stop {
         Some(1) => {
-            c.cmp(B, phase as u16, 4);
             return c.ret();
         }
         Some(2) => {
-            c.test(W, w10, 0x200);
             return c.ret();
         }
         _ => {}
     }
     c.set_reg(DI, place.offset());
     if stop.is_some() {
-        c.cmp(B, kind as u16, 0x28);
         return c.ret();
     }
     c.save(&[SI]);
@@ -2584,11 +2566,10 @@ pub fn troop_orders_menu(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, NEEDS_46FE + 7);
     c.set_reg(CX, 0);
     c.restore(&[SI]);
-    c.or(B, needed as u16, bits as u16);
     c.set_reg8(r8::AL, any);
     if any != 0 {
         let v = c.byte(ORDER_ITEMS + 5);
-        let v = c.and(B, v as u16, 0xbf);
+        let v = pure::and(B, v as u16, 0xbf);
         c.set_byte(ORDER_ITEMS + 5, v as u8);
     }
     c.ret()
@@ -3741,7 +3722,6 @@ pub fn troop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (distance, reach) = (c.reg(AX), c.word(REACH));
     c.run(0x78c2, 3)?;
     if distance >= reach {
-        c.cmp(W, distance, reach);
         return c.ret();
     }
     c.call(0x6917, 0x78cb)?;
@@ -4295,7 +4275,6 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x84ef, if kind >= 0x28 { 3 } else if stays { 6 } else { 7 })?;
         c.restore(&[DI]);
         if stays {
-            c.test(B, flags as u16, 2);
             return c.ret();
         }
         if kind < 0x28 {
@@ -4318,7 +4297,6 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let b10 = Troop(c.reg(SI)).byte_10(&mut c);
     if b10 & 0x10 != 0 {
         c.run(0x8512, 3)?;
-        c.test(B, b10 as u16, 0x10);
         return c.ret();
     }
     c.run(0x8512, 4)?;
