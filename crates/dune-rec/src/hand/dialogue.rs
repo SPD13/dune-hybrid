@@ -4165,18 +4165,20 @@ pub fn expand_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
             continue;
         }
-        // A dictionary word.
-        c.run(0x88f8, 21)?;
-        c.lods(B, DS);
-        let w = c.lods(W, DS);
+        // A dictionary word (its `rep movsb` counted in the `run`).
+        let si = c.reg(SI);
+        let w = c.word(si.wrapping_add(1));
         let offset = w & 0x3fff;
-        c.set_reg(AX, offset);
         let length = ((w >> 8) >> 2) & 0x30 | (b & 0x0f) as u16;
+        c.run(0x88f8, 21 + length as u32)?;
+        c.lods(B, DS);
+        c.lods(W, DS);
+        c.set_reg(AX, offset);
         c.set_reg(CX, length);
         c.save(&[SI]);
         let at = c.word_in(SS, 0x47b4).wrapping_add(offset);
         c.set_reg(SI, at);
-        c.rep(0xa4);
+        c.rep_counted(0xa4);
         let after = c.word_in(SS, c.reg(SP));
         let next = c.byte(after);
         c.run(0x892f, if next == 0xff { 9 } else { 6 })?;
@@ -4216,8 +4218,10 @@ pub fn draw_talking_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if c.flag(pc::cpu::DF) || count == 0 {
         return Err(Bail);
     }
-    c.run(start, 11)?;
-    // The list kept (`rep movsb` of its count word and 3 bytes a sprite).
+    // The list kept (`rep movsb` of its count word and 3 bytes a sprite,
+    // counted in the `run`).
+    let size = count.wrapping_mul(3).wrapping_add(2);
+    c.run(start, 11 + size as u32)?;
     let ds = c.sreg(DS);
     c.push(ds);
     let es = c.pop();
@@ -4226,8 +4230,8 @@ pub fn draw_talking_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, HEAD_SPRITES);
     c.push(HEAD_SPRITES);
     c.set_reg(AX, count);
-    c.set_reg(CX, count.wrapping_mul(3).wrapping_add(2));
-    c.rep(0xa4);
+    c.set_reg(CX, size);
+    c.rep_counted(0xa4);
     c.run(0x9d2c, 3)?;
     let list = c.pop();
     c.set_reg(SI, list);
@@ -4409,7 +4413,7 @@ fn book_8ff5(c: &mut Ctx) -> Result<(), Bail> {
 /// inverse of [0FBh]'s bit 7).
 fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
     use pc::cpu::ES;
-    c.run(0x900b, 6)?;
+    c.run(0x900b, 6 + 0x5960)?; // the `rep` iterations too
     c.set_reg(DI, 0x4c60);
     c.set_reg(CX, 0x5960);
     let ds = c.sreg(DS);
@@ -4417,7 +4421,7 @@ fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
     let v = c.pop();
     c.set_sreg(ES, v);
     c.set_reg8(r8::AL, 0);
-    c.rep(0xaa);
+    c.rep_counted(0xaa);
     c.run(0x9017, 4)?;
     c.set_reg(AX, 0x4c60);
     c.set_word(0x22fc, 0x4c60);
@@ -4499,7 +4503,7 @@ pub fn portrait_a28e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xa2bb, 2)?;
     c.set_reg(SI, 0x22e4);
     c.call(0xc21b, 0xa2c1)?;
-    c.run(0xa2c1, 8)?;
+    c.run(0xa2c1, 8 + 0x2a80)?; // the `rep` iterations too
     // `std; rep movsb`: the picture moved up, from its end down.
     let picture = c.word(0x22fc);
     c.set_reg(SI, picture.wrapping_add(0x2a80));
@@ -4510,7 +4514,7 @@ pub fn portrait_a28e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let es = c.pop();
     c.set_sreg(ES, es);
     c.set_flag(pc::cpu::DF, true);
-    c.rep(0xa4);
+    c.rep_counted(0xa4);
     c.run(0xa2d2, 6)?;
     c.set_flag(pc::cpu::DF, false);
     let moved = c.reg(DI).wrapping_add(1);

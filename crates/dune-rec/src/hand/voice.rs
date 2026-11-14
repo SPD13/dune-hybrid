@@ -717,7 +717,11 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn transfer_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xaa70)?;
     let mut c = Ctx::new(m);
-    c.run(start, 9)?;
+    // The block's size (its first word, less the 4-byte header): the two
+    // `rep` copies' iterations are counted in the `run`s.
+    let (p, seg) = (c.word(0xdc1c), c.word(0xdbde));
+    let block = c.word_at(seg, p).wrapping_sub(4);
+    c.run(start, 9 + (block >> 1) as u32)?;
     let (si0, ds0) = (c.reg(SI), c.sreg(DS));
     c.push(si0);
     c.push(ds0);
@@ -732,11 +736,11 @@ pub fn transfer_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, size);
     let words = c.shr1(W, size, 1);
     c.set_reg(CX, words);
-    c.rep(0xa5);
-    c.run(0xaa84, 2)?;
+    c.rep_counted(0xa5);
+    c.run(0xaa84, 2 + (block & 1) as u32)?;
     let cl = c.reg8(r8::CL).wrapping_mul(2) | (size & 1) as u8;
     c.set_reg8(r8::CL, cl);
-    c.rep(0xa4);
+    c.rep_counted(0xa4);
     c.run(0xaa88, 6)?;
     let ds = c.pop();
     c.set_sreg(DS, ds);
@@ -1498,17 +1502,22 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
     c.call(0xaa70, 0xaa30)?;
-    c.run(0xaa30, 7)?;
+    // (The `rep movsb` iterations counted in the `run`.)
     let v = c.word(0x3815).wrapping_sub(0x20);
+    let moved = v.wrapping_add(6);
+    c.run(0xaa30, 7 + moved as u32)?;
     c.set_word(0x3815, v);
     c.set_word(0x381d, v);
-    c.set_reg(CX, v.wrapping_add(6));
+    c.set_reg(CX, moved);
     c.set_reg(SI, 0x1a);
     let di = c.reg(DI);
     c.xor(W, di, di); // `xor di, di`: the driver's far call sees these flags
     c.set_reg(DI, 0);
+    let counted = c.m.cpu.instructions;
     c.m.cpu.string_op(&mut c.m.hw, 0xa4, Some(ES), 0xf3);
-    c.run(0xaa48, 9)?;
+    c.m.cpu.instructions = counted;
+    let filled = c.word(0x3815);
+    c.run(0xaa48, 9 + filled as u32)?; // the `rep stosb` iterations too
     let (d, e) = (c.word(0x3819), c.word(0x381b));
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
@@ -1523,7 +1532,7 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.movs(W);
     c.movs(W);
     c.set_reg8(r8::AL, 0x80);
-    c.rep(0xaa);
+    c.rep_counted(0xaa);
     c.run(0xaa5c, 3)?;
     let v = c.pop();
     c.set_sreg(DS, v);

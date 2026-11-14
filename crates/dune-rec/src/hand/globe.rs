@@ -1264,7 +1264,7 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.m.cpu.ip = 0x016f;
         return Err(Bail);
     }
-    c.run(0x016f, 7)?;
+    c.run(0x016f, 7 + 0x100)?; // the `rep` iterations too
     let ds = c.sreg(DS);
     c.push(ds);
     let v = c.pop();
@@ -1273,7 +1273,7 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(0x4c60);
     c.set_reg(AX, 7);
     c.set_reg(CX, 0x100);
-    c.rep(0xab);
+    c.rep_counted(0xab);
     c.run(0x017d, 3)?;
     let d = c.pop();
     c.set_reg(DI, d);

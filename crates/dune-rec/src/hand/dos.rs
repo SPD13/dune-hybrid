@@ -1360,7 +1360,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     c.set_word(0xdbba, ax);
     c.call(0xe741, 0xe6ac)?;
-    c.run(0xe6ac, 10)?;
+    c.run(0xe6ac, 10 + 0x14d)?; // the `rep` iterations too
     let di = c.reg(DI);
     c.set_reg(SI, di);
     let es = c.sreg(ES);
@@ -1374,7 +1374,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.stos(W);
     c.set_reg(CX, 0x14d);
     c.set_reg8(r8::AL, 0xff);
-    c.rep(0xaa);
+    c.rep_counted(0xaa);
     c.run(0xe6c7, 4)?;
     let di = c.reg(DI);
     c.set_word(0xd820, di);

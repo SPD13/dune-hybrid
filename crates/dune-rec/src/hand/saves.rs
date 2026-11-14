@@ -66,8 +66,9 @@ pub fn decompress_sav(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::CL, count as u8);
         c.set_reg8(r8::CH, 0);
         c.lods(B, DS);
-        c.run(0xb4db, 1)?;
-        c.rep(0xaa); // rep stosb
+        let iterations = c.reg(CX) as u32; // the `rep` below
+        c.run(0xb4db, 1 + iterations)?;
+        c.rep_counted(0xaa); // rep stosb
         // The token's 3 bytes: 2 here, 1 by the loop.
         let rest = cx.wrapping_sub(2);
         let done = rest == 0 || cx < 2;
@@ -220,8 +221,9 @@ pub fn particles_remove_particle(m: &mut Machine, start: u16) -> Result<(), Bail
         c.push(ds);
         let es = c.pop();
         c.set_sreg(ES, es);
-        c.run(0xc5b6, 1)?;
-        c.rep(0xa4); // rep movsb
+        let iterations = c.reg(CX) as u32; // the `rep` below
+        c.run(0xc5b6, 1 + iterations)?;
+        c.rep_counted(0xa4); // rep movsb
     }
     c.run(0xc5b8, 4)?;
     let count = c.word(g::PARTICLES);

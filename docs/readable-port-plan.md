@@ -207,12 +207,14 @@ Things that bit:
   as it is.
 - **`rep` counts per iteration.** The emulator counts each iteration of a
   `rep` string instruction as an instruction. A port that does the copy
-  itself adds them to its `run` (`skill_needs`: 8 + 7). Ports that call
-  `c.rep` get them counted by it, but their `run` doesn't cover them, so
-  an interrupt due inside the iterations is taken after the port's
-  stretch, a few instructions late. About 60 older call sites do this; the
-  suite shows no drift from it yet, but they should move their
-  iterations into the `run`'s check (a follow-up).
+  itself adds them to its `run` (`skill_needs`: 8 + 7). `c.rep` counts
+  them itself, but the `run` before it doesn't cover them, so an
+  interrupt due inside the iterations would be taken after the port's
+  stretch, a few instructions late. `c.rep_counted` is the `rep` whose
+  iterations the `run` before it counted (`c.run(at, n + CX)`): 28 of the
+  44 `rep` sites use it now (a constant CX, a CX known before the `run`,
+  or a `run` right before the `rep`); the rest set CX in ways a script
+  couldn't follow (a follow-up).
 - **Stretches through an interrupt.** When the replay runs a stretch
   through an interrupt, it checks the stretch by interpreting it without
   the interrupt and comparing with the port's state. Its result flags no

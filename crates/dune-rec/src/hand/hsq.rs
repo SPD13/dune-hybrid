@@ -129,8 +129,9 @@ fn decompress(c: &mut Ctx) -> Result<(), Bail> {
         let cx = c.inc(W, cx);
         let cx = c.inc(W, cx);
         c.set_reg(CX, cx);
-        c.run(0xf47a, 1)?;
-        c.rep(0xa4); // rep movsb
+        let iterations = c.reg(CX) as u32; // the `rep` below
+        c.run(0xf47a, 1 + iterations)?;
+        c.rep_counted(0xa4); // rep movsb
         c.run(0xf47c, 3)?; // mov ds, bx; mov si, ax; jmp F435h
         let ds = c.reg(BX);
         c.set_sreg(DS, ds);
@@ -274,8 +275,9 @@ fn decomp_no_header(c: &mut Ctx) -> Result<(), Bail> {
     let di = c.dec(W, di);
     c.set_reg(SI, si);
     c.set_reg(DI, di);
-    c.run(0xf429, 1)?;
-    c.rep(0xa5); // rep movsw, backwards
+    let iterations = c.reg(CX) as u32; // the `rep` below
+    c.run(0xf429, 1 + iterations)?;
+    c.rep_counted(0xa5); // rep movsw, backwards
     c.run(0xf42b, 5)?;
     c.set_flag(pc::cpu::DF, false);
     let di = c.reg(DI);

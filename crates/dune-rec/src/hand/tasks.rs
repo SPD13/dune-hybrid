@@ -150,8 +150,9 @@ fn remove(c: &mut Ctx) -> Result<(), Bail> {
     c.push(ds);
     let es = c.pop();
     c.set_sreg(ES, es);
-    c.run(0xdaa0, 1)?;
-    c.rep(0xa5); // rep movsw
+    let iterations = c.reg(CX) as u32; // the `rep` below
+    c.run(0xdaa0, 1 + iterations)?;
+    c.rep_counted(0xa5); // rep movsw
     c.run(0xdaa2, 1)?;
     c.ret()
 }

@@ -1038,7 +1038,7 @@ pub fn intro_night_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xc21b, 0x0afb)?;
     c.run(0x0afb, 1)?;
     c.call(0x5ba0, 0x0afe)?;
-    c.run(0x0afe, 6)?;
+    c.run(0x0afe, 6 + 8)?; // the `rep` iterations too
     c.set_reg(DI, 0x4856);
     c.set_reg(AX, 0);
     let ds = c.sreg(DS);
@@ -1046,7 +1046,7 @@ pub fn intro_night_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.pop();
     c.set_sreg(ES, v);
     c.set_reg(CX, 8);
-    c.rep(0xaa);
+    c.rep_counted(0xaa);
     c.run(0x0b0a, 2)?;
     c.set_reg(SI, 0xb45);
     c.call(0xda5f, 0x0b10)?;
@@ -2415,24 +2415,24 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.stos(B);
         c.set_reg(CX, n - 1 - k);
     }
-    c.run(0xb452, 5)?;
+    c.run(0xb452, 5 + 0xa2)?; // the `rep` iterations too
     let cs = c.sreg(CS);
     c.push(cs);
     let v = c.pop();
     c.set_sreg(DS, v);
     c.set_reg(SI, 0xaa);
     c.set_reg(CX, 0xa2);
-    c.rep(0xa4);
-    c.run(0xb45c, 4)?;
+    c.rep_counted(0xa4);
+    c.run(0xb45c, 4 + 0x11f8)?; // the `rep` iterations too
     let v = c.pop();
     c.set_sreg(DS, v);
     c.set_reg(SI, 0xaa76);
     c.set_reg(CX, 0x11f8);
-    c.rep(0xa4);
-    c.run(0xb465, 3)?;
+    c.rep_counted(0xa4);
+    c.run(0xb465, 3 + 0x1261)?; // the `rep` iterations too
     c.set_reg(SI, 0);
     c.set_reg(CX, 0x1261);
-    c.rep(0xa4);
+    c.rep_counted(0xa4);
     c.run(0xb46d, 4)?;
     let v = c.pop();
     c.set_sreg(ES, v);

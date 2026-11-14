@@ -1509,6 +1509,14 @@ impl Ctx<'_> {
     fn rep(&mut self, op: u8) {
         self.m.cpu.string_op(&mut self.m.hw, op, None, 0xf3);
     }
+    /// A `rep` string instruction whose iterations the `run` before it
+    /// already counted (`c.run(at, n + iterations)`): its interrupt check
+    /// covers them, as the original's check does between iterations.
+    fn rep_counted(&mut self, op: u8) {
+        let counted = self.m.cpu.instructions;
+        self.rep(op);
+        self.m.cpu.instructions = counted;
+    }
 
     // --- Flag-exact operations (the original's instruction) -----------
 

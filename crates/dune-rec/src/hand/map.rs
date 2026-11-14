@@ -1986,7 +1986,7 @@ pub fn draw_skills_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x7b1b, 0x7d1b)?;
     c.run(0x7d1b, 1)?;
     c.call(0x7e1e, 0x7d1e)?;
-    c.run(0x7d1e, 6)?;
+    c.run(0x7d1e, 6 + 0x0e)?; // the `rep` iterations too
     let ds = c.sreg(DS);
     c.push(ds);
     let es = c.pop();
@@ -1994,7 +1994,7 @@ pub fn draw_skills_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x4c60);
     c.set_reg(DI, 0x4c7c);
     c.set_reg(CX, 0x0e);
-    c.rep(0xa5);
+    c.rep_counted(0xa5);
     c.run(0x7d2b, 9)?;
     let bx = c.word(0x1942);
     let bx = c.add(W, bx, 4);
@@ -3601,7 +3601,7 @@ pub fn skill_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn skill_bars_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x7e3d, 1)?;
     c.call(0xc13b, 0x7e40)?;
-    c.run(0x7e40, 7)?;
+    c.run(0x7e40, 7 + 0x0e)?; // the `rep` iterations too
     let di0 = c.reg(DI);
     c.push(di0);
     let ds = c.sreg(DS);
@@ -3612,7 +3612,7 @@ fn skill_bars_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(CX, 0x0e);
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
-    c.rep(0xab);
+    c.rep_counted(0xab);
     c.run(0x7e4d, 4)?;
     let si = c.reg(SI);
     c.set_reg(DI, si);
@@ -4228,7 +4228,7 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(es);
     c.set_reg(AX, 0x3a);
     c.call(0xc13e, 0x57ef)?;
-    c.run(0x57ef, 6)?;
+    c.run(0x57ef, 6 + 0x100)?; // the `rep` iterations too
     let ds = c.sreg(DS);
     c.push(ds);
     let e = c.pop();
@@ -4237,7 +4237,7 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, bp);
     c.set_reg8(r8::AL, 0x70);
     c.set_reg(CX, 0x100);
-    c.rep(0xaa);
+    c.rep_counted(0xaa);
     let k = c.byte(0x4722);
     if k == 0 {
         let alt = c.byte(0x2942) & 2 != 0;

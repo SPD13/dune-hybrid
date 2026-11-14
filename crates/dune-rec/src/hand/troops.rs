@@ -3123,7 +3123,7 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     const TABLE: u16 = 0x1e;
-    c.run(start, 13)?;
+    c.run(start, 13 + TABLE as u32)?; // the `rep stosb` iterations too
     let ax = (id as u16) << 8 | first as u16;
     c.save(&[DI]);
     let ds = c.sreg(DS);
@@ -3137,7 +3137,7 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax & 0xff00);
     c.set_reg(DI, table);
     c.set_reg(CX, TABLE);
-    c.rep(0xaa); // rep stosb: the table cleared
+    c.rep_counted(0xaa); // rep stosb: the table cleared
     c.run(0x8550, 5)?;
     c.restore(&[AX]);
     c.set_reg(DI, table);

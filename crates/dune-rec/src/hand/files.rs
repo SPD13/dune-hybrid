@@ -51,8 +51,9 @@ fn clear_keys(c: &mut Ctx) -> Result<(), Bail> {
     c.set_byte(g::KEY_HIT, 0);
     c.set_reg(DI, KEY_STATES);
     c.set_reg(CX, KEY_STATES_LEN);
-    c.run(0xf09c, 1)?;
-    c.rep(0xaa); // rep stosb
+    let iterations = c.reg(CX) as u32; // the `rep` below
+    c.run(0xf09c, 1 + iterations)?;
+    c.rep_counted(0xaa); // rep stosb
     c.run(0xf09e, 2)?;
     let es = c.pop();
     c.set_sreg(ES, es);

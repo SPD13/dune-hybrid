@@ -643,7 +643,7 @@ pub fn table_2280(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn clear_47f8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3ae9)?;
     let mut c = Ctx::new(m);
-    c.run(start, 7)?;
+    c.run(start, 7 + 0x2e)?; // the `rep` iterations too
     let ax = c.reg(AX);
     c.push(ax);
     let ds = c.sreg(pc::cpu::DS);
@@ -653,7 +653,7 @@ pub fn clear_47f8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0x2e);
     c.set_reg(AX, 0xffff);
     c.set_reg(DI, 0x47f8);
-    c.rep(0xab);
+    c.rep_counted(0xab);
     c.run(0x3af7, 2)?;
     let ax = c.pop();
     c.set_reg(AX, ax);
@@ -1125,7 +1125,7 @@ pub fn shift_list_1179(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, 0);
         return c.ret();
     }
-    c.run(start, 11)?;
+    c.run(start, 11 + 9)?; // the `rep` iterations too
     c.set_reg(CX, n as u16);
     c.set_reg(SI, 0x1179);
     let v = pure::dec(B, n as u16);
@@ -1138,7 +1138,7 @@ pub fn shift_list_1179(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let es = c.pop();
     c.set_sreg(pc::cpu::ES, es);
     c.set_reg(CX, 9);
-    c.rep(0xa5);
+    c.rep_counted(0xa5);
     c.run(0x274a, 3)?;
     c.set_reg(AX, 0);
     c.stos(W);
@@ -3512,7 +3512,7 @@ pub fn ui_comm(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn sal_read_position_markers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3d83)?;
     let mut c = Ctx::new(m);
-    c.run(start, 6)?;
+    c.run(start, 6 + 0x17)?; // the `rep` iterations too
     let ds = c.sreg(DS);
     c.push(ds);
     let es = c.pop();
@@ -3521,7 +3521,7 @@ pub fn sal_read_position_markers(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_reg(CX, 0x17);
     let di = c.word(0x47f6);
     c.set_reg(DI, di);
-    c.rep(0xaa);
+    c.rep_counted(0xaa);
     let k = c.byte(0x4774);
     let list = c.word(0x4778);
     let di = c.word(0x47f6);

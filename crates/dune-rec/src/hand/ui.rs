@@ -1304,7 +1304,7 @@ pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1948)?;
     let mut c = Ctx::new(m);
-    c.run(start, 7)?;
+    c.run(start, 7 + 0x24)?; // the `rep` iterations too
     let sp = c.reg(SP);
     let sp = pure::sub(W, sp, 0x24);
     c.set_reg(SP, sp);
@@ -1315,7 +1315,7 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, es);
     c.set_reg(CX, 0x24);
     c.set_reg(AX, 0);
-    c.rep(0xaa);
+    c.rep_counted(0xaa);
     c.run(0x1956, 4)?;
     let tab = sp;
     c.set_reg(SI, 0xfd8);

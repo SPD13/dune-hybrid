@@ -591,8 +591,9 @@ pub fn handle_ctrl_v_once(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let es = c.pop();
     c.set_sreg(ES, es);
     c.set_reg(CX, 0x0a);
-    c.run(0xb27c, 1)?;
-    c.rep(0xa5); // rep movsw
+    let iterations = c.reg(CX) as u32; // the `rep` below
+    c.run(0xb27c, 1 + iterations)?;
+    c.rep_counted(0xa5); // rep movsw
     c.run(0xb27e, 5)?;
     let di = c.reg(DI);
     c.set_word(g::CTRL_V_TABLE_END, di);
