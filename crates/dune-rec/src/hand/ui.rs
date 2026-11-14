@@ -1675,7 +1675,6 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(0xdce6);
     let back = (k as i8) > 0;
     c.run(0xd491, 2 + back as u32)?;
-    c.cmp(B, k as u16, 0);
     if back {
         c.call(0xc07c, 0xd49b)?;
     }
@@ -1689,10 +1688,9 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.mul8(cl);
     let p = c.reg(AX);
     c.set_reg(DI, p);
-    let di = c.add(W, p, 0x1b48);
+    let di = p.wrapping_add(0x1b48);
     c.set_reg(DI, di);
-    let bx = c.word(di.wrapping_add(2));
-    let bx = c.inc(W, bx);
+    let bx = c.word(di.wrapping_add(2)).wrapping_add(1);
     c.set_reg(BX, bx);
     c.set_reg(DX, 0x5d);
     c.call(0xd04e, 0xd4b4)?;
@@ -1702,20 +1700,17 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let swap = lit && ah & 0x80 != 0;
     c.run(0xd4b4, 5 + if text == 0 { 0 } else { 3 + if lit { 4 + swap as u32 } else { 0 } + 2 })?;
     c.set_byte(0xdbe5, 0xf3);
-    let f = c.byte(di.wrapping_add(8));
-    let f = c.and(B, f as u16, 0x7f);
-    c.set_byte(di.wrapping_add(8), f as u8);
+    let f = c.byte(di.wrapping_add(8)) & 0x7f;
+    c.set_byte(di.wrapping_add(8), f);
     c.set_reg(AX, ax);
-    c.and(W, ax, 0x3fff);
     c.set_reg(SI, text);
     if text != 0 {
+        // The colours: F5h; a live one highlighted (+8 bit 7) in FAh,
+        // swapped with the background for bit 15.
         c.set_reg8(r8::AL, 0xf5);
-        c.test(B, ah as u16, 0x40);
         if lit {
-            let f = c.or(B, f, 0x80);
-            c.set_byte(di.wrapping_add(8), f as u8);
+            c.set_byte(di.wrapping_add(8), f | 0x80);
             c.set_reg8(r8::AL, 0xfa);
-            c.or(B, ah as u16, ah as u16);
             if swap {
                 let old = c.byte(0xdbe5);
                 c.set_byte(0xdbe5, 0xfa);
@@ -1740,7 +1735,7 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0xdce9, dx);
     c.set_word(0xdceb, bx);
     c.set_word(0xdced, 0xe3);
-    let b = c.add(W, bx, 7);
+    let b = c.add(W, bx, 7); // the driver's far call sees these flags
     c.set_reg(BX, b);
     c.set_word(0xdcef, b);
     let bg = c.byte(0xdbe5);

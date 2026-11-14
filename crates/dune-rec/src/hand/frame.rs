@@ -152,8 +152,7 @@ pub fn stc_on_user_input(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let args = c.byte(g::CMD_ARGS);
     c.run(0xdd69, if args & 0x40 != 0 { 5 } else { 6 })?;
-    c.cmp(B, 0, 0);
-    c.test(B, args as u16, 0x40);
+    c.test(B, args as u16, 0x40); // the flags INT 33h sees
     if args & 0x40 == 0 {
         c.set_reg(AX, 3);
         c.interp(0xdd7c, 0xdd7e)?; // the mouse's buttons
@@ -161,8 +160,8 @@ pub fn stc_on_user_input(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let pressed = (si ^ bx) & bx & 7;
         c.run(0xdd7e, if pressed != 0 { 7 } else { 5 })?;
         c.set_reg(SI, bx);
-        let v = c.xor(W, si, bx);
-        let v = c.and(W, v, bx);
+        // The buttons newly down; the exit's flags are the last `and`'s.
+        let v = (si ^ bx) & bx;
         let bl = c.and(B, v & 0xff, 7);
         c.set_reg(BX, v & 0xff00 | bl);
         if pressed != 0 {
@@ -171,7 +170,7 @@ pub fn stc_on_user_input(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let joystick = args & 0x80 != 0;
     c.run(0xdd89, if joystick { 4 } else { 5 })?;
-    c.test(B, args as u16, 0x80);
+    c.test(B, args as u16, 0x80); // `read_game_port` reads them
     if joystick {
         let di = c.reg(DI);
         c.push(di);
@@ -182,8 +181,7 @@ pub fn stc_on_user_input(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xdd94, if pressed != 0 { 8 } else { 6 } + if pressed != 0 { 0 } else { 3 })?;
         c.pop();
         c.set_reg(DI, ax);
-        let v = c.xor(W, ax, di);
-        let v = c.and(W, v, ax);
+        let v = (ax ^ di) & ax;
         let al = c.and(B, v & 0xff, 0x30);
         c.set_reg(AX, v & 0xff00 | al);
         if pressed != 0 {

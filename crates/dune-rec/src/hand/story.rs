@@ -5252,7 +5252,7 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if mode == 0 {
         if was != 0 {
             c.run(start, 9)?;
-            scene_flags(&mut c, mode, was, false);
+            scene_flags(&mut c, was, false);
             return c.ret();
         }
         let k = c.byte(0x0b);
@@ -5261,19 +5261,11 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let call = k == 8 && f != 0 && t & 8 != 0;
         let n = 11 + if k != 8 { 0 } else if f == 0 { 3 } else { 5 } + call as u32;
         c.run(start, n)?;
-        scene_flags(&mut c, mode, was, false);
+        scene_flags(&mut c, was, false);
         let v = c.byte(0x1a);
-        let v = c.inc(B, v as u16);
-        c.set_byte(0x1a, v as u8);
-        c.cmp(B, k as u16, 8);
+        c.set_byte(0x1a, v.wrapping_add(1));
         if k == 8 {
-            let (a, b) = (c.word(0xc0), c.word(0x1158));
-            c.set_reg(AX, a);
-            let x = c.and(W, a, b);
-            c.set_reg(AX, x);
-            if x != 0 {
-                c.test(W, t, 8);
-            }
+            c.set_reg(AX, f);
         }
         if call {
             c.call(0x2566, 0x35e3)?;
@@ -5284,13 +5276,12 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     if was != 0 {
         c.run(start, 10)?;
-        scene_flags(&mut c, mode, was, true);
+        scene_flags(&mut c, was, true);
         return c.ret();
     }
     let p = c.word(0x1152);
     c.run(start, 12)?;
-    scene_flags(&mut c, mode, was, true);
-    c.cmp(W, p, 0xffff);
+    scene_flags(&mut c, was, true);
     if p != 0xffff {
         c.call(0x40f9, 0x3606)?;
         c.run(0x3606, 1)?;
@@ -5302,7 +5293,6 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
         c.run(0x3609, 3)?;
-        c.cmp(B, st as u16, 0);
         c.call(0x366f, 0x3613)?;
         if c.flag(pc::cpu::SF) {
             c.run(0x3613, 2)?;
@@ -5331,8 +5321,7 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.set_reg8(r8::CL, 0x10);
         c.mul8(0x10);
-        let a = c.reg(AX);
-        let a = c.add(W, a, 0xfd8);
+        let a = c.reg(AX).wrapping_add(0xfd8);
         c.set_reg(AX, a);
         c.set_reg(SI, a);
         c.call(0x3551, 0x3636)?;
@@ -5347,7 +5336,6 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0x363a, 3)?;
-    c.cmp(B, st as u16, 0);
     c.call(0xdbb2, 0x3644)?;
     c.run(0x3644, 1)?;
     c.call(0x439f, 0x3647)?;
@@ -5364,8 +5352,7 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x365f, 4)?;
     c.set_reg(BP, 0x1f9e);
     let v = c.byte_in(SS, 0x1fa9);
-    let v = c.or(B, v as u16, 0x40);
-    c.m.cpu.write8(&mut c.m.hw, SS, 0x1fa9, v as u8);
+    c.m.cpu.write8(&mut c.m.hw, SS, 0x1fa9, v | 0x40);
     c.set_reg(BX, 0x4abe);
     c.call(0xd323, 0x366c)?;
     c.run(0x366c, 1)?;
@@ -5374,9 +5361,7 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_035ad`'s start: [1Ah], [47A7h] (and in a map mode [23h]) 0,
 /// [47A6h] taken.
-fn scene_flags(c: &mut Ctx, mode: u8, was: u8, map: bool) {
-    c.cmp(B, mode as u16, 0);
-    c.xor(W, 0, 0);
+fn scene_flags(c: &mut Ctx, was: u8, map: bool) {
     c.set_reg(AX, 0);
     c.set_byte(0x1a, 0);
     c.set_byte(0x47a7, 0);
@@ -5385,7 +5370,7 @@ fn scene_flags(c: &mut Ctx, mode: u8, was: u8, map: bool) {
     }
     c.set_byte(0x47a6, 0);
     c.set_reg8(r8::AL, was);
-    c.or(B, was as u16, was as u16);
+    c.or(B, was as u16, was as u16); // the flags of the early exits
 }
 
 /// `loc_02e52`: the scene refreshed after a move: `scene_start`, the time

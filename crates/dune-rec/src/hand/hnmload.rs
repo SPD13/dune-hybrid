@@ -87,15 +87,11 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
         let (sum, carry) = si.overflowing_add(ax);
         let reset = carry || sum > end;
         c.run(0xc96e, 1 + if carry { 3 } else if reset { 5 } else { 4 } + 3)?;
-        let si = c.add(W, si, ax);
-        c.set_reg(SI, si);
-        if !carry {
-            c.cmp(W, si, end);
-        }
+        c.set_reg(SI, sum);
         if reset {
             c.set_word(g::HNM_READ_PTR, 0);
         }
-        let n = c.sub(W, ax, 2);
+        let n = ax.wrapping_sub(2);
         c.set_reg(AX, n);
         c.set_reg(CX, n);
         c.call(code::HNM_READ_BYTES, 0xc988)?;
@@ -123,15 +119,9 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_reg(SI, si);
     c.set_sreg(ES, es);
     c.lods(W, ES);
-    let s = c.add(W, size, after);
-    c.set_reg(AX, s);
-    if !carry {
-        c.cmp(W, s, end);
-    }
+    c.set_reg(AX, sum);
     if reset {
-        let si = c.reg(SI);
-        let zero = c.xor(W, si, si);
-        c.set_reg(SI, zero);
+        c.set_reg(SI, 0);
     }
     c.set_byte(g::PALETTE_RESOURCE, 0xff);
     c.call(code::APPLY_PALETTE, 0xc9ac)?;
@@ -139,15 +129,13 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
     // Past the FFh padding.
     c.run(0xc9ac, 1)?;
     let si = c.reg(SI);
-    let mut si = c.dec(W, si);
+    let mut si = si.wrapping_sub(1);
     c.set_reg(SI, si);
     loop {
         let pad = c.byte_in(ES, si.wrapping_add(1)) == 0xff;
         c.run(0xc9ad, 3)?;
-        si = c.inc(W, si);
+        si = si.wrapping_add(1);
         c.set_reg(SI, si);
-        let b = c.byte_in(ES, si);
-        c.cmp(B, b as u16, 0xff);
         if !pad {
             break;
         }
@@ -157,28 +145,24 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
     let flags = c.byte(g::HNM_FLAGS);
     let wide = flags & 4 != 0;
     c.run(0xc9b4, 3 + wide as u32 + 16)?;
-    c.xor(W, 0, 0);
     c.set_reg(BX, 0);
-    c.test(B, flags as u16, 4);
     let off = if wide { 0x10 } else { 0 };
     c.set_reg8(r8::BL, off);
     let low = c.word_in(ES, si.wrapping_add(off as u16));
     let high = c.word_in(ES, si.wrapping_add(off as u16).wrapping_add(2));
     c.set_reg(CX, low);
     c.set_reg(BX, high);
-    let pos = c.word(g::HNM_FILE_OFFSET);
-    let v = c.add(W, pos, low);
-    c.set_word(g::HNM_BODY_OFFSET, v);
-    let pos = c.word(g::HNM_FILE_OFFSET + 2);
-    let v = c.adc(W, pos, high);
-    c.set_word(g::HNM_BODY_OFFSET + 2, v);
-    let left = c.word(g::HNM_FILE_REMAIN);
-    let v = c.sub(W, left, low);
-    c.set_word(g::HNM_BODY_SIZE, v);
-    let left = c.word(g::HNM_FILE_REMAIN + 2);
-    let v = c.sbb(W, left, high);
-    c.set_reg(AX, v);
-    c.set_word(g::HNM_BODY_SIZE + 2, v);
+    // The body: its offset in the file and its size.
+    let body = (high as u32) << 16 | low as u32;
+    let pos = (c.word(g::HNM_FILE_OFFSET + 2) as u32) << 16 | c.word(g::HNM_FILE_OFFSET) as u32;
+    let at = pos.wrapping_add(body);
+    c.set_word(g::HNM_BODY_OFFSET, at as u16);
+    c.set_word(g::HNM_BODY_OFFSET + 2, (at >> 16) as u16);
+    let left = (c.word(g::HNM_FILE_REMAIN + 2) as u32) << 16 | c.word(g::HNM_FILE_REMAIN) as u32;
+    let size = left.wrapping_sub(body);
+    c.set_word(g::HNM_BODY_SIZE, size as u16);
+    c.set_reg(AX, (size >> 16) as u16);
+    c.set_word(g::HNM_BODY_SIZE + 2, (size >> 16) as u16);
     c.set_flag(CF, false);
     c.ret()
 }
@@ -497,15 +481,11 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let lim = c.word(0xce74);
         let drop = carry || s > lim;
         c.run(0xc96e, 3 + if carry { 0 } else { 2 } + drop as u32 + 3)?;
-        let s = c.add(W, si, ax);
         c.set_reg(SI, s);
-        if !carry {
-            c.cmp(W, s, lim);
-        }
         if drop {
             c.set_word(0xdc0c, 0);
         }
-        let a = c.sub(W, ax, 2);
+        let a = ax.wrapping_sub(2);
         c.set_reg(AX, a);
         c.set_reg(CX, a);
         c.call(0xcdbf, 0xc988)?;
@@ -530,28 +510,23 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xc992, 4 + if carry { 0 } else { 2 } + reset as u32 + 2)?;
     c.set_reg(SI, s0);
     c.set_sreg(ES, e);
-    let a = c.lods(W, ES);
-    let a = c.add(W, a, s1);
-    c.set_reg(AX, a);
-    if !carry {
-        c.cmp(W, a, lim);
-    }
+    c.lods(W, ES);
+    c.set_reg(AX, sum);
     if reset {
-        c.xor(W, s1, s1);
         c.set_reg(SI, 0);
     }
     c.set_byte(0xdbb4, 0xff);
     c.call(0xc1ba, 0xc9ac)?;
     c.run(0xc9ac, 1)?;
     let si = c.reg(SI);
-    let mut si = c.dec(W, si);
+    let mut si = si.wrapping_sub(1);
     c.set_reg(SI, si);
+    // Past the FFh padding.
     loop {
         c.run(0xc9ad, 3)?;
-        si = c.inc(W, si);
+        si = si.wrapping_add(1);
         c.set_reg(SI, si);
         let b = c.byte_in(ES, si);
-        c.cmp(B, b as u16, 0xff);
         if b != 0xff {
             break;
         }
@@ -559,22 +534,18 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(0xdbfe);
     let two = f & 4 != 0;
     c.run(0xc9b4, 3 + two as u32 + 16)?;
-    let bx = c.reg(BX);
-    c.xor(W, bx, bx);
-    c.set_reg(BX, 0);
-    c.test(B, f as u16, 4);
     let o = if two { 0x10u16 } else { 0 };
     c.set_reg(BX, o);
     let cx = c.word_in(ES, o.wrapping_add(si));
     c.set_reg(CX, cx);
     let bx = c.word_in(ES, o.wrapping_add(si).wrapping_add(2));
     c.set_reg(BX, bx);
-    let a = c.word(0xdc04);
-    let a = c.add(W, a, cx);
-    c.set_word(0xdbf6, a);
-    let a = c.word(0xdc06);
-    let a = c.adc(W, a, bx);
-    c.set_word(0xdbf8, a);
+    // The data's start: the file's offset plus the frame's.
+    let off = (c.word(0xdc06) as u32) << 16 | c.word(0xdc04) as u32;
+    let at = off.wrapping_add((bx as u32) << 16 | cx as u32);
+    c.set_word(0xdbf6, at as u16);
+    c.set_word(0xdbf8, (at >> 16) as u16);
+    // The bytes left (the exit's flags are the `sbb`'s).
     let a = c.word(0xdc08);
     let a = c.sub(W, a, cx);
     c.set_word(0xdbfa, a);
@@ -604,7 +575,6 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let (a, b) = (c.word(0xdbea), c.word(0xdbee));
             c.run(0xcb00, 3)?;
             c.set_reg(AX, a);
-            c.cmp(W, a, b);
             if a == b {
                 c.m.cpu.ip = 0xcb61;
                 return Err(Bail);
@@ -612,7 +582,7 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let (a, b) = (c.word(0xdc08), c.word(0xdc0a));
             c.run(0xcb09, 3)?;
             c.set_reg(AX, a);
-            let o = c.or(W, a, b);
+            let o = a | b;
             c.set_reg(AX, o);
             if o == 0 {
                 c.m.cpu.ip = 0xcb61;
@@ -633,16 +603,9 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let clip = !neg && a < cx;
         c.run(0xcb1a, 2 + 2 + if neg { 0 } else { 6 + clip as u32 } + 1)?;
         c.set_reg(CX, cx);
-        c.cmp(B, f as u16, 0);
         if !neg {
-            let a = c.word(0xdc04);
+            // At most to the next 2 KB boundary of the file, plus 2 KB.
             c.set_reg(AX, a);
-            let a = c.neg(W, a);
-            let a = c.and(W, a, 0x7ff);
-            let h = c.add(B, a >> 8, 8);
-            let a = (h << 8) | (a & 0xff);
-            c.set_reg(AX, a);
-            c.cmp(W, a, cx);
             if clip {
                 c.set_reg(CX, a);
             }
@@ -654,8 +617,7 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0xcb3b, 3)?;
         let cx = c.reg(CX);
-        let v = c.word(0xdc20);
-        let v = c.sub(W, v, cx);
+        let v = c.word(0xdc20).wrapping_sub(cx);
         c.set_word(0xdc20, v);
         return c.jump(0xcdbf);
     }

@@ -192,13 +192,11 @@ pub fn ems_copy(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 10)?;
     let bx = c.reg(BX);
     c.set_reg(AX, bx);
-    let a = c.shl1(W, bx, 2);
-    let a = a.rotate_left(8);
-    c.set_reg(AX, a);
-    let a = c.and(W, a, 0x3c00);
+    // The offset in the page: (BX mod 16) KB.
+    let a = (bx << 2).rotate_left(8) & 0x3c00;
     c.set_reg(AX, a);
     c.set_reg(ptr, a);
-    let b = c.shr1(W, bx, 4);
+    let b = c.shr1(W, bx, 4); // `call_ems_func` reads the flags
     c.set_reg(BX, b);
     loop {
         c.run(at(0x15), 2)?;
@@ -217,15 +215,9 @@ pub fn ems_copy(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let frame = c.word_in(CS, 0xed3c);
         c.set_sreg(seg, frame);
         c.set_reg(DX, cx);
-        let r = c.sub(W, 0x4000, p);
-        c.set_reg(CX, r);
-        c.cmp(W, r, cx);
-        if !below {
-            c.set_reg(CX, cx);
-        }
-        let left = c.sub(W, cx, n);
+        let left = cx - n;
         c.set_reg(DX, left);
-        let h = c.shr1(W, n, 1);
+        let h = c.shr1(W, n, 1); // the odd byte: the `adc` reads its CF
         c.set_reg(CX, h);
         c.rep_counted(0xa5);
         c.run(at(0x35), 2 + (n & 1) as u32)?;
@@ -238,11 +230,10 @@ pub fn ems_copy(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_flag(CF, false);
             return c.ret();
         }
-        let b = c.reg(BX);
-        let b = c.inc(W, b);
+        let b = c.reg(BX).wrapping_add(1);
         c.set_reg(BX, b);
         let p = c.reg(ptr);
-        c.xor(W, p, p);
+        c.xor(W, p, p); // likewise
         c.set_reg(ptr, 0);
     }
 }
@@ -257,34 +248,21 @@ pub fn xms_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xecec, 10 + 12 + 19)?;
     c.set_reg(SI, 0xec6c);
-    let cx = c.reg(CX);
-    let cx = c.inc(W, cx);
-    let words = c.shr1(W, cx, 1);
+    // The move's descriptors: CX rounded up to words; the target ES:DI
+    // as a 24-bit address, the source the extended memory at BX KB
+    // (past 1 MB).
+    let words = c.reg(CX).wrapping_add(1) >> 1;
     c.push(words);
-    let bytes = c.shl1(W, words, 1);
+    let bytes = words << 1;
     c.set_word_in(CS, 0xec7c, bytes);
     c.set_word_in(CS, 0xec84, bytes);
-    let mut ax = c.sreg(ES);
-    let mut dx = c.xor(W, 0, 0);
-    for _ in 0..4 {
-        ax = c.shl1(W, ax, 1);
-        dx = c.rcl1(W, dx);
-    }
-    let di = c.reg(DI);
-    let ax = c.add(W, ax, di);
-    let dx = c.adc(W, dx, 0);
+    let to = ((c.sreg(ES) as u32) << 4) + c.reg(DI) as u32;
+    let ax = to as u16;
     c.set_word_in(CS, 0xec86, ax);
-    let dx = (dx & 0xff) | 0x9200;
-    c.set_word_in(CS, 0xec88, dx);
-    c.xor(B, dx & 0xff, dx & 0xff);
-    let bx = c.reg(BX);
-    let mut dl = (bx >> 8) & 0xff;
-    let mut bx = (bx & 0xff) << 8;
-    for _ in 0..2 {
-        bx = c.shl1(W, bx, 1);
-        dl = c.rcl1(B, dl);
-    }
-    let dl = c.add(B, dl, 0x10);
+    c.set_word_in(CS, 0xec88, (to >> 16) as u16 | 0x9200);
+    let from = (c.reg(BX) as u32) << 10;
+    let bx = from as u16;
+    let dl = c.add(B, (from >> 16) as u16 & 0xff, 0x10); // the flags INT 15h sees
     c.set_reg(BX, bx);
     let dx = 0x9200 | dl;
     c.set_reg(DX, dx);
@@ -315,11 +293,10 @@ pub fn map_ems_for_midi_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(0x2944);
     if f & 0x0f == 0 {
         c.run(0xedb9, 3)?;
-        c.test(B, f as u16, 0x0f);
         return c.ret();
     }
     c.run(0xedb9, 5)?;
-    c.test(B, f as u16, 0x0f);
+    c.test(B, f as u16, 0x0f); // INT 67h sees the flags
     c.set_reg(BX, 3);
     c.set_reg8(super::r8::AH, 0x43);
     c.call(0xed45, 0xedc8)?;
@@ -332,7 +309,7 @@ pub fn map_ems_for_midi_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word_in(CS, 0xed3e, dx);
     c.set_reg(AX, 0x4401);
     let bx = c.reg(BX);
-    c.xor(W, bx, bx);
+    c.xor(W, bx, bx); // likewise
     c.set_reg(BX, 0);
     c.call(0xed45, 0xedd7)?;
     for (at, ax, bx, ret) in [(0xedd7u16, 0x4402u16, 1u16, 0xede2u16), (0xede2, 0x4403, 2, 0xeded)] {
@@ -370,33 +347,29 @@ pub fn init_extended_memory_allocator(m: &mut Machine, start: u16) -> Result<(),
     let mut c = Ctx::new(m);
     let f = c.byte(0x2943);
     c.run(0xea7b, 2 + (f & 0x80 != 0) as u32)?;
-    c.test(B, f as u16, 0x80);
+    c.test(B, f as u16, 0x80); // `loc_0eea0` reads the flags
     if f & 0x80 != 0 {
         c.call(0xeea0, 0xea85)?;
     }
     let f = c.byte(0x2943);
     c.run(0xea85, 2 + (f & 0x48 != 0) as u32)?;
-    c.test(B, f as u16, 0x48);
+    c.test(B, f as u16, 0x48); // `ems_init` reads the flags
     if f & 0x48 != 0 {
         c.call(0xed4c, 0xea8f)?;
     }
     let f = c.byte(0x2943);
     if f & 0xe8 == 0 {
         c.run(0xea8f, 3)?;
-        c.test(B, f as u16, 0xe8);
         return c.ret();
     }
     c.run(0xea8f, 11)?;
-    c.test(B, f as u16, 0xe8);
     c.set_reg(DI, 0xce6a);
     let n = c.word(0x39a9);
     c.set_reg(AX, 0xb9);
     c.set_byte(0xce70, 0xb9);
-    let n = c.add(W, n, 0xb9);
-    let n = c.add(W, n, 0xb9);
+    let n = n.wrapping_add(2 * 0xb9);
     c.push(n);
-    let b = c.shl1(W, n, 1);
-    c.set_reg(CX, b);
+    c.set_reg(CX, n << 1);
     c.call(0xf0f6, 0xeaad)?;
     // The words cleared (the count pushed before; the `rep stosw`
     // iterations counted in the `run`).
@@ -424,7 +397,7 @@ pub fn install_interrupt_handlers(m: &mut Machine, start: u16) -> Result<(), Bai
     let mut c = Ctx::new(m);
     c.run(0xe913, 5)?;
     let v = c.byte(0xce73);
-    let v = c.xor(B, v as u16, 0xff);
+    let v = c.xor(B, v as u16, 0xff); // the flags pushed
     c.set_byte(0xce73, v as u8);
     c.set_reg(SI, 0x2913);
     let f = c.m.cpu.flags();
@@ -438,9 +411,8 @@ pub fn install_interrupt_handlers(m: &mut Machine, start: u16) -> Result<(), Bai
         c.set_reg(AX, ax);
         let si = c.reg(SI);
         c.push(si);
-        let vec = c.shl1(W, ax, 2);
+        let vec = ax << 2;
         c.set_reg(SI, vec);
-        c.xor(W, 0, 0);
         c.set_sreg(ES, 0);
         let mut last = 0;
         for k in [0u16, 2] {
@@ -454,7 +426,6 @@ pub fn install_interrupt_handlers(m: &mut Machine, start: u16) -> Result<(), Bai
         let si = c.pop();
         c.set_reg(SI, si);
         ax = c.lods(W, DS);
-        c.or(W, ax, ax);
         if ax & 0x8000 != 0 {
             break;
         }
@@ -491,17 +462,15 @@ pub fn alloc_extended_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(ds);
     c.set_reg(SI, base);
     c.set_sreg(DS, seg);
-    let s = c.add(W, base, ax0);
-    let s = c.shl1(W, s, 1);
     c.set_reg(SI, s);
     c.set_reg(AX, first);
-    c.or(W, first, first);
+    c.or(W, first, first); // the flags of the exit: ZF set, CF clear
     if first == 0 {
         return pop_ds_dx_ec43(&mut c);
     }
     c.set_reg(BX, first);
     let t = c.word_in(CS, 0xea75);
-    let t = c.inc(W, t);
+    let t = t.wrapping_add(1);
     c.set_reg(AX, t);
     c.set_word(s.wrapping_add(0x172), t);
     c.set_word_in(CS, 0xea75, t);
@@ -516,14 +485,14 @@ pub fn alloc_extended_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, ax);
         let mut dx = ax;
         c.set_reg(DX, dx);
-        let mut cx = c.xor(W, 0, 0);
+        let mut cx = 0u16;
         c.set_reg(CX, 0);
         loop {
             if ax & 0x8000 != 0 {
                 c.run(0xec10, 3 + 3)?;
-                cx = c.add(W, cx, 0x400);
+                cx = cx.wrapping_add(0x400);
                 c.set_reg(CX, cx);
-                ax = c.shl1(W, ax, 1);
+                ax <<= 1;
                 c.set_reg(AX, ax);
                 break 'chain;
             }
@@ -531,28 +500,22 @@ pub fn alloc_extended_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let v = c.word(si);
             let same = v == dx.wrapping_add(1);
             c.run(0xec10, 3 + 6 + if same { 0 } else { 2 + 3 })?;
-            cx = c.add(W, cx, 0x400);
+            cx = cx.wrapping_add(0x400);
             c.set_reg(CX, cx);
-            let sh = c.shl1(W, ax, 1);
-            c.set_reg(AX, sh);
-            c.set_reg(SI, sh);
-            let si = c.sub(W, sh, 2);
             c.set_reg(SI, si);
-            dx = c.inc(W, dx);
+            dx = dx.wrapping_add(1);
             c.set_reg(DX, dx);
-            c.set_reg(AX, v);
-            c.cmp(W, v, dx);
             ax = v;
+            c.set_reg(AX, v);
             if same {
                 continue;
             }
-            ax = c.shl1(W, v, 1);
-            c.set_reg(AX, ax);
+            // The chain's end (bit 15) or the next run.
             if v & 0x8000 != 0 {
+                ax = v << 1;
+                c.set_reg(AX, ax);
                 break 'chain;
             }
-            ax = c.shr1(W, ax, 1);
-            c.set_reg(AX, ax);
             c.push(ax);
             c.call(0xec46, 0xec2e)?;
             let cf = c.flag(CF);
@@ -565,10 +528,10 @@ pub fn alloc_extended_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
             continue 'chain;
         }
     }
-    let a = c.m.cpu.shift(7, W, ax as u32, 1) as u16;
+    // The last page's bytes (`sar`).
+    let a = ((ax as i16) >> 1) as u16;
     c.set_reg(AX, a);
-    let cx = c.reg(CX);
-    let cx = c.add(W, cx, a);
+    let cx = c.reg(CX).wrapping_add(a);
     c.set_reg(CX, cx);
     c.call(0xec46, 0xec3a)?;
     end_ec3a(&mut c)
@@ -587,8 +550,7 @@ fn end_ec3a(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(DI, d0);
     let f = c.m.cpu.flags();
     c.push(f);
-    let n = c.sub(W, di, d0);
-    c.set_reg(CX, n);
+    c.set_reg(CX, di.wrapping_sub(d0));
     let f = c.pop();
     c.m.cpu.set_flags(f);
     let cf = c.flag(CF);
@@ -627,7 +589,7 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx = c.reg(BX);
     c.set_word_in(CS, 0xed3c, bx);
     c.set_reg8(super::r8::AH, 0x42);
-    c.xor(W, bx, bx);
+    c.xor(W, bx, bx); // INT 67h sees the flags
     c.set_reg(BX, 0);
     c.call(0xed45, 0xed5f)?;
     let bx = c.reg(BX);
@@ -637,23 +599,19 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     if bx < 3 {
         c.run(0xed5f, 3)?;
-        c.cmp(W, bx, 3);
         return fail_edb3(&mut c);
     }
     c.run(0xed5f, 4)?;
-    c.cmp(W, bx, 3);
     c.call(0xedb9, 0xed69)?;
     let f = c.byte(0x2943);
     if f & 8 != 0 {
         c.run(0xed69, 2)?;
-        c.test(B, f as u16, 8);
         return fail_edb3(&mut c);
     }
     c.run(0xed69, 5)?;
-    c.test(B, f as u16, 8);
     c.set_reg8(super::r8::AH, 0x42);
     let bx = c.reg(BX);
-    c.xor(W, bx, bx);
+    c.xor(W, bx, bx); // likewise
     c.set_reg(BX, 0);
     c.call(0xed45, 0xed77)?;
     let bx = c.reg(BX);
@@ -663,23 +621,19 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     if bx < 4 {
         c.run(0xed77, 3)?;
-        c.cmp(W, bx, 4);
         return fail_edb3(&mut c);
     }
     let big = bx >= 0x80;
     let pages = if big { 0x80 } else { bx };
     let zero = pages << 1 == 0;
     c.run(0xed77, 5 + big as u32 + 3 + if zero { 0 } else { 6 })?;
-    c.cmp(W, bx, 4);
-    c.cmp(W, bx, 0x80);
     c.set_reg(BX, pages);
-    c.set_reg(AX, pages);
-    let a = c.shl1(W, pages, 1);
+    let a = pages << 1;
     c.set_reg(AX, a);
     if zero {
         return fail_edb3(&mut c);
     }
-    let a = c.shl1(W, a, 3);
+    let a = c.shl1(W, a, 3); // likewise
     c.set_reg(AX, a);
     c.set_word(0x39a9, a);
     c.set_reg8(super::r8::AH, 0x43);
@@ -720,14 +674,13 @@ pub fn uninitialize_memory_driver(m: &mut Machine, start: u16) -> Result<(), Bai
     let mut c = Ctx::new(m);
     let h = c.word_in(CS, 0xee8a);
     c.run(0xe8d5, 2 + 2 * (h != 0) as u32)?;
-    c.cmp(W, h, 0);
     if h != 0 {
         c.set_reg8(r8::AH, 0x0a);
         c.call(0xef2b, 0xe8e2)?;
     }
     let h = c.word_in(CS, 0xed3a);
     c.run(0xe8e2, 2 + 2 * (h != 0) as u32)?;
-    c.cmp(W, h, 0);
+    c.cmp(W, h, 0); // `call_ems_func` reads the flags
     if h != 0 {
         c.set_reg8(r8::AH, 0x45);
         c.call(0xed40, 0xe8ef)?;
@@ -735,14 +688,14 @@ pub fn uninitialize_memory_driver(m: &mut Machine, start: u16) -> Result<(), Bai
     let d = c.word_in(CS, 0xed3e);
     c.run(0xe8ef, 3 + 2 * (d != 0) as u32)?;
     c.set_reg(DX, d);
-    c.or(W, d, d);
+    c.or(W, d, d); // likewise (INT 67h)
     if d != 0 {
         c.set_reg8(r8::AH, 0x45);
         c.call(0xed45, 0xe8fd)?;
     }
     c.run(0xe8fd, 2)?;
     let ax = c.reg(AX);
-    c.xor(W, ax, ax);
+    c.xor(W, ax, ax); // likewise
     c.set_reg(AX, 0);
     c.call(0xe8a8, 0xe902)?;
     c.run(0xe902, 2)?;
@@ -752,7 +705,6 @@ pub fn uninitialize_memory_driver(m: &mut Machine, start: u16) -> Result<(), Bai
     c.interp(0xe909, 0xe90b)?;
     let f = c.byte(0xce73);
     c.run(0xe90b, 2 + (f == 0) as u32)?;
-    c.cmp(B, f as u16, 0);
     if f == 0 {
         return c.ret();
     }
@@ -828,7 +780,7 @@ pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let es = c.sreg(ES);
     c.push(es);
     let sp = c.reg(SP);
-    let bp = c.sub(W, sp, 6);
+    let bp = sp.wrapping_sub(6);
     c.set_reg(SP, bp);
     c.set_reg(BP, bp);
     let ax = c.reg(AX);
@@ -842,15 +794,14 @@ pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, ax);
     let n = c.word(0x39a9);
     c.set_reg(AX, n);
-    let n2 = c.shl1(W, n, 1);
+    let n2 = n << 1;
     c.set_reg(AX, n2);
     c.set_word_in(SS, bp, n2);
-    let si = c.shl1(W, ax, 1);
-    let si = c.add(W, si, n2);
+    let si = (ax << 1).wrapping_add(n2);
     c.set_reg(SI, si);
     c.set_reg(DX, si);
     let t = c.word_in(CS, 0xea75);
-    let t = c.inc(W, t);
+    let t = t.wrapping_add(1);
     c.set_reg(AX, t);
     c.set_word_in(ES, si.wrapping_add(0x172), t);
     c.set_word_in(CS, 0xea75, t);
@@ -865,9 +816,7 @@ pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let lim = c.word_in(SS, bp);
         let below = di < lim;
         c.run(0xeaed, 2 + (!below) as u32)?;
-        c.cmp(W, di, lim);
         if !below {
-            c.xor(W, di, di);
             c.set_reg(DI, 0);
         }
         loop {
@@ -875,9 +824,8 @@ pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let di = c.reg(DI);
             let lim = c.word_in(SS, bp);
             c.set_reg(CX, lim);
-            let n = c.sub(W, lim, di);
-            let n = c.shr1(W, n, 1);
-            c.set_reg(CX, n);
+            c.set_reg(CX, lim.wrapping_sub(di) >> 1);
+            // ZF set for the `je` when there is nothing to scan.
             c.xor(W, 0, 0);
             c.set_reg(AX, 0);
             c.m.cpu.string_op(&mut c.m.hw, 0xaf, None, 0xf2);
@@ -891,20 +839,16 @@ pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
             if !c.flag(CF) {
                 return drop_eb60(&mut c, bp);
             }
-            let di = c.reg(DI);
-            c.xor(W, di, di);
             c.set_reg(DI, 0);
         }
         c.run(0xeb08, 7)?;
         let di = c.reg(DI);
-        let mut di = c.sub(W, di, 2);
+        let mut di = di.wrapping_sub(2);
         c.set_reg(DI, di);
-        c.xor(W, 0, 0);
         let mut cx = 0u16;
         c.set_reg(CX, 0);
         c.set_reg(BX, di);
-        let bx = c.shr1(W, di, 1);
-        let mut bx = c.inc(W, bx);
+        let mut bx = (di >> 1).wrapping_add(1);
         c.set_reg(BX, bx);
         c.set_word_in(SS, bp.wrapping_add(4), bx);
         let mut dx = c.reg(DX);
@@ -918,15 +862,16 @@ pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(DI, di);
             c.set_word_in(ES, di, bx);
             c.set_reg(AX, 0x400);
-            cx = c.add(W, cx, 0x400);
+            cx = cx.wrapping_add(0x400);
             c.set_reg(CX, cx);
-            let r = c.sub(W, rem, 0x400);
+            let r = rem.wrapping_sub(0x400);
             c.set_word_in(SS, bp.wrapping_add(2), r);
             if rem <= 0x400 {
                 c.run(0xeb37, 4)?;
                 c.set_reg(DI, dx);
                 c.set_reg(AX, r);
                 c.stos(W);
+                // `call_memory_func_1` reads this CF.
                 cx = c.add(W, cx, r);
                 c.set_reg(CX, cx);
                 break;
@@ -936,23 +881,22 @@ pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
             if nd >= lim {
                 c.run(0xeb17, 4)?;
                 c.set_reg(DI, dx);
-                let n = c.add(W, dx, 2);
+                let n = dx.wrapping_add(2);
                 c.set_reg(DI, n);
-                c.cmp(W, n, lim);
+                c.cmp(W, n, lim); // its CF (clear), for `call_memory_func_1`
                 break;
             }
             let v = c.word_in(ES, nd);
             c.run(0xeb17, if v != 0 { 6 } else { 7 })?;
             c.set_reg(DI, dx);
-            let n = c.add(W, dx, 2);
+            let n = dx.wrapping_add(2);
             c.set_reg(DI, n);
             di = n;
-            c.cmp(W, n, lim);
-            c.cmp(W, v, 0);
+            c.cmp(W, v, 0); // likewise
             if v != 0 {
                 break;
             }
-            bx = c.inc(W, bx);
+            bx = bx.wrapping_add(1);
             c.set_reg(BX, bx);
         }
         c.run(0xeb3f, 3)?;
@@ -967,12 +911,8 @@ pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DX, dx);
         c.set_reg(DI, dx);
         let v = c.word_in(ES, dx);
-        let v = c.or(W, v, 0x8000);
-        c.set_word_in(ES, dx, v);
-        c.set_reg(AX, rem);
-        let a = c.dec(W, rem);
-        c.set_reg(AX, a);
-        c.cmp(W, a, 0xfc00);
+        c.set_word_in(ES, dx, v | 0x8000);
+        c.set_reg(AX, rem.wrapping_sub(1));
         if !again {
             return end_eb57(&mut c);
         }
@@ -990,8 +930,7 @@ fn drop_eb60(c: &mut Ctx, bp: u16) -> Result<(), Bail> {
     let old = c.word_in(SS, 0xce6e);
     c.set_word_in(SS, 0xce6e, 0xffff);
     c.set_reg(AX, old);
-    let s = c.add(W, n, old);
-    let s = c.add(W, s, old);
+    let s = n.wrapping_add(old).wrapping_add(old);
     c.set_reg(SI, s);
     c.call(0xebaa, 0xeb72)?;
     c.run(0xeb72, 1 + 4)?;
@@ -1003,8 +942,7 @@ fn drop_eb60(c: &mut Ctx, bp: u16) -> Result<(), Bail> {
 fn end_eb57(c: &mut Ctx) -> Result<(), Bail> {
     use pc::cpu::{DS, ES, SP};
     let sp = c.reg(SP);
-    let s = c.add(W, sp, 6);
-    c.set_reg(SP, s);
+    c.set_reg(SP, sp.wrapping_add(6));
     let v = c.pop();
     c.set_sreg(ES, v);
     let v = c.pop();
@@ -1039,9 +977,10 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, 0x1f4b);
     c.set_reg(CX, 0xdd1d);
     c.set_reg(DI, 0x3cbc);
-    let n = c.sub(W, 0xdd1d, 0x3cbc);
-    c.set_reg(CX, n);
+    c.set_reg(CX, 0xdd1d - 0x3cbc);
     c.set_flag(DF, false);
+    // Before the game's timer handler, a tick at a stop gives the BIOS's
+    // the flags: those at E5A6h and E62Bh are kept.
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.rep_counted(0xaa);
@@ -1056,10 +995,9 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xf0ff, 0xe5b4)?;
     c.run(0xe5b4, 7)?;
     c.set_reg8(r8::CL, 4);
-    let a = c.m.cpu.shift(5, W, 0x4c6f, 4) as u16;
     let ds = c.sreg(DS);
     c.set_reg(CX, ds);
-    let a = c.add(W, a, ds);
+    let a = c.add(W, 0x4c6f >> 4, ds); // the flags INT 21h sees
     c.set_reg(AX, a);
     c.set_word(0xdc32, a);
     c.set_reg8(r8::AH, 0x19);
@@ -1075,7 +1013,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0x2941, dl);
     c.set_reg(AX, 0x3301);
     let dx = c.reg(DX);
-    c.xor(W, dx, dx);
+    c.xor(W, dx, dx); // likewise
     c.set_reg(DX, 0);
     c.interp(0xe5da, 0xe5dc)?;
     c.run(0xe5dc, 1)?;
@@ -1083,9 +1021,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xe5df, 5)?;
     let f = c.byte(0x2942);
     c.set_reg8(r8::AL, f);
-    let ax = c.reg(AX);
-    let ax = c.and(W, ax, 1);
-    c.set_reg(AX, ax);
+    c.set_reg(AX, f as u16 & 1);
     c.set_reg(SI, 0x38b7);
     c.set_reg(CX, 0x2e);
     c.call(0xe57b, 0xe5ee)?;
@@ -1102,7 +1038,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bp = c.reg(BP);
     c.run(0xe602, 3 + if bp == 0 { 2 } else { 0 })?;
     c.set_word(0xdbd6, bp);
-    c.or(W, bp, bp);
+    c.or(W, bp, bp); // the driver's far call sees the flags
     if bp == 0 {
         c.set_reg(DI, 0xdbd4);
         c.call(0xf0f6, 0xe610)?;
@@ -1114,10 +1050,10 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, f);
     let ax = c.reg(AX);
     c.push(ax);
-    let a = c.shr1(B, f as u16, 2);
-    let a = c.and(B, a, 7);
-    c.set_reg8(r8::AL, a as u8);
-    c.set_byte(0xceeb, a as u8);
+    // The screen kind: bits 2-4.
+    let a = (f >> 2) & 7;
+    c.set_reg8(r8::AL, a);
+    c.set_byte(0xceeb, a);
     let ax = c.pop();
     c.set_reg(AX, ax);
     c.or(B, f as u16, f as u16);
@@ -1130,7 +1066,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let mouse = f & 0x40 == 0;
     c.run(0xe62b, 2 + mouse as u32)?;
-    c.test(B, f as u16, 0x40);
+    c.test(B, f as u16, 0x40); // `initialize_mouse` reads the flags
     if mouse {
         c.call(0xe97a, 0xe632)?;
         c.run(0xe632, 1)?;
@@ -1143,19 +1079,15 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xe638, 3)?;
     let f = c.byte(0x2942);
     c.set_reg8(r8::AL, f);
-    let a = c.and(B, f as u16, 2);
+    let a = c.and(B, f as u16, 2); // the driver's far call sees the flags
     c.set_reg8(r8::AL, a as u8);
     c.set_reg(BP, 0xce7a);
     c.interp(0xe640, 0xe644)?;
     c.run(0xe644, 7)?;
     c.set_word(0xdc48, 0x271c);
     c.set_byte(0xdc46, 0xff);
-    let ax = c.reg(AX);
-    c.xor(W, ax, ax);
     c.set_reg(AX, 0);
     c.set_reg(BX, 0xc7);
-    let cx = c.reg(CX);
-    c.xor(W, cx, cx);
     c.set_reg(CX, 0);
     c.set_reg(DX, 0x13f);
     c.call(0xdb14, 0xe65c)?;
@@ -1191,10 +1123,8 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let f = c.byte(0x2944);
         c.set_reg8(r8::AL, f);
         c.set_reg8(r8::CL, 4);
-        let a = c.m.cpu.shift(5, B, f as u32, 4) as u16;
-        let a = c.add(B, a, 7);
-        c.set_reg8(r8::AL, a as u8);
-        c.xor(B, 0, 0);
+        // The music driver's entry: (high nibble) + 7.
+        let a = (f >> 4) as u16 + 7;
         c.set_reg(AX, a);
         c.set_reg(SI, 0x398b);
         c.set_reg(CX, 8);
@@ -1218,19 +1148,15 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let f = c.byte(0x2944);
         if f & 0xf0 == 0 {
             c.run(0xe792, 3 + 1)?;
-            c.test(B, f as u16, 0xf0);
             return c.jump(0xf131);
         }
         c.run(0xe792, 3 + 9)?;
-        c.test(B, f as u16, 0xf0);
-        let f = c.and(B, f as u16, 0xf);
-        c.set_byte(0x2944, f as u8);
-        c.xor(W, 0, 0);
+        // That one failed: the next.
+        c.set_byte(0x2944, f & 0xf);
         c.set_reg(AX, 0);
         c.set_word(0x3813, 0);
         c.set_byte(0xdbc8, 0);
-        let v = c.word(0x398b);
-        let v = c.add(W, v, 0x10);
+        let v = c.word(0x398b).wrapping_add(0x10);
         c.set_reg(AX, v);
         c.set_word(0x39b9, v);
         c.set_word(0x3cbc, 0x3624);
@@ -1244,10 +1170,8 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xe7c5, 6)?;
         let f = c.byte(0x2944);
         c.set_reg8(r8::AL, f);
-        let ax = c.reg(AX);
-        let ax = c.and(W, ax, 0xf);
-        let ax = c.add(W, ax, 2);
-        c.set_reg(AX, ax);
+        // The sound driver's entry: (low nibble) + 2.
+        c.set_reg(AX, (f & 0xf) as u16 + 2);
         c.set_reg(SI, 0x396f);
         c.set_reg(CX, 7);
         c.call(0xe57b, 0xe7d7)?;
@@ -1260,8 +1184,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xe7e4, 2)?;
         let v = c.word(0xdbc8);
         let bx = c.reg(BX);
-        let v = c.or(W, v, bx);
-        c.set_word(0xdbc8, v);
+        c.set_word(0xdbc8, v | bx);
         c.call(0xa650, 0xe7eb)?;
         c.run(0xe7eb, 1)?;
         c.call(0xae3f, 0xe7ee)?;
@@ -1274,19 +1197,14 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let f = c.byte(0x2944);
         if f & 0xf == 0 {
             c.run(0xe7f1, 3 + 1)?;
-            c.test(B, f as u16, 0xf);
             return c.jump(0xf131);
         }
         c.run(0xe7f1, 3 + 9)?;
-        c.test(B, f as u16, 0xf);
-        let f = c.and(B, f as u16, 0xf0);
-        c.set_byte(0x2944, f as u8);
-        c.xor(W, 0, 0);
+        c.set_byte(0x2944, f & 0xf0);
         c.set_reg(AX, 0);
         c.set_word(0xdbb8, 0);
         c.set_byte(0xdbc9, 0);
-        let v = c.word(0x396f);
-        let v = c.add(W, v, 0x10);
+        let v = c.word(0x396f).wrapping_add(0x10);
         c.set_reg(AX, v);
         c.set_word(0x39b9, v);
         c.set_word(0x3cbc, 0x364b);
@@ -1300,8 +1218,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xe826, 0xe820)?;
     c.run(0xe820, 2)?;
     let f = c.byte(0x2943);
-    let f = c.and(B, f as u16, 0xef);
-    c.set_byte(0x2943, f as u8);
+    c.set_byte(0x2943, f & 0xef);
     c.ret()
 }
 

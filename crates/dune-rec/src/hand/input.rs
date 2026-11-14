@@ -115,22 +115,11 @@ pub fn joystick_as_keys(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (ny, ax_y) = axis(bx, y0, y1);
     c.run(0xdd13, 4 + button as u32 + 1 + nx + 2 + ny + 3)?;
     c.set_reg8(super::r8::AH, al);
-    c.xor(B, 0, 0);
     c.set_reg8(super::r8::AL, 0);
-    let mut v = 0u8;
-    c.test(B, al as u16, 0x30);
-    if button {
-        v = 0xff;
-    }
-    c.set_byte(0xcee6, v);
-    for (val, lo, hi, a, b, res) in [(dx, x0, x1, 0xcee1u16, 0xcedfu16, ax_x), (bx, y0, y1, 0xcee4, 0xcedc, ax_y)] {
-        c.cmp(W, val, lo);
-        if val > lo {
-            c.cmp(W, val, hi);
-            if val < hi {
-                c.xor(W, 0xff, 0xff);
-            }
-        }
+    c.set_byte(0xcee6, if button { 0xff } else { 0 });
+    // Each axis: FFh in the first byte below the low limit, in the
+    // second above the high one.
+    for (a, b, res) in [(0xcee1u16, 0xcedfu16, ax_x), (0xcee4, 0xcedc, ax_y)] {
         c.set_reg(AX, res);
         c.set_byte(a, res as u8);
         c.set_byte(b, (res >> 8) as u8);
@@ -169,25 +158,18 @@ pub fn move_cursor_by(m: &mut Machine, start: u16) -> Result<(), Bail> {
     n += 7;
     let tell = f & 0x40 == 0;
     c.run(start, n + if tell { 8 } else { 1 })?;
-    let replay = |c: &mut Ctx, v: u16, lo: u16, hi: u16| -> u16 {
-        c.cmp(W, v, lo);
-        let v = if (v as i16) < lo as i16 { lo } else { v };
-        c.cmp(W, v, hi);
-        if (v as i16) > hi as i16 { hi } else { v }
-    };
-    let a = c.add(W, x0, dx);
-    let v = replay(&mut c, a, b[0], b[1]);
-    c.set_word(0xdc36, v);
-    let a = c.add(W, y0, bx);
-    let v = replay(&mut c, a, b[2], b[3]);
-    c.set_word(0xdc38, v);
+    c.set_word(0xdc36, x);
+    c.set_word(0xdc38, y);
     c.set_reg(SI, 0xdc40);
-    c.set_reg(AX, v);
+    c.set_reg(AX, y);
     c.test(B, f as u16, 0x40);
     if !tell {
         return c.ret();
     }
     let sh = c.word(0x2580);
+    // The position scaled up for the driver. INT 33h sees the flags of
+    // the last shift, or (a count of 0 leaves them) of the one before,
+    // or of the `test`.
     let ax = c.shl(W, x, sh as u8);
     let d = c.shl(W, y, (sh >> 8) as u8);
     c.set_reg(DX, d);
@@ -537,10 +519,8 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(0x2942);
     let kb = f & 0x40 != 0;
     c.run(0xdf21, 3 + if kb { 0 } else { 1 })?;
-    let al = c.reg8(r8::AL);
-    c.xor(B, al as u16, al as u16);
     c.set_reg8(r8::AL, 0);
-    c.test(B, f as u16, 0x40);
+    c.test(B, f as u16, 0x40); // the flags INT 33h sees
     if !kb {
         c.set_reg(AX, 3);
         c.interp(0xdf2d, 0xdf2f)?;
@@ -549,15 +529,14 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, cx);
         let sc = c.word(0x2580);
         c.set_reg(CX, sc);
-        let ax = c.m.cpu.shift(5, W, cx as u32, sc as u32 & 0xff) as u16;
+        // The mouse's position scaled down by [2580h]'s two counts.
+        let ax = pure::shr1(W, cx, (sc & 0x1f) as u32);
         c.set_reg(AX, ax);
         c.set_reg8(r8::CL, (sc >> 8) as u8);
-        let dx = c.m.cpu.shift(5, W, dx as u32, (sc >> 8) as u32) as u16;
+        let dx = pure::shr1(W, dx, ((sc >> 8) & 0x1f) as u32);
         c.set_reg(DX, dx);
         c.set_reg(CX, ax);
-        c.set_reg8(r8::AL, bx as u8);
-        let b = c.and(B, bx & 0xff, 3);
-        c.set_reg8(r8::AL, b as u8);
+        c.set_reg8(r8::AL, bx as u8 & 3);
         c.set_word(0xdc36, ax);
         c.set_word(0xdc38, dx);
     }
@@ -566,7 +545,7 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xdf49, 3 + joy as u32)?;
     let al = c.reg8(r8::AL);
     c.set_byte(0xdc34, al);
-    c.test(B, f as u16, 0x80);
+    c.test(B, f as u16, 0x80); // `joystick_as_keys` reads them
     if joy {
         c.call(0xdd10, 0xdf56)?;
     }
@@ -580,8 +559,6 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xdf56, n)?;
     c.set_reg(SI, 0xcec8);
     c.set_reg(DI, di0);
-    let dx0 = c.reg(DX);
-    c.xor(W, dx0, dx0);
     let (mut dx, mut bx, mut ax) = (0u16, 0u16, 0u16);
     c.set_reg(DX, 0);
     c.set_reg(BX, 0);
@@ -592,42 +569,37 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let a = c.lods(B, DS) as u8;
         let si = c.reg(SI);
         let b = c.byte(si.wrapping_add(0x12));
-        let o = c.or(B, a as u16, b as u16) as u8;
+        let o = a | b;
         ax = (ax & 0xff00) | o as u16;
         c.set_reg(AX, ax);
         if o != 0 {
             let p = c.byte(di);
-            let h = c.or(B, ax >> 8, p as u16);
-            ax = (h << 8) | (ax & 0xff);
+            ax |= (p as u16) << 8;
             c.set_reg(AX, ax);
             let v = c.word(di.wrapping_add(2));
-            dx = c.add(W, dx, v);
+            dx = dx.wrapping_add(v);
             c.set_reg(DX, dx);
             let v = c.word(di.wrapping_add(4));
-            bx = c.add(W, bx, v);
+            bx = bx.wrapping_add(v);
             c.set_reg(BX, bx);
         }
-        di = c.add(W, di, 6);
+        di = di.wrapping_add(6);
         c.set_reg(DI, di);
         c.set_reg(CX, 12 - k);
     }
     c.run(0xdf79, 13)?;
     let a = c.byte(0xceba);
     let b = c.byte(0xce9d);
-    let a = c.or(B, a as u16, b as u16);
-    let b = c.byte(0xcee6);
-    let a = c.or(B, a, b as u16);
-    let a = c.and(B, a, 1) as u8;
+    let a = (a | b | c.byte(0xcee6)) & 1;
     let old = c.byte(0xdc57);
     c.set_byte(0xdc57, a);
     let v = !old;
     let s = c.byte(0xdc34);
-    let v = c.and(B, v as u16, s as u16);
-    let v = c.or(B, v, a as u16) as u8;
+    let v = (v & s) | a;
     c.set_byte(0xdc34, v);
     c.set_reg(AX, ((a as u16) << 8) | v as u16);
     c.set_reg(AX, dx);
-    let ax = c.or(W, dx, bx);
+    let ax = dx | bx;
     c.set_reg(AX, ax);
     if ax != 0 {
         c.m.cpu.ip = 0xdfb7;

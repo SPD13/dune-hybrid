@@ -190,7 +190,16 @@ Things that bit:
   call's return and from which the original reads flags: there the
   port's flags must stay exact (`transfer_sd_block` stops before an `adc`
   that reads the CF of its `shr`; `text_box_for` before a `je` after
-  `dec cx`).
+  `dec cx`). One more reader at the start-up: until the game installs
+  its own timer handler (`install_interrupt_handlers`), a tick goes to
+  the BIOS's INT 08h service, which the shadow check compares with the
+  flags it is given; so every stop of the code run before that keeps
+  its flags exact (`initialize_system` up to E632h, `open_dune_dat`,
+  the start of `get_res_index_by_name`).
+- **A shift by CL keeps the flags when CL is 0.** The flags a later
+  reader sees may then be those of an earlier instruction: keep that
+  one too (`move_cursor_by`: INT 33h after two `shl` by counts that can
+  be 0, back to the `test`).
 - **Flags at the exits.** A routine whose callers read flags (mask not 0)
   returns them exact: the readable port does the original's last
   flag-setting instruction of that path with the flag helper (one line,

@@ -94,20 +94,15 @@ pub fn point_in_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let (dx, bx, di) = (c.reg(DX), c.reg(BX), c.reg(DI));
     let r = [c.word(di), c.word(di.wrapping_add(2)), c.word(di.wrapping_add(4)), c.word(di.wrapping_add(6))];
-    // The comparisons made, in order, until one says outside.
-    let steps = [(dx, r[0], dx > r[0]), (dx, r[2], dx < r[2]), (bx, r[1], bx > r[1])];
-    let passed = steps.iter().take_while(|s| s.2).count();
+    // The tests made, in order, until one says outside (CF clear); the
+    // last one's CF is the answer (only CF is read).
+    let tests = [dx > r[0], dx < r[2], bx > r[1]];
+    let passed = tests.iter().take_while(|&&t| t).count();
     if passed == 3 {
         c.run(start, 8)?;
-        for (a, b, _) in steps {
-            c.cmp(W, a, b);
-        }
         c.cmp(W, bx, r[3]);
     } else {
         c.run(start, 2 * passed as u32 + 4)?;
-        for &(a, b, _) in &steps[..=passed] {
-            c.cmp(W, a, b);
-        }
         c.set_flag(CF, false);
     }
     c.ret()
@@ -357,15 +352,12 @@ pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(0x1152);
     if k == 0xff {
         c.run(start, 5)?;
-        c.xor(W, 0, 0);
         c.set_reg(CX, 0xff);
-        c.cmp(B, 0xff, 0xff);
+        c.cmp(B, 0xff, 0xff); // the exit's flags (CF clear)
         return c.ret();
     }
     c.run(start, 6)?;
-    c.xor(W, 0, 0);
     c.set_reg(CX, k as u16);
-    c.cmp(B, k as u16, 0xff);
     c.set_reg(DI, 0x1c0c);
     c.call(0xd6fe, 0x92da)?;
     if c.flag(CF) {
@@ -376,12 +368,11 @@ pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if k == 0xff {
         c.run(0x92da, 5)?;
         c.set_reg8(r8::CL, k);
-        c.cmp(B, 0xff, 0xff);
+        c.cmp(B, 0xff, 0xff); // likewise
         return c.ret();
     }
     c.run(0x92da, 6)?;
     c.set_reg8(r8::CL, k);
-    c.cmp(B, k as u16, 0xff);
     c.set_reg(DI, 0x1c1a);
     point_in_rect(c.m, 0xd6fe)
 }
@@ -397,7 +388,6 @@ pub fn dialogue_hit(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (dx, bx) = (c.reg(DX), c.reg(BX));
     if bx >= 0x98 {
         c.run(start, 2)?;
-        c.cmp(W, bx, 0x98);
         return in_dialogue_rects(c.m, 0x92c9);
     }
     let step = c.string_step(W);
@@ -446,7 +436,7 @@ pub fn dialogue_hit(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.run(start, n)?;
-    c.cmp(W, bx, 0x98);
+    // The speakers' places, then the extra one; CF set on a hit.
     c.set_reg(SI, 0x47f8);
     c.set_reg(CX, 0x17);
     for i in 0..0x17u16 {
@@ -454,19 +444,13 @@ pub fn dialogue_hit(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DI, x);
         let y = c.lods(W, pc::cpu::DS);
         c.set_reg(BP, y);
-        c.or(W, x, x);
         if x & 0x8000 == 0 {
-            let d = c.sub(W, x, dx);
+            let d = x.wrapping_sub(dx);
             c.set_reg(DI, d);
-            c.cmp(W, d, 0xffe0);
             if d >= 0xffe0 {
-                let e = c.sub(W, y, bx);
-                c.set_reg(BP, e);
-                c.cmp(W, e, 0xffb0);
+                c.set_reg(BP, y.wrapping_sub(bx));
                 if hit == Some(i) {
-                    let cx = c.sub(W, 0x17 - i, 0x17);
-                    let cx = c.neg(W, cx);
-                    c.set_reg(CX, cx);
+                    c.set_reg(CX, i);
                     c.set_flag(CF, true);
                     return c.ret();
                 }
@@ -475,25 +459,21 @@ pub fn dialogue_hit(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, 0x16 - i);
     }
     c.set_reg(AX, ex);
-    c.or(W, ex, ex);
     if ex == 0 {
+        c.set_flag(CF, false); // `or ax, ax`
         return c.ret();
     }
-    let a = c.sub(W, ex, dx);
+    let a = ex.wrapping_sub(dx);
     c.set_reg(AX, a);
-    c.cmp(W, a, 0xffb2);
-    let cf = c.flag(CF);
-    c.set_flag(CF, !cf);
     if a < 0xffb2 {
+        c.set_flag(CF, false); // `cmp; cmc`
         return c.ret();
     }
-    c.set_reg(AX, bx);
-    let a = c.sub(W, bx, ey);
-    c.set_reg(AX, a);
-    c.cmp(W, a, 0x3c);
+    c.set_reg(AX, bx.wrapping_sub(ey));
     if extra {
         c.set_reg(CX, 0x2f);
     }
+    c.set_flag(CF, extra); // `cmp ax, 3Ch`
     c.ret()
 }
 
@@ -517,7 +497,6 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
         let v = c.reg(r);
         c.push(v);
     }
-    c.cmp(B, fixed as u16, 0);
     // The blocks: 0 D5DDh (CL found), 1 D575h, 2 D5B1h, 3 D5DBh,
     // 4 D55Dh (CX the speaker), 5 D545h, 6 D593h.
     let mut at;
@@ -531,19 +510,14 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
         let mode = c.byte(0x11c9);
         if bp != 0x1f0e || mode != 0 {
             c.run(0xd526, if bp != 0x1f0e { 2 } else { 4 })?;
-            c.cmp(W, bp, 0x1f0e);
             if bp == 0x1f0e {
-                c.cmp(B, mode as u16, 0);
             }
             at = 1;
         } else {
             let f = c.byte(0x1bf8);
             if f & 0x80 != 0 {
                 c.run(0xd526, 8)?;
-                c.cmp(W, bp, 0x1f0e);
-                c.cmp(B, 0, 0);
                 c.set_reg(DI, 0x1bf0);
-                c.cmp(B, f as u16, 0);
                 c.call(0xd6fe, 0xd53f)?;
                 let cf = c.flag(CF);
                 c.run(0xd53f, 2)?;
@@ -552,10 +526,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 at = if cf { 4 } else { 5 };
             } else {
                 c.run(0xd526, 7)?;
-                c.cmp(W, bp, 0x1f0e);
-                c.cmp(B, 0, 0);
                 c.set_reg(DI, 0x1bf0);
-                c.cmp(B, f as u16, 0);
                 at = 5;
             }
         }
@@ -583,13 +554,11 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 let b = c.pop();
                 c.set_reg(BP, b);
                 c.set_reg8(r8::AL, cl);
-                let a = c.sub(B, cl as u16, 0x0f);
-                c.set_reg8(r8::AL, a as u8);
+                c.set_reg8(r8::AL, a);
                 if cl >= 0x0f {
-                    let a = c.inc(B, a);
-                    c.set_reg8(r8::AL, a as u8);
-                    c.cmp(B, a, extra as u16);
-                    if a as u8 == extra {
+                    let a = a.wrapping_add(1);
+                    c.set_reg8(r8::AL, a);
+                    if a == extra {
                         c.set_reg(CX, 0x17);
                     }
                 }
@@ -598,9 +567,8 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
             4 => {
                 c.run(0xd55d, 3)?;
                 let cx = c.reg(CX);
-                let bp = c.add(W, cx, 0x78);
+                let bp = cx.wrapping_add(0x78);
                 c.set_reg(BP, bp);
-                c.xor(W, 0, 0);
                 c.set_reg(CX, 0);
                 loop {
                     c.run(0xd565, 1)?;
@@ -609,7 +577,6 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                     let bp = c.reg(BP);
                     if ax == bp {
                         c.run(0xd568, 2)?;
-                        c.cmp(W, ax, bp);
                         at = 0;
                         break;
                     }
@@ -617,10 +584,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                     let n = c.byte(0xdce8);
                     let more = (cx as u8) < n;
                     c.run(0xd568, if more { 5 } else { 6 })?;
-                    c.cmp(W, ax, bp);
-                    let cx = c.inc(W, cx.wrapping_sub(1));
                     c.set_reg(CX, cx);
-                    c.cmp(B, cx & 0xff, n as u16);
                     if !more {
                         at = 3;
                         break;
@@ -631,24 +595,18 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 let bp = c.reg(BP);
                 if bp != 0x1f7e {
                     c.run(0xd575, 2)?;
-                    c.cmp(W, bp, 0x1f7e);
                     at = 2;
                     continue;
                 }
                 let f = c.byte(0x1bea);
                 if f & 0x80 == 0 {
                     c.run(0xd575, 5)?;
-                    c.cmp(W, bp, 0x1f7e);
                     c.set_reg(DI, 0x1be2);
-                    c.cmp(B, f as u16, 0);
                     at = 6;
                     continue;
                 }
                 c.run(0xd575, 7)?;
-                c.cmp(W, bp, 0x1f7e);
                 c.set_reg(DI, 0x1be2);
-                c.cmp(B, f as u16, 0);
-                c.xor(W, 0, 0);
                 c.set_reg(CX, 0);
                 c.call(0xd6fe, 0xd589)?;
                 if c.flag(CF) {
@@ -666,12 +624,10 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 let f = c.byte(0x1bf8);
                 if f & 0x80 == 0 {
                     c.run(0xd593, 2)?;
-                    c.cmp(B, f as u16, 0);
                     at = 2;
                     continue;
                 }
                 c.run(0xd593, 4)?;
-                c.cmp(B, f as u16, 0);
                 c.set_reg(DI, 0x1bfe);
                 c.call(0xd6fe, 0xd5a0)?;
                 let cf = c.flag(CF);
@@ -691,7 +647,6 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 }
                 let (cx, sp) = (c.reg(CX), c.word(0x47c4));
                 c.run(0xd5a7, 4)?;
-                c.cmp(W, cx, sp);
                 c.set_reg8(r8::CL, 2);
                 at = if cx == sp { 0 } else { 2 };
             }
@@ -699,57 +654,42 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 let (bx, dx) = (c.reg(BX), c.reg(DX));
                 if bx < 0x98 {
                     c.run(0xd5b1, 2)?;
-                    c.cmp(W, bx, 0x98);
                     at = 3;
                     continue;
                 }
                 let (l, r) = (c.word(0x1b48), c.word(0x1b4c));
                 if dx < l || dx >= r {
                     c.run(0xd5b1, if dx < l { 6 } else { 8 })?;
-                    c.cmp(W, bx, 0x98);
                     c.set_reg8(r8::CL, 0xff);
                     c.set_reg(DI, 0x1b48);
-                    c.cmp(W, dx, l);
                     if dx >= l {
-                        c.cmp(W, dx, r);
                     }
                     at = 0;
                     continue;
                 }
                 c.run(0xd5b1, 9)?;
-                c.cmp(W, bx, 0x98);
                 c.set_reg8(r8::CL, 0xff);
                 c.set_reg(DI, 0x1b48);
-                c.cmp(W, dx, l);
-                c.cmp(W, dx, r);
-                c.xor(W, 0, 0);
                 c.set_reg(CX, 0);
                 loop {
                     let di = c.reg(DI);
                     let (t, b) = (c.word(di.wrapping_add(2)), c.word(di.wrapping_add(6)));
                     if bx <= t {
                         c.run(0xd5c7, 2)?;
-                        c.cmp(W, bx, t);
                         at = 3;
                         break;
                     }
                     if bx <= b {
                         c.run(0xd5c7, 4)?;
-                        c.cmp(W, bx, t);
-                        c.cmp(W, bx, b);
                         at = 0;
                         break;
                     }
                     let cx = c.reg(CX).wrapping_add(1);
                     let n = c.byte(0xdce8);
                     c.run(0xd5c7, 8)?;
-                    c.cmp(W, bx, t);
-                    c.cmp(W, bx, b);
-                    let d = c.add(W, di, 0x0e);
+                    let d = di.wrapping_add(0x0e);
                     c.set_reg(DI, d);
-                    let cx = c.inc(W, cx.wrapping_sub(1));
                     c.set_reg(CX, cx);
-                    c.cmp(B, cx & 0xff, n as u16);
                     if (cx as u8) >= n {
                         at = 3;
                         break;
@@ -778,20 +718,15 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
     c.set_reg8(r8::AL, cl);
     c.set_byte(0xdce7, cl);
     c.set_reg8(r8::CL, old);
-    c.cmp(B, cl as u16, old as u16);
     c.call(0xdbb2, 0xd5ea)?;
     let n = c.byte(0xdce8);
     let cl = c.reg8(r8::CL);
     if cl & 0x80 != 0 || cl >= n {
         c.run(0xd5ea, if cl & 0x80 != 0 { 2 } else { 4 })?;
-        c.or(B, cl as u16, cl as u16);
         if cl & 0x80 == 0 {
-            c.cmp(B, cl as u16, n as u16);
         }
     } else {
         c.run(0xd5ea, 6)?;
-        c.or(B, cl as u16, cl as u16);
-        c.cmp(B, cl as u16, n as u16);
         let ax = c.reg(AX);
         c.push(ax);
         c.call(0xd454, 0xd5f8)?;
@@ -808,13 +743,12 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
         c.cmp(B, al as u16, n as u16);
     } else {
         c.run(0xd5fc, 4)?;
-        c.cmp(B, al as u16, n as u16);
         let ax = c.reg(AX);
         c.set_reg(CX, ax);
         c.call(0xd454, 0xd607)?;
         c.run(0xd607, 2)?;
         let ah = (c.reg(AX) >> 8) as u8;
-        let h = c.or(B, ah as u16, 0x80);
+        let h = ah | 0x80;
         c.set_reg8(r8::AH, h as u8);
         c.call(0xd48a, 0xd60d)?;
         c.run(0xd60d, 1)?;

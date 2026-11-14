@@ -30,34 +30,28 @@ pub fn add_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, g::FRAME_TASKS);
     let count = c.word(g::FRAME_TASKS);
     c.set_reg(AX, count);
-    let n = c.inc(W, count);
+    let n = count.wrapping_add(1);
     c.set_reg(AX, n);
-    c.cmp(W, n, MAX_TASKS);
+    c.cmp(W, n, MAX_TASKS); // the flags of a full list's exit
     if n > MAX_TASKS {
         c.count(8);
         return c.ret();
     }
     c.stos(W); // the new count
     // ax = 6 × the old count: the offset of the new entry.
-    let old = c.dec(W, n);
-    let two = c.add(W, old, old);
-    c.set_reg(BX, two);
-    let four = c.add(W, two, two);
-    let offset = c.add(W, four, two);
-    let di = c.reg(DI);
-    let di = c.add(W, di, offset);
+    c.set_reg(BX, count.wrapping_mul(2));
+    let di = c.reg(DI).wrapping_add(count.wrapping_mul(6));
     c.set_reg(DI, di);
     let (period, routine) = (c.reg(BP), c.reg(SI));
     c.set_reg(AX, period);
     c.stos(W);
-    let zero = c.xor(W, period, period);
-    c.set_reg(AX, zero);
+    c.set_reg(AX, 0);
     c.stos(W);
     c.set_reg(AX, routine);
     c.stos(W);
     let walk = c.word(g::FRAME_TASK_WALK);
     c.set_reg(BP, walk);
-    c.or(W, walk, walk);
+    c.or(W, walk, walk); // the flags of the exits
     if walk == 0 {
         c.count(24);
         return c.ret();

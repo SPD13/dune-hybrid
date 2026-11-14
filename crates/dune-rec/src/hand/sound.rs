@@ -172,16 +172,14 @@ pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(0xdbcd);
     if f & 0x80 == 0 {
         c.run(0xde0c, 6)?;
-        c.cmp(B, f as u16, 0);
         let ax = c.reg(AX);
         c.push(ax);
-        c.or(B, ax & 0xff, 1);
+        c.or(B, ax & 0xff, 1); // the exit's flags (ZF clear)
         let v = c.pop();
         c.set_reg(AX, v);
         return c.ret();
     }
     c.run(0xde0c, 3)?;
-    c.cmp(B, f as u16, 0);
     c.call(0xe270, 0xde16)?;
     c.run(0xde16, 3)?;
     c.set_byte(0xcee8, 0);
@@ -191,27 +189,19 @@ pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xde20, 14)?;
         c.set_reg(AX, 0x60);
         let t = c.word(0xdbd0);
-        let a = c.sub(W, 0x60, t);
-        let ah = a >> 8;
-        c.xor(B, ah, ah);
-        c.set_reg(AX, a & 0xff);
+        // The target: [0DBCEh] * 16 + (60h - [0DBD0h]) / 6.
+        let a = 0x60u16.wrapping_sub(t) & 0xff;
+        let (q, r) = (a / 6, a % 6);
+        let al = q as u8 & 0xf;
+        c.set_reg(AX, (r << 8) | al as u16);
         c.set_reg8(r8::DL, 6);
-        c.m.cpu.mul_div(&mut c.m.hw, B, 6, 6);
-        let al = c.reg8(r8::AL);
-        let al = c.and(B, al as u16, 0xf);
-        c.set_reg8(r8::AL, al as u8);
-        let d = c.word(0xdbce);
-        c.set_reg(DX, d);
-        let d = c.shl1(W, d, 4);
-        let dl = c.or(B, d & 0xff, al);
-        let dx = (d & 0xff00) | dl;
+        let dx = (c.word(0xdbce) << 4) | al as u16;
         c.set_reg(DX, dx);
         let bx = c.reg(BX);
-        c.cmp(W, bx, dx);
         if bx <= dx {
             c.run(0xde4a, 2)?;
             let al = c.reg8(r8::AL);
-            let v = c.or(B, al as u16, 1);
+            let v = c.or(B, al as u16, 1); // the exit's flags (ZF clear)
             c.set_reg8(r8::AL, v as u8);
             break;
         }

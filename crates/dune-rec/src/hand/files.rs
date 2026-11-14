@@ -163,20 +163,19 @@ pub fn read_dune_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     loop {
         c.run(0xe741, 3)?;
-        let (ax, dx) = (c.reg(AX), c.reg(DX));
-        let zero = c.xor(W, ax, ax);
-        c.set_reg(AX, zero);
-        let zero = c.xor(W, dx, dx);
-        c.set_reg(DX, zero);
+        let dx = c.reg(DX);
+        c.set_reg(AX, 0);
+        c.xor(W, dx, dx); // the seek reads the flags
+        c.set_reg(DX, 0);
         c.call(code::SEEK_DUNE_DAT_OFFSET_DXAX, 0xe748)?;
         c.run(0xe748, 6)?;
         let seg = c.word(g::ALLOCATOR_NEXT_SEGMENT);
-        let seg = c.add(W, seg, 0x800);
+        let seg = seg.wrapping_add(0x800);
         c.set_reg(AX, seg);
         c.set_sreg(ES, seg);
         let di = c.reg(DI);
-        let zero = c.xor(W, di, di);
-        c.set_reg(DI, zero);
+        c.xor(W, di, di); // the read reads the flags
+        c.set_reg(DI, 0);
         c.set_reg(CX, 0xffff);
         c.call(code::READ_DUNE_DAT_CX_TO_ESDI, 0xe758)?;
         let failed = c.flag(pc::cpu::CF);
@@ -539,16 +538,12 @@ pub fn free_chain(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, n + 1)?;
     loop {
         let si = c.reg(SI);
-        let bx = c.reg(BX);
-        c.xor(W, bx, bx);
         let v = c.word_in(ES, si);
         c.set_word_in(ES, si, 0);
-        let b = c.m.cpu.shift(4, W, v as u32, 1) as u16;
+        let b = c.m.cpu.shift(4, W, v as u32, 1) as u16; // `shl`: CF the end
         c.set_reg(BX, b);
         let cf = c.flag(pc::cpu::CF);
-        let s = c.dec(W, b);
-        let s = c.dec(W, s);
-        c.set_reg(SI, s);
+        c.set_reg(SI, b.wrapping_sub(2));
         if cf {
             return c.ret();
         }
@@ -866,6 +861,8 @@ pub fn get_res_index_by_name(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(ss);
     let v = c.pop();
     c.set_sreg(ES, v);
+    // Kept for a stop at F31Dh while DUNE.DAT opens (a tick then gives
+    // the BIOS's timer service the flags).
     c.cmp(W, tag, 0x505c);
     if tag == 0x505c {
         return res_index_by_number(&mut c);
@@ -878,7 +875,7 @@ pub fn get_res_index_by_name(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         c.run(0xf323, 3)?;
         let a = c.lods(B, DS);
-        c.or(B, a, a);
+        c.or(B, a, a); // the `jne` after the loop reads this ZF
         cx -= 1;
         c.set_reg(CX, cx);
         if cx == 0 || a == 0 {
@@ -888,21 +885,21 @@ pub fn get_res_index_by_name(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let z = c.flag(ZF);
     c.run(0xf328, 1 + z as u32 + 11 + 1)?;
     if z {
-        cx = c.inc(W, cx);
+        cx += 1;
         c.set_reg(CX, cx);
     }
-    let n = c.sub(W, cx, 0x10);
-    let n = c.neg(W, n);
+    // The name's length.
+    let n = 0x10u16.wrapping_sub(cx);
     c.set_reg(CX, n);
     let si = c.pop();
     c.set_reg(SI, si);
-    c.xor(W, 0, 0);
     c.set_reg(DX, 0);
     let ax = c.word(0xce78);
     c.set_reg(AX, ax);
-    let d = c.shl1(W, ax, 1);
+    let d = ax << 1;
     c.set_reg(DI, d);
     let d = c.word(d.wrapping_add(0x31ff));
+    // An empty name compares nothing: the `je` sees this add's ZF.
     let d = c.add(W, d, 2);
     c.set_reg(DI, d);
     c.push(n);
@@ -928,12 +925,10 @@ pub fn get_res_index_by_name(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let d = c.word_in(ES, bx);
         c.set_reg(DI, d);
         c.set_reg(AX, bx);
-        let a = c.sub(W, bx, 0x31ff);
-        let a = c.shr1(W, a, 1);
-        c.set_reg(AX, a);
-        bx = c.add(W, bx, 2);
+        c.set_reg(AX, bx.wrapping_sub(0x31ff) >> 1);
+        bx = bx.wrapping_add(2);
         c.set_reg(BX, bx);
-        let d = c.add(W, d, 2);
+        let d = c.add(W, d, 2); // likewise
         c.set_reg(DI, d);
         let (cx, si) = (c.reg(CX), c.reg(SI));
         c.push(cx);
@@ -949,7 +944,7 @@ pub fn get_res_index_by_name(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_flag(CF, false);
             return c.ret();
         }
-        bp = c.dec(W, bp);
+        bp = c.dec(W, bp); // the flags of the `stc` exit
         c.set_reg(BP, bp);
         if bp == 0 {
             c.run(0xf36a, 2)?;
@@ -1028,7 +1023,6 @@ fn res_index_by_number(c: &mut Ctx) -> Result<(), Bail> {
 /// (`loc_0c137`). Bails if a divisor would fault.
 pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use super::B;
-    use pc::cpu::CF;
     entered(start, 0x00d1)?;
     let mut c = Ctx::new(m);
     c.run(0x00d1, 5)?;
@@ -1064,25 +1058,17 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0x4880);
     c.set_reg(CX, 0x63);
     c.set_reg(SI, 0x494a);
+    // Each entry's reciprocal: 10000h / (2 * w), rounded.
     for k in 0..0x63u16 {
         let si = 0x494a + 8 * k;
-        c.xor(W, 0, 0);
-        c.set_reg(AX, 0);
-        c.set_reg(DX, 1);
         let w = c.word(si);
-        let b = c.shl1(W, w, 1);
+        let b = w << 1;
         c.set_reg(BX, b);
-        c.m.cpu.mul_div(&mut c.m.hw, W, 6, b as u32);
-        let dx = c.reg(DX);
-        c.cmp(W, w, dx);
-        let cf = c.flag(CF) as u16;
-        let ax = c.reg(AX);
-        let ax = c.adc(W, ax, 0);
-        let _ = cf;
-        c.set_reg(AX, ax);
+        let (q, r) = ((0x10000 / b as u32) as u16, (0x10000 % b as u32) as u16);
+        c.set_reg(DX, r);
+        c.set_reg(AX, q + (w < r) as u16);
         c.stos(W);
-        let s = c.add(W, si, 8);
-        c.set_reg(SI, s);
+        c.set_reg(SI, si + 8);
         c.set_reg(CX, 0x62 - k);
     }
     c.set_reg(SI, 0xbf);
@@ -1090,7 +1076,7 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x010c, 9)?;
     let di = c.reg(DI);
     c.set_reg(AX, di);
-    let a = c.add(W, di, 0x62fc);
+    let a = di.wrapping_add(0x62fc);
     c.set_reg(AX, a);
     c.set_word(0xdcfe, a);
     let es = c.sreg(ES);

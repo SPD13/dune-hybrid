@@ -65,7 +65,7 @@ pub fn hnm_read_bytes(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let handle = c.word(g::HNM_FILE_HANDLE);
     c.run(start, if handle < 1 { 4 } else { 3 })?;
     c.set_reg(BX, handle);
-    c.cmp(W, handle, 1);
+    c.cmp(W, handle, 1); // the flags of the exit and of the seek's INT
     if handle < 1 {
         return c.ret();
     }
@@ -95,31 +95,25 @@ pub fn hnm_read_bytes(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xcde0, 3)?; // pop ds; cmp; jb
         let ds = c.pop();
         c.set_sreg(DS, ds);
-        c.cmp(W, got, wanted);
+        c.cmp(W, got, wanted); // the flags of the next seek's INT
     };
     c.run(0xcde0, 11)?;
     let ds = c.pop();
     c.set_sreg(DS, ds);
-    let wanted = c.reg(CX);
-    c.cmp(W, read, wanted);
-    // The bytes left (32 bits) go down, the file offset up.
-    let left = c.word(g::HNM_FILE_REMAIN);
-    let left = c.sub(W, left, read);
-    c.set_word(g::HNM_FILE_REMAIN, left);
-    let left_high = c.word(g::HNM_FILE_REMAIN + 2);
-    let left_high = c.sbb(W, left_high, 0);
-    c.set_word(g::HNM_FILE_REMAIN + 2, left_high);
-    let offset = c.word(g::HNM_FILE_OFFSET);
-    let offset = c.add(W, offset, read);
-    c.set_word(g::HNM_FILE_OFFSET, offset);
-    let offset_high = c.word(g::HNM_FILE_OFFSET + 2);
-    let offset_high = c.adc(W, offset_high, 0);
-    c.set_word(g::HNM_FILE_OFFSET + 2, offset_high);
-    for p in [g::HNM_READ_PTR, g::HNM_READ_PTR_2] {
-        let v = c.word(p);
-        let v = c.add(W, v, read);
-        c.set_word(p, v);
-    }
+    // The bytes left (32 bits) go down, the file offset up, and the two
+    // read pointers (the exit's flags but CF are the last `add`'s).
+    let dword = |c: &mut Ctx, at: u16| (c.word(at + 2) as u32) << 16 | c.word(at) as u32;
+    let left = dword(&mut c, g::HNM_FILE_REMAIN).wrapping_sub(read as u32);
+    c.set_word(g::HNM_FILE_REMAIN, left as u16);
+    c.set_word(g::HNM_FILE_REMAIN + 2, (left >> 16) as u16);
+    let offset = dword(&mut c, g::HNM_FILE_OFFSET).wrapping_add(read as u32);
+    c.set_word(g::HNM_FILE_OFFSET, offset as u16);
+    c.set_word(g::HNM_FILE_OFFSET + 2, (offset >> 16) as u16);
+    let v = c.word(g::HNM_READ_PTR).wrapping_add(read);
+    c.set_word(g::HNM_READ_PTR, v);
+    let v = c.word(g::HNM_READ_PTR_2);
+    let v = c.add(W, v, read);
+    c.set_word(g::HNM_READ_PTR_2, v);
     c.set_flag(CF, false);
     c.ret()
 }
@@ -170,13 +164,13 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
     let pending = c.word(g::HNM_DC16);
     if pending > 0 {
         c.run(start, 3)?;
-        c.cmp(W, pending, 0);
+        c.cmp(W, pending, 0); // the exit's flags
         return c.ret();
     }
     let read = c.word(g::HNM_READ_PTR_2);
     if read == 0 {
         c.run(start, 6)?;
-        c.cmp(W, pending, 0);
+        c.cmp(W, pending, 0); // likewise (ZF), with CF set
         c.set_reg(CX, read);
         c.set_flag(CF, true);
         return c.ret();
@@ -191,17 +185,12 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
         let back = c.byte(g::HNM_FLAGS) & 0x40 != 0;
         c.run(start, 2 + 3 + 4 + if no_video { 0 } else { 2 } + 3 + back as u32 + 1)?;
     }
-    c.cmp(W, pending, 0);
     c.set_reg(CX, read);
-    c.set_flag(CF, true);
     c.set_reg(SI, si);
     c.set_sreg(ES, seg);
     c.lods(W, ES);
-    let si = c.reg(SI);
-    let tag = c.word_in(ES, si);
-    c.cmp(W, tag, NO_VIDEO_TAG);
     if !no_video {
-        c.cmp(W, read, size);
+        c.cmp(W, read, size); // the exit's flags when not read yet
         if read < size {
             return c.ret();
         }
@@ -209,7 +198,6 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
     let front = c.word(g::FRAMEBUFFER_FRONT);
     c.set_reg(BP, front);
     let flags = c.byte(g::HNM_FLAGS);
-    c.test(B, flags as u16, 0x40);
     if flags & 0x40 != 0 {
         let back = c.word(g::BACKBUFFER);
         c.set_reg(BP, back);
@@ -217,7 +205,7 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.call(code::HNM_DECODE_TYPED_CHUNK, 0xcad1)?;
     c.run(0xcad1, 2)?;
     let ax = c.reg(AX);
-    let z = c.xor(W, ax, ax);
+    let z = c.xor(W, ax, ax); // the exit's flags
     c.set_reg(AX, z);
     c.ret()
 }
@@ -264,11 +252,8 @@ pub fn hnm_ring_has_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(start, 9)?;
             c.set_reg(AX, w);
             c.set_reg(BX, r);
-            c.cmp(W, w, r);
-            let a = c.add(W, w, cx);
-            let a = c.add(W, a, 0x12);
-            c.set_reg(AX, a);
-            c.cmp(W, r, a);
+            c.set_reg(AX, need);
+            c.cmp(W, r, need);
             return c.ret();
         }
     }
@@ -277,14 +262,7 @@ pub fn hnm_ring_has_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 4 + if below { 4 } else { 0 } + 4 + if carry { 1 } else { 2 })?;
     c.set_reg(AX, w);
     c.set_reg(BX, r);
-    c.cmp(W, w, r);
-    if below {
-        let a = c.add(W, w, cx);
-        let a = c.add(W, a, 0x12);
-        c.cmp(W, r, a);
-    }
-    let a = c.add(W, read, 0x0a);
-    let a = c.add(W, a, cx);
+    let a = c.add(W, read.wrapping_add(0x0a), cx); // a carry ends it
     c.set_reg(AX, a);
     if !carry {
         let v = c.word(g::HNM_DC18);

@@ -50,29 +50,27 @@ pub fn draw_sprite_clobbering_bx_dx(m: &mut Machine, start: u16) -> Result<(), B
     let (sheet, seg) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
     c.set_reg(SI, sheet);
     c.set_sreg(DS, seg);
-    let index = c.and(W, ax, 0x1ff);
-    let index = c.shl1(W, index, 1);
+    let index = (ax & 0x1ff) << 1;
     c.set_reg(BP, index);
     let off = c.word_in(DS, index.wrapping_add(sheet));
-    let si = c.add(W, sheet, off);
+    let si = sheet.wrapping_add(off);
     c.set_reg(SI, si);
     c.set_reg(CX, ax);
     c.push(ax);
     let width = c.lods(W, DS);
-    let flip = c.and(B, ax >> 8, 0x60);
+    let flip = (ax >> 8) & 0x60;
     c.set_reg8(r8::CH, flip as u8);
-    let high = c.or(B, width >> 8, flip);
+    let high = (width >> 8) | flip;
     let di = high << 8 | width & 0xff;
     c.set_reg(AX, di);
     c.set_reg(DI, di);
     let lines = c.lods(W, DS);
     c.set_reg(CX, lines);
-    c.cmp(B, colour as u16, 0);
     if colour != 0 {
         c.set_reg8(r8::CH, colour);
     }
     let ax = c.pop();
-    let scale = c.and(W, ax, 0x1c00);
+    let scale = c.and(W, ax, 0x1c00); // the flags the driver's far call sees
     c.set_reg(AX, scale);
     if scale == 0 {
         c.interp(0xc263, 0xc268)?;
@@ -90,35 +88,20 @@ pub fn draw_sprite_clobbering_bx_dx(m: &mut Machine, start: u16) -> Result<(), B
     }
     let packed = di & 0x8000 != 0;
     c.run(0xc26b, 23 + packed as u32)?;
-    let ax = scale.rotate_left(8);
-    c.set_reg(AX, ax);
-    let bp = c.shr1(W, ax, 1);
-    c.set_reg(BP, bp);
     c.set_reg(BP, divisor);
-    let a = c.and(W, di, 0x1ff);
+    // The width and the height (·100h) divided by it (DX kept around
+    // each `div` on the stack).
+    let (width, height) = (w / divisor, h / divisor);
     let dx = c.reg(DX);
     c.push(dx);
-    c.set_reg(AX, a.rotate_left(8));
-    let zero = c.xor(W, dx, dx);
-    c.set_reg(DX, zero);
-    c.m.cpu.mul_div(&mut c.m.hw, W, 6, divisor as u32); // div bp: the width
-    let dx = c.pop();
-    c.set_reg(DX, dx);
-    let width = c.reg(AX);
+    c.pop();
     c.push(width);
-    let ah0 = c.xor(B, 0, 0);
-    c.set_reg(AX, (cx & 0xff) << 8 | ah0);
     c.push(dx);
-    let zero = c.xor(W, dx, dx);
-    c.set_reg(DX, zero);
-    c.m.cpu.mul_div(&mut c.m.hw, W, 6, divisor as u32); // div bp: the height
-    let dx = c.pop();
-    c.set_reg(DX, dx);
-    let al = c.reg8(r8::AL);
-    c.set_reg8(r8::CL, al);
-    let width = c.pop();
+    c.pop();
+    c.set_reg8(r8::CL, height as u8);
+    c.pop();
     c.set_reg(AX, width);
-    c.or(W, di, di);
+    c.or(W, di, di); // likewise
     if packed {
         c.call(code::UNRLE_IMAGE_TO_TMP_BUFFER, 0xc299)?;
     }
