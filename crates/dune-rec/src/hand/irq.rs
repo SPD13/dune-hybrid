@@ -3,6 +3,7 @@
 //! the interrupt, not by a call: the shadow check never sees it, `--rec
 //! on` runs it (checked by whole-run state hashes, `STATE_HASH=1`).
 
+use super::globals as g;
 use super::{B, Ctx, W, entered, r8};
 use pc::{
     Machine,
@@ -38,34 +39,34 @@ pub fn pit_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte(0xceea);
     c.cmp(B, v as u16, 0);
     if !held {
-        let t = c.word(0xce7a).wrapping_add(1);
+        let t = c.word(g::TIMER).wrapping_add(1);
         let wraps = t == 0;
-        let fz = c.byte(0x2788);
+        let fz = c.byte(g::CLOCK_STOPPED);
         let frozen = fz != 0;
-        let n = c.word(0x46db).wrapping_sub(1);
+        let n = c.word(g::CLOCK_COUNTDOWN).wrapping_sub(1);
         let restart = !frozen && n & 0x8000 != 0;
         c.run(0xef7a, 2 + wraps as u32 + 2 + if frozen { 0 } else { 2 + 4 * restart as u32 } + 1)?;
         let t = c.inc(W, t.wrapping_sub(1));
-        c.set_word(0xce7a, t);
+        c.set_word(g::TIMER, t);
         if wraps {
-            let h = c.word(0xce7c);
+            let h = c.word(g::TIMER_HIGH);
             let h = c.inc(W, h);
-            c.set_word(0xce7c, h);
+            c.set_word(g::TIMER_HIGH, h);
         }
         c.cmp(B, fz as u16, 0);
         if !frozen {
             let n = c.dec(W, n.wrapping_add(1));
-            c.set_word(0x46db, n);
+            c.set_word(g::CLOCK_COUNTDOWN, n);
             if restart {
-                let p = c.word(0x146e);
+                let p = c.word(g::CLOCK_PERIOD);
                 c.set_reg(AX, p);
-                c.set_word(0x46db, p);
-                let g = c.word(2);
-                let g = c.inc(W, g);
-                c.set_word(2, g);
-                let d = c.byte(0x46dd);
+                c.set_word(g::CLOCK_COUNTDOWN, p);
+                let time = c.word(g::GAME_TIME);
+                let time = c.inc(W, time);
+                c.set_word(g::GAME_TIME, time);
+                let d = c.byte(g::CLOCK_STEPS_PENDING);
                 let d = c.inc(B, d as u16);
-                c.set_byte(0x46dd, d as u8);
+                c.set_byte(g::CLOCK_STEPS_PENDING, d as u8);
             }
         }
         c.call(0xefba, 0xefa2)?;

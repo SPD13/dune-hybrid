@@ -2920,7 +2920,7 @@ pub fn record_age_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x32c7)?;
     let mut c = Ctx::new(m);
     let si = c.reg(SI);
-    let t = c.word(2);
+    let t = c.word(g::GAME_TIME);
     let a = c.word(si.wrapping_add(0x0a));
     let age = t.wrapping_sub(a);
     let b3 = c.byte(si.wrapping_add(3));
@@ -4688,7 +4688,7 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     let ph = c.byte(0x2a);
     if ph < 0x3c {
-        let d = c.word(2);
+        let d = c.word(g::GAME_TIME);
         let t = c.word(0x1154);
         let a = d.wrapping_sub(t);
         if d < t || a < 0x70 {
@@ -4703,7 +4703,7 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x1f64, 2)?;
     }
-    let d = c.word(2);
+    let d = c.word(g::GAME_TIME);
     if d & 0x10 != 0 {
         c.run(0x1f79, 3)?;
         return c.ret();
@@ -5388,7 +5388,7 @@ pub fn scene_refresh(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn refresh_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x2e52, 1)?;
     c.call(0x35ad, 0x2e55)?;
-    let t = c.word(0xce7a);
+    let t = c.word(g::TIMER);
     let k = c.byte(0x47a7);
     let note = |c: &mut Ctx| {
         c.set_reg(AX, t);
@@ -6301,7 +6301,7 @@ pub fn time_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x1b10, 2)?;
         return c.ret();
     }
-    let k = c.byte(0x2788);
+    let k = c.byte(g::CLOCK_STOPPED);
     let t = c.byte(0x2a);
     if k != 0 {
         c.run(0x1b10, 4)?;
@@ -6328,7 +6328,7 @@ pub fn time_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// room left and redrawn (`loc_00b21`, `loc_02db1`); negative the map
 /// refreshed, or the view rebuilt (`loc_0d2bd`, the gauges). [473Bh] 0.
 fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
-    let f = c.byte(0x46dd);
+    let f = c.byte(g::CLOCK_STEPS_PENDING);
     if f == 0 {
         c.run(0x1b23, 3)?;
         c.cmp(B, 0, 0);
@@ -6338,7 +6338,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     let low = (a as i8) < 0x10;
     c.run(0x1b23, 7 + if low { 2 } else { 0 } + 2)?;
     c.cmp(B, f as u16, 0);
-    c.set_byte(0x46dd, 0);
+    c.set_byte(g::CLOCK_STEPS_PENDING, 0);
     let f4 = c.byte(0xf4);
     let a = c.dec(B, f4 as u16) as u8;
     c.cmp(B, a as u16, 0x10);
@@ -6354,7 +6354,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     c.call(0x1a0f, 0x1b43)?;
     c.run(0x1b43, 1)?;
     c.call(0x38e1, 0x1b46)?;
-    let now = c.word(2);
+    let now = c.word(g::GAME_TIME);
     let old = c.word(0x1174);
     let d = (old as u8 & 0xf0).wrapping_sub(now as u8 & 0xf0);
     c.run(0x1b46, 8 + (d != 0) as u32)?;

@@ -179,6 +179,18 @@ pub const CMD_ARGS_MEMORY: u16 = 0x2943;
 /// The timer the game waits on, moved by its interrupt (Cryogenic:
 /// `VideoPlayRelatedIndex`).
 pub const TIMER: u16 = 0xce7a;
+/// Its high word (the timer's wraps).
+pub const TIMER_HIGH: u16 = 0xce7c;
+/// The game clock: ticks of the timer left until the game time ([2])
+/// steps (counted down by the timer's interrupt), the count it restarts
+/// from, and the steps taken by the interrupt not yet run by the game
+/// (`run_clock_ticks`).
+pub const CLOCK_COUNTDOWN: u16 = 0x46db;
+pub const CLOCK_PERIOD: u16 = 0x146e;
+pub const CLOCK_STEPS_PENDING: u16 = 0x46dd;
+/// While not 0 the game clock does not run (the timer's interrupt skips
+/// it): a count of who stopped it.
+pub const CLOCK_STOPPED: u16 = 0x2788;
 /// The allocator: next free pointer, the last segment (Cryogenic:
 /// `allocatorNextFreeOffset`, `allocatorNextFreeSegment`,
 /// `allocatorLastFreeSegment`).

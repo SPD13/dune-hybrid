@@ -1,6 +1,7 @@
 //! Dialogue state: the talking character's mode bytes (47C2h, 47C4h,
 //! 47DCh...), the phrase pointers, and small steps of the conversation.
 
+use super::globals as g;
 use super::pure;
 use super::{B, Ctx, W, entered, game, r8};
 use pc::{
@@ -1599,7 +1600,7 @@ pub fn pick_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut di = None;
     let mut pushed = false;
     if al0 >= 0x11 {
-        let t = c.word(2) << 2;
+        let t = c.word(g::GAME_TIME) << 2;
         ah = (t >> 8) as u8;
         n = 2 + 5;
         if ah >= 8 {
@@ -2039,7 +2040,7 @@ pub fn start_text_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x3811);
     c.interp(0xa770, 0xa774)?;
     c.run(0xa774, 4)?;
-    let time = c.word(0xce7a);
+    let time = c.word(g::TIMER);
     c.set_reg(AX, time);
     c.set_word(0xdc2c, time);
     c.set_word(0xdc2e, 0x8000);

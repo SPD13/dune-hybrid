@@ -69,18 +69,15 @@ pub fn sky_palette_for_game_time(m: &mut Machine, start: u16) -> Result<(), Bail
     c.ret()
 }
 
-/// While not 0, the game's clock does not run (the timer interrupt skips
-/// it): a count of who stopped it.
-const CLOCK_STOPPED: u16 = 0x2788;
 
 /// `loc_0b2b9`: the clock stopped once more.
 pub fn stop_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb2b9)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let n = c.byte(CLOCK_STOPPED);
+    let n = c.byte(g::CLOCK_STOPPED);
     let n = pure::inc(B, n as u16);
-    c.set_byte(CLOCK_STOPPED, n as u8);
+    c.set_byte(g::CLOCK_STOPPED, n as u8);
     c.ret()
 }
 
@@ -88,12 +85,12 @@ pub fn stop_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn release_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb2b3)?;
     let mut c = Ctx::new(m);
-    let n = c.byte(CLOCK_STOPPED);
+    let n = c.byte(g::CLOCK_STOPPED);
     let below = n.wrapping_sub(1) & 0x80 != 0;
     c.run(start, if below { 4 } else { 3 })?;
     let n = pure::dec(B, n as u16);
     let n = if below { pure::inc(B, n) } else { n };
-    c.set_byte(CLOCK_STOPPED, n as u8);
+    c.set_byte(g::CLOCK_STOPPED, n as u8);
     c.ret()
 }
 
@@ -102,7 +99,7 @@ pub fn start_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb2be)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_byte(CLOCK_STOPPED, 0);
+    c.set_byte(g::CLOCK_STOPPED, 0);
     c.ret()
 }
 
@@ -125,12 +122,12 @@ pub fn run_clock_ticks(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_byte(TICKING, 0);
             return c.ret();
         }
-        let pending = c.byte(0x46dd) != 0;
+        let pending = c.byte(g::CLOCK_STEPS_PENDING) != 0;
         c.run(0x0fe1, 7 + pending as u32)?;
         c.push(cx);
-        let reset = c.word(0x146e);
+        let reset = c.word(g::CLOCK_PERIOD);
         c.set_reg(AX, reset);
-        c.set_word(0x46db, reset);
+        c.set_word(g::CLOCK_COUNTDOWN, reset);
         if pending {
             c.call(0x1b23, 0x0ff6)?;
             c.run(0x0ff6, 3)?;
@@ -140,7 +137,7 @@ pub fn run_clock_ticks(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let t = c.word(g::GAME_TIME);
         let t = pure::inc(W, t);
         c.set_word(g::GAME_TIME, t);
-        c.set_byte(0x46dd, 1);
+        c.set_byte(g::CLOCK_STEPS_PENDING, 1);
         c.call(0x1b23, 0x1002)?;
         let sp = c.reg(pc::cpu::SP);
         let cx = c.word_in(pc::cpu::SS, sp).wrapping_sub(1);

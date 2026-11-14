@@ -188,7 +188,7 @@ pub fn move_cursor_by(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd962)?;
     let mut c = Ctx::new(m);
-    let t = c.word(0xce7a);
+    let t = c.word(g::TIMER);
     let last = c.byte(0xdc4a);
     let gap = (t as u8).wrapping_sub(last);
     if gap < 6 {
