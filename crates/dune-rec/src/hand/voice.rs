@@ -866,7 +866,7 @@ fn music_walk(c: &mut Ctx, write: bool) -> u32 {
         }
         n + 1
     };
-    let k = c.byte(0x4774);
+    let k = c.byte(g::KEYBOARD_CURSOR);
     c.cmp(B, k as u16, 0);
     n += 2;
     let ph = c.byte(g::GAME_PHASE);
@@ -1577,7 +1577,7 @@ pub fn set_lipsync_data_to_al(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// ([0DBDAh] kept; `loc_0c08e`); then the mouse drawn again
 /// (`draw_mouse_cursor_if_needed`). Else a sprite (`lip_sprite_9e75`).
 fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
-    let k = c.word(0x47c4);
+    let k = c.word(g::TALKER);
     if k >= 0x10 {
         c.run(0x9de3, 3)?;
         c.cmp(W, k, 0x10);
@@ -1690,7 +1690,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
 /// refreshed (`loc_0c4f0`) when its +3 byte is set, else into
 /// [0DBD8h]; then the mouse drawn again.
 fn lip_sprite_9e75(c: &mut Ctx) -> Result<(), Bail> {
-    let k = c.word(0x47c4);
+    let k = c.word(g::TALKER);
     let twelve = k == 0xc;
     c.run(0x9e75, 3 + if twelve { 0 } else { 5 } + 6)?;
     let si = c.word(0x47d2);
@@ -1827,7 +1827,7 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
                 let v = c.pop();
                 let v = (v & 0xff00) | 0x0c;
                 c.set_reg(CX, v);
-                c.set_word(0x47c4, v);
+                c.set_word(g::TALKER, v);
                 c.push(v);
             }
         }

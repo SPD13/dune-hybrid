@@ -419,3 +419,35 @@ pub const MAP_MODE: u16 = 0x46eb;
 /// How far from the map position a caption (a troop's, a place's) shows;
 /// raised by the charisma step.
 pub const REACH: u16 = 0x1176;
+
+/// The character talking; its record is FD8h + 10h Â· it.
+pub const TALKER: u16 = 0x47c4;
+
+/// The text being shown (cleared when done).
+pub const TEXT_PTR: u16 = 0x1bea;
+
+/// The dialogue's state bits: 80h ends it with this line, 1 keeps the
+/// view.
+pub const LINE_STATE: u16 = 0x47a4;
+
+/// Set during a dialogue scene.
+pub const IN_DIALOGUE: u16 = 0x2b;
+
+/// The game's stage (64h to 73h: a wait after each line).
+pub const STAGE: u16 = 0x23;
+
+/// The dialogue list the dialogue goes on from (0: from its group, [47BEh]).
+pub const DIALOGUE_PENDING: u16 = 0x47ba;
+
+/// The video sprite list the dirty rect is redrawn with.
+pub const SPRITE_LIST: u16 = 0xdbe0;
+
+/// The direction of the player's move on the map (`loc_051cb`).
+pub const HEADING: u16 = 0x11c7;
+
+/// Set while the cursor is moved with the keyboard (the item it is on
+/// at [4775h]).
+pub const KEYBOARD_CURSOR: u16 = 0x4774;
+
+/// The room the player is in at a place.
+pub const CURRENT_ROOM: u16 = 0xb;

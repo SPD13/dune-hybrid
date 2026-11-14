@@ -579,7 +579,7 @@ pub fn head_09c7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(dx);
     c.set_reg8(r8::AH, 0);
     let ax = c.reg(AX);
-    c.set_word(0x47c4, ax);
+    c.set_word(g::TALKER, ax);
     c.call(0x91a0, 0x09d0)?;
     let sp = c.reg(pc::cpu::SP);
     let d = c.word_in(pc::cpu::SS, sp);
@@ -897,10 +897,10 @@ pub fn dialogue_9719(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(0x9f82, 0x972f)?;
     c.run(0x972f, 3)?;
-    c.set_word(0x47c4, 0xf);
+    c.set_word(g::TALKER, 0xf);
     c.set_word(0x47a2, 0x10c8);
     c.call(0xa1c4, 0x973e)?;
-    let v = c.word(0x47ba);
+    let v = c.word(g::DIALOGUE_PENDING);
     let n = if v == 0xffff { 3 + 1 } else if v != 0 { 3 + 2 } else { 3 + 2 + 1 };
     c.run(0x973e, n + 2)?;
     c.set_reg(SI, v);
@@ -919,9 +919,9 @@ pub fn dialogue_9719(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cf = c.flag(CF);
     c.run(0x9754, 2 + if cf { 1 } else { 0 } + 1)?;
     let si = c.reg(SI);
-    c.set_word(0x47ba, si);
+    c.set_word(g::DIALOGUE_PENDING, si);
     if cf {
-        c.set_word(0x47ba, 0);
+        c.set_word(g::DIALOGUE_PENDING, 0);
     }
     c.ret()
 }
@@ -1114,7 +1114,7 @@ pub fn people_6dbb(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let ax = c.reg(AX);
         c.set_word(4, ax);
-        c.set_byte(0xb, ax as u8);
+        c.set_byte(g::CURRENT_ROOM, ax as u8);
         c.set_byte(8, (ax >> 8) as u8);
     }
     let v = c.pop();
@@ -1253,7 +1253,7 @@ pub fn jessica_0f08(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0f08, 3)?;
     c.call(0xc412, 0x0f16)?;
     c.run(0x0f16, 2)?;
-    c.set_word(0x47c4, 7);
+    c.set_word(g::TALKER, 7);
     c.call(0x9197, 0x0f1f)?;
     c.run(0x0f1f, 3)?;
     c.set_byte(0x478c, 0);
@@ -1327,7 +1327,7 @@ pub fn script_1707(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(4, ax as u8);
     c.set_byte(0x46e0, (ax >> 8) as u8);
     c.set_reg8(r8::AL, 0);
-    c.set_byte(0x4774, 0);
+    c.set_byte(g::KEYBOARD_CURSOR, 0);
     if ph != 0x48 {
         c.call(0xadbe, 0x1755)?;
     }
@@ -1877,7 +1877,7 @@ pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x79f5, 2 + 3)?;
         c.set_reg(SI, 0x18e9);
     }
-    c.set_word(0xdbe0, 0x18e9);
+    c.set_word(g::SPRITE_LIST, 0x18e9);
     c.set_reg8(r8::AL, 2);
     c.call(0x7b0f, 0x7a27)?;
     c.run(0x7a27, 23)?;
@@ -1936,7 +1936,7 @@ pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (ax, bp) = if troop {
         c.run(0x7a82, 3)?;
         c.set_reg(AX, 0xc);
-        c.set_word(0x47c4, 0xc);
+        c.set_word(g::TALKER, 0xc);
         c.call(0x91a0, 0x7a8b)?;
         c.run(0x7a8b, 1)?;
         c.call(0xc0f4, 0x7a8e)?;
@@ -1947,7 +1947,7 @@ pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x7a96, 5)?;
         c.set_reg(AX, 0xf);
-        c.set_word(0x47c4, 0xf);
+        c.set_word(g::TALKER, 0xf);
         let si = c.reg(SI);
         c.set_word(0x4758, si);
         c.set_byte(0x476c, 0);
@@ -2200,7 +2200,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0x11ca, 1);
     c.call(0x9f40, 0x0dcd)?;
     c.run(0x0dcd, 7)?;
-    c.set_word(0x47c4, 0xffff);
+    c.set_word(g::TALKER, 0xffff);
     let who = c.byte(0x46d9);
     c.set_byte(0x46d9, 0x80);
     let ax = who as u16;
@@ -2227,7 +2227,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if face & 0x80 == 0 {
         c.call(0x91a0, 0x0dfd)?;
         c.run(0x0dfd, 10)?;
-        let (s, e) = (c.word(g::SPRITE_SHEET), c.word(0xdbb2));
+        let (s, e) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
         c.set_reg(SI, s);
         c.set_sreg(ES, e);
         // The face: the sheet's sprite count / 2 - 3, at the box + 1.
@@ -2673,12 +2673,12 @@ pub fn screen_2c9a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x2ca4, 1)?;
     c.call(0xc412, 0x2ca7)?;
     c.run(0x2ca7, 2)?;
-    let state = c.word(0x47c4);
+    let state = c.word(g::TALKER);
     c.set_reg(AX, state);
     c.call(0x96d8, 0x2cad)?;
     c.run(0x2cad, 6)?;
     c.set_reg(AX, 0);
-    c.set_word(0x1bea, 0);
+    c.set_word(g::TEXT_PTR, 0);
     c.set_word(0x1bf8, 0);
     c.set_byte(g::SKY_PALETTE_SET, 0);
     c.set_reg(SI, 0xc0b6);

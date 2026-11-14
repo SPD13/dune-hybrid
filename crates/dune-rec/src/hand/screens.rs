@@ -1070,7 +1070,7 @@ pub fn panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_02ffb` after `pre` instructions from `at` (with `ops`).
 pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
-    let dlg = c.byte(0x2b);
+    let dlg = c.byte(g::IN_DIALOGUE);
     let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
     let (ca, cb) = (c.byte(0x11ca), c.byte(0x11cb));
     if dlg != 0 || mode & 3 != 0 {
@@ -1327,7 +1327,7 @@ fn list_2220_at(c: &mut Ctx) -> Result<(), Bail> {
 pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2eb2)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0x4774);
+    let k = c.byte(g::KEYBOARD_CURSOR);
     if k != 0 {
         c.run(start, 3)?;
         c.cmp(B, k as u16, 0);
@@ -1414,7 +1414,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x2f13, 5)?;
         copy(&mut c, 0x220c, 2);
         if dx as u8 == 1 {
-            let t = c.byte(0x2b);
+            let t = c.byte(g::IN_DIALOGUE);
             if t != 0 {
                 // In a dialogue: the talk entries, the last one off from
                 // phase 4Fh.

@@ -24,8 +24,6 @@ const VIEW: u16 = 0x46e3;
 const POINT_4710: u16 = 0x4710;
 /// The mark on the map (x at 197Ch, y at 197Eh).
 const MARK: u16 = 0x197c;
-/// The video sprite list the dirty rect is redrawn with.
-const SPRITE_LIST: u16 = 0xdbe0;
 const SPRITE_LIST_MAP: u16 = 0x194a;
 
 /// `loc_0557b`: DX, BX = the point at [`POINT_4710`].
@@ -199,7 +197,7 @@ pub fn copy_view_to_both_rects(m: &mut Machine, start: u16) -> Result<(), Bail> 
 pub fn drop_map_sprite_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5beb)?;
     let mut c = Ctx::new(m);
-    let list = c.word(SPRITE_LIST);
+    let list = c.word(g::SPRITE_LIST);
     let ours = list == SPRITE_LIST_MAP;
     c.run(start, 3)?;
     if !ours {
@@ -207,8 +205,8 @@ pub fn drop_map_sprite_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(code::SAVE_REGS, 0x5bf6)?;
     c.run(0x5bf6, 3)?;
-    let old = c.word(SPRITE_LIST);
-    c.set_word(SPRITE_LIST, 0);
+    let old = c.word(g::SPRITE_LIST);
+    c.set_word(g::SPRITE_LIST, 0);
     c.set_reg(SI, old);
     c.call(code::PARTICLES_UPDATE_DIRTY_RECT, 0x5bff)?;
     c.run(0x5bff, 1)?;
@@ -517,7 +515,7 @@ pub fn redraw_8770(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0x46f3, 0);
     c.call(0x878c, 0x8782)?;
     c.run(0x8782, 2)?;
-    c.set_word(0x1bea, 0);
+    c.set_word(g::TEXT_PTR, 0);
     c.call(code::RESTORE_REGS, 0x878b)?;
     c.run(0x878b, 1)?;
     c.ret()
@@ -854,7 +852,7 @@ pub fn heading_51cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, bx);
         if !cf {
             let al = c.reg8(r8::AL);
-            c.set_byte(0x11c7, al);
+            c.set_byte(g::HEADING, al);
         }
         return c.ret();
     }
@@ -863,14 +861,14 @@ pub fn heading_51cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if near {
         c.run(start, pre + 4 + 1)?;
     } else {
-        let h = c.byte(0x11c7);
+        let h = c.byte(g::HEADING);
         let same = (h.wrapping_sub(0x40) ^ (bx >> 8) as u8) & 0x80 != 0;
         c.run(start, pre + if (bx as i16) < -0x4d { 2 } else { 4 } + if same { 6 } else { 10 })?;
     }
     if near {
         return c.ret();
     }
-    let al = c.byte(0x11c7);
+    let al = c.byte(g::HEADING);
     let ah = pure::sub(B, al as u16, 0x40);
     let ah = pure::xor(B, ah, bx >> 8);
     c.set_reg(AX, ah << 8 | al as u16);
@@ -880,7 +878,7 @@ pub fn heading_51cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = pure::and(B, al as u16, 0x80);
     let v = pure::or(B, v, 0x40);
     c.set_reg(AX, ah << 8 | v);
-    c.set_byte(0x11c7, v as u8);
+    c.set_byte(g::HEADING, v as u8);
     c.ret()
 }
 
@@ -927,12 +925,12 @@ pub fn drop_point_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.call(code::SAVE_REGS, 0x5904)?;
-    let first = c.word(SPRITE_LIST) == POINT_4710;
+    let first = c.word(g::SPRITE_LIST) == POINT_4710;
     c.run(0x5904, 4 + (!first) as u32 + 3)?;
     let k = c.byte(g::MAP_MODE);
     let k = pure::and(B, k as u16, 0xbf);
     c.set_byte(g::MAP_MODE, k as u8);
-    let di = if first { SPRITE_LIST } else { SPRITE_LIST + 2 };
+    let di = if first { g::SPRITE_LIST } else { g::SPRITE_LIST + 2 };
     c.set_reg(DI, di);
     let old = c.word(di);
     c.set_word(di, 0);
@@ -1022,7 +1020,7 @@ pub fn draw_map_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xc08e, 0x5bb3)?;
     c.run(0x5bb3, 3)?;
     c.set_reg(SI, SPRITE_LIST_MAP);
-    c.set_word(SPRITE_LIST, SPRITE_LIST_MAP);
+    c.set_word(g::SPRITE_LIST, SPRITE_LIST_MAP);
     c.call(0x7b1b, 0x5bbd)?;
     c.run(0x5bbd, 1)?;
     c.call(0xd068, 0x5bc0)?;
@@ -1117,7 +1115,7 @@ pub fn drop_map_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x1668);
     c.call(0xc07c, 0x5fa2)?;
     c.run(0x5fa2, 2)?;
-    c.set_word(SPRITE_LIST, 0);
+    c.set_word(g::SPRITE_LIST, 0);
     c.call(code::PARTICLES_UPDATE_DIRTY_RECT, 0x5fab)?;
     c.run(0x5fab, 2)?;
     c.set_reg8(r8::AL, 8);
@@ -1377,8 +1375,8 @@ pub fn show_message_0f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 4)?;
     let (si, al) = (c.reg(SI), c.reg8(r8::AL));
     c.set_word(0x46f1, si);
-    c.set_byte(0x23, al);
-    c.set_word(0x47ba, 0);
+    c.set_byte(g::STAGE, al);
+    c.set_word(g::DIALOGUE_PENDING, 0);
     c.call(0xc08e, 0x7bce)?;
     c.run(0x7bce, 2)?;
     c.set_reg(AX, 0x0f);
@@ -1816,7 +1814,7 @@ fn unmark_cells(c: &mut Ctx) -> Result<(), Bail> {
     let ds = c.sreg(DS);
     c.push(ds);
     c.or(B, al as u16, al as u16);
-    let (di, es, nds) = (c.word(g::SPRITE_SHEET), c.word(0xdbb2), c.word(0xdd00));
+    let (di, es, nds) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2), c.word(0xdd00));
     c.set_reg(DI, di);
     c.set_sreg(ES, es);
     c.set_sreg(DS, nds);
@@ -2303,7 +2301,7 @@ pub fn map_point_moved(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return gfx_call_3961(c.m, 0x5982);
     }
     c.run(0x59ac, if dx != x { 4 } else { 6 })?;
-    c.set_word(0xdbe0, 0);
+    c.set_word(g::SPRITE_LIST, 0);
     after_8850(c.m, 0x5b10)
 }
 
@@ -3413,7 +3411,7 @@ fn scroll_scene_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.push(ds);
     let es = c.pop();
     c.set_sreg(ES, es);
-    let (tab, seg) = (c.word(g::SPRITE_SHEET), c.word(0xdbb2));
+    let (tab, seg) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
     c.set_sreg(DS, seg);
     let bx = c.word(tab);
     let o = c.word(bx.wrapping_add(tab).wrapping_sub(2));
@@ -3901,7 +3899,7 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'one;
             }
             let al = c.reg8(r8::AL);
-            let dir = c.byte(0x11c7);
+            let dir = c.byte(g::HEADING);
             let v = al.wrapping_sub(dir).wrapping_add(0x60);
             if v >= 0xc0 {
                 c.run(0x4138, 5)?;
@@ -3922,7 +3920,7 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let ax = c.reg(AX).wrapping_add(0x48);
             c.set_reg(AX, ax);
             c.set_word(0x11f3, ax);
-            c.set_byte(0x23, 3);
+            c.set_byte(g::STAGE, 3);
             c.call(0x425b, 0x416b)?;
             for (at, to) in [(0x416bu16, 0x4944u16), (0x416e, 0xdbb2), (0x4171, 0x2efb), (0x4174, 0x2ffb), (0x4177, 0xd397)] {
                 c.run(at, 1)?;
@@ -3980,7 +3978,7 @@ pub fn drop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x1668);
     c.call(0xc07c, 0x5fa2)?;
     c.run(0x5fa2, 2)?;
-    c.set_word(0xdbe0, 0);
+    c.set_word(g::SPRITE_LIST, 0);
     c.call(0xc6ad, 0x5fab)?;
     c.run(0x5fab, 2)?;
     c.set_reg8(r8::AL, 8);
@@ -4005,7 +4003,7 @@ pub fn location_ahead(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     // A column of cells ahead when facing within 20h of north or south,
     // else a row.
-    let dir = c.byte(0x11c7);
+    let dir = c.byte(g::HEADING);
     let a = dir.wrapping_add(0x20);
     let col = a & 0x40 == 0;
     c.run(start, 8 + (!col) as u32 + 1)?;
@@ -4426,7 +4424,7 @@ pub fn redraw_and_toggle(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5c03)?;
     let mut c = Ctx::new(m);
-    let e0 = c.word(0xdbe0);
+    let e0 = c.word(g::SPRITE_LIST);
     if e0 == 0x194a {
         let (t1, t0) = (c.word(g::TIMER), c.word(0xdc5a));
         let t = t1.wrapping_sub(t0);
@@ -4824,7 +4822,7 @@ pub fn heading_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (bx0, dx0) = (c.reg(BX), c.reg(DX));
     let neg = bx0 & 0x4000 != 0;
     c.run(0x5209, 7 + neg as u32)?;
-    let h = c.byte(0x11c7);
+    let h = c.byte(g::HEADING);
     c.set_reg8(r8::AL, h);
     c.push(dx0);
     c.push(bx0);
@@ -4906,9 +4904,9 @@ pub fn heading_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let t = pure::add(W, nb, 0x60);
     c.set_reg(AX, t);
     if pole {
-        let h = c.byte(0x11c7);
+        let h = c.byte(g::HEADING);
         let h = pure::add(B, h as u16, 0x80);
-        c.set_byte(0x11c7, h as u8);
+        c.set_byte(g::HEADING, h as u8);
         nd = pure::add(W, nd, 0x8000);
     }
     c.set_reg(DX, nd);
@@ -5292,7 +5290,7 @@ pub fn caption_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(si.wrapping_add(4), d2);
     let b4 = pure::add(W, b3, cx);
     c.set_word(si.wrapping_add(6), b4);
-    c.set_word(0xdbe0, si);
+    c.set_word(g::SPRITE_LIST, si);
     let dx = c.pop();
     let bx = c.pop();
     c.set_reg(AX, 0x0a);
@@ -5803,7 +5801,7 @@ pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
     c.run(0x5484, 1)?;
     c.call(0x5584, 0x5487)?;
     c.run(0x5487, 4)?;
-    let v = c.word(0xdbb2);
+    let v = c.word(g::SPRITE_SHEET + 2);
     c.set_word(0xdd00, v);
     c.set_byte(g::MAP_MODE, 0x40);
     c.call(0xb69a, 0x5497)?;
@@ -5836,7 +5834,7 @@ pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
         c.call(0xc560, 0x551d)?;
     }
     let si = 0x4710u16;
-    let a = c.word(0xdbe0);
+    let a = c.word(g::SPRITE_LIST);
     let second = a != 0 && a != si;
     let prev = c.word(0x4720);
     c.run(0x551d, 5 + if a == 0 { 0 } else if a == si { 2 } else { 3 } + 7 + if prev != 0 { 3 } else { 0 })?;
@@ -6055,12 +6053,12 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x878c)?;
     let mut c = Ctx::new(m);
     let t = c.byte(8);
-    let b = c.byte(0x0b);
+    let b = c.byte(g::CURRENT_ROOM);
     let plain = t != 0xff && (t < 0x20 || b < 3);
     let mut ax = 0x40a7u16;
     if plain {
         c.run(start, if t < 0x20 { 6 } else { 8 } + 3)?;
-        c.set_word(0x47ba, 0);
+        c.set_word(g::DIALOGUE_PENDING, 0);
         c.set_reg(AX, ax);
         let di = c.reg(DI);
         c.push(di);
@@ -6079,7 +6077,7 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, ax);
     } else {
         c.run(start, if t == 0xff { 4 } else { 8 })?;
-        c.set_word(0x47ba, 0);
+        c.set_word(g::DIALOGUE_PENDING, 0);
         c.set_reg(AX, ax);
     }
     let ph = c.byte(g::GAME_PHASE);
@@ -6389,7 +6387,7 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x5beb, 0x5c79)?;
     c.run(0x5c79, 1)?;
     c.call(0xc13b, 0x5c7c)?;
-    let b1 = c.word(0xdbe0);
+    let b1 = c.word(g::SPRITE_LIST);
     if b1 != 0 {
         c.run(0x5c7c, 4)?;
         c.set_reg(DI, b1);

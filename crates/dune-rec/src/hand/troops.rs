@@ -1598,7 +1598,7 @@ pub fn drop_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let selected = c.word(SELECTED);
     c.run(start, if selected == 0 { 8 } else { 10 })?;
-    c.set_word(0x1bea, 0);
+    c.set_word(g::TEXT_PTR, 0);
     c.set_byte(0x46f4, 0);
     c.set_byte(0x4c, 0);
     c.set_word(SELECTED, 0);
@@ -1621,8 +1621,8 @@ pub fn drop_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7b8f, 5)?;
     c.set_reg(SI, 0x18e9);
     c.set_reg(AX, 0);
-    c.set_word(0xdbe0, 0);
-    c.set_word(0x47ba, 0);
+    c.set_word(g::SPRITE_LIST, 0);
+    c.set_word(g::DIALOGUE_PENDING, 0);
     c.call(0xc6ad, 0x7b9d)?;
     c.run(0x7b9d, 2)?;
     c.set_reg8(r8::AL, 4);
@@ -1674,8 +1674,8 @@ pub fn update_troop_83bc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x83e2, 3)?;
         return c.ret();
     }
-    let want = 1 + (c.byte(0x2b) == 0) as u8;
-    let have = c.byte(0x0b);
+    let want = 1 + (c.byte(g::IN_DIALOGUE) == 0) as u8;
+    let have = c.byte(g::CURRENT_ROOM);
     let hit = have == want;
     c.run(0x83e2, 8 + hit as u32)?;
     c.set_reg8(r8::AL, want);
@@ -2159,7 +2159,7 @@ pub fn redraw_panel_18df(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x18df);
     c.call(0xc07c, 0x5fa2)?;
     c.run(0x5fa2, 2)?;
-    c.set_word(0xdbe0, 0);
+    c.set_word(g::SPRITE_LIST, 0);
     c.call(0xc6ad, 0x5fab)?;
     c.run(0x5fab, 2)?;
     c.set_reg8(r8::AL, 8);
@@ -3328,7 +3328,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let panel = c.byte(0x46f4) != 0;
     if panel && c.byte(0x46f5) != 0 {
         c.run(start, 12)?;
-        c.set_word(0x47ba, 0);
+        c.set_word(g::DIALOGUE_PENDING, 0);
         c.set_reg(DI, 0x1936);
         c.call(0xd6fe, 0x7ea4)?;
         if !c.flag(CF) {
@@ -3353,7 +3353,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(start, if panel { 9 } else { 7 })?;
-    c.set_word(0x47ba, 0);
+    c.set_word(g::DIALOGUE_PENDING, 0);
     c.set_reg(SI, selected);
     c.call(0x7ba3, 0x7c05)?;
     c.run(0x7c05, 1)?;
@@ -3654,7 +3654,7 @@ pub fn map_troop_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x5cea, 3)?;
         return c.ret();
     }
-    let panel = c.word(0xdbe0);
+    let panel = c.word(g::SPRITE_LIST);
     if panel != 0 {
         c.run(0x5cea, 8)?;
         c.set_reg(DI, panel);

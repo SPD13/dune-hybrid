@@ -329,7 +329,7 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
 /// right one: the element under the cursor dispatched through the
 /// handler table SI (+2, +6, +0Ah) or the element's own (+0Ch).
 fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail> {
-    let kb = c.byte(0x4774);
+    let kb = c.byte(g::KEYBOARD_CURSOR);
     c.run(0xd893, 4)?;
     let t = c.word(g::TIMER);
     c.set_reg(BP, t);

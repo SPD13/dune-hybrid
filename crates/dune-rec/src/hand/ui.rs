@@ -242,7 +242,7 @@ pub fn sub_1ae7(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn sub_1dda(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1dda)?;
     let mut c = Ctx::new(m);
-    let (a, b, d, e) = (c.byte(0x00bf), c.word(0x0010), c.byte(0x000b), c.byte(0x00c2));
+    let (a, b, d, e) = (c.byte(0x00bf), c.word(0x0010), c.byte(g::CURRENT_ROOM), c.byte(0x00c2));
     let checks = [a & 0x10 == 0, b & 8 != 0, d == 8, e != 0];
     let failed = checks.iter().position(|&f| f);
     c.run(start, match failed {
@@ -1148,17 +1148,17 @@ pub fn chankiss(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn bring_portrait(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3af9)?;
     let mut c = Ctx::new(m);
-    if c.byte(0x2b) != 0 {
+    if c.byte(g::IN_DIALOGUE) != 0 {
         c.run(start, 3)?;
         return super::screen::copy_game_area_to_screen_fb2_to_fb1(c.m, 0xc43e);
     }
-    let state = c.byte(0x47a4);
+    let state = c.byte(g::LINE_STATE);
     if state & 0x80 != 0 {
         c.run(start, 5)?;
         return c.ret();
     }
     // The speaker's place (0Fh: the phrase's own, 0Fh + [476Ch]).
-    let talker = c.word(0x47c4);
+    let talker = c.word(g::TALKER);
     let own = talker & 0xff == 0x0f;
     let talker = if own { talker & 0xff00 | 0x0fu8.wrapping_add(c.byte(0x476c)) as u16 } else { talker };
     let slot = talker.wrapping_shl(2);
@@ -1174,7 +1174,7 @@ pub fn bring_portrait(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let y = c.word(slot.wrapping_add(0x47fa));
     c.push(y);
     c.push(x);
-    c.set_byte(0x47a4, state | 0x80);
+    c.set_byte(g::LINE_STATE, state | 0x80);
     c.call(0x37b5, 0x3b30)?;
     // Clamped to (F0h, 71h), copied by the driver (far [3949h], mode 6).
     let sp = c.reg(SP);
@@ -1279,7 +1279,7 @@ pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x43c9, 1)?;
         return super::draw::sub_c4dd(c.m, 0xc4dd);
     }
-    let d = c.byte(0x2b);
+    let d = c.byte(g::IN_DIALOGUE);
     c.run(0x43a2, 4 + if d == 0 { 1 } else { 2 })?;
     if d == 0 {
         c.call(0x38b4, 0x43d6)?;

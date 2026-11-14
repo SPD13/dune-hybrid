@@ -1108,7 +1108,7 @@ pub fn leave_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(target, at + 3)?;
         at += 3;
     }
-    let v = c.byte(0x2b);
+    let v = c.byte(g::IN_DIALOGUE);
     c.run(0x18de, if v == 0 { 4 } else { 4 })?;
     c.set_byte(g::SKY_PALETTE_SET, 0);
     if v == 0 {

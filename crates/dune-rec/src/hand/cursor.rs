@@ -487,7 +487,7 @@ pub fn dialogue_hit(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd50f)?;
     let mut c = Ctx::new(m);
-    let fixed = c.byte(0x4774);
+    let fixed = c.byte(g::KEYBOARD_CURSOR);
     c.run(start, if fixed != 0 { 10 } else { 9 })?;
     for r in [BX, CX, DX, SI, DI, BP] {
         let v = c.reg(r);
@@ -517,7 +517,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 c.call(0xd6fe, 0xd53f)?;
                 let cf = c.flag(CF);
                 c.run(0xd53f, 2)?;
-                let sp = c.word(0x47c4);
+                let sp = c.word(g::TALKER);
                 c.set_reg(CX, sp);
                 at = if cf { 4 } else { 5 };
             } else {
@@ -594,7 +594,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                     at = 2;
                     continue;
                 }
-                let f = c.byte(0x1bea);
+                let f = c.byte(g::TEXT_PTR);
                 if f & 0x80 == 0 {
                     c.run(0xd575, 5)?;
                     c.set_reg(DI, 0x1be2);
@@ -641,7 +641,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                     at = 2;
                     continue;
                 }
-                let (cx, sp) = (c.reg(CX), c.word(0x47c4));
+                let (cx, sp) = (c.reg(CX), c.word(g::TALKER));
                 c.run(0xd5a7, 4)?;
                 c.set_reg8(r8::CL, 2);
                 at = if cx == sp { 0 } else { 2 };

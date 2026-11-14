@@ -1275,7 +1275,7 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x017d, 3)?;
     let d = c.pop();
     c.set_reg(DI, d);
-    let (p, s) = (c.word(g::SPRITE_SHEET), c.word(0xdbb2));
+    let (p, s) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
     c.set_reg(SI, p);
     c.set_sreg(ES, s);
     c.set_reg(CX, 0xc5f9);
@@ -1314,7 +1314,7 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.byte_in(ES, di);
         let v = pure::or(B, v as u16, 0x40);
         c.m.cpu.write8(&mut c.m.hw, ES, di, v as u8);
-        let es = c.word(0xdbb2);
+        let es = c.word(g::SPRITE_SHEET + 2);
         c.set_sreg(ES, es);
         let t = c.byte_in(ES, di);
         c.set_reg8(r8::AL, t);
