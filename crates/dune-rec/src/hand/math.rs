@@ -57,9 +57,9 @@ pub fn shl_cx_and_dx(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 5)?;
     let count = c.reg8(r8::AL); // xchg cx, ax: CL is the old AL
     let cx = c.reg(CX);
-    let shifted = pure::shl(W, cx, count);
+    let shifted = c.shl(W, cx, count);
     let dx = c.reg(DX);
-    let dx = pure::shl(W, dx, count);
+    let dx = c.shl(W, dx, count);
     c.set_reg(AX, shifted);
     c.set_reg(CX, shifted);
     c.set_reg(DX, dx);

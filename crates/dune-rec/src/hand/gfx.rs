@@ -656,7 +656,6 @@ pub fn draw_last_ring_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let f = c.byte(0x4728);
     c.run(start, if f & 0x80 != 0 { 3 } else { 4 })?;
-    c.cmp(B, f as u16, 0);
     if f & 0x80 != 0 {
         return c.ret();
     }
@@ -669,14 +668,13 @@ pub fn draw_last_ring_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let off_map = (y >> 8).wrapping_sub(1) & 0x80 == 0;
     c.run(0x4a27, 3 + wrap as u32 + 7 + if off_map { 1 } else { 1 })?;
     c.set_reg(SI, p);
-    c.cmp(W, p, POINTS_RING);
-    let si = c.sub(W, if wrap { POINTS_RING_END } else { p }, 4);
+    let si = pure::sub(W, if wrap { POINTS_RING_END } else { p }, 4);
     c.set_reg(SI, si);
     let x = c.lods(W, CS);
     c.set_reg(DX, x);
     let y = c.lods(W, CS);
     c.set_reg(BX, y);
-    let ah = c.dec(B, y >> 8);
+    let ah = pure::dec(B, y >> 8);
     c.set_reg(AX, ah << 8 | y & 0xff);
     if off_map {
         return c.ret();
@@ -688,10 +686,10 @@ pub fn draw_last_ring_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x4a46, 4)?;
     let bx = c.reg(BX);
-    let bx = c.dec(W, bx);
+    let bx = pure::dec(W, bx);
     c.set_reg(BX, bx);
     let dx = c.reg(DX);
-    let dx = c.dec(W, dx);
+    let dx = pure::dec(W, dx);
     c.set_reg(DX, dx);
     c.call(code::LOAD_ICONES_SPRITES, 0x4a4d)?;
     c.run(0x4a4d, 2)?;

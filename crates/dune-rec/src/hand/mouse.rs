@@ -74,6 +74,7 @@ pub fn define_mouse_range(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.reg(r);
         c.set_word(g::MOUSE_RANGE + 2 * i as u16, v);
     }
+    c.test(B, args as u16, 0x40);
     if none {
         return c.ret();
     }
@@ -292,8 +293,19 @@ pub fn redraw_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, image);
     c.set_word(g::MOUSE_CURSOR_IMAGE, image);
     c.set_reg(BP, before);
+    c.xor(B, 0, 0);
     c.set_reg8(r8::AL, shown);
     c.set_byte(g::CURSOR_SHOWN, 0);
+    c.or(B, shown as u16, shown as u16);
+    if shown & 0x80 == 0 {
+        c.cmp(W, dx, cx0);
+        if dx == cx0 {
+            c.cmp(W, bx, cy0);
+            if bx == cy0 {
+                c.cmp(W, image, before);
+            }
+        }
+    }
     if !unchanged {
         if shown & 0x80 == 0 {
             c.interp(0xdc52, 0xdc56)?; // restore under the old one
@@ -323,7 +335,6 @@ pub fn get_mouse_cursor_image_addr(m: &mut Machine, start: u16) -> Result<(), Ba
     let busy = c.byte(g::FLAG_28BE);
     if busy != 0 {
         c.run(start, 4)?;
-        c.cmp(B, busy as u16, 0);
         c.set_reg(BP, cursor::BUSY);
         return c.ret();
     }
@@ -341,18 +352,14 @@ pub fn get_mouse_cursor_image_addr(m: &mut Machine, start: u16) -> Result<(), Ba
         12
     };
     c.run(start, n)?;
-    c.cmp(B, 0, 0);
     c.set_reg(BP, cursor::ARROW);
-    c.cmp(B, plain as u16, 0);
     if plain != 0 {
         return c.ret();
     }
     c.set_reg(DI, rect);
-    c.or(W, rect, rect);
     if rect == 0 {
         return c.ret();
     }
-    c.cmp(W, bx, 0x9b);
     if below {
         return c.ret();
     }
@@ -369,27 +376,23 @@ pub fn get_mouse_cursor_image_addr(m: &mut Machine, start: u16) -> Result<(), Ba
     let (l, t, r, b) = (c.word(di), c.word(di + 2), c.word(di + 4), c.word(di + 6));
     let (dx, bx) = (c.reg(DX), c.reg(BX));
     let lt = |a: u16, b: u16| (a as i16) < (b as i16);
-    c.cmp(W, bx, t);
     n += 2;
     let image;
     if !lt(bx, t) && {
-        c.cmp(W, bx, b);
         n += 2;
         lt(bx, b)
     } {
         // Within the rectangle's rows: near its left or right side.
         c.set_reg(BP, cursor::DOWN);
-        let d = c.sub(W, l, dx);
+        let d = pure::sub(W, l, dx);
         c.set_reg(AX, d);
-        c.cmp(W, d, 0x32);
         n += 5;
         if d < 0x32 {
             return finish(&mut c, n + 1);
         }
         c.set_reg(BP, cursor::UP);
-        let d = c.sub(W, dx, r);
+        let d = pure::sub(W, dx, r);
         c.set_reg(AX, d);
-        c.cmp(W, d, 0x32);
         n += 5;
         if d < 0x32 {
             return finish(&mut c, n + 1);
@@ -397,27 +400,23 @@ pub fn get_mouse_cursor_image_addr(m: &mut Machine, start: u16) -> Result<(), Ba
         n += 1; // jmp DCDCh
         image = cursor::ARROW;
     } else {
-        c.cmp(W, dx, l);
         n += 2;
         if lt(dx, l) || {
-            c.cmp(W, dx, r);
             n += 2;
             !lt(dx, r)
         } {
             image = cursor::ARROW;
         } else {
             c.set_reg(BP, cursor::LEFT);
-            let d = c.sub(W, t, bx);
+            let d = pure::sub(W, t, bx);
             c.set_reg(AX, d);
-            c.cmp(W, d, 0x19);
             n += 5;
             if d < 0x19 {
                 return finish(&mut c, n + 1);
             }
             c.set_reg(BP, cursor::RIGHT);
-            let d = c.sub(W, bx, b);
+            let d = pure::sub(W, bx, b);
             c.set_reg(AX, d);
-            c.cmp(W, d, 0x19);
             n += 5;
             if d < 0x19 {
                 return finish(&mut c, n + 1);

@@ -610,11 +610,9 @@ pub fn scan_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.word(0xdbba);
     if k == 0 {
         c.run(start, 3)?;
-        c.cmp(W, 0, 0);
         return c.ret();
     }
     c.run(start, 3)?;
-    c.cmp(W, k, 0);
     c.call(0xe741, 0xe830)?;
     c.run(0xe830, 6)?;
     let ds = c.sreg(DS);
@@ -653,7 +651,7 @@ pub fn scan_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let si = c.reg(SI);
         let cx = c.word_in(SS, c.reg(SP)).wrapping_sub(1);
         c.run(0xe849, if cx != 0 { 3 } else { 5 })?;
-        let si = c.add(W, si, 0x19);
+        let si = pure::add(W, si, 0x19);
         c.set_reg(SI, si);
         c.pop();
         c.set_reg(CX, cx);

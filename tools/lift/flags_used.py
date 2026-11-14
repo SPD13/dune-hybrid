@@ -85,8 +85,8 @@ for f in sorted(os.listdir(cov_dir)) if os.path.isdir(cov_dir) else []:
 
 
 def far(t):
-    """A far call or an INT: into BIOS, DOS or a driver, which read the
-    registers, not the flags, and give them back (IRET) or set their own."""
+    """A far call or an INT: into BIOS, DOS or a driver, which give the
+    flags back (IRET) or set their own. An INT also reads them (see walk)."""
     return t.startswith('int ') or (t.startswith('call ') and ('far' in t or 'dword' in t))
 
 
@@ -162,6 +162,11 @@ def walk(start, after_return):
             else:
                 passed |= live
             continue
+        if t.startswith('int '):
+            # The service sees the flags it is called with (an INT pushes
+            # them; the checks compare a service's registers and flags):
+            # read. Passed through after it.
+            out |= live
         if far(t):
             # Passed through: still live after it.
             if a in nxt:

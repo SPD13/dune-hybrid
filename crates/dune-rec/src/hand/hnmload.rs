@@ -1,6 +1,7 @@
 //! Opening HNM videos: the file, its palette, its first frame; the intro's
 //! video loaders; removing all frame tasks.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -376,10 +377,8 @@ pub fn hnm_open_noting_body(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.pop();
     c.set_reg(DI, di);
     if !failed {
-        let f = c.byte(di);
-        c.test(B, f as u16, 8);
         if noted {
-            let di = c.sub(W, di, 8);
+            let di = pure::sub(W, di, 8);
             c.set_reg(DI, di);
             c.set_reg(SI, g::HNM_BODY_OFFSET);
             c.call(code::COPY_RECT_AT_SI_TO_DI, 0xcec8)?;
@@ -782,13 +781,9 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xccf4, 4 + if carry { 0 } else { 2 } + zero as u32)?;
     c.set_word(0xdc1c, 0xffff);
     c.set_word(0xdc1e, 0xffff);
-    let s = c.add(W, ax, si);
+    let s = pure::add(W, ax, si);
     c.set_reg(AX, s);
-    if !carry {
-        c.cmp(W, s, lim);
-    }
     if zero {
-        c.xor(W, si, si);
         c.set_reg(SI, 0);
     }
     let mut ax;
@@ -797,8 +792,7 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let w = c.word_in(ES, si);
         if w == 0x6473 {
             c.run(0xcd0c, 4)?;
-            ax = c.lods(W, ES);
-            c.cmp(W, ax, 0x6473);
+            c.lods(W, ES);
             c.call(0xae2f, 0xcd16)?;
             let z = c.flag(ZF);
             c.run(0xcd16, 1 + (!z) as u32 + 4)?;
@@ -807,31 +801,28 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_word(0xdc1c, si);
             }
             let n = c.lods(W, ES);
-            let n = c.sub(W, n, 4);
+            let n = pure::sub(W, n, 4);
             c.set_reg(AX, n);
             let si = c.reg(SI);
-            let s = c.add(W, si, n);
+            let s = pure::add(W, si, n);
             c.set_reg(SI, s);
             ax = c.lods(W, ES);
         } else {
             c.run(0xcd0c, 3)?;
             ax = c.lods(W, ES);
-            c.cmp(W, ax, 0x6473);
         }
         if ax == 0x6c70 {
             c.run(0xcd25, 2 + 5)?;
-            c.cmp(W, ax, 0x6c70);
             let n = c.lods(W, ES);
             let si = c.reg(SI);
             c.set_word(0xdc1e, si);
-            let n = c.sub(W, n, 4);
+            let n = pure::sub(W, n, 4);
             c.set_reg(AX, n);
-            let s = c.add(W, si, n);
+            let s = pure::add(W, si, n);
             c.set_reg(SI, s);
             continue;
         }
         c.run(0xcd25, 2)?;
-        c.cmp(W, ax, 0x6c70);
         break;
     }
     if ax == 0x6d6d {
@@ -842,12 +833,10 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let a2 = c.word_at(ne, ns.wrapping_add(2));
         let same = a1 == bx;
         c.run(0xcd37, 2 + 6 + (!same) as u32)?;
-        c.cmp(W, ax, 0x6d6d);
         c.set_reg(BX, bx);
         c.set_reg(SI, ns);
         c.set_sreg(ES, ne);
         c.lods(W, ES);
-        c.cmp(W, a1, bx);
         c.lods(W, ES);
         if !same {
             return c.jump(0xcc4e);
@@ -855,7 +844,6 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
         ax = a2;
     } else {
         c.run(0xcd37, 2)?;
-        c.cmp(W, ax, 0x6d6d);
     }
     let big = ax & 0x400 != 0;
     c.run(0xcd4e, 6 + big as u32 + 9)?;
@@ -865,10 +853,7 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(es);
     let bp = c.reg(BP);
     c.set_sreg(ES, bp);
-    let di = c.reg(DI);
-    c.xor(W, di, di);
     c.set_reg(DI, 0);
-    c.test(B, ax >> 8, 4);
     if big {
         let b = c.word(0xdbda);
         c.set_sreg(ES, b);
@@ -883,7 +868,6 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let w = c.lods(W, DS);
     c.set_reg(CX, w);
     c.set_reg(AX, ax);
-    c.test(B, ax >> 8, 4);
     if big {
         c.run(0xcd7c, 1)?;
         c.call(0xf403, 0xcd7f)?;
@@ -900,14 +884,12 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let two = ax & 0x200 != 0;
     if two {
         c.run(0xcd77, 3)?;
-        c.test(B, ax >> 8, 2);
         c.call(0xf403, 0xcd7f)?;
         return pop_ds_ret_cd7f(&mut c);
     }
     c.run(0xcd77, 2 + 6)?;
-    c.test(B, ax >> 8, 2);
     let si = c.reg(SI);
-    let s = c.sub(W, si, 4);
+    let s = pure::sub(W, si, 4);
     c.set_reg(SI, s);
     let seg = c.sreg(DS);
     c.set_reg(AX, seg);

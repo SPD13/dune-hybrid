@@ -191,7 +191,6 @@ pub fn hotspots_particles(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let kinds = c.byte(HOTSPOT_KINDS);
     let on = kinds & 0x80 != 0;
     c.run(start, if on { 2 } else { 3 })?;
-    c.cmp(B, kinds as u16, 0);
     if !on {
         return c.ret();
     }
@@ -202,13 +201,12 @@ pub fn hotspots_particles(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if count == 0 {
         return c.ret();
     }
-    let mut di = c.add(W, PARTICLES, 2);
+    let mut di = pure::add(W, PARTICLES, 2);
     c.set_reg(DI, di);
     loop {
         let flags = c.byte(di.wrapping_add(0x0c));
         let hidden = flags & 0xc0 != 0;
         c.run(0xe0b3, if hidden { 2 } else { 3 })?;
-        c.test(B, flags as u16, 0xc0);
         if !hidden {
             c.call(code::POINT_IN_RECT, 0xe0bc)?;
             let under = c.flag(CF);
@@ -228,7 +226,7 @@ pub fn hotspots_particles(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let cx = c.reg(CX).wrapping_sub(1);
         c.run(0xe0d5, 2 + (cx == 0) as u32)?;
         di = c.reg(DI);
-        di = c.add(W, di, PARTICLE_SIZE);
+        di = pure::add(W, di, PARTICLE_SIZE);
         c.set_reg(DI, di);
         c.set_reg(CX, cx);
         if cx == 0 {

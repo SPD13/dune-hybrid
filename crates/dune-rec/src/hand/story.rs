@@ -448,11 +448,9 @@ pub fn check_record_1048(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let w = c.word(g::INTRO_0012);
     if w & 0x80 != 0 {
         c.run(start, 3)?;
-        c.test(W, w, 0x80);
         return c.ret();
     }
     c.run(start, 4)?;
-    c.test(W, w, 0x80);
     c.set_reg(SI, 0x1048);
     c.call(0x1e01, 0x1dad)?;
     let cf = c.flag(pc::cpu::CF);
@@ -2055,7 +2053,6 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, if f & 2 != 0 { 4 } else { 5 })?;
     c.set_byte(0xfd, 0);
     c.set_byte(0x2b, 0);
-    c.test(B, f as u16, 2);
     if f & 2 == 0 {
         c.call(0x5d36, 0x504f)?;
         if c.flag(pc::cpu::CF) {
@@ -2067,18 +2064,16 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let (dx, cx) = (c.reg(DX), c.reg(CX));
         if dx == 0 {
             c.run(0x5054, if cx == 0 { 4 } else { 5 })?;
-            c.or(W, 0, 0);
             if cx != 0 {
                 c.set_byte(0x46d9, 4);
             }
             return c.ret();
         }
         c.run(0x5054, 2)?;
-        c.or(W, dx, dx);
     }
     c.run(0x5058, 2)?;
     let v = c.byte(0x2b);
-    let v = c.inc(B, v as u16);
+    let v = pure::inc(B, v as u16);
     c.set_byte(0x2b, v as u8);
     c.call(0x6144, 0x505f)?;
     let di = c.reg(DI);
@@ -2087,15 +2082,13 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x505f, n + 2)?;
     c.set_reg8(r8::AL, kind);
     let mut ah = 0x2fu16;
-    c.cmp(B, kind as u16, 0x20);
     let mut al = kind as u16;
     if kind >= 0x20 {
-        ah = c.inc(B, ah);
-        c.cmp(B, kind as u16, 0x30);
+        ah = pure::inc(B, ah);
         if kind != 0x30 {
-            al = c.sub(B, kind as u16, 0x28);
+            al = pure::sub(B, kind as u16, 0x28);
             if kind >= 0x28 {
-                ah = c.add(B, ah, 3);
+                ah = pure::add(B, ah, 3);
             }
         }
     }
@@ -3822,12 +3815,10 @@ pub fn event_2b0a(m: &mut Machine, start: u16) -> Result<(), Bail> {
             if (ax as i16) <= bx as i16 {
                 c.run(0x1f19, 3)?;
                 c.set_reg(AX, ax);
-                c.cmp(W, ax, bx);
                 break 'one;
             }
             c.run(0x1f19, 4)?;
             c.set_reg(AX, ax);
-            c.cmp(W, ax, bx);
             c.call(0x5d36, 0x1f23)?;
             if c.flag(CF) {
                 c.run(0x1f23, 1)?;
@@ -3838,16 +3829,13 @@ pub fn event_2b0a(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let dx = c.reg(DX);
             if dx != 0 {
                 c.run(0x1f28, 2)?;
-                c.or(W, dx, dx);
                 break 'one;
             }
             let (di, bx) = (c.reg(DI), c.reg(BX));
             let ax = c.word(di.wrapping_add(4));
             let more = (ax as i16) > bx as i16;
             c.run(0x1f28, 5 + if more { 2 } else { 0 })?;
-            c.or(W, 0, 0);
             c.set_reg(AX, ax);
-            c.cmp(W, ax, bx);
             if more {
                 c.set_reg(BX, ax);
                 c.set_reg(SI, di);
@@ -3859,13 +3847,11 @@ pub fn event_2b0a(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let bx = c.reg(BX);
         let more = nb < 8;
         c.run(0x1f37, 3 + if more { 0 } else { 2 + (bx == 0xff9c) as u32 + 2 })?;
-        let d = c.add(W, di, 0x1c);
+        let d = pure::add(W, di, 0x1c);
         c.set_reg(DI, d);
-        c.cmp(B, nb as u16, 8);
         if more {
             continue;
         }
-        c.cmp(W, bx, 0xff9c);
         if bx == 0xff9c {
             c.set_reg(SI, 0x100);
         }
@@ -3896,13 +3882,11 @@ pub fn video_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(0x227d);
     if k != 0 {
         c.run(start, 3)?;
-        c.cmp(B, k as u16, 0);
         c.call(0xc08e, 0x0a2d)?;
         c.run(0x0a2d, 1)?;
         return super::frame::hnm_do_frame(c.m, 0xca60);
     }
     c.run(start, 3)?;
-    c.cmp(B, 0, 0);
     c.call(0xc07c, 0x0a33)?;
     c.run(0x0a33, 1)?;
     c.call(0xc9f4, 0x0a36)?;
@@ -4567,14 +4551,11 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(0x47a7);
     if k != 0 {
         c.run(start, 3)?;
-        c.cmp(B, k as u16, 0);
         return c.ret();
     }
     c.run(start, 6)?;
-    c.cmp(B, 0, 0);
     let si = c.reg(SI);
     let al = c.byte(si.wrapping_add(0x0e));
-    c.xor(B, 0, 0);
     c.set_reg(AX, al as u16);
     c.push(si);
     c.call(0x96f1, 0x3530)?;
@@ -4606,9 +4587,8 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ops = |c: &mut Ctx| {
         c.set_byte(0xe7, 0);
         let v = c.byte(0x47a7);
-        let v = c.inc(B, v as u16);
+        let v = pure::inc(B, v as u16);
         c.set_byte(0x47a7, v as u8);
-        c.cmp(B, st as u16, 3);
     };
     if st == 3 {
         c.run(0x354c, 7)?;
@@ -4624,10 +4604,9 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if st == 4 {
         c.run(0x354c, 10)?;
         ops(&mut c);
-        c.cmp(B, 4, 4);
         c.set_reg(BP, 0x1f9e);
         let v = c.byte_in(SS, 0x1fa9);
-        let v = c.and(B, v as u16, 0xbf);
+        let v = pure::and(B, v as u16, 0xbf);
         c.m.cpu.write8(&mut c.m.hw, SS, 0x1fa9, v as u8);
         c.set_reg(BX, 0x97cf);
         c.call(0xd323, 0x3586)?;
@@ -4640,23 +4619,15 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if w != 0 {
         c.run(0x354c, 9)?;
         ops(&mut c);
-        c.cmp(B, st as u16, 4);
-        c.cmp(B, w as u16, 0);
         return c.ret();
     }
     if st >= 0x64 {
         c.run(0x354c, 11)?;
         ops(&mut c);
-        c.cmp(B, st as u16, 4);
-        c.cmp(B, 0, 0);
-        c.cmp(B, st as u16, 0x64);
         return c.ret();
     }
     c.run(0x354c, 12)?;
     ops(&mut c);
-    c.cmp(B, st as u16, 4);
-    c.cmp(B, 0, 0);
-    c.cmp(B, st as u16, 0x64);
     let ax = c.word(0x47c4);
     c.set_reg(AX, ax);
     c.call(0x93df, 0x35a9)?;
@@ -4911,48 +4882,34 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let a = d.wrapping_sub(t);
         if d < t || a < 0x70 {
             c.run(0x1f64, if d < t { 6 } else { 8 })?;
-            c.cmp(B, ph as u16, 0x3c);
-            let a = c.sub(W, d, t);
+            let a = pure::sub(W, d, t);
             c.set_reg(AX, a);
-            if d >= t {
-                c.cmp(W, a, 0x70);
-            }
             return c.ret();
         }
         c.run(0x1f64, 7)?;
-        c.cmp(B, ph as u16, 0x3c);
-        let a = c.sub(W, d, t);
+        let a = pure::sub(W, d, t);
         c.set_reg(AX, a);
-        c.cmp(W, a, 0x70);
     } else {
         c.run(0x1f64, 2)?;
-        c.cmp(B, ph as u16, 0x3c);
     }
     let d = c.word(2);
     if d & 0x10 != 0 {
         c.run(0x1f79, 3)?;
-        c.test(W, d, 0x10);
         return c.ret();
     }
     let k = c.byte(0x11bc);
     if k != 0 {
         c.run(0x1f79, 7)?;
-        c.test(W, d, 0x10);
-        c.xor(B, 0, 0);
         c.set_byte(0x11bc, 0);
         c.set_reg8(r8::AL, k);
-        c.or(B, k as u16, k as u16);
         return c.ret();
     }
     let w = c.word(0);
     let carry = w & 0x8000 != 0;
     c.run(0x1f79, if carry { 9 } else { 9 })?;
-    c.test(W, d, 0x10);
-    c.xor(B, 0, 0);
     c.set_byte(0x11bc, 0);
     c.set_reg8(r8::AL, 0);
-    c.or(B, 0, 0);
-    let r = c.rol1(W, w);
+    let r = pure::rol1(W, w);
     c.set_word(0, r);
     if !carry {
         return c.ret();
@@ -4964,7 +4921,7 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x1f95, 3)?;
     let v = c.byte(0xc4);
-    let v = c.inc(B, v as u16);
+    let v = pure::inc(B, v as u16);
     c.set_byte(0xc4, v as u8);
     c.set_reg(CX, 2);
     // Twice: the first troop of the chain with bit 80h of +10h taken.
@@ -4984,18 +4941,15 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let al = c.reg8(r8::AL);
             if al == 0 {
                 c.run(0x1fa1, 2)?;
-                c.or(B, 0, 0);
                 break;
             }
             c.run(0x1fa1, 3)?;
-            c.or(B, al as u16, al as u16);
             c.call(0x6906, 0x1fa8)?;
             let si = c.reg(SI);
             let nx = c.byte(si.wrapping_add(1));
             let f = c.byte(si.wrapping_add(0x10));
             c.run(0x1fa8, if f & 0x80 != 0 { 9 } else { 3 })?;
             c.set_reg8(r8::AL, nx);
-            c.test(B, f as u16, 0x80);
             if f & 0x80 != 0 {
                 found = true;
                 break;
@@ -5017,7 +4971,7 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let s = c.pop();
         c.set_reg(SI, s);
         let f = c.byte(s.wrapping_add(0x10));
-        let f = c.and(B, f as u16, 0xef);
+        let f = pure::and(B, f as u16, 0xef);
         c.set_byte(s.wrapping_add(0x10), f as u8);
         c.push(d);
         c.call(0x8357, 0x1fc6)?;
@@ -5035,7 +4989,7 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1fcb, 2)?;
     let di = c.reg(DI);
     let f = c.byte(di.wrapping_add(0x0a));
-    let f = c.or(B, f as u16, 2);
+    let f = pure::or(B, f as u16, 2);
     c.set_byte(di.wrapping_add(0x0a), f as u8);
     c.call(0x83fd, 0x1fd2)?;
     c.run(0x1fd2, 1)?;
@@ -5055,20 +5009,17 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for i in 0..9u16 {
         let p = 0xfd8 + 0x10 * i;
         let v = c.word(p + 2);
-        c.cmp(W, bx, v);
         if v == bx {
             c.set_word(p, dx);
         }
-        let s = c.add(W, p, 0x10);
+        let s = pure::add(W, p, 0x10);
         c.set_reg(SI, s);
         c.set_reg(CX, 8 - i);
     }
     c.set_reg8(r8::AL, 0x0c);
     c.set_reg(SI, 0x8e0);
-    let o = c.word(0x8e4);
-    c.cmp(W, di, o);
     if own {
-        let a = c.inc(B, 0x0c);
+        let a = pure::inc(B, 0x0c);
         c.set_reg8(r8::AL, a as u8);
     }
     c.push(bx);
@@ -5082,7 +5033,6 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DX, d);
         let b = c.pop();
         c.set_reg(BX, b);
-        c.cmp(W, b, cur);
         return super::map::count_shown_location(c.m, 0x5d50);
     }
     c.run(0x1ff8, 10)?;
@@ -5090,13 +5040,12 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, d);
     let b = c.pop();
     c.set_reg(BX, b);
-    c.cmp(W, b, cur);
     c.set_word(4, d);
     let al = d as u8;
     c.set_reg8(r8::AL, al);
     c.set_byte(0x0b, al);
     let v = c.byte(0x473b);
-    let v = c.or(B, v as u16, al as u16);
+    let v = pure::or(B, v as u16, al as u16);
     c.set_byte(0x473b, v as u8);
     c.set_byte(0x2b, al);
     c.call(0x6144, 0x2013)?;
@@ -6652,18 +6601,13 @@ pub fn time_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let t = c.byte(0x2a);
     if k != 0 {
         c.run(0x1b10, 4)?;
-        c.cmp(B, k as u16, 0);
         return c.ret();
     }
     if t >= 0xc8 {
         c.run(0x1b10, 6)?;
-        c.cmp(B, 0, 0);
-        c.cmp(B, t as u16, 0xc8);
         return c.ret();
     }
     c.run(0x1b10, 6)?;
-    c.cmp(B, 0, 0);
-    c.cmp(B, t as u16, 0xc8);
     c.call(0x2b2a, 0x1b23)?;
     new_time_1b23(&mut c)
 }

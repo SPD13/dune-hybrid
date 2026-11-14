@@ -990,7 +990,6 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(0x3810);
     if f & 1 == 0 {
         c.run(0xace9, 4)?;
-        c.test(B, f as u16, 1);
         c.call(0xaec6, 0xad3a)?;
         if c.flag(CF) {
             c.run(0xad3a, 2)?;
@@ -999,15 +998,12 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let s = c.byte(0xdbcd);
         if s & 0x80 != 0 {
             c.run(0xad3a, 4)?;
-            c.cmp(B, s as u16, 0);
             return c.ret();
         }
         let al = c.byte(0xdbcc);
         c.run(0xad3a, 7 + if al == 0 { 1 } else { 0 })?;
-        c.cmp(B, s as u16, 0);
         c.set_reg8(r8::AL, al);
         c.set_byte(0xdbcb, 0);
-        c.or(B, al as u16, al as u16);
         if al == 0 {
             return c.ret();
         }
@@ -1017,11 +1013,6 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let s = c.byte(0xdbcd);
     if night != 0 || s & 0x80 != 0 {
         c.run(0xace9, 3 + 2 + if night != 0 { 1 } else { 3 })?;
-        c.test(B, f as u16, 1);
-        c.cmp(B, night as u16, 0);
-        if night == 0 {
-            c.cmp(B, s as u16, 0);
-        }
         return c.ret();
     }
     let t0 = c.word(0xdbd2);
@@ -1034,19 +1025,14 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0xace9, n)?;
     }
-    c.test(B, f as u16, 1);
-    c.cmp(B, 0, 0);
-    c.cmp(B, s as u16, 0);
     c.set_reg(AX, t0);
-    c.or(W, t0, t0);
     if t0 == 0 {
         c.set_reg(AX, now);
         c.set_word(0xdbd2, now);
     }
-    let a = c.sub(W, base, now);
-    let a = c.neg(W, a);
+    let a = pure::sub(W, base, now);
+    let a = pure::neg(W, a);
     c.set_reg(AX, a);
-    c.cmp(W, a, 0xc8);
     if el < 0xc8 {
         return c.ret();
     }
@@ -1057,17 +1043,14 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xad18, 4 + 2)?;
         c.set_reg(SI, si);
         c.lods(B, DS);
-        c.or(B, b as u16, b as u16);
     } else {
         let b2 = c.byte(0x37fa);
         let two = f & 2 != 0;
         c.run(0xad18, 8 + if two { 1 } else { 2 })?;
         c.set_reg(SI, si);
         c.lods(B, DS);
-        c.or(B, b as u16, b as u16);
         c.set_reg(SI, 0x37fa);
         c.lods(B, DS);
-        c.test(B, f as u16, 2);
         let _ = (b2, step);
         if two {
             c.call(0xacbf, 0xad2f)?;
@@ -1243,14 +1226,13 @@ pub fn alloc_music_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xae42, 6)?;
         c.set_reg(DI, 0xdbb6);
         c.set_reg(AX, a);
-        let v = c.or(W, a, b);
+        let v = pure::or(W, a, b);
         c.set_reg(AX, v);
         return c.ret();
     }
     c.run(0xae42, 7)?;
     c.set_reg(DI, 0xdbb6);
     c.set_reg(AX, a);
-    c.or(W, a, b);
     c.set_reg(AX, 0);
     c.set_reg(CX, 0x9c40);
     c.jump(0xf0f6)

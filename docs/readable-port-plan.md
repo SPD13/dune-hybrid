@@ -55,9 +55,10 @@ reached in real play). For each:
    made in the shared code and for its tail jumps (code run on behalf of
    the routines that jump into it), not for the routine's own mask (its
    port runs only from its entry). `--why ADDR` shows where a mask comes
-   from. When the analysis changes, the ports the tools converted whose
-   mask is no longer 0 go back to their exact form (masks only shrink
-   safely).
+   from. An INT counts as reading all flags (its service sees them).
+   When the analysis changes, `tools/lift/recheck_dropped.py BASE` puts
+   the ports the tools converted back to their exact form where the
+   conversion's rules would now refuse them (masks only shrink safely).
    Whatever it cannot follow counts as read: code never run (not in the
    generated code), an indirect target no run took. INT and far calls
    (BIOS, DOS, the drivers) pass the flags through. The current result:
@@ -106,7 +107,8 @@ calls through BP), `layout_text`, `format_interpolated_string`,
 
 **Dead flags dropped everywhere else, mechanically.**
 `tools/lift/drop_flags.py` takes each port whose callers read no flags
-and removes its flag-only statements, turning the rest of the flag
+and removes its flag-only statements (a port that reads a flag only right
+after a call, the callee's, counts as not reading any), turning the rest of the flag
 helpers into their flag-free forms (`hand/pure.rs`: `pure::add(W, a, b)`
 for `c.add(W, a, b)`, same results). It leaves a port alone when
 anything could still see those flags: it reads a flag itself, calls or
@@ -114,7 +116,7 @@ jumps to a routine that reads flags on entry or one the analysis doesn't
 know, calls through a register, has an INT or far call run, or hands its
 context to a helper that could (followed through the helpers).
 `tools/lift/drop_unused_reads.py` then removes the reads only the
-dropped compares used. This converted about 300 ports across the other
+dropped compares used. This converted about 330 ports across the other
 modules (story 58, map 46, the tails, UI, panels, screens and more). The
 ports whose callers read flags (about 430) need their exit flags kept,
 which a line-by-line tool can't place safely: they are for the hand

@@ -707,6 +707,7 @@ pub fn settings_apply_music_volume(m: &mut Machine, start: u16) -> Result<(), Ba
     let settings = c.word(g::SOUND_SETTINGS);
     let off = settings & 4 == 0;
     c.run(start, if off { 5 } else { 4 })?;
+    c.test(W, settings, 4);
     if off {
         c.set_byte(SLIDERS[0], 0xff);
     }
@@ -727,6 +728,7 @@ pub fn settings_apply_sound_volume(m: &mut Machine, start: u16) -> Result<(), Ba
     let off = settings & 0x400 == 0;
     let v = if off { 0xff } else { c.byte(SLIDERS[1]) };
     c.run(start, 2 + if off { 3 } else { 0 } + 4 + (v < 4) as u32)?;
+    c.test(W, settings, 0x400);
     if off {
         c.set_reg8(r8::AL, 0xff);
         c.set_byte(SLIDERS[1], 0xff);
@@ -734,6 +736,7 @@ pub fn settings_apply_sound_volume(m: &mut Machine, start: u16) -> Result<(), Ba
     }
     let sw = c.byte(SWITCHES[1]);
     c.set_reg(AX, (sw as u16) << 8 | v as u16);
+    c.cmp(B, v as u16, 4);
     if v < 4 {
         c.set_reg8(r8::AL, 4);
     }
@@ -826,7 +829,6 @@ pub fn settings_ui_draw_volume_sliders(m: &mut Machine, start: u16) -> Result<()
         c.call(code::SETTINGS_UI_DRAW_SLIDER, 0xa4d1)?;
         let s = c.word(g::SOUND_SETTINGS);
         c.run(0xa4d1, if s & 4 != 0 { 3 } else { 4 })?;
-        c.test(W, s, 4);
         if s & 4 == 0 {
             c.set_byte(g::SLIDER_VOICE + 1, 0);
         }
@@ -845,7 +847,6 @@ pub fn settings_ui_draw_volume_sliders(m: &mut Machine, start: u16) -> Result<()
     let s = c.word(g::SOUND_SETTINGS);
     let on = s & 0x400 != 0;
     c.run(0xa4ef, if on { 3 } else { 5 })?;
-    c.test(W, s, 0x400);
     if !on {
         c.set_byte(g::SLIDER_MUSIC + 1, 0);
         c.set_byte(g::SLIDER_MUSIC_2 + 1, 0);
@@ -1003,7 +1004,7 @@ pub fn settings_music_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, bp);
     for k in [3u16, 7, 0x0b] {
         let v = c.byte_in(SS, bp + k);
-        let v = c.or(B, v as u16, 0x40) as u8;
+        let v = pure::or(B, v as u16, 0x40) as u8;
         c.m.cpu.write8(&mut c.m.hw, SS, bp + k, v);
     }
     c.set_reg8(r8::CL, 0xff);
@@ -1018,16 +1019,13 @@ pub fn settings_music_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bp = c.reg(BP);
     for k in [3u16, 7, 0x0b] {
         let v = c.byte_in(SS, bp.wrapping_add(k));
-        let v = c.and(B, v as u16, 0xbf) as u8;
+        let v = pure::and(B, v as u16, 0xbf) as u8;
         c.m.cpu.write8(&mut c.m.hw, SS, bp.wrapping_add(k), v);
     }
-    let cx = c.reg(CX);
-    c.xor(W, cx, cx);
     c.set_reg(CX, 0);
-    c.test(B, f as u16, 0x10);
     if f & 0x10 == 0 {
-        let cl = c.and(B, set as u16, 1);
-        let cx = c.inc(W, cl);
+        let cl = pure::and(B, set as u16, 1);
+        let cx = pure::inc(W, cl);
         c.set_reg(CX, cx);
     }
     c.ret()

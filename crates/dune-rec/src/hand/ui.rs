@@ -167,6 +167,7 @@ pub fn draw_moon_and_sun(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, y);
     let ax = c.pop();
     c.set_reg(AX, ax);
+    c.or(W, x, x);
     if x == 0 {
         return c.ret();
     }
@@ -186,6 +187,8 @@ pub fn draw_moon_and_sun(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, size);
     let lines = c.lods(W, DS);
     c.set_reg(CX, lines);
+    let ch = c.reg8(r8::CH);
+    c.xor(B, ch as u16, ch as u16);
     c.set_reg8(r8::CH, 0);
     c.set_reg(BP, g::SKY_CLIP_RECT);
     c.interp(0x1abd, 0x1ac2)?;
@@ -1362,7 +1365,7 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 7)?;
     let sp = c.reg(SP);
-    let sp = c.sub(W, sp, 0x24);
+    let sp = pure::sub(W, sp, 0x24);
     c.set_reg(SP, sp);
     c.set_reg(DI, sp);
     let ss = c.sreg(SS);
@@ -1370,7 +1373,6 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let es = c.pop();
     c.set_sreg(ES, es);
     c.set_reg(CX, 0x24);
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.rep(0xaa);
     c.run(0x1956, 4)?;
@@ -1387,11 +1389,9 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         'one: {
             if b3 != place {
                 c.run(0x1962, 2)?;
-                c.cmp(B, place as u16, b3 as u16);
                 break 'one;
             }
             c.run(0x1962, 4)?;
-            c.cmp(B, place as u16, b3 as u16);
             let al = c.byte(si.wrapping_add(0x0e));
             c.set_reg8(r8::AL, al);
             c.call(0x127c, 0x196d)?;
@@ -1404,23 +1404,21 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let f = c.byte(si.wrapping_add(0x0f));
             let hi = f & 0x40 != 0;
             c.run(0x196d, 6 + hi as u32 + 1)?;
-            let bl = c.dec(B, w & 0xff);
-            c.xor(B, 0, 0);
-            c.test(B, f as u16, 0x40);
+            let bl = pure::dec(B, w & 0xff);
             let mut bx = bl;
             if hi {
-                bx = c.add(W, bx, 0x0c);
+                bx = pure::add(W, bx, 0x0c);
             }
             c.set_reg(BX, bx);
             let di = c.reg(DI);
             let v = c.byte(bx.wrapping_add(di));
-            let v = c.inc(B, v as u16);
+            let v = pure::inc(B, v as u16);
             c.set_byte(bx.wrapping_add(di), v as u8);
         }
         let si = c.reg(SI);
         let more = i != 0x0f;
         c.run(0x1980, 2)?;
-        let s = c.add(W, si, 0x10);
+        let s = pure::add(W, si, 0x10);
         c.set_reg(SI, s);
         c.set_reg(CX, 0x0f - i);
         let _ = more;
@@ -1429,44 +1427,41 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let low = p4 <= 0x0c;
     c.run(0x1985, 4 + if low { 2 } else { 0 } + 3)?;
     let w4 = c.word(4);
-    c.xor(B, 0, 0);
     let mut bx = w4 & 0xff;
-    c.cmp(B, bx, 0x0c);
     let di = c.reg(DI);
     if low {
-        bx = c.add(B, bx, 0x17);
+        bx = pure::add(B, bx, 0x17);
         let v = c.byte(bx.wrapping_add(di));
-        let v = c.inc(B, v as u16);
+        let v = pure::inc(B, v as u16);
         c.set_byte(bx.wrapping_add(di), v as u8);
     }
     c.set_reg(BX, bx);
     c.set_reg(CX, 0x0b);
-    let di = c.inc(W, di);
+    let di = pure::inc(W, di);
     c.set_reg(DI, di);
     c.set_reg(SI, 0x1426);
     for i in 0..0x0bu16 {
         c.run(0x199c, 14)?;
         let (x0, y0) = (c.word(0x120d), c.word(0x120f));
         let ox = c.lods(B, DS);
-        c.xor(B, 0, 0);
-        let dx = c.add(W, x0, ox);
+        let dx = pure::add(W, x0, ox);
         let oy = c.lods(B, DS);
-        let bx = c.add(W, y0, oy);
+        let bx = pure::add(W, y0, oy);
         c.set_reg(AX, oy);
         let (cx, si, di) = (c.reg(CX), c.reg(SI), c.reg(DI));
         c.push(cx);
         c.push(si);
         c.push(di);
-        let bx = c.add(W, bx, 2);
+        let bx = pure::add(W, bx, 2);
         c.set_reg(BX, bx);
-        let dx = c.add(W, dx, 3);
+        let dx = pure::add(W, dx, 3);
         c.set_reg(DX, dx);
         let n = c.byte(di);
         c.set_reg8(r8::CL, n);
         c.call(0x19df, 0x19ba)?;
         c.run(0x19ba, 3)?;
         let bx = c.reg(BX);
-        let bx = c.add(W, bx, 7);
+        let bx = pure::add(W, bx, 7);
         c.set_reg(BX, bx);
         let di = c.reg(DI);
         let n = c.byte(di.wrapping_add(0x0c));
@@ -1476,12 +1471,11 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let third = c.byte(di.wrapping_add(0x18));
         c.run(0x19c3, 4 + if third != 0 { 2 } else { 0 })?;
         let bx = c.reg(BX);
-        let bx = c.sub(W, bx, 4);
+        let bx = pure::sub(W, bx, 4);
         c.set_reg(BX, bx);
         let dx = c.reg(DX);
-        let dx = c.add(W, dx, 9);
+        let dx = pure::add(W, dx, 9);
         c.set_reg(DX, dx);
-        c.cmp(B, third as u16, 0);
         if third != 0 {
             c.set_reg(AX, 1);
             c.call(0xc22f, 0x19d5)?;
@@ -1492,12 +1486,12 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let s = c.pop();
         c.set_reg(SI, s);
         let x = c.pop();
-        let d = c.inc(W, d);
+        let d = pure::inc(W, d);
         c.set_reg(DI, d);
         c.set_reg(CX, x.wrapping_sub(1));
     }
     let sp = c.reg(SP);
-    let sp = c.add(W, sp, 0x24);
+    let sp = pure::add(W, sp, 0x24);
     c.set_reg(SP, sp);
     c.ret()
 }
@@ -1670,10 +1664,9 @@ pub fn draw_character(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(r);
     let ax = c.reg(AX);
     c.push(ax);
-    c.xor(B, 0, 0);
     let a = ax & 0xff;
     c.set_reg(AX, a);
-    let di = c.shl1(W, a, 2);
+    let di = pure::shl1(W, a, 2);
     c.set_reg(DI, di);
     let (dx, bx) = (c.reg(DX), c.reg(BX));
     c.set_word(di.wrapping_add(0x47f8), dx);
@@ -1686,9 +1679,8 @@ pub fn draw_character(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.pop();
     c.set_reg(AX, ax);
     c.set_reg8(r8::CH, (ax >> 8) as u8);
-    c.cmp(B, al as u16, 0x0f);
     if al >= 0x0f {
-        let e = c.sub(B, al as u16, 0x0f);
+        let e = pure::sub(B, al as u16, 0x0f);
         c.set_byte(0x476c, e as u8);
         c.set_reg8(r8::AL, 0x0f);
     }
@@ -1704,25 +1696,23 @@ pub fn draw_character(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if cf {
         c.set_reg8(r8::AL, 0x11);
         let bx = c.reg(BX);
-        let bx = c.add(W, bx, 0x35);
+        let bx = pure::add(W, bx, 0x35);
         c.set_reg(BX, bx);
     }
-    c.cmp(B, al as u16, 0x0c);
     if al == 0x0c {
-        c.test(B, f as u16, 0x10);
         if swap {
             al = 0x12;
         }
     }
     let ch = c.reg8(r8::CH);
-    let a = c.shl1(B, al as u16, 1);
+    let a = pure::shl1(B, al as u16, 1);
     let ax = (ch as u16) << 8 | a;
     c.set_reg(AX, ax);
     c.push(ax);
     c.call(0xc2fd, 0x3d7a)?;
     c.run(0x3d7a, 3)?;
     let a = c.pop();
-    let a = c.inc(W, a);
+    let a = pure::inc(W, a);
     c.set_reg(AX, a);
     c.call(0xc22f, 0x3d7f)?;
     c.run(0x3d7f, 2)?;

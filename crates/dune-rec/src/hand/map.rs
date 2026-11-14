@@ -856,8 +856,6 @@ pub fn heading_51cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx = c.reg(BX);
     if a == 0 && b == 0 {
         c.run(start, 4 + 4)?;
-        c.cmp(B, 0, 0);
-        c.cmp(B, 0, 0);
         let di = c.word(0x11c5);
         c.set_reg(DI, di);
         let dx = c.reg(DX);
@@ -885,26 +883,18 @@ pub fn heading_51cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let same = (h.wrapping_sub(0x40) ^ (bx >> 8) as u8) & 0x80 != 0;
         c.run(start, pre + if (bx as i16) < -0x4d { 2 } else { 4 } + if same { 6 } else { 10 })?;
     }
-    c.cmp(B, a as u16, 0);
-    if a == 0 {
-        c.cmp(B, b as u16, 0);
-    }
-    c.cmp(W, bx, 0xffb3);
-    if (bx as i16) >= -0x4d {
-        c.cmp(W, bx, 0x4d);
-    }
     if near {
         return c.ret();
     }
     let al = c.byte(0x11c7);
-    let ah = c.sub(B, al as u16, 0x40);
-    let ah = c.xor(B, ah, bx >> 8);
+    let ah = pure::sub(B, al as u16, 0x40);
+    let ah = pure::xor(B, ah, bx >> 8);
     c.set_reg(AX, ah << 8 | al as u16);
     if ah & 0x80 != 0 {
         return c.ret();
     }
-    let v = c.and(B, al as u16, 0x80);
-    let v = c.or(B, v, 0x40);
+    let v = pure::and(B, al as u16, 0x80);
+    let v = pure::or(B, v, 0x40);
     c.set_reg(AX, ah << 8 | v);
     c.set_byte(0x11c7, v as u8);
     c.ret()
@@ -1243,28 +1233,22 @@ pub fn location_map_kind(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if f & 0x10 == 0 {
         c.run(0x625a, 5)?;
         c.set_reg(AX, 2);
-        c.test(B, f as u16, 0x10);
         return c.ret();
     }
     c.run(0x625a, 5)?;
     c.set_reg(AX, 2);
-    c.test(B, f as u16, 0x10);
     c.call(0x6231, 0x6269)?;
     let ax = c.reg(AX);
     let al = ax as u8;
     let n = if ax == 0 { 3 } else if al == 3 { 6 } else if al != 2 { 8 } else { 9 };
     c.run(0x6269, n)?;
-    c.or(W, ax, ax);
     if ax == 0 {
         return c.ret();
     }
-    c.cmp(B, al as u16, 3);
     if al == 3 {
-        c.xor(W, ax, ax);
         c.set_reg(AX, 0);
         return c.ret();
     }
-    c.cmp(B, al as u16, 2);
     c.set_reg(AX, ax & 0xff00 | 2);
     if al == 2 {
         c.set_reg(AX, 1);
@@ -2171,16 +2155,12 @@ pub fn unmark_pending_regions(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let pend = c.word(0x115a);
     if pend == 0 {
         c.run(start, 5)?;
-        c.xor(W, 0, 0);
         c.set_reg(AX, 0);
-        c.or(W, 0, 0);
         return c.ret();
     }
     c.run(start, 5)?;
-    c.xor(W, 0, 0);
     c.set_word(0x115a, 0);
     c.set_reg(AX, pend);
-    c.or(W, pend, pend);
     c.call(0xe270, 0x5591)?;
     c.run(0x5591, 3)?;
     let (ds, es) = (c.sreg(DS), c.sreg(ES));
@@ -2191,14 +2171,14 @@ pub fn unmark_pending_regions(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let ax = c.reg(AX);
         let bit = ax & 1 != 0;
         c.run(0x5595, 2)?;
-        let ax = c.shr1(W, ax, 1);
+        let ax = pure::shr1(W, ax, 1);
         c.set_reg(AX, ax);
         if bit {
             c.run(0x5599, 5)?;
             c.push(ax);
             let cx = c.reg(CX);
             c.push(cx);
-            let bl = c.sub(B, 0x0d, cx & 0xff);
+            let bl = pure::sub(B, 0x0d, cx & 0xff);
             c.set_reg8(r8::BL, bl as u8);
             let mut di = 0x100u16;
             c.set_reg(DI, di);
@@ -2207,7 +2187,6 @@ pub fn unmark_pending_regions(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let b = c.byte(di);
                 if b == bl as u8 {
                     c.run(0x55a2, 3)?;
-                    c.cmp(B, b as u16, bl);
                     c.call(0x5d36, 0x55a9)?;
                     let cf = c.flag(CF);
                     c.run(0x55a9, 1)?;
@@ -2218,14 +2197,12 @@ pub fn unmark_pending_regions(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     di = c.reg(DI);
                 } else {
                     c.run(0x55a2, 2)?;
-                    c.cmp(B, b as u16, bl);
                 }
                 let nd = di.wrapping_add(0x1c);
                 let nb = c.byte(nd);
                 c.run(0x55ab, 3)?;
-                let d = c.add(W, di, 0x1c);
+                let d = pure::add(W, di, 0x1c);
                 c.set_reg(DI, d);
-                c.cmp(B, nb as u16, 0xff);
                 di = d;
                 if nb == 0xff {
                     break;
@@ -3803,7 +3780,6 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let neg = mode & 0x80 != 0;
     c.run(start, 3 + if neg { 2 } else { 0 })?;
     c.set_reg8(r8::AL, mode);
-    c.or(B, mode as u16, mode as u16);
     if neg {
         let ax = c.reg(AX);
         c.push(ax);
@@ -3818,7 +3794,7 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if bit == 0 {
         c.run(0x5dda, 3 + 1)?;
         c.set_reg(DI, di);
-        let a = c.and(B, al as u16, 0x40);
+        let a = pure::and(B, al as u16, 0x40);
         c.set_reg8(r8::AL, a as u8);
     } else {
         let mut n = 3 + 1;
@@ -3835,18 +3811,16 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
         }
         c.run(0x5dda, n + 1)?;
-        let a = c.and(B, al as u16, 0x40);
+        let a = pure::and(B, al as u16, 0x40);
         c.set_reg8(r8::AL, a as u8);
-        let mut d = c.sub(W, 0xa5c0, 6);
+        let mut d = pure::sub(W, 0xa5c0, 6);
         loop {
-            d = c.add(W, d, 6);
+            d = pure::add(W, d, 6);
             let w = c.word(d);
-            c.cmp(W, w, 0);
             if w == 0 {
                 break;
             }
             let b = c.byte(d.wrapping_add(5));
-            c.test(B, b as u16, bit as u16);
             if b & bit != 0 {
                 break;
             }
@@ -3859,7 +3833,6 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let w = c.word(si);
         if w == 0xffff {
             c.run(0x5df4, 4)?;
-            c.cmp(W, w, 0xffff);
             let di = c.reg(DI);
             c.set_word(di, 0);
             return c.ret();
@@ -3868,13 +3841,9 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
         'one: {
             if f & 0x80 != 0 {
                 c.run(0x5df4, 4)?;
-                c.cmp(W, w, 0xffff);
-                c.test(B, f as u16, 0x80);
                 break 'one;
             }
             c.run(0x5df4, 5)?;
-            c.cmp(W, w, 0xffff);
-            c.test(B, f as u16, 0x80);
             c.call(0x62c9, 0x5e02)?;
             if c.flag(CF) {
                 c.run(0x5e02, 1)?;
@@ -3887,13 +3856,11 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let m2 = c.byte(0x46eb);
             let bx = (m2 as u16) << 8 | bx & 0xff;
             c.set_word(di.wrapping_add(4), bx);
-            c.xor(B, 0, 0);
             c.set_reg(BX, bx & 0xff);
             c.call(0x5e42, 0x5e15)?;
             let cl = c.reg8(r8::CL);
             if cl < 0x20 {
                 c.run(0x5e15, 7)?;
-                c.cmp(B, cl as u16, 0x20);
                 for r in [AX, BX, DX, SI] {
                     let v = c.reg(r);
                     c.push(v);
@@ -3903,19 +3870,17 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let lim = c.word(0x1176);
                 let far = d > lim;
                 c.run(0x5e21, 6 + far as u32 + 3)?;
-                c.cmp(W, d, lim);
                 for r in [SI, DX, BX, AX] {
                     let v = c.pop();
                     c.set_reg(r, v);
                 }
                 if far {
                     let a = c.reg(AX);
-                    let a = c.add(W, a, 5);
+                    let a = pure::add(W, a, 5);
                     c.set_reg(AX, a);
                 }
             } else {
                 c.run(0x5e15, 2 + 3)?;
-                c.cmp(B, cl as u16, 0x20);
             }
             let (s, d) = (c.reg(SI), c.reg(DI));
             c.push(s);
@@ -3926,12 +3891,12 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(DI, d);
             let s = c.pop();
             c.set_reg(SI, s);
-            let d = c.add(W, d, 6);
+            let d = pure::add(W, d, 6);
             c.set_reg(DI, d);
         }
         si = c.reg(SI);
         c.run(0x5e38, 2)?;
-        si = c.add(W, si, 0x1c);
+        si = pure::add(W, si, 0x1c);
         c.set_reg(SI, si);
     }
 }
@@ -4607,11 +4572,9 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if t >= 0x3e8 {
             c.run(start, 8)?;
             c.set_reg(DI, e0);
-            c.cmp(W, e0, 0x194a);
             let (t1, t0) = (c.word(0xce7a), c.word(0xdc5a));
-            let a = c.sub(W, t1, t0);
+            let a = pure::sub(W, t1, t0);
             c.set_reg(AX, a);
-            c.cmp(W, a, 0x3e8);
             c.call(0xdbb2, 0x5c1c)?;
             c.run(0x5c1c, 1)?;
             c.call(0x5beb, 0x5c1f)?;
@@ -4625,17 +4588,13 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let n = pre + 2 + if e0 == 0x4710 { 1 } else { 3 + if over { 1 } else { 1 } };
     c.run(start, n)?;
     c.set_reg(DI, e0);
-    c.cmp(W, e0, 0x194a);
     if e0 == 0x194a {
         let (t1, t0) = (c.word(0xce7a), c.word(0xdc5a));
-            let a = c.sub(W, t1, t0);
+            let a = pure::sub(W, t1, t0);
         c.set_reg(AX, a);
-        c.cmp(W, a, 0x3e8);
     }
-    c.cmp(W, e0, 0x4710);
     if e0 != 0x4710 {
         c.set_reg(DI, e2);
-        c.cmp(W, e2, 0x4710);
         if e2 != 0x4710 {
             return c.ret();
         }
@@ -4649,14 +4608,11 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let ax = c.reg(AX);
         c.run(0x5c41, 3 + if ax < 9 { 0 } else { 1 })?;
         c.set_byte(0x46eb, 0xc0);
-        c.cmp(W, ax, 9);
         if ax >= 9 {
-            c.xor(W, 0, 0);
             c.set_reg(DI, 0);
         }
     } else {
         c.run(0x5c35, 2)?;
-        c.xor(W, 0, 0);
         c.set_reg(DI, 0);
     }
     let di = c.reg(DI);
@@ -4664,7 +4620,6 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5c4d, 4 + if old != di { 5 } else { 0 })?;
     c.set_reg(AX, old);
     c.set_word(0x46fc, di);
-    c.cmp(W, old, di);
     if old != di {
         let (bx, dx) = (c.reg(BX), c.reg(DX));
         c.push(bx);
@@ -4688,11 +4643,9 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let di = c.reg(DI);
     if di != 0 {
         c.run(0x5c6e, 3)?;
-        c.or(W, di, di);
         return c.ret();
     }
     c.run(0x5c6e, 3)?;
-    c.or(W, 0, 0);
     c.call(0x5746, 0x5c75)?;
     c.run(0x5c75, 1)?;
     c.ret()
@@ -5871,20 +5824,17 @@ pub fn marker_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let kind = c.byte(0x46f7);
     let ops = |c: &mut Ctx| {
         c.set_reg(BX, ax);
-        let a = c.inc(W, ax);
+        let a = pure::inc(W, ax);
         c.set_reg(AX, a);
-        c.cmp(W, di, cur);
     };
     if di == cur {
         if al == kind {
             c.run(0x5eef, 7)?;
             ops(&mut c);
-            c.cmp(B, al as u16, kind as u16);
             return super::gfx::fill_and_outline(c.m, 0x7b1b);
         }
         c.run(0x5eef, 7)?;
         ops(&mut c);
-        c.cmp(B, al as u16, kind as u16);
         c.call(0xe270, 0x5f04)?;
         c.run(0x5f04, 2)?;
         c.set_byte(0x46d8, 1);
@@ -5906,10 +5856,8 @@ pub fn marker_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5f12, 7 + if shown { 0 } else { 1 })?;
     c.set_byte(0x46f7, al);
     c.set_reg(CX, cl as u16);
-    c.xor(B, 0, 0);
     c.set_reg(DX, dx);
     c.set_reg(BX, by);
-    c.or(B, by >> 8, by >> 8);
     if !shown {
         return c.ret();
     }
@@ -6235,7 +6183,6 @@ pub fn map_list_or_zoom(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x8850, 0x5b13)?;
     let v = c.byte(0x46eb);
     c.run(0x5b13, 3)?;
-    c.test(B, v as u16, 0x40);
     if v & 0x40 != 0 {
         return mouse_rect_4710(&mut c);
     }
@@ -6322,11 +6269,6 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, if t < 0x20 { 6 } else { 8 } + 3)?;
         c.set_word(0x47ba, 0);
         c.set_reg(AX, ax);
-        c.cmp(B, t as u16, 0xff);
-        c.cmp(B, t as u16, 0x20);
-        if t >= 0x20 {
-            c.cmp(B, b as u16, 3);
-        }
         let di = c.reg(DI);
         c.push(di);
         let p = c.word(0x114e);
@@ -6337,9 +6279,8 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let d = c.pop();
         c.set_reg(DI, d);
         ax = 0xa7;
-        c.cmp(B, k as u16, 0);
         if k == 0 {
-            let h = c.or(B, 0, 0x40);
+            let h = pure::or(B, 0, 0x40);
             ax = h << 8 | 0xa7;
         }
         c.set_reg(AX, ax);
@@ -6347,11 +6288,6 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, if t == 0xff { 4 } else { 8 })?;
         c.set_word(0x47ba, 0);
         c.set_reg(AX, ax);
-        c.cmp(B, t as u16, 0xff);
-        if t != 0xff {
-            c.cmp(B, t as u16, 0x20);
-            c.cmp(B, b as u16, 3);
-        }
     }
     let ph = c.byte(0x2a);
     let n2 = c.word(0x1176);
@@ -6377,22 +6313,19 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, 0x20f2);
     c.set_word_in(SS, 0x2100, ax);
     let f = c.byte_in(SS, 0x20fd);
-    let f = c.or(B, f as u16, 0x40);
+    let f = pure::or(B, f as u16, 0x40);
     c.m.cpu.write8(&mut c.m.hw, SS, 0x20fd, f as u8);
     c.set_word_in(SS, 0x2104, 0);
-    c.cmp(B, ph as u16, 5);
     if late {
-        let f = c.and(B, f, 0xbf);
+        let f = pure::and(B, f, 0xbf);
         c.m.cpu.write8(&mut c.m.hw, SS, 0x20fd, f as u8);
         c.set_word_in(SS, 0x2104, 0x67);
     }
-    c.cmp(W, n2, 2);
     if n2 >= 2 {
         let e = c.word(0x3cbe);
         let mut a = 0x62u16;
-        c.cmp(W, e, 0);
         if e == 0 {
-            let h = c.or(B, 0, 0x40);
+            let h = pure::or(B, 0, 0x40);
             a |= h << 8;
         }
         c.set_reg(AX, a);
@@ -6401,11 +6334,9 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word_in(SS, 0x20f8, 0x4093);
         let di = c.word(0x114e);
         c.set_reg(DI, di);
-        c.or(W, di, di);
         if di != 0 {
             let tr = c.byte(di.wrapping_add(9));
             c.set_reg8(r8::AL, tr);
-            c.or(B, tr as u16, tr as u16);
         }
         if chk.is_some() {
             c.call(0x6906, 0x87fd)?;
@@ -6413,7 +6344,7 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x87fd, if cf { 3 } else { 1 })?;
             if cf {
                 let v = c.word_in(SS, 0x20f8);
-                let v = c.and(W, v, 0xbfff);
+                let v = pure::and(W, v, 0xbfff);
                 c.set_word_in(SS, 0x20f8, v);
             }
         }
@@ -6703,7 +6634,6 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if b1 != 0 {
         c.run(0x5c7c, 4)?;
         c.set_reg(DI, b1);
-        c.or(W, b1, b1);
         c.call(0xd6fe, 0x5c87)?;
         if c.flag(CF) {
             c.m.cpu.ip = 0x5c87;
@@ -6713,13 +6643,11 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x5c7c, 3)?;
         c.set_reg(DI, 0);
-        c.or(W, 0, 0);
     }
     let b2 = c.word(0xdbe2);
     if b2 != 0 {
         c.run(0x5c95, 4)?;
         c.set_reg(DI, b2);
-        c.or(W, b2, b2);
         c.call(0xd6fe, 0x5ca0)?;
         if c.flag(CF) {
             c.m.cpu.ip = 0x5ca0;
@@ -6729,16 +6657,13 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x5c95, 3)?;
         c.set_reg(DI, 0);
-        c.or(W, 0, 0);
     }
     let f = c.byte(0x46f5);
     if f != 0 {
         c.run(0x5ca5, 3)?;
-        c.cmp(B, f as u16, 0);
         return super::screens::leave_and_fade(c.m, 0xd2e2);
     }
     c.run(0x5ca5, 3)?;
-    c.cmp(B, 0, 0);
     c.call(0x6946, 0x5cb2)?;
     if c.flag(CF) {
         c.m.cpu.ip = 0x5cb2;
@@ -6755,10 +6680,6 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     c.run(0x5cbc, if ax < 0x14 { 5 } else { 3 })?;
-    c.cmp(W, ax, 0x14);
-    if ax < 0x14 {
-        c.cmp(W, di, cur);
-    }
     c.call(0x5f79, 0x5ccd)?;
     c.run(0x5ccd, 1)?;
     c.call(0x79de, 0x5cd0)?;
@@ -6766,7 +6687,6 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x58fa, 0x5cd3)?;
     let k = c.byte(0x1954);
     c.run(0x5cd3, if k != 0 { 3 } else { 3 })?;
-    c.cmp(B, k as u16, 0);
     if k == 0 {
         return c.ret();
     }

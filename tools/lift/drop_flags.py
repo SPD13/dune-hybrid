@@ -11,8 +11,8 @@ the others become their flag-free forms (`pure::add(..)` for
 `c.add(..)`). A port is left as it is when anything in it could still see
 those flags:
 
-- it reads a flag itself (`c.flag`, the flags word, `adc` / `sbb`,
-  `rcl` / `rcr`);
+- it reads a flag itself (`c.flag` but right after a call, where it is
+  the callee's; the flags word, `adc` / `sbb`, `rcl` / `rcr`);
 - it calls or jumps to a routine that reads flags on entry, or to one the
   analysis does not know (`flags_used.py --in`), or through a register;
 - it hands its context to a helper that could (the same rules, followed
@@ -61,8 +61,17 @@ for f in os.listdir(os.path.join(REPO, 'crates/dune-rec/src/hand')):
 def blocker(text, consts, seen):
     """Why the flags a port leaves could be seen in `text` (its body, or a
     helper's it runs on into), or None."""
-    if re.search(r'c\.flag\(|flags\(\)|set_flags|c\.adc\(|c\.sbb\(|c\.rc[lr]', text):
+    if re.search(r'flags\(\)|set_flags|c\.adc\(|c\.sbb\(|c\.rc[lr]', text):
         return 'reads flags'
+    # A flag read right after a call sees the callee's flags, not the
+    # port's own: only such reads are allowed.
+    prev = ''
+    for line in text.split('\n'):
+        if line.strip() == '':
+            continue
+        if 'c.flag(' in line and not re.match(r'^\s*c\.call\(.*\)\?;\s*$', prev):
+            return 'reads flags'
+        prev = line
     if 'c.interp(' in text:
         # An INT pushes the flags and its service sees them; a far call's
         # code isn't followed by the analysis.

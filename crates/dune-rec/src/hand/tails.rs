@@ -1193,15 +1193,12 @@ pub fn book_afc7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(0xc6);
     if f & 2 != 0 {
         c.run(0xafc7, 3)?;
-        c.test(B, f as u16, 2);
         return c.ret();
     }
     c.run(0xafc7, 4 + if f & 4 != 0 { 2 } else { 5 })?;
-    c.test(B, f as u16, 2);
-    c.test(B, f as u16, 4);
     if f & 4 != 0 {
         let v = c.word(0x11bf);
-        let v = c.add(W, v, 2);
+        let v = pure::add(W, v, 2);
         c.set_word(0x11bf, v);
         c.call(0x0a3e, 0xafdd)?;
         c.run(0xafdd, 1)?;
@@ -1231,25 +1228,18 @@ pub fn book_afc7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let dx = c.reg(DX);
     if dx & 0x8000 != 0 {
         c.run(0xaff1, 3)?;
-        c.or(W, dx, dx);
         return c.jump(0xb024);
     }
     let f = c.byte(0xc6);
     if f & 4 != 0 {
         c.run(0xaff1, 5 + 1)?;
-        c.or(W, dx, dx);
-        c.test(B, f as u16, 4);
         return c.ret();
     }
     c.run(0xaff1, 5 + 2)?;
-    c.or(W, dx, dx);
-    c.test(B, f as u16, 4);
-    let f = c.or(B, f as u16, 4);
+    let f = pure::or(B, f as u16, 4);
     c.set_byte(0xc6, f as u8);
     c.call(0x09f5, 0xb019)?;
     c.run(0xb019, 2)?;
-    let dx = c.reg(DX);
-    c.xor(W, dx, dx);
     c.set_reg(DX, 0);
     c.call(0xb1af, 0xb01e)?;
     c.run(0xb01e, 2)?;
@@ -1443,13 +1433,19 @@ pub fn palace_plan_18ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bp = c.reg(BP);
     if bp == 0x2012 {
         c.run(0x18f1, 3)?;
+        c.cmp(W, bp, 0x2012);
         return c.jump(0xd2e2);
     }
     let ax = c.word(4);
     let (al, ah) = (ax as u8, (ax >> 8) as u8);
     let go = ah == 0x20 && al != 1;
     c.run(0x18f1, 2 + 3 + if ah == 0x20 { 2 } else { 0 } + if go { 2 } else { 1 })?;
+    c.cmp(W, bp, 0x2012);
     c.set_reg(AX, ax);
+    c.cmp(B, ah as u16, 0x20);
+    if ah == 0x20 {
+        c.cmp(B, al as u16, 1);
+    }
     if !go {
         return c.ret();
     }
@@ -2561,9 +2557,8 @@ pub fn kind_6a89(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let same = k & 0xf == cl;
     c.run(0x6a8c, 4 + if same { 1 } else { 4 })?;
     c.set_reg8(r8::AL, k);
-    let a = c.and(B, k as u16, 0xf);
+    let a = pure::and(B, k as u16, 0xf);
     c.set_reg8(r8::AL, a as u8);
-    c.cmp(B, a, cl as u16);
     if same {
         return c.jump(0xd2e2);
     }
@@ -2592,11 +2587,10 @@ pub fn kind_6a89(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0x693b, 0x6abb)?;
         let al = c.reg8(r8::AL);
         c.run(0x6abb, 2 + if al == 0 { 1 } else { 3 })?;
-        c.or(B, al as u16, al as u16);
         if al != 0 {
             let si = c.reg(SI);
             let v = c.byte(si.wrapping_add(0x19));
-            let v = c.and(B, v as u16, 0x7f);
+            let v = pure::and(B, v as u16, 0x7f);
             c.set_byte(si.wrapping_add(0x19), v as u8);
         }
         return c.jump(0xd2e2);
