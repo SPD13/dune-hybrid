@@ -1,5 +1,6 @@
 //! Text: the phrase and command strings, the font, drawing strings.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -41,9 +42,7 @@ pub fn get_phrase_or_command_string_si(m: &mut Machine, start: u16) -> Result<()
     if id & PHRASE_BIT == 0 {
         c.run(start, 9)?;
         c.push(bx);
-        c.dec(W, id.wrapping_add(1));
-        c.test(W, id, PHRASE_BIT);
-        let index = c.shl1(W, id, 1);
+        let index = pure::shl1(W, id, 1);
         let table = c.word(g::COMMAND_STRINGS);
         let seg = c.word(g::COMMAND_STRINGS + 2);
         c.set_sreg(ES, seg);
@@ -55,17 +54,15 @@ pub fn get_phrase_or_command_string_si(m: &mut Machine, start: u16) -> Result<()
     }
     c.run(start, 5)?;
     c.push(bx);
-    c.dec(W, id.wrapping_add(1));
     c.set_reg(SI, id);
-    c.test(W, id, PHRASE_BIT);
     c.call(code::LOAD_PHRASE_HSQ, 0xcf7b)?;
     c.run(0xcf7b, 9)?;
     let table = c.word(g::PHRASE_STRINGS);
     let seg = c.word(g::PHRASE_STRINGS + 2);
     c.set_sreg(ES, seg);
     let si = c.reg(SI);
-    let index = c.and(W, si, 0x07ff);
-    let index = c.shl1(W, index, 1);
+    let index = pure::and(W, si, 0x07ff);
+    let index = pure::shl1(W, index, 1);
     let si = c.word_in(ES, table.wrapping_add(index));
     c.set_reg(SI, si);
     let first = c.word_in(ES, table);
@@ -96,18 +93,15 @@ pub fn load_phrase_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, n + 6)?;
     }
     c.set_reg(AX, part);
-    c.cmp(W, part, split);
     c.set_reg8(r8::AL, if first { 0x93 } else { 0x9a });
-    let al = c.add(B, if first { 0x93 } else { 0x9a }, language as u16) as u8;
+    let al = pure::add(B, if first { 0x93 } else { 0x9a }, language as u16) as u8;
     c.set_reg8(r8::AL, al);
-    c.cmp(B, al as u16, loaded as u16);
     if resource == loaded {
         return c.ret();
     }
     let si = c.reg(SI);
     c.push(si);
     c.set_byte(g::PHRASE_LOADED, al);
-    c.xor(B, 0, 0); // xor ah, ah
     c.set_reg(AX, al as u16);
     c.set_reg(SI, al as u16);
     let (di, es) = (c.word(g::PHRASE_STRINGS), c.word(g::PHRASE_STRINGS + 2));
@@ -163,10 +157,8 @@ pub fn font_draw_glyph(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd16d, 6)?;
     let es = c.sreg(ES);
     c.push(es);
-    let ah = c.reg8(r8::AH);
-    c.xor(B, ah as u16, ah as u16);
     let ch = c.reg8(r8::AL);
-    let glyph = c.sub(B, ch as u16, 0x20);
+    let glyph = pure::sub(B, ch as u16, 0x20);
     c.set_reg(AX, glyph);
     c.push(glyph);
     c.set_reg(AX, FONT_SHEET);
@@ -178,17 +170,15 @@ pub fn font_draw_glyph(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::GET_SUBRESOURCE_POINTER, 0xd17e)?;
     c.run(0xd17e, 4)?;
     c.lods(W, ES);
-    let ah = c.reg8(r8::AH);
-    c.xor(B, ah as u16, ah as u16);
     c.set_reg8(r8::AH, 0);
     let width = c.reg8(r8::AL);
-    let advance = c.add(B, width as u16, 2);
+    let advance = pure::add(B, width as u16, 2);
     c.set_reg(AX, advance);
     c.call(code::FONT_GET_DRAW_POSITION, 0xd187)?;
     c.run(0xd187, 3)?;
     let x = c.word(g::FONT_X);
     let advance = c.reg(AX);
-    let x = c.add(W, x, advance);
+    let x = pure::add(W, x, advance);
     c.set_word(g::FONT_X, x);
     let glyph = c.pop();
     c.set_reg(AX, glyph);
@@ -276,13 +266,12 @@ pub fn font_draw_phrase_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xd1a6, 5)?;
             c.lods(W, DS);
             c.set_reg(CX, string);
-            let ax = c.inc(W, string);
+            let ax = pure::inc(W, string);
             c.set_reg(AX, ax);
             return c.ret();
         }
         c.run(0xd1a6, 12)?;
         c.lods(W, DS);
-        c.inc(W, string);
         let x = c.lods(W, DS);
         let y = c.lods(W, DS);
         let colour = c.lods(W, DS);

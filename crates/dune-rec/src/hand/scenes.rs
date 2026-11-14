@@ -3,6 +3,7 @@
 //! task, the IRUL videos (with subtitles), the font glyph routines, the
 //! pause key.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -173,7 +174,7 @@ pub fn ui_stats_draw_ingame_day_and_charisma(m: &mut Machine, start: u16) -> Res
     c.call(code::GET_INGAME_DAY, 0xbe00)?;
     c.run(0xbe00, 2)?;
     let ax = c.reg(AX);
-    let ax = c.inc(W, ax);
+    let ax = pure::inc(W, ax);
     c.set_reg(AX, ax);
     c.call(code::FIND_STRING_AND_REPLACE_DIGITS, 0xbe04)?;
     c.run(0xbe04, 1)?;
@@ -181,8 +182,7 @@ pub fn ui_stats_draw_ingame_day_and_charisma(m: &mut Machine, start: u16) -> Res
     c.run(0xbe07, 5)?;
     let charisma = c.byte(g::CHARISMA);
     c.set_reg(AX, charisma as u16);
-    c.xor(B, 0, 0);
-    let half = c.shr1(W, charisma as u16, 1);
+    let half = pure::shr1(W, charisma as u16, 1);
     c.set_reg(AX, half);
     c.set_reg(SI, 0xc3);
     c.call(code::FIND_STRING_AND_REPLACE_DIGITS, 0xbe14)?;
@@ -578,14 +578,11 @@ pub fn pause_if_p_key_pressed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let p = c.byte(g::KEY_P_STATUS);
     if p == 0 {
         c.run(start, 3)?;
-        c.cmp(B, 0, 0);
         return c.ret();
     }
     let allowed = c.byte(g::PAUSE_ALLOWED);
     if allowed == 0 {
         c.run(start, 5)?;
-        c.cmp(B, p as u16, 0);
-        c.cmp(B, 0, 0);
         return c.ret();
     }
     Err(Bail)
@@ -702,15 +699,13 @@ pub fn grown_rect_c0d5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xbd00)?;
     let mut c = Ctx::new(m);
     c.run(start, 8)?;
-    let ax = c.reg(AX);
-    c.xor(W, ax, ax);
     c.set_reg(AX, 0);
     c.set_reg(CX, 0x0a);
     let r = 0xdd06u16;
     c.set_reg(SI, r);
     for (k, up) in [(0u16, true), (2, true), (4, false), (6, false)] {
         let v = c.word(r + k);
-        let v = if up { c.inc(W, v) } else { c.dec(W, v) };
+        let v = if up { pure::inc(W, v) } else { pure::dec(W, v) };
         c.set_word(r + k, v);
     }
     c.call(code::SUB_C0D5, 0xbd16)?;
@@ -718,7 +713,7 @@ pub fn grown_rect_c0d5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, r);
     for (k, up) in [(0u16, false), (2, false), (4, true), (6, true)] {
         let v = c.word(r + k);
-        let v = if up { c.inc(W, v) } else { c.dec(W, v) };
+        let v = if up { pure::inc(W, v) } else { pure::dec(W, v) };
         c.set_word(r + k, v);
     }
     c.ret()

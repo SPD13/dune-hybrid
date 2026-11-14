@@ -1,6 +1,7 @@
 //! The frame: running the frame tasks, waiting while checking for input,
 //! stepping the HNM video, palette chunks, and small helpers.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -505,16 +506,15 @@ pub fn find_last_numeric_digit(m: &mut Machine, start: u16) -> Result<(), Bail> 
             let last = digits && !more;
             c.run(at, 4 + if last { 2 } else { 0 })?;
             let ch = c.lods(B, ES);
-            let d = c.sub(B, ch, 0x30);
+            let d = pure::sub(B, ch, 0x30);
             c.set_reg8(r8::AL, d as u8);
-            c.cmp(B, d, 9);
             if !more {
                 break;
             }
         }
     }
     let si = c.reg(SI);
-    let si = c.dec(W, si);
+    let si = pure::dec(W, si);
     c.set_reg(SI, si);
     c.ret()
 }

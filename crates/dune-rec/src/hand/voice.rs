@@ -1,6 +1,7 @@
 //! Voice files (streamed in 8 KB parts into two buffers) and music
 //! loading.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -255,11 +256,9 @@ pub fn load_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let loaded = c.byte(g::MUSIC_LOADED);
     if music == loaded {
         c.run(start, 3)?;
-        c.cmp(B, music as u16, loaded as u16);
         return c.ret();
     }
     c.run(start, 3)?;
-    c.cmp(B, music as u16, loaded as u16);
     c.call(code::MIDI_FUNC_2_0, 0xae6b)?;
     let (di, es) = (c.word(g::MUSIC_DATA), c.word(g::MUSIC_DATA + 2));
     let end = c.word(g::ALLOCATOR_LAST_SEGMENT);
@@ -269,13 +268,12 @@ pub fn load_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(g::MUSIC_LOADED, music);
     let ax = c.reg(AX);
     c.push(ax);
-    let resource = c.add(W, ax, MUSIC_RESOURCES);
+    let resource = pure::add(W, ax, MUSIC_RESOURCES);
     c.set_reg(AX, resource);
     c.set_reg(SI, resource);
     c.set_reg(DI, di);
     c.set_sreg(ES, es);
     c.set_reg(AX, es);
-    c.cmp(W, es, end);
     if direct {
         c.call(code::LOAD_RESOURCE_TO, 0xae83)?;
         c.run(0xae83, 2)?;
@@ -293,12 +291,12 @@ pub fn load_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.pop();
     c.set_reg(SI, si);
     let v = c.byte(g::DISABLE_HSQ);
-    let v = c.inc(B, v as u16) as u8;
+    let v = pure::inc(B, v as u16) as u8;
     c.set_byte(g::DISABLE_HSQ, v);
     c.call(code::LOAD_RESOURCE_TO, 0xae98)?;
     c.run(0xae98, 8)?;
     let v = c.byte(g::DISABLE_HSQ);
-    let v = c.dec(B, v as u16) as u8;
+    let v = pure::dec(B, v as u16) as u8;
     c.set_byte(g::DISABLE_HSQ, v);
     let (ds, di, es) = (c.sreg(DS), c.reg(DI), c.sreg(ES));
     c.push(ds);

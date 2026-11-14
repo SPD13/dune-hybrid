@@ -1,5 +1,6 @@
 //! Arithmetic helpers: trig table, random numbers, register save/restore.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -56,9 +57,9 @@ pub fn shl_cx_and_dx(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 5)?;
     let count = c.reg8(r8::AL); // xchg cx, ax: CL is the old AL
     let cx = c.reg(CX);
-    let shifted = c.shl(W, cx, count);
+    let shifted = pure::shl(W, cx, count);
     let dx = c.reg(DX);
-    let dx = c.shl(W, dx, count);
+    let dx = pure::shl(W, dx, count);
     c.set_reg(AX, shifted);
     c.set_reg(CX, shifted);
     c.set_reg(DX, dx);
@@ -244,7 +245,6 @@ pub fn rand_below(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(cx);
         c.push(dx);
         c.set_reg(AX, 0);
-        c.or(W, 0, 0);
         c.pop();
         c.pop();
         return c.ret();
@@ -267,12 +267,11 @@ pub fn rand_below(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (cx, dx) = (c.reg(CX), c.reg(DX));
     c.push(cx);
     c.push(dx);
-    c.or(W, bx, bx);
     let mut ax = bx;
     let mut m = 0xffffu16;
     loop {
-        m = c.shl1(W, m, 1);
-        ax = c.shr1(W, ax, 1);
+        m = pure::shl1(W, m, 1);
+        ax = pure::shr1(W, ax, 1);
         if ax == 0 {
             break;
         }
@@ -286,12 +285,11 @@ pub fn rand_below(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DX, 0xcbd1);
         c.mul16(0xcbd1);
         let lo = c.reg(AX);
-        let seed = c.inc(W, lo);
+        let seed = pure::inc(W, lo);
         c.set_word(g::RAND_BELOW_SEED, seed);
         let dl = c.reg8(r8::DL);
         v = (dl as u16) << 8 | seed >> 8;
-        v = c.and(W, v, m);
-        c.cmp(W, v, bx);
+        v = pure::and(W, v, m);
         if v <= bx {
             break;
         }

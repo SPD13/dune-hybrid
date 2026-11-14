@@ -4,6 +4,7 @@
 //! 20h, 21h..27h, 28h..2Fh and 30h and up the kinds that
 //! `get_location_type_string_offset` and `calc_SAL_index` tell apart.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -29,12 +30,11 @@ pub fn calc_sal_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut ax = c.reg(AX);
     let mut n = 2; // mov cl, [si+8]; ret
     for t in KIND_THRESHOLDS {
-        c.cmp(B, kind as u16, t as u16);
         n += 2;
         if kind < t {
             break;
         }
-        ax = c.inc(W, ax);
+        ax = pure::inc(W, ax);
         n += 1;
     }
     c.set_reg(AX, ax);
@@ -56,20 +56,19 @@ pub fn get_location_type_string_offset(m: &mut Machine, start: u16) -> Result<()
     let di = c.reg(DI);
     let kind = c.byte(di.wrapping_add(8));
     c.set_reg8(r8::BL, kind);
-    let mut ax = c.xor(W, 0, 0);
+    let mut ax = pure::xor(W, 0, 0);
     let mut n = 5; // push, mov, xor; pop, ret
     for (i, t) in KIND_THRESHOLDS.into_iter().enumerate() {
         if i > 0 {
-            ax = c.inc(W, ax);
+            ax = pure::inc(W, ax);
             n += 1;
         }
-        c.cmp(B, kind as u16, t as u16);
         n += 2;
         if kind < t {
             break;
         }
         if i == KIND_THRESHOLDS.len() - 1 {
-            ax = c.sub(B, ax, 2); // sub al, 2
+            ax = pure::sub(B, ax, 2); // sub al, 2
             n += 1;
         }
     }
@@ -97,20 +96,19 @@ pub fn sub_01e0(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(si.wrapping_add(8), bx);
     let kind = c.byte(di);
     let old = c.byte(si.wrapping_add(0x12));
-    let ax = c.and(W, (old as u16) << 8 | kind as u16, 0x700f);
+    let ax = pure::and(W, (old as u16) << 8 | kind as u16, 0x700f);
     let kind = ax & 0xff;
     let mut high = ax >> 8;
     let mut n = 6 + 3; // stores, loads, and; or, mov, ret
     for t in [3, 5, 9] {
-        c.cmp(B, kind, t);
         n += 2;
         if kind <= t {
             break;
         }
-        high = c.xor(B, high, 0x80);
+        high = pure::xor(B, high, 0x80);
         n += 1;
     }
-    let byte = c.or(B, kind, high);
+    let byte = pure::or(B, kind, high);
     c.set_reg(AX, high << 8 | byte);
     c.set_byte(si.wrapping_add(0x12), byte as u8);
     c.count(n);
@@ -126,7 +124,6 @@ pub fn get_orni_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let x_high = c.byte(g::BYTE_0005);
     let far = x_high >= 0x20;
     c.run(start, if far { 7 } else { 5 })?;
-    c.cmp(B, x_high as u16, 0x20);
     let (dx, bx) = if far { (0xca, 0x49) } else { (0x95, 0x39) };
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
@@ -168,7 +165,6 @@ pub fn sub_40c9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let flags = c.byte(si.wrapping_add(0x0f));
     let movable = flags & 0x40 != 0;
     c.run(start, if movable { 5 } else { 3 })?;
-    c.test(B, flags as u16, 0x40);
     if movable {
         let (dx, bx) = (c.reg(DX), c.reg(BX));
         c.set_word(si, dx);
@@ -186,24 +182,21 @@ pub fn sub_5082(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.check(start, 8)?;
     let si = c.reg(SI);
     let b3 = c.byte(si.wrapping_add(3));
-    c.test(B, b3 as u16, 0x20);
     if b3 & 0x20 != 0 {
         c.count(3);
         return c.ret();
     }
     let b10 = c.byte(si.wrapping_add(0x10));
-    c.test(B, b10 as u16, 0x80);
     if b10 & 0x80 != 0 {
         let cx = c.reg(CX);
-        let cx = c.inc(W, cx);
+        let cx = pure::inc(W, cx);
         c.set_reg(CX, cx);
         c.count(6);
         return c.ret();
     }
-    c.cmp(B, b3 as u16, 6);
     if b3 == 6 {
         let dx = c.reg(DX);
-        let dx = c.inc(W, dx);
+        let dx = pure::inc(W, dx);
         c.set_reg(DX, dx);
         c.count(8);
     } else {
@@ -291,10 +284,6 @@ pub fn update_flagged_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(si.wrapping_add(0x0f));
     let both = f & 0x40 != 0 && f & 2 != 0;
     c.run(start, if f & 0x40 == 0 { 3 } else { 5 })?;
-    c.test(B, f as u16, 0x40);
-    if f & 0x40 != 0 {
-        c.test(B, f as u16, 2);
-    }
     if both {
         c.call(0x9556, 0x40f5)?;
         c.run(0x40f5, 1)?;
@@ -331,13 +320,11 @@ pub fn note_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 10)?;
     let di = c.reg(DI);
     c.set_word(0x47e6, di);
-    c.xor(B, 0, 0);
     let x = c.byte(di) as u16;
-    let x = c.add(W, x, 0);
+    let x = pure::add(W, x, 0);
     c.set_word(0x11ed, x);
     let y = c.byte(di.wrapping_add(1)) as u16;
-    c.xor(B, 0, 0);
-    let y = c.add(W, y, 0x0c);
+    let y = pure::add(W, y, 0x0c);
     c.set_reg(AX, y);
     c.set_word(0x11ef, y);
     c.ret()
@@ -351,14 +338,13 @@ pub fn mark_record_bit(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (si, bx) = (c.reg(SI), c.reg(BX));
     let w = c.word(si.wrapping_add(2));
     c.run(start, if w == bx { 7 } else { 3 })?;
-    c.cmp(W, bx, w);
     if w == bx {
         let cl = c.byte(si.wrapping_add(0x0e));
         c.set_reg8(r8::CL, cl);
-        let bit = c.shl(B, 1, cl) as u8;
+        let bit = pure::shl(B, 1, cl) as u8;
         c.set_reg8(r8::AL, bit);
         let v = c.byte(0xf7);
-        let v = c.or(B, v as u16, bit as u16);
+        let v = pure::or(B, v as u16, bit as u16);
         c.set_byte(0xf7, v as u8);
     }
     c.ret()

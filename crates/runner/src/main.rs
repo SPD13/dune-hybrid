@@ -356,11 +356,15 @@ fn enter_load(m: &mut Machine, slot: u8) -> Option<RunExit> {
     }
 }
 
-/// FNV-1a over the CPU registers, flags, IP, instruction count and all
-/// memory, and over the memory alone: `cpu+mem/mem`, both hex.
+/// FNV-1a over the CPU registers, flags, IP, instruction count and the
+/// memory but the dead stack, and over that memory alone: `cpu+mem/mem`,
+/// both hex.
 fn state_hash(m: &Machine) -> String {
     let fnv = |h: u64, bytes: &[u8]| bytes.iter().fold(h, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
-    let mem = fnv(0xcbf2_9ce4_8422_2325, &m.hw.mem);
+    // The dead part of the stack is not state (see `pc::rec::dead_stack`).
+    let dead = pc::rec::dead_stack(&m.cpu);
+    let mem = fnv(0xcbf2_9ce4_8422_2325, &m.hw.mem[..dead.start.min(m.hw.mem.len())]);
+    let mem = fnv(mem, &m.hw.mem[dead.end.min(m.hw.mem.len())..]);
     let mut regs = Vec::new();
     for r in m.cpu.regs.iter().chain(m.cpu.sregs.iter()).chain([m.cpu.ip, m.cpu.flags()].iter()) {
         regs.extend_from_slice(&r.to_le_bytes());

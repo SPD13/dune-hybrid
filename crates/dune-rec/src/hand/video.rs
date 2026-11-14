@@ -1,5 +1,6 @@
 //! Video: framebuffers, fonts, HNM playback state, sprite resources, UI.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g};
 use pc::{
     Machine,
@@ -13,7 +14,7 @@ pub fn blink(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     let phase = c.byte(g::BLINK_PHASE);
-    let phase = c.xor(B, phase as u16, 0xff) as u8;
+    let phase = pure::xor(B, phase as u16, 0xff) as u8;
     c.set_byte(g::BLINK_PHASE, phase);
     c.ret()
 }
@@ -26,8 +27,8 @@ pub fn settings_ui_sub_global_offset(m: &mut Machine, start: u16) -> Result<(), 
     c.run(start, 3)?;
     let (ox, oy) = (c.word(g::SETTINGS_UI_ORIGIN_X), c.word(g::SETTINGS_UI_ORIGIN_Y));
     let (x, y) = (c.reg(DX), c.reg(BX));
-    let x = c.sub(W, x, ox);
-    let y = c.sub(W, y, oy);
+    let x = pure::sub(W, x, ox);
+    let y = pure::sub(W, y, oy);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     c.ret()
@@ -41,8 +42,8 @@ pub fn settings_ui_add_global_offset(m: &mut Machine, start: u16) -> Result<(), 
     c.run(start, 3)?;
     let (ox, oy) = (c.word(g::SETTINGS_UI_ORIGIN_X), c.word(g::SETTINGS_UI_ORIGIN_Y));
     let (x, y) = (c.reg(DX), c.reg(BX));
-    let x = c.add(W, x, ox);
-    let y = c.add(W, y, oy);
+    let x = pure::add(W, x, ox);
+    let y = pure::add(W, y, oy);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     c.ret()
@@ -87,9 +88,9 @@ pub fn get_subresource_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let sheet_seg = c.word(g::SPRITE_SHEET + 2);
     c.set_sreg(ES, sheet_seg);
     let ax = c.reg(AX);
-    let index2 = c.shl1(W, ax, 1);
+    let index2 = pure::shl1(W, ax, 1);
     let offset = c.word_in(ES, index2.wrapping_add(sheet));
-    let si = c.add(W, sheet, offset);
+    let si = pure::add(W, sheet, offset);
     c.set_reg(SI, si);
     let bx = c.pop();
     c.set_reg(BX, bx);
@@ -103,8 +104,8 @@ pub fn get_hnm_resource_flag_name_ptr(m: &mut Machine, start: u16) -> Result<(),
     let mut c = Ctx::new(m);
     c.run(start, 5)?;
     let ax = c.reg(AX);
-    let p = c.add(W, g::HNM_FLAG_NAMES, ax);
-    let p = c.add(W, p, ax);
+    let p = pure::add(W, g::HNM_FLAG_NAMES, ax);
+    let p = pure::add(W, p, ax);
     let name = c.word(p);
     c.set_reg(BX, name);
     c.ret()
@@ -175,7 +176,7 @@ pub fn hnm_reset_buffers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let fb2 = c.word(g::FRAMEBUFFER_2);
     c.set_word(g::HNM_BUF_SEG, fb2);
     c.set_word(g::HNM_BUF_SEG_2, fb2);
-    let zero = c.xor(W, fb2, fb2);
+    let zero = pure::xor(W, fb2, fb2);
     for p in [g::HNM_READ_PTR, g::HNM_DC10, g::HNM_READ_PTR_2, g::HNM_DC20, g::HNM_DC16] {
         c.set_word(p, zero);
     }
@@ -327,7 +328,7 @@ pub fn swap_byte_arrays(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, theirs);
         let si = c.reg(SI);
         c.set_word(si.wrapping_sub(2), theirs);
-        let di = c.add(W, di, 2);
+        let di = pure::add(W, di, 2);
         c.set_reg(DI, di);
         let cx = c.reg(pc::cpu::CX).wrapping_sub(1);
         c.set_reg(pc::cpu::CX, cx);

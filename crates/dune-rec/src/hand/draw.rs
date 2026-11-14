@@ -1,6 +1,7 @@
 //! Drawing sprites (plain and scaled), UI elements, the screen update
 //! with the talking head, and small string helpers.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -308,12 +309,12 @@ pub fn res_store_in_lookup_table(m: &mut Machine, start: u16) -> Result<(), Bail
     let dl = c.reg8(r8::DL);
     c.set_reg8(r8::AL, dl);
     c.stos(B);
-    let si = c.add(W, si, 0x10);
+    let si = pure::add(W, si, 0x10);
     c.set_reg(SI, si);
     c.movs(W);
     c.movs(B);
     let si = c.reg(SI);
-    let si = c.inc(W, si);
+    let si = pure::inc(W, si);
     c.set_reg(SI, si);
     c.movs(W);
     c.movs(W);
@@ -332,32 +333,26 @@ pub fn string_update_ordinal_suffix(m: &mut Machine, start: u16) -> Result<(), B
     c.check(start, 25)?;
     let language = c.byte(g::LANGUAGE);
     c.set_reg8(r8::BL, language);
-    c.xor(B, 0, 0);
-    let bx = c.shl1(W, language as u16, 3);
-    let mut table = c.add(W, bx, 0x251a);
+    let bx = pure::shl1(W, language as u16, 3);
+    let mut table = pure::add(W, bx, 0x251a);
     let si = c.reg(SI);
     let two = c.word_in(ES, si.wrapping_sub(2));
     let (tens, units) = ((two & 0xff) as u8, two >> 8);
-    let units = c.and(B, units, 0x0f);
+    let units = pure::and(B, units, 0x0f);
     c.set_reg(AX, (tens as u16) << 8 | units);
     let mut n = 11;
-    c.cmp(B, tens as u16, 0x31);
     let mut indexed = false;
     if tens != 0x31 {
-        c.cmp(B, units, 4);
         n += 2;
         if units < 4 {
-            c.cmp(B, units, 1);
             n += 2;
             if units != 1 {
                 indexed = true;
             } else {
-                c.cmp(W, table, 0x2522);
                 n += 2;
                 if table != 0x2522 {
                     indexed = true;
                 } else {
-                    c.cmp(B, tens as u16, 0x20);
                     n += 2;
                     indexed = tens == 0x20;
                 }
@@ -365,10 +360,10 @@ pub fn string_update_ordinal_suffix(m: &mut Machine, start: u16) -> Result<(), B
         }
     }
     if indexed {
-        let ah = c.xor(B, 0, 0);
-        let ax = c.shl1(W, units | ah << 8, 1);
+        let ah = pure::xor(B, 0, 0);
+        let ax = pure::shl1(W, units | ah << 8, 1);
         c.set_reg(AX, ax);
-        table = c.add(W, table, ax);
+        table = pure::add(W, table, ax);
         n += 3;
     }
     c.set_reg(BX, table);

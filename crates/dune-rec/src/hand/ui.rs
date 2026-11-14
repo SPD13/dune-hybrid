@@ -2,6 +2,7 @@
 //! communication device, the sky, the sun and moon, location names, and
 //! smaller game-logic steps they trigger.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -48,7 +49,7 @@ pub fn adjust_sub_resource_pointers(m: &mut Machine, start: u16) -> Result<(), B
     c.run(start, 3)?;
     let di = c.reg(DI);
     let size = c.word_in(ES, di);
-    let n = c.shr1(W, size, 1);
+    let n = pure::shr1(W, size, 1);
     c.set_reg(CX, n);
     c.set_reg(BX, di);
     loop {
@@ -57,7 +58,7 @@ pub fn adjust_sub_resource_pointers(m: &mut Machine, start: u16) -> Result<(), B
         let at = c.reg(DI);
         let offset = c.word_in(ES, at);
         let base = c.reg(BX);
-        let p = c.add(W, offset, base);
+        let p = pure::add(W, offset, base);
         c.set_reg(AX, p);
         c.stos(W);
         c.set_reg(CX, left);
@@ -166,7 +167,6 @@ pub fn draw_moon_and_sun(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, y);
     let ax = c.pop();
     c.set_reg(AX, ax);
-    c.or(W, x, x);
     if x == 0 {
         return c.ret();
     }
@@ -186,8 +186,6 @@ pub fn draw_moon_and_sun(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, size);
     let lines = c.lods(W, DS);
     c.set_reg(CX, lines);
-    let ch = c.reg8(r8::CH);
-    c.xor(B, ch as u16, ch as u16);
     c.set_reg8(r8::CH, 0);
     c.set_reg(BP, g::SKY_CLIP_RECT);
     c.interp(0x1abd, 0x1ac2)?;
@@ -294,20 +292,17 @@ pub fn sub_1dfe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.byte(t + 0x1a);
         let room = v.wrapping_sub(1) < 0xc7;
         c.run(0x1d19, 2 + if grows { 4 + room as u32 } else { 0 } + 3)?;
-        c.test(B, flags as u16, 0x80);
         if grows {
             c.set_reg8(r8::AL, v);
-            let al = c.dec(B, v as u16);
+            let al = pure::dec(B, v as u16);
             c.set_reg8(r8::AL, al as u8);
-            c.cmp(B, al, 0xc7);
             if room {
-                let v = c.inc(B, v as u16) as u8;
+                let v = pure::inc(B, v as u16) as u8;
                 c.set_byte(t + 0x1a, v);
             }
         }
-        t = c.add(W, t, 0x1b);
+        t = pure::add(W, t, 0x1b);
         c.set_reg(SI, t);
-        c.cmp(W, t, 0x0fa0);
         if t >= 0x0fa0 {
             break;
         }
@@ -406,7 +401,7 @@ pub fn comm_animate_incoming_call(m: &mut Machine, start: u16) -> Result<(), Bai
         let left = c.word_in(SS, sp).wrapping_sub(1);
         c.run(0x2832, if left == 0 { 4 } else { 3 + 2 })?;
         let step = c.word(g::COMM_STEP);
-        let step = c.inc(W, step);
+        let step = pure::inc(W, step);
         c.set_word(g::COMM_STEP, step);
         c.pop();
         c.set_reg(CX, left);
@@ -427,30 +422,25 @@ pub fn open_sal_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if si < 0x100 {
         c.run(start, 4)?;
         c.set_reg(SI, si);
-        c.cmp(W, si, 0x100);
         return c.ret();
     }
     c.run(start, 5)?;
     c.set_reg(SI, si);
-    c.cmp(W, si, 0x100);
     let ax = c.reg(AX);
-    let zero = c.xor(W, ax, ax);
+    let zero = pure::xor(W, ax, ax);
     c.set_reg(AX, zero);
     c.call(code::CALC_SAL_INDEX, 0x2d83)?;
     c.check(0x2d83, 20)?;
     let mut n = 2;
     let mut sal = c.reg(AX);
-    c.cmp(W, sal, 2);
     if sal < 2 {
         let bits = c.byte(g::SAL_FLAGS);
-        c.test(B, bits as u16, 1);
         n += 2;
         if bits & 1 != 0 {
             c.count(n + 1);
             return c.ret();
         }
     }
-    c.cmp(W, sal, 4);
     n += 2;
     if sal > 4 {
         c.count(n + 1);
@@ -458,12 +448,11 @@ pub fn open_sal_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     n += 1; // jne
     if sal == 4 {
-        sal = c.dec(W, sal);
+        sal = pure::dec(W, sal);
         c.set_reg(AX, sal);
         n += 1;
     }
     let loaded = c.byte(g::LOADED_SAL_INDEX);
-    c.cmp(B, loaded as u16, sal & 0xff);
     n += 2;
     if loaded as u16 == sal & 0xff {
         c.count(n + 1);
@@ -471,7 +460,7 @@ pub fn open_sal_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.count(n + 7);
     c.set_byte(g::LOADED_SAL_INDEX, sal as u8);
-    let resource = c.add(W, sal, 0xa1);
+    let resource = pure::add(W, sal, 0xa1);
     c.set_reg(AX, resource);
     let ds = c.sreg(DS);
     c.push(ds);
@@ -667,10 +656,10 @@ pub fn draw_gradient_section(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_word(g::GRADIENT_X, dx);
     c.set_word(g::GRADIENT_Y, bx);
-    let b = c.sub(W, bx, cx);
-    let d = c.sub(W, dx, di);
-    let b = c.neg(W, b);
-    let d = c.neg(W, d);
+    let b = pure::sub(W, bx, cx);
+    let d = pure::sub(W, dx, di);
+    let b = pure::neg(W, b);
+    let d = pure::neg(W, d);
     c.set_reg(BX, b);
     c.set_reg(DX, d);
     c.call(code::SUB_3E80, 0x3e2a)?;
@@ -693,7 +682,7 @@ pub fn sub_4ad7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let set = al & 1 != 0;
     c.run(0x4ada, if set { 6 } else { 4 })?;
     c.set_reg8(r8::AH, 4);
-    let al = c.shr1(B, al as u16, 1) as u8;
+    let al = pure::shr1(B, al as u16, 1) as u8;
     c.set_reg8(r8::AL, al);
     if !set {
         return c.ret();
@@ -776,7 +765,7 @@ pub fn draw_string_location_type(m: &mut Machine, start: u16) -> Result<(), Bail
     c.call(code::GET_LOCATION_TYPE_STRING_OFFSET, 0x62a0)?;
     c.run(0x62a0, 2)?;
     let ax = c.reg(AX);
-    let string = c.add(W, ax, 0x44);
+    let string = pure::add(W, ax, 0x44);
     c.set_reg(AX, string);
     super::text::font_draw_string_with_color_at_pos(c.m, 0xd194)
 }
@@ -827,12 +816,11 @@ pub fn decrease_troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail
     let v = if under { 0 } else { old - al };
     let low = v < 5;
     c.run(start, 2 + under as u32 + 2 + if low { 3 } else { 1 })?;
-    let r = c.sub(B, old as u16, al as u16) as u8;
+    let r = pure::sub(B, old as u16, al as u16) as u8;
     c.set_byte(at, r);
     if under {
         c.set_byte(at, 0);
     }
-    c.cmp(B, v as u16, 5);
     if !low {
         return c.ret();
     }
@@ -843,7 +831,7 @@ pub fn decrease_troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail
     c.run(0x6faa, 3)?;
     let si = c.reg(SI);
     let f = c.word(si.wrapping_add(0x12));
-    let f = c.or(W, f, 0x20);
+    let f = pure::or(W, f, 0x20);
     c.set_word(si.wrapping_add(0x12), f);
     let ax = c.pop();
     c.set_reg(AX, ax);
@@ -933,7 +921,6 @@ pub fn sky_refresh(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x3971, 0x0fb8)?;
     let k = c.byte(0x46d7);
     c.run(0x0fb8, 3)?;
-    c.cmp(B, k as u16, 0);
     if k != 0 {
         sub_39b9(c.m, 0x39b9)
     } else {
@@ -955,7 +942,6 @@ pub fn start_sky_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x38f7, if old != 0 { 5 } else { 7 })?;
     c.set_byte(0x46d7, 0x40);
     c.set_reg8(r8::AL, old);
-    c.or(B, old as u16, old as u16);
     if old != 0 {
         return c.ret();
     }

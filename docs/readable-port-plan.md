@@ -48,23 +48,26 @@ reached in real play). For each:
    routine, the flags any caller reads after it returns. It follows the
    code after every call site (direct ones, and the indirect calls and
    jumps the coverage runs saw), into callees (what they read on entry,
-   and which flags reach their RET unwritten), and through tail jumps.
+   and which flags reach their RET unwritten), and through tail jumps,
+   including jumps into the middle of another routine (whose RETs then
+   return to the jumper's callers).
    Whatever it cannot follow counts as read: code never run (not in the
    generated code), an indirect target no run took. INT and far calls
    (BIOS, DOS, the drivers) pass the flags through. The current result:
 
    | Routines | Flags their callers read |
    |---|---|
-   | 758 | none: the port can drop every flag-exact helper on its result |
-   | 63 | some (mostly CF or ZF alone) |
-   | 368 | all, or unknown |
+   | 699 | none: the port can drop every flag-exact helper on its result |
+   | 66 | some (mostly CF or ZF alone) |
+   | 424 | all, or unknown |
 
    `flags_used.py --rust` writes the table
    (`crates/dune-rec/src/hand/flags_read.rs`); the shadow check takes
    the original's value for every flag no caller reads, so a port that
-   drops them still compares equal. One limit: a flag the port leaves
-   different can still reach memory through a later `PUSHF` or an
-   interrupt's frame on the stack; the whole-run checks would show it.
+   drops them still compares equal. A flag the port leaves different
+   can still reach memory through an interrupt's frame on the stack where
+   the port stops: that lands in the dead stack, which the checks leave
+   out (see "Where a port stops" below).
 3. **Timing as a cost.** Replace the interleaved `c.run` calls with one
    cost per straight path, computed from the listing by a helper (the
    `n` arguments are already sums of path lengths). The bail points stay:
@@ -75,37 +78,39 @@ reached in real play). For each:
 
 ### Progress
 
-Started with the troops (`hand/troops.rs`) and the views in
-`hand/game.rs` (`Troop`, `Location`, the troop state bits, the game
-time, charisma, the location the player is at, a location's needs and
-troop chain). Rewritten so far (about 70 routines), each checked equal
-call by call in the saves and the harness:
+The troops (`hand/troops.rs`, with the views in `hand/game.rs`: `Troop`,
+`Location`, the troop state bits, the game time, charisma, the location
+the player is at, a location's needs and chain) are done: every routine
+in the readable shape, each checked equal call by call in the saves and
+the harness, but three whose result is the flags themselves, which stay
+as they are: `troop_ptr` (the flags of byte 3 against 80h),
+`troop_particle` (ZF through `loopne` / `jcxz`) and the
+`set_troop_bit_10` family (CF made by `stc` / `cmc` over a test, kept
+by `pushf` / `popf` and returned).
 
-- motivation, skills and charisma: `troop_activity`, `stamp_record`,
-  `add_motivation`, `add_motivation_to_all`, `mark_troop` and its two
-  entries, `add_skill`, `troop_motivation`, `start_troop`,
-  `lose_charisma`, `troop_joins`, `troop_skills_decay`;
-- the troop callbacks of the loops: `tally_yield`, `count_by_job`,
-  `count_4e04`, `clear_bit_7289`, `troop_68da`, `troop_6e0f`,
-  `mark_troop_7506`, `sum_troop_6155`, `troop_8403`, `tally_72a2`,
-  `census_34d0`, the raid callbacks (`raid_troop_762a`, `_75ea`,
-  `_75af`, `lose_troop_764d`) and `repeat_764d`;
-- jobs: `set_job_6ad4` (and `kind_6acb` in `tails.rs`),
-  `set_troop_activity`, `redo_job_6ecb`, `for_troop_location`;
-- yields and rates: `troop_yield`, `troop_rate_by_age`,
-  `scaled_by_troop`;
-- the day: `troop_day_update`, `troop_event_roll`, `maybe_mark_troop`,
-  `grow_location`;
-- a location's needs and bits: `add_location_sum`, `lower_by_bits`,
-  `count_location_bits`, `skill_needs` (the three share `BitWalk`),
-  `spread_location_bits`, `pack_location_bits`, `clear_location_4`;
-- the loops over a location's troops: `each_troop` (6603h, 5098h,
-  68D2h), `for_each_troop_below_80`; and `troops_1eda`, `troop_to_place`,
-  `refresh_records_fd8`, `sum_locations_a8`, `random_2_to_12`;
-- the chain and the map: `reset_troop`, `unlink_troop`, `link_troop`,
-  `remove_particle_4752`, `mark_troop_location`, `troop_facing_sprite`,
-  `map_distance` (7C63h, 7C8Fh), `call_29f0_f`,
-  `for_location_troops_72a2`.
+Dialogue (`hand/dialogue.rs`) is about half done the same way: the
+phrase and sentence steps, the text's frame task, line breaking, the
+speakers and their gauges, the phrase over the map, the talking head and
+speech bubble, the dialogue state routines. Left as they are: the rect
+comparisons (`rects_missing` and on: flags as data, the `and` of two
+string compares), `line_done` and its tails (a pushed return address,
+calls through BP), `layout_text`, `format_interpolated_string`,
+`say_dialogue_entry`, the book page and text box.
+
+**Dead flags dropped everywhere else, mechanically.**
+`tools/lift/drop_flags.py` takes each port whose callers read no flags
+and removes its flag-only statements, turning the rest of the flag
+helpers into their flag-free forms (`hand/pure.rs`: `pure::add(W, a, b)`
+for `c.add(W, a, b)`, same results). It leaves a port alone when
+anything could still see those flags: it reads a flag itself, calls or
+jumps to a routine that reads flags on entry or one the analysis doesn't
+know, calls through a register, or hands its context to a helper.
+`tools/lift/drop_unused_reads.py` then removes the reads only the
+dropped compares used. This converted about 220 ports across the other
+modules (story 40, map 31, the tails, UI, panels, screens and more). The
+ports whose callers read flags (about 430) need their exit flags kept,
+which a line-by-line tool can't place safely: they are for the hand
+rewrite, module by module.
 
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust
@@ -123,6 +128,27 @@ Things that bit:
   routine it calls or jumps to reads on entry: `flags_used.py --in` lists
   them (55 routines read any; CF for the troop callbacks, given by the
   loops).
+- **Where a port stops.** A port stops (bails) at the start of any
+  `run` when an interrupt is due there, and the interpreter goes on from
+  that address with the port's state. Two things then see its flags. The
+  interrupt pushes them below SP: that word is in the dead stack, which
+  the shadow compare and the state hash leave out (`pc::rec::dead_stack`:
+  SS:[39C0h, SP) while SP is in the game's stack, 39C0h..3CBCh). And the
+  original's code from there might read them: `flags_used.py --at ADDR..`
+  lists what each such address reads; in the troops every such point that
+  reads any comes right after a call, where the flags are the callee's.
+- **Flags at the exits.** A routine whose callers read flags (mask not 0)
+  returns them exact: the readable port does the original's last
+  flag-setting instruction of that path with the flag helper (one line,
+  commented). The masks grew when `flags_used.py` learned that a jump
+  into the middle of another routine (`troop_set_out` into `troop_move`
+  at 8313h) makes that routine's RETs return to the jumper's callers.
+- **Flags passed through.** Some routines return the flags they were
+  entered with (`remove_frame_task` with no tasks, through `jcxz`; the
+  front-buffer and font switches): a port that jumps to one, or returns
+  right after calling it, must enter it with the flags its own callers
+  read. `flags_used.py --in` lists, per routine, the flags it reads on
+  entry and those that can reach its RET unwritten.
 - **Writes after the `run`.** Nothing may change before `c.run` (or
   `c.call`): a bail resumes the original at that address with the state
   as it is.
@@ -154,6 +180,17 @@ Open: in a harness run checking every routine (200 calls each),
 in 1 call of 52 (around its `c.interp` of the driver's fill). Not looked
 into yet. `hnm_render_timer_callback` differed in 8 of 204, all with the
 code segment written (a harness artifact).
+
+- **INT and far calls.** A port that has the interpreter run an INT or a
+  far call (`c.interp`) keeps its flags exact before it: an INT pushes
+  them and its service sees them (the check compares a service's
+  registers and flags), and a far call's code isn't followed by the
+  analysis.
+- **The harness's stack.** The harness calls routines with a random SP,
+  sometimes outside the game's stack; there the flags an interrupt pushes
+  where a port stops are not in the dead stack the check leaves out, and
+  show as a memory difference of one word (`swap_byte_arrays`, 1 call in
+  54). Not a difference in play, where SP is always in the stack.
 
 To check a batch: `REC_ONLY=<entries> REC_SAMPLES=200` with
 `--rec shadow` in the saves (Day 10, 13, 23: the troops run there, not in

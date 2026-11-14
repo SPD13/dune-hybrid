@@ -4,6 +4,7 @@
 //! A rectangle is 4 words: left, top, right, bottom. Empty ones (right
 //! not after left, or bottom not after top) are skipped.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -289,16 +290,16 @@ pub fn center_sprite_coordinates(m: &mut Machine, start: u16) -> Result<(), Bail
     c.call(code::GET_SUBRESOURCE_POINTER, 0xc207)?;
     c.run(0xc207, 11)?;
     let size = c.lods(W, ES);
-    let high = c.and(B, size >> 8, 0x0f);
-    let width = c.shr1(W, high << 8 | size & 0xff, 1);
+    let high = pure::and(B, size >> 8, 0x0f);
+    let width = pure::shr1(W, high << 8 | size & 0xff, 1);
     let dx = c.reg(DX);
-    let dx = c.sub(W, dx, width);
+    let dx = pure::sub(W, dx, width);
     c.set_reg(DX, dx);
     let height = c.lods(B, ES);
-    let half = c.shr1(B, height, 1) as u8;
+    let half = pure::shr1(B, height, 1) as u8;
     let half = half as i8 as u16;
     let bx = c.reg(BX);
-    let bx = c.sub(W, bx, half);
+    let bx = pure::sub(W, bx, half);
     c.set_reg(BX, bx);
     let si = c.pop();
     c.set_reg(SI, si);
@@ -353,12 +354,10 @@ pub fn draw_sprite_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if sprite == 0xffff {
             c.run(0xc32f, 4)?;
             c.lods(W, DS);
-            c.cmp(W, sprite, 0xffff);
             return c.ret();
         }
         c.run(0xc32f, 10)?;
         c.lods(W, DS);
-        c.cmp(W, sprite, 0xffff);
         let x = c.lods(W, DS);
         let y = c.lods(W, DS);
         c.set_reg(AX, sprite);

@@ -1,6 +1,7 @@
 //! Resources in memory: opening one as the current sprite sheet, and the
 //! condition evaluator over the CONDIT script.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g};
 use pc::{
     Machine,
@@ -257,22 +258,19 @@ pub fn preload_resources_63_to_68(m: &mut Machine, start: u16) -> Result<(), Bai
     let flags = c.byte(PRELOAD_FLAGS);
     if flags & 4 == 0 {
         c.run(start, 3)?;
-        c.test(B, flags as u16, 4);
         return c.ret();
     }
     c.run(start, 6)?;
-    c.test(B, flags as u16, 4);
     let mut n = 2u16;
     loop {
         c.push(n);
-        let r = c.add(W, n, 0x61);
+        let r = pure::add(W, n, 0x61);
         c.set_reg(AX, r);
         c.call(code::OPEN_RESOURCE_BY_INDEX, 0xce64)?;
         let next = n + 1;
         c.run(0xce64, 4 + if next < 8 { 3 } else { 1 })?;
         c.pop();
-        let next = c.inc(W, n);
-        c.cmp(W, next, 8);
+        let next = pure::inc(W, n);
         c.set_reg(AX, next);
         if next >= 8 {
             return c.ret();

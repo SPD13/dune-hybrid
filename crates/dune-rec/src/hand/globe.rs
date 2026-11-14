@@ -1,6 +1,7 @@
 //! The globe view (its background, decorations sliding open and shut, the
 //! rotation table) and the frieze sides of the game screen.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -1241,7 +1242,7 @@ pub fn draw_globe_cursor_at_dx_bx(m: &mut Machine, start: u16) -> Result<(), Bai
     let si = c.reg(SI);
     let h = c.byte_in(ES, si.wrapping_add(2));
     let bl = c.reg8(r8::BL);
-    let v = c.sub(B, bl as u16, h as u16);
+    let v = pure::sub(B, bl as u16, h as u16);
     c.set_reg8(r8::BL, v as u8);
     super::draw::draw_sprite_clobbering_bx_dx(c.m, 0xc22f)
 }
@@ -1450,9 +1451,8 @@ pub fn globe_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, 0x204a);
     let mut ax = 0xb1u16;
     let mut bx = 0xb96bu16;
-    c.cmp(B, k as u16, 0);
     if k != 0 {
-        ax = c.inc(W, ax);
+        ax = pure::inc(W, ax);
         bx = 0xb961;
     }
     c.set_reg(AX, ax);
@@ -2289,47 +2289,46 @@ pub fn globe_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(ss);
     let v = c.pop();
     c.set_sreg(pc::cpu::ES, v);
-    let si = c.add(W, si0, cx0);
+    let si = pure::add(W, si0, cx0);
     c.set_reg(SI, si);
-    let b = c.add(W, bx0, bx0);
+    let b = pure::add(W, bx0, bx0);
     c.set_reg(BX, b);
     c.set_reg(AX, dx0);
     c.mul16(b);
     c.set_word_in(SS, bp.wrapping_add(6), hi);
     c.set_reg(AX, hi);
     c.set_reg(DX, width);
-    c.cmp(W, b, width);
     if narrow {
-        let t = c.sub(W, width, b);
-        let t = c.shr1(W, t, 1);
+        let t = pure::sub(W, width, b);
+        let t = pure::shr1(W, t, 1);
         c.set_reg(CX, t);
-        let di = c.add(W, di0, t);
+        let di = pure::add(W, di0, t);
         c.set_reg(DI, di);
         c.set_reg(DX, b);
     }
-    let h = c.shr1(W, dx, 1);
+    let h = pure::shr1(W, dx, 1);
     c.set_reg(CX, h);
-    let mut a = c.sub(W, hi, h);
+    let mut a = pure::sub(W, hi, h);
     if aneg {
-        a = c.add(W, a, b);
+        a = pure::add(W, a, b);
     }
     c.set_reg(AX, a);
     c.set_reg(CX, dx);
-    let r = c.sub(W, b, a);
+    let r = pure::sub(W, b, a);
     c.set_reg(BX, r);
-    let cr = c.sub(W, dx, r);
+    let cr = pure::sub(W, dx, r);
     c.set_reg(CX, cr);
     if !split {
-        let n = c.add(W, cr, r);
+        let n = pure::add(W, cr, r);
         c.set_reg(CX, n);
-        let s = c.add(W, si, a);
+        let s = pure::add(W, si, a);
         c.set_reg(SI, s);
         c.rep(0xa4);
     } else {
         c.set_reg(CX, r);
         c.set_reg(BX, cr);
         c.push(si);
-        let s = c.add(W, si, a);
+        let s = pure::add(W, si, a);
         c.set_reg(SI, s);
         c.rep(0xa4);
         c.run(0xb81a, 3)?;
@@ -2348,7 +2347,7 @@ pub fn globe_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.pop();
     c.set_reg(DX, v);
     let di = c.reg(DI);
-    let di = c.add(W, di, 0xc8);
+    let di = pure::add(W, di, 0xc8);
     c.set_reg(DI, di);
     c.ret()
 }

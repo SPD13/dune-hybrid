@@ -2,6 +2,7 @@
 //! DS:38B5, Cryogenic's `gfxVtable`), the sprite drawing wrappers, HNM
 //! frame steps and UI drawing.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g};
 use pc::{
     Machine,
@@ -465,10 +466,10 @@ pub fn draw_rect_outline_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> 
         let t = c.lods(W, DS);
         c.set_reg(BX, t);
         let r = c.lods(W, DS);
-        let r = c.dec(W, r);
+        let r = pure::dec(W, r);
         c.set_reg(DI, r);
         let b = c.lods(W, DS);
-        let b = c.dec(W, b);
+        let b = pure::dec(W, b);
         c.set_reg(CX, b);
         c.lods(B, DS);
     })
@@ -559,7 +560,6 @@ pub fn clear_points_ring(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.stos(W);
         c.stos(W);
         let di = c.reg(DI);
-        c.cmp(W, di, POINTS_RING_END);
         if di >= POINTS_RING_END {
             return c.ret();
         }

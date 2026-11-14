@@ -588,7 +588,6 @@ pub fn for_each_in_code_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let w = c.code_word(si);
         c.run(at, jmp + if w == 0 { 4 } else { 5 })?;
         c.lods(W, pc::cpu::CS);
-        c.or(W, w, w);
         if w == 0 {
             return c.ret();
         }

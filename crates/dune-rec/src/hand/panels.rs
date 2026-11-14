@@ -2,6 +2,7 @@
 //! device's animations, the ornithopter, the settings sliders, talking
 //! heads without lip sync, lip sync start and stop.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::cpu::Bus;
 use pc::{
@@ -289,14 +290,14 @@ pub fn draw_orni(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     let ax = c.reg(AX);
-    let zero = c.xor(W, ax, ax);
+    let zero = pure::xor(W, ax, ax);
     c.set_reg(AX, zero);
     c.call(code::DRAW_SPRITE_CLIPPED, 0x3aae)?;
     c.run(0x3aae, 4)?;
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    let dx = c.add(W, dx, 6);
+    let dx = pure::add(W, dx, 6);
     c.set_reg(DX, dx);
-    let bx = c.add(W, bx, 0x1e);
+    let bx = pure::add(W, bx, 0x1e);
     c.set_reg(BX, bx);
     c.set_reg(AX, 1);
     c.call(code::DRAW_SPRITE_CLIPPED, 0x3aba)?;
@@ -306,22 +307,20 @@ pub fn draw_orni(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let capped = a > 5;
     c.run(0x3aba, 7 + under as u32 + 2 + capped as u32 + 2)?;
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    let dx = c.sub(W, dx, 2);
+    let dx = pure::sub(W, dx, 2);
     c.set_reg(DX, dx);
-    let bx = c.add(W, bx, 0x14);
+    let bx = pure::add(W, bx, 0x14);
     c.set_reg(BX, bx);
     c.set_reg(AX, speed as u16);
-    c.xor(B, 0, 0); // xor ah, ah
     c.push(speed as u16);
-    let mut al = c.sub(B, speed as u16, 0x0f);
+    let mut al = pure::sub(B, speed as u16, 0x0f);
     if under {
-        al = c.xor(W, al, al);
+        al = pure::xor(W, al, al);
     }
-    c.cmp(B, al, 5);
     if capped {
         al = 5;
     }
-    let rotor = c.add(B, al, 2);
+    let rotor = pure::add(B, al, 2);
     c.set_reg(AX, rotor);
     c.call(code::DRAW_SPRITE_CLIPPED, 0x3ad7)?;
     let sp = c.reg(SP);
@@ -329,15 +328,14 @@ pub fn draw_orni(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let capped = saved >= 0x0e;
     c.run(0x3ad7, 5 + capped as u32 + 2)?;
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    let dx = c.sub(W, dx, 0x55);
+    let dx = pure::sub(W, dx, 0x55);
     c.set_reg(DX, dx);
-    let bx = c.sub(W, bx, 0x35);
+    let bx = pure::sub(W, bx, 0x35);
     c.set_reg(BX, bx);
     let ax = c.pop();
     c.set_reg(AX, ax);
-    c.cmp(B, ax & 0xff, 0x0e);
     let al = if capped { 0x0e } else { ax & 0xff };
-    let shadow = c.add(B, al, 8);
+    let shadow = pure::add(B, al, 8);
     c.set_reg(AX, ax & 0xff00 | shadow);
     super::screen::draw_sprite_clipped_clobbering(c.m, 0xc30d)
 }
@@ -387,7 +385,7 @@ pub fn setup_non_lip_sync_data_structure(m: &mut Machine, start: u16) -> Result<
     let mut c = Ctx::new(m);
     c.run(start, 5)?;
     let cx = c.reg(CX);
-    let zero = c.xor(W, cx, cx);
+    let zero = pure::xor(W, cx, cx);
     c.set_reg(CX, zero);
     let ds = c.sreg(DS);
     c.push(ds);
@@ -402,10 +400,7 @@ pub fn setup_non_lip_sync_data_structure(m: &mut Machine, start: u16) -> Result<
         if frame == 0 {
             c.run(0x9bfa, 8)?;
             c.lods(B, DS);
-            let ah = c.reg8(r8::AH);
-            c.xor(B, ah as u16, ah as u16);
             c.set_reg8(r8::AH, 0);
-            c.or(B, 0, 0);
             let cx = c.reg(CX);
             c.set_word_in(SS, g::HEAD_FRAME_COUNT, cx);
             let ss = c.sreg(SS);
@@ -417,11 +412,7 @@ pub fn setup_non_lip_sync_data_structure(m: &mut Machine, start: u16) -> Result<
         let wide = frame == 1;
         c.run(0x9bfa, 6 + if wide { 2 } else { 0 } + 6)?;
         c.lods(B, DS);
-        let ah = c.reg8(r8::AH);
-        c.xor(B, ah as u16, ah as u16);
         c.set_reg8(r8::AH, 0);
-        c.or(B, frame as u16, frame as u16);
-        c.cmp(B, frame as u16, 1);
         if wide {
             c.set_reg8(r8::AH, 1);
             c.lods(B, DS);
@@ -429,13 +420,13 @@ pub fn setup_non_lip_sync_data_structure(m: &mut Machine, start: u16) -> Result<
         let si = c.reg(SI);
         c.push(si);
         let ax = c.reg(AX);
-        let ax = c.sub(W, ax, 2);
-        let index = c.shl1(W, ax, 1);
+        let ax = pure::sub(W, ax, 2);
+        let index = pure::shl1(W, ax, 1);
         c.set_reg(AX, index);
         c.set_reg(BP, index);
         let table = c.word_in(SS, g::HEAD_FRAME_TABLE);
         let off = c.word_in(DS, index.wrapping_add(table));
-        let si = c.add(W, table, off);
+        let si = pure::add(W, table, off);
         c.set_reg(SI, si);
         loop {
             let si = c.reg(SI);
@@ -443,18 +434,16 @@ pub fn setup_non_lip_sync_data_structure(m: &mut Machine, start: u16) -> Result<
             if b == 0 {
                 c.run(0x9c18, 5)?; // lodsb; or; je; pop si; jmp
                 c.lods(B, DS);
-                c.or(B, 0, 0);
                 let si = c.pop();
                 c.set_reg(SI, si);
                 break;
             }
             c.run(0x9c18, 7)?;
             c.lods(B, DS);
-            c.or(B, b as u16, b as u16);
             c.stos(B);
             c.movs(W);
             let cx = c.reg(CX);
-            let cx = c.inc(W, cx);
+            let cx = pure::inc(W, cx);
             c.set_reg(CX, cx);
         }
     }
@@ -596,7 +585,7 @@ pub fn settings_ui_button_position(m: &mut Machine, start: u16) -> Result<(), Ba
     c.mul8(7);
     let x = c.reg(AX);
     let base = c.word(BUTTONS_Y + 2);
-    let x = c.add(W, x, base);
+    let x = pure::add(W, x, base);
     c.set_reg(BX, x);
     c.call(code::SETTINGS_UI_ADD_GLOBAL_OFFSET, 0xa47b)?;
     c.run(0xa47b, 2)?;
@@ -719,7 +708,6 @@ pub fn settings_apply_music_volume(m: &mut Machine, start: u16) -> Result<(), Ba
     let settings = c.word(g::SOUND_SETTINGS);
     let off = settings & 4 == 0;
     c.run(start, if off { 5 } else { 4 })?;
-    c.test(W, settings, 4);
     if off {
         c.set_byte(SLIDERS[0], 0xff);
     }
@@ -740,7 +728,6 @@ pub fn settings_apply_sound_volume(m: &mut Machine, start: u16) -> Result<(), Ba
     let off = settings & 0x400 == 0;
     let v = if off { 0xff } else { c.byte(SLIDERS[1]) };
     c.run(start, 2 + if off { 3 } else { 0 } + 4 + (v < 4) as u32)?;
-    c.test(W, settings, 0x400);
     if off {
         c.set_reg8(r8::AL, 0xff);
         c.set_byte(SLIDERS[1], 0xff);
@@ -748,7 +735,6 @@ pub fn settings_apply_sound_volume(m: &mut Machine, start: u16) -> Result<(), Ba
     }
     let sw = c.byte(SWITCHES[1]);
     c.set_reg(AX, (sw as u16) << 8 | v as u16);
-    c.cmp(B, v as u16, 4);
     if v < 4 {
         c.set_reg8(r8::AL, 4);
     }
@@ -808,13 +794,13 @@ pub fn settings_ui_draw_slider(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.set_byte(si, 1);
     let ax = !c.reg(AX);
     c.set_reg(AX, ax);
-    let al = c.shr1(B, ax & 0xff, 2);
+    let al = pure::shr1(B, ax & 0xff, 2);
     let ax = al as u8 as i8 as u16;
     let bx = c.reg(BX);
-    let x = c.add(W, ax, bx);
+    let x = pure::add(W, ax, bx);
     c.set_reg(BX, x);
     let origin = c.word(g::SETTINGS_UI_ORIGIN_Y);
-    let rel = c.sub(W, x, origin);
+    let rel = pure::sub(W, x, origin);
     c.set_reg(AX, rel);
     c.set_word(si.wrapping_add(3), rel);
     c.set_reg(AX, 2);
@@ -1057,16 +1043,13 @@ pub fn draw_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if cl == 0 {
         c.run(start, 3)?;
         c.set_reg8(r8::CH, 0);
-        c.xor(B, 0, 0);
         return c.ret();
     }
     c.run(start, 6 + (cl > 5) as u32 + 3)?;
     c.set_reg8(r8::CH, 0);
-    c.xor(B, 0, 0);
     let (dx, di) = (c.reg(DX), c.reg(DI));
     c.push(dx);
     c.push(di);
-    c.cmp(B, cl as u16, 5);
     let n = cl.min(5) as u16;
     c.set_reg(CX, n);
     c.push(n);
@@ -1079,7 +1062,7 @@ pub fn draw_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let cx = c.pop();
         let _ = cx;
         let dx = c.reg(DX);
-        let dx = c.add(W, dx, 4);
+        let dx = pure::add(W, dx, 4);
         c.set_reg(DX, dx);
         c.set_reg(CX, left);
         if left == 0 {
@@ -1384,7 +1367,7 @@ pub fn settings_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xa453, 0xa5e2)?;
     c.run(0xa5e2, 2)?;
     let (bx, cx) = (c.reg(BX), c.reg(CX));
-    let b = c.sub(W, bx, cx);
+    let b = pure::sub(W, bx, cx);
     c.set_reg(BX, b);
     c.call(0xa594, 0xa5e7)?;
     let mode = c.byte(0x28be);
@@ -1393,7 +1376,6 @@ pub fn settings_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if mode == 1 {
         if cx == 0 {
             c.run(0xa5e7, 4)?;
-            c.cmp(B, 1, 1);
             return c.ret();
         }
         let x = c.word(si.wrapping_add(4));
@@ -1403,16 +1385,14 @@ pub fn settings_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
         } else {
             c.run(0xa5e7, 2 + 1 + 5 + 6)?;
         }
-        c.cmp(B, 1, 1);
         c.set_reg(AX, x);
-        let v = c.add(W, x, cx);
-        let v = c.sub(W, v, 0x22);
+        let v = pure::add(W, x, cx);
+        let v = pure::sub(W, v, 0x22);
         c.set_reg(AX, v);
-        c.cmp(W, v, 0x40);
         if a >= 0x40 {
             return c.ret();
         }
-        let v = c.shl1(W, v, 2);
+        let v = pure::shl1(W, v, 2);
         let v = !v;
         c.set_reg(AX, v);
         c.set_byte(si, v as u8);
@@ -1422,8 +1402,6 @@ pub fn settings_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     if mode != 2 {
         c.run(0xa5e7, 5)?;
-        c.cmp(B, mode as u16, 1);
-        c.cmp(B, mode as u16, 2);
         return c.ret();
     }
     let (ax, bp, di) = (c.reg(AX), c.reg(BP), c.reg(DI));
@@ -1439,28 +1417,18 @@ pub fn settings_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
         4 + 2 + (ax < 6) as u32 + 2 + (bp >= 5) as u32 + 3 + (s & 0x8000 != 0) as u32 + 3
             + if ok { 3 } else { 1 },
     )?;
-    c.cmp(B, 2, 1);
-    c.cmp(B, 2, 2);
-    c.cmp(W, ax, 6);
     if ax < 6 {
-        c.neg(W, cx);
         c.set_reg(CX, cx2);
     }
-    c.cmp(W, bp, 5);
     if bp >= 5 {
-        c.neg(W, di);
         c.set_reg(DI, di2);
     }
     c.set_reg8(r8::AL, 0x0a);
-    c.add(W, cx2, di2);
     c.set_reg(CX, s);
     if s & 0x8000 != 0 {
-        c.neg(B, 0x0a);
         c.set_reg8(r8::AL, 0xf6);
     }
-    c.add(B, al as u16, cur as u16);
     c.set_reg8(r8::AL, v);
-    c.cmp(B, v as u16, 0xf1);
     if !ok {
         return c.ret();
     }

@@ -1,6 +1,7 @@
 //! Files: DUNE.DAT and loose files, the memory allocator's helpers, the
 //! keyboard buffer, waiting on the timer.
 
+use super::pure;
 use super::{Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -100,11 +101,8 @@ pub fn wait_processing_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Ba
                 break;
             }
             c.run(0xe3a5, 2)?;
-            c.cmp(W, seen, now);
         }
         c.run(0xe3a5, 3)?;
-        let now = c.word(g::TIMER);
-        c.cmp(W, seen, now);
         c.call(code::SAVE_REGS, 0xe3ae)?;
         c.run(0xe3ae, 1)?;
         c.call(code::PROCESS_FRAME_TASKS, 0xe3b1)?;
@@ -130,7 +128,7 @@ pub fn load_driver_ax_with_vtable_at_si(m: &mut Machine, start: u16) -> Result<(
     c.push(cx);
     c.push(si);
     let ax = c.reg(AX);
-    let resource = c.add(W, ax, 0xc8);
+    let resource = pure::add(W, ax, 0xc8);
     c.set_reg(AX, resource);
     c.set_reg(SI, resource);
     c.call(code::LOAD_RESOURCE_TO, 0xe585)?;
@@ -140,14 +138,14 @@ pub fn load_driver_ax_with_vtable_at_si(m: &mut Machine, start: u16) -> Result<(
     let cx = c.pop();
     c.set_reg(CX, cx);
     let es = c.sreg(ES);
-    let segment = c.sub(W, es, 0x10);
+    let segment = pure::sub(W, es, 0x10);
     c.set_reg(AX, segment);
     loop {
         let (si, cx) = (c.reg(SI), c.reg(CX));
         let left = cx.wrapping_sub(1);
         c.run(0xe58c, if left == 0 { 4 } else { 3 })?;
         c.set_word(si, segment);
-        let si = c.add(W, si, 4);
+        let si = pure::add(W, si, 4);
         c.set_reg(SI, si);
         c.set_reg(CX, left);
         if left == 0 {
@@ -376,10 +374,9 @@ pub fn alloc_check_cx_pages_available(m: &mut Machine, start: u16) -> Result<(),
         c.set_reg(DI, di);
         c.set_sreg(ES, seg);
         let cx = c.reg(CX);
-        let end = c.add(W, seg, cx);
+        let end = pure::add(W, seg, cx);
         c.set_reg(AX, end);
         let last = c.word(g::ALLOCATOR_LAST_SEGMENT);
-        c.cmp(W, end, last);
         if end < last {
             return c.ret();
         }
@@ -699,13 +696,12 @@ pub fn open_resource_by_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xf0b9, 7)?;
     let si = c.reg(SI);
     c.set_word(0xce78, si);
-    let s = c.shl1(W, si, 1);
+    let s = pure::shl1(W, si, 1);
     let p = c.word(s.wrapping_add(0x31ff));
     c.set_reg(SI, p);
     let ax = c.lods(W, DS);
     let dx = p.wrapping_add(2);
     c.set_reg(DX, dx);
-    c.or(W, ax, ax);
     if ax == 0 {
         return c.jump(0xf0d6);
     }
@@ -772,7 +768,7 @@ pub fn open_resource_force_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let es = c.sreg(ES);
     c.push(es);
     let k = c.byte(0xce71);
-    let k = c.inc(B, k as u16);
+    let k = pure::inc(B, k as u16);
     c.set_byte(0xce71, k as u8);
     let ds = c.sreg(DS);
     c.push(ds);
@@ -782,7 +778,7 @@ pub fn open_resource_force_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.call(0xf0b9, 0xf0ae)?;
     c.run(0xf0ae, 5)?;
     let k = c.byte(0xce71);
-    let k = c.dec(B, k as u16);
+    let k = pure::dec(B, k as u16);
     c.set_byte(0xce71, k as u8);
     let di = c.reg(DI);
     c.set_reg(SI, di);
@@ -1155,8 +1151,6 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0xd844);
     c.set_reg(DI, 0xda8c);
     c.set_reg(CX, 0x91);
-    let d0 = c.reg(DX);
-    c.xor(W, d0, d0);
     let (mut dx, mut bx) = (0u16, 0u16);
     c.set_reg(DX, 0);
     c.set_reg(BX, 0);
@@ -1168,17 +1162,15 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let used = seg != 0;
         let better = used && age >= dx;
         c.run(0xf151, 5 + if used { 4 + if better { 2 } else { 0 } } else { 0 } + 1)?;
-        di = c.add(W, di, 2);
+        di = pure::add(W, di, 2);
         c.set_reg(DI, di);
-        si = c.add(W, si, 4);
+        si = pure::add(W, si, 4);
         c.set_reg(SI, si);
         c.set_reg(AX, seg);
-        c.or(W, seg, seg);
         if used {
             c.set_reg(AX, bp);
-            let a = c.sub(W, bp, t);
+            let a = pure::sub(W, bp, t);
             c.set_reg(AX, a);
-            c.cmp(W, a, dx);
             if better {
                 dx = a;
                 c.set_reg(DX, dx);
@@ -1189,7 +1181,6 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, 0x90 - k);
     }
     c.run(0xf16c, 2)?;
-    c.or(W, bx, bx);
     if bx == 0 {
         c.m.cpu.ip = 0xf130;
         return Err(Bail);
@@ -1198,14 +1189,12 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cur = c.word(0x2784);
     c.run(0xf170, 6 + (idx == cur) as u32 + 5)?;
     c.set_reg(AX, bx);
-    let a = c.sub(W, bx, 0xd844);
-    let a = c.shr1(W, a, 2);
+    let a = pure::sub(W, bx, 0xd844);
+    let a = pure::shr1(W, a, 2);
     c.set_reg(AX, a);
-    c.cmp(W, a, cur);
     if a == cur {
         c.set_word(0x2784, 0xffff);
     }
-    c.xor(W, dx, dx);
     let dx = c.word(bx.wrapping_add(2));
     c.set_word(bx.wrapping_add(2), 0);
     c.set_reg(DX, dx);
@@ -1220,12 +1209,11 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let take = !below && v.wrapping_sub(dx) < best;
         c.run(0xf193, 4 + if below { 0 } else { 2 + take as u32 } + 1)?;
         c.lods(W, DS);
-        let s = c.add(W, si.wrapping_add(2), 2);
+        let s = pure::add(W, si.wrapping_add(2), 2);
         c.set_reg(SI, s);
-        let a = c.sub(W, v, dx);
+        let a = pure::sub(W, v, dx);
         c.set_reg(AX, a);
         if !below {
-            c.cmp(W, a, best);
             if take {
                 best = a;
                 c.set_reg(BX, best);
@@ -1235,14 +1223,12 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     if best & 0x8000 != 0 {
         c.run(0xf1a3, 2 + 3)?;
-        c.or(W, best, best);
         c.set_word(0x39b9, dx);
         let v = c.pop();
         c.set_reg(CX, v);
         return c.ret();
     }
     c.run(0xf1a3, 4)?;
-    c.or(W, best, best);
     c.set_reg(SI, 0xd846);
     c.set_reg(CX, 0x91);
     let mut si = 0xd846u16;
@@ -1251,11 +1237,10 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.word(s);
         let lo = v < dx;
         c.run(0xf1ad, 3 + (!lo) as u32 + 1)?;
-        si = c.add(W, si, 4);
+        si = pure::add(W, si, 4);
         c.set_reg(SI, si);
-        c.cmp(W, v, dx);
         if !lo {
-            let n = c.sub(W, v, best);
+            let n = pure::sub(W, v, best);
             c.set_word(s, n);
         }
         c.set_reg(CX, 0x90 - k);
@@ -1264,9 +1249,8 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let lo = v < dx;
     c.run(0xf1b8, 3 + (!lo) as u32)?;
     c.set_reg(SI, 0xdbb2);
-    c.cmp(W, v, dx);
     if !lo {
-        let n = c.sub(W, v, best);
+        let n = pure::sub(W, v, best);
         c.set_word(0xdbb2, n);
     }
     let mut dst = dx;
@@ -1277,20 +1261,17 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let last = left <= 0x1000;
         c.run(0xf1c1, 9 + if last { 5 } else { 2 })?;
         c.set_sreg(ES, dst);
-        let d = c.add(W, dst, best);
+        let d = pure::add(W, dst, best);
         c.set_reg(DX, d);
         c.set_sreg(DS, d);
-        let s0 = c.reg(SI);
-        c.xor(W, s0, s0);
         c.set_reg(SI, 0);
         c.set_reg(DI, 0);
         c.set_reg(AX, top);
-        let a = c.sub(W, top, d);
+        let a = pure::sub(W, top, d);
         c.set_reg(AX, a);
-        c.cmp(W, a, 0x1000);
         if last {
             c.set_reg(CX, a);
-            let n = c.shl1(W, a, 3);
+            let n = pure::shl1(W, a, 3);
             c.set_reg(CX, n);
             c.rep(0xa5);
             c.run(0xf1ed, 5)?;
@@ -1299,7 +1280,7 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let v = c.pop();
             c.set_sreg(DS, v);
             let t = c.word(0x39b9);
-            let t = c.sub(W, t, best);
+            let t = pure::sub(W, t, best);
             c.set_word(0x39b9, t);
             let v = c.pop();
             c.set_reg(CX, v);
@@ -1310,7 +1291,7 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xf1db, 3)?;
         let es = c.sreg(ES);
         c.set_reg(DX, es);
-        dst = c.add(W, es, 0x1000);
+        dst = pure::add(W, es, 0x1000);
         c.set_reg(DX, dst);
     }
 }

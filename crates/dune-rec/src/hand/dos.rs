@@ -1,5 +1,6 @@
 //! Services: EMS (INT 67h), the XMS driver, DOS file calls.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g};
 use pc::{
     Machine,
@@ -369,32 +370,28 @@ pub fn init_extended_memory_allocator(m: &mut Machine, start: u16) -> Result<(),
     let mut c = Ctx::new(m);
     let f = c.byte(0x2943);
     c.run(0xea7b, 2 + (f & 0x80 != 0) as u32)?;
-    c.test(B, f as u16, 0x80);
     if f & 0x80 != 0 {
         c.call(0xeea0, 0xea85)?;
     }
     let f = c.byte(0x2943);
     c.run(0xea85, 2 + (f & 0x48 != 0) as u32)?;
-    c.test(B, f as u16, 0x48);
     if f & 0x48 != 0 {
         c.call(0xed4c, 0xea8f)?;
     }
     let f = c.byte(0x2943);
     if f & 0xe8 == 0 {
         c.run(0xea8f, 3)?;
-        c.test(B, f as u16, 0xe8);
         return c.ret();
     }
     c.run(0xea8f, 11)?;
-    c.test(B, f as u16, 0xe8);
     c.set_reg(DI, 0xce6a);
     let n = c.word(0x39a9);
     c.set_reg(AX, 0xb9);
     c.set_byte(0xce70, 0xb9);
-    let n = c.add(W, n, 0xb9);
-    let n = c.add(W, n, 0xb9);
+    let n = pure::add(W, n, 0xb9);
+    let n = pure::add(W, n, 0xb9);
     c.push(n);
-    let b = c.shl1(W, n, 1);
+    let b = pure::shl1(W, n, 1);
     c.set_reg(CX, b);
     c.call(0xf0f6, 0xeaad)?;
     c.run(0xeaad, 4)?;
@@ -403,7 +400,6 @@ pub fn init_extended_memory_allocator(m: &mut Machine, start: u16) -> Result<(),
     c.set_sreg(ES, es);
     let n = c.pop();
     c.set_reg(CX, n);
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.rep(0xab);
     c.run(0xeab6, 1)?;

@@ -1,5 +1,6 @@
 //! Input: keyboard scancode, mouse buttons and position.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -35,13 +36,12 @@ pub fn mouse_stuff(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 11)?;
     let state = c.word(g::MOUSE_BUTTONS);
-    let buttons = c.and(B, state & 0xff, 3);
+    let buttons = pure::and(B, state & 0xff, 3);
     c.set_byte(g::MOUSE_BUTTONS_SEEN, buttons as u8);
-    let changed = c.xor(B, state >> 8, buttons);
-    let changed = c.add(B, changed, changed);
-    let changed = c.add(B, changed, changed);
-    let al = c.or(B, buttons, changed);
-    c.xor(B, changed, changed);
+    let changed = pure::xor(B, state >> 8, buttons);
+    let changed = pure::add(B, changed, changed);
+    let changed = pure::add(B, changed, changed);
+    let al = pure::or(B, buttons, changed);
     c.set_reg(AX, al);
     let (x, y) = (c.word(g::MOUSE_X), c.word(g::MOUSE_Y));
     c.set_reg(DX, x);

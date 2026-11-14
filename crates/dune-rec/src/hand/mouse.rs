@@ -73,7 +73,6 @@ pub fn define_mouse_range(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.reg(r);
         c.set_word(g::MOUSE_RANGE + 2 * i as u16, v);
     }
-    c.test(B, args as u16, 0x40);
     if none {
         return c.ret();
     }
@@ -298,18 +297,9 @@ pub fn redraw_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, image);
     c.set_word(g::MOUSE_CURSOR_IMAGE, image);
     c.set_reg(BP, before);
-    c.xor(B, 0, 0);
     c.set_reg8(r8::AL, shown);
     c.set_byte(g::CURSOR_SHOWN, 0);
-    c.or(B, shown as u16, shown as u16);
     if shown & 0x80 == 0 {
-        c.cmp(W, dx, cx0);
-        if dx == cx0 {
-            c.cmp(W, bx, cy0);
-            if bx == cy0 {
-                c.cmp(W, image, before);
-            }
-        }
     }
     if !unchanged {
         if shown & 0x80 == 0 {

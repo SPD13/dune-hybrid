@@ -49,6 +49,7 @@ mod map;
 mod mouse;
 mod panels;
 mod phases;
+mod pure;
 mod main_loop;
 mod math;
 mod records;
@@ -611,7 +612,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x88e1, text::text_8b11_unless_command, "loc_088e1"),
     (0x8a23, text::decimal_digits, "loc_08a23"),
     (0x96b5, dialogue::step_phrase_ab84, "loc_096b5"),
-    (0x96d8, dialogue::talk_at_speed, "loc_096d8"),
+    (0x96d8, dialogue::talk_as, "loc_096d8"),
     (0x970b, dialogue::say_phrase, "loc_0970b"),
     (0x98f5, dialogue::clear_text_state, "loc_098f5"),
     (0x9945, dialogue::add_task_99be, "loc_09945"),

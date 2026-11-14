@@ -1,5 +1,6 @@
 //! HNM video files: reading and closing.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -233,24 +234,19 @@ pub fn hnm_advance_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let limit = c.word(RING_END);
     let wrap = carry || end > limit;
     c.run(start, if carry { 2 } else { 4 } + if wrap { 3 } else { 0 } + 4)?;
-    let end = c.add(W, si, ax);
+    let end = pure::add(W, si, ax);
     c.set_reg(SI, end);
-    if !carry {
-        c.cmp(W, end, limit);
-    }
     if wrap {
-        let cx = c.reg(CX);
-        c.xor(W, cx, cx);
         let old = c.word(g::HNM_READ_PTR);
         c.set_word(g::HNM_READ_PTR, 0);
         c.set_reg(CX, old);
         c.set_word(g::HNM_DC18, old);
     }
-    let size = c.sub(W, ax, 2);
+    let size = pure::sub(W, ax, 2);
     c.set_reg(AX, size);
     c.set_word(g::HNM_DC20, size);
     let n = c.word(g::HNM_FRAME_2);
-    let n = c.inc(W, n);
+    let n = pure::inc(W, n);
     c.set_word(g::HNM_FRAME_2, n);
     c.ret()
 }
@@ -318,25 +314,21 @@ pub fn hnm_consume_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, si);
     let size = c.lods(W, ES);
     let read = c.word(g::HNM_READ_PTR_2);
-    let read = c.sub(W, read, size);
+    let read = pure::sub(W, read, size);
     c.set_word(g::HNM_READ_PTR_2, read);
-    let end = c.add(W, p, size);
+    let end = pure::add(W, p, size);
     c.set_reg(SI, end);
-    if !carry {
-        c.cmp(W, end, limit);
-    }
     let mut ax = size;
     if wrap {
-        let v = c.sub(W, size, 2);
+        let v = pure::sub(W, size, 2);
         c.set_word(g::HNM_DC10, v);
-        ax = c.xor(W, v, v);
+        ax = pure::xor(W, v, v);
     }
     let v = c.word(g::HNM_DC10);
-    let v = c.add(W, v, ax);
+    let v = pure::add(W, v, ax);
     c.set_word(g::HNM_DC10, v);
     let f = c.word(g::HNM_FRAME);
-    let mut f = c.inc(W, f);
-    c.cmp(W, f, last);
+    let mut f = pure::inc(W, f);
     if over {
         f = 1;
         c.set_word(g::HNM_FRAME_3, 0xffff);

@@ -1,6 +1,7 @@
 //! The map screen: its view rect ([`VIEW`]), the cursor's place on it,
 //! the mouse rect, marks and rects copied around.
 
+use super::pure;
 use super::{B, Ctx, W, entered, r8};
 use pc::{
     Machine,
@@ -112,7 +113,6 @@ pub fn after_8850(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let kinds = c.byte(0x46eb);
     let on = kinds & 0x40 != 0;
     c.run(0x5b13, if on { 5 } else { 3 })?;
-    c.test(B, kinds as u16, 0x40);
     if !on {
         return c.ret();
     }
@@ -415,8 +415,6 @@ pub fn start_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x5d50, 0x6518)?;
     c.run(0x6518, 10)?;
     c.set_byte(0x4736, 0x44);
-    let cx = c.reg(CX);
-    c.xor(W, cx, cx);
     let di = c.reg(DI);
     let cl = c.byte(di.wrapping_add(0x0b));
     c.set_reg(CX, cl as u16);
@@ -438,8 +436,6 @@ pub fn clear_4718(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 6)?;
     c.set_byte(0x4738, 0);
-    let ax = c.reg(AX);
-    c.xor(W, ax, ax);
     c.set_reg(AX, 0);
     for at in [0x4718, 0x471a, 0x471c] {
         c.set_word(at, 0);
@@ -462,7 +458,7 @@ pub fn add_point_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (dx, bx) = (c.reg(DX), c.reg(BX));
     c.set_word(di, dx);
     c.set_word(di.wrapping_add(2), bx);
-    let di = c.add(W, di, 6);
+    let di = pure::add(W, di, 6);
     c.set_reg(DI, di);
     c.set_word(di, 0x8000);
     c.ret()
@@ -527,7 +523,6 @@ pub fn redraw_8770(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let v = c.byte(0x1954);
     c.run(start, 3)?;
-    c.cmp(B, v as u16, 0);
     if v == 0 {
         return c.ret();
     }
@@ -563,7 +558,7 @@ pub fn note_47e0(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let al = c.reg8(r8::AL);
     c.set_byte(0x47e0, al);
     let v = c.byte(0x47de);
-    let v = c.and(B, v as u16, 0xef);
+    let v = pure::and(B, v as u16, 0xef);
     c.set_byte(0x47de, v as u8);
     c.ret()
 }
@@ -702,31 +697,28 @@ pub fn direction_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let neg = bl & 0x80 != 0;
     let along = bh >= 0x40;
     c.run(start, 6 + if along { 4 } else { 3 } + if neg { 3 } else { 0 } + 3)?;
-    let b = c.add(B, ax & 0xff, 0x20);
-    let h = c.and(B, b, 0x7f);
+    let b = pure::add(B, ax & 0xff, 0x20);
+    let h = pure::and(B, b, 0x7f);
     c.set_reg(BX, h << 8 | b);
-    c.cmp(B, h, 0x40);
     let mut al = ax as u8;
     if along {
         let mut dx = 0x20u16;
-        al = c.sub(B, al as u16, 0x40) as u8;
-        c.or(B, b, b);
+        al = pure::sub(B, al as u16, 0x40) as u8;
         if neg {
-            dx = c.neg(W, dx);
-            al = c.sub(B, al as u16, 0x80) as u8;
-            al = c.neg(B, al as u16) as u8;
+            dx = pure::neg(W, dx);
+            al = pure::sub(B, al as u16, 0x80) as u8;
+            al = pure::neg(B, al as u16) as u8;
         }
         c.set_reg(DX, dx);
         let v = al as i8 as u16;
         c.set_reg(AX, v);
         c.set_reg(BX, v);
     } else {
-        c.or(B, b, b);
         let mut bx = 0xffe0u16;
         if neg {
-            al = c.sub(B, al as u16, 0x80) as u8;
-            al = c.neg(B, al as u16) as u8;
-            bx = c.neg(W, bx);
+            al = pure::sub(B, al as u16, 0x80) as u8;
+            al = pure::neg(B, al as u16) as u8;
+            bx = pure::neg(W, bx);
         }
         c.set_reg(BX, bx);
         let v = al as i8 as u16;
@@ -818,39 +810,34 @@ pub fn nearest_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         c.set_reg(SI, si);
         let w = c.word(si);
-        c.cmp(W, w, 0xffff);
         if w == 0xffff {
             break;
         }
         let f = c.byte(si.wrapping_add(0x0a));
-        c.test(B, f as u16, 0x80);
         if f & 0x80 == 0 {
             let x = c.word(si.wrapping_add(2));
-            let mut cx = c.sub(W, x, dx);
+            let mut cx = pure::sub(W, x, dx);
             if cx & 0x8000 != 0 {
-                cx = c.neg(W, cx);
+                cx = pure::neg(W, cx);
             }
             let y = c.word(si.wrapping_add(4));
-            let mut ax = c.sub(W, y, bx);
+            let mut ax = pure::sub(W, y, bx);
             if ax & 0x8000 != 0 {
-                ax = c.neg(W, ax);
+                ax = pure::neg(W, ax);
             }
             c.set_reg(AX, ax);
             cx >>= 8;
-            c.xor(B, 0, 0);
-            c.cmp(B, cx, ax & 0xff);
             if (cx as u8) < ax as u8 {
                 cx = ax;
             }
             c.set_reg(CX, cx);
             let bp = c.reg(BP);
-            c.cmp(W, cx, bp);
             if cx < bp {
                 c.set_reg(BP, cx);
                 c.set_reg(DI, si);
             }
         }
-        si = c.add(W, si, 0x1c);
+        si = pure::add(W, si, 0x1c);
     }
     let _ = bp;
     let s0 = c.pop();
@@ -968,7 +955,6 @@ pub fn drop_point_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let k = c.byte(0x46eb);
     c.run(start, 3)?;
-    c.test(B, k as u16, 0x40);
     if k & 0x40 == 0 {
         return c.ret();
     }
@@ -976,14 +962,10 @@ pub fn drop_point_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let first = c.word(SPRITE_LIST) == POINT_4710;
     c.run(0x5904, 4 + (!first) as u32 + 3)?;
     let k = c.byte(0x46eb);
-    let k = c.and(B, k as u16, 0xbf);
+    let k = pure::and(B, k as u16, 0xbf);
     c.set_byte(0x46eb, k as u8);
-    let w = c.word(SPRITE_LIST);
-    c.cmp(W, w, POINT_4710);
     let di = if first { SPRITE_LIST } else { SPRITE_LIST + 2 };
     c.set_reg(DI, di);
-    let si = c.reg(SI);
-    c.xor(W, si, si);
     let old = c.word(di);
     c.set_word(di, 0);
     c.set_reg(SI, old);
@@ -1084,14 +1066,13 @@ pub fn draw_map_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5bc9, 3)?;
     let n = c.byte(0x28);
     c.set_reg8(r8::AL, n);
-    c.xor(B, 0, 0);
     c.set_reg(AX, n as u16);
     c.call(0xe2e3, 0x5bd1)?;
     c.run(0x5bd1, 7)?;
     let (x, y) = (c.word(SPRITE_LIST_MAP), c.word(SPRITE_LIST_MAP + 2));
-    let x = c.add(W, x, 0x0a);
+    let x = pure::add(W, x, 0x0a);
     c.set_reg(DX, x);
-    let y = c.add(W, y, 8);
+    let y = pure::add(W, y, 8);
     c.set_reg(BX, y);
     c.set_reg(CX, 0xf0);
     c.set_reg(AX, 0xe2);
@@ -1146,16 +1127,13 @@ pub fn location_icon(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let kind = c.byte(si.wrapping_add(8));
     let reached = [0x20u8, 0x21, 0x28, 0x30].iter().take_while(|&&t| kind >= t).count() as u32;
     c.run(start, 3 + zoom as u32 + 1 + 3 * reached + if reached < 4 { 3 } else { 1 })?;
-    let k = c.byte(0x46eb);
-    c.test(B, k as u16, 0x80);
     let mut ax = if zoom { 0x7a } else { 0x3a };
     c.set_reg8(r8::CL, kind);
-    for (i, t) in [0x20u16, 0x21, 0x28, 0x30].into_iter().enumerate() {
-        c.cmp(B, kind as u16, t);
+    for (i, _) in [0x20u16, 0x21, 0x28, 0x30].into_iter().enumerate() {
         if i as u32 >= reached {
             break;
         }
-        ax = c.inc(W, ax);
+        ax = pure::inc(W, ax);
     }
     c.set_reg(AX, ax);
     c.ret()
@@ -1354,19 +1332,16 @@ pub fn count_10_bytes(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, n + 1)?;
     c.set_reg(CX, 3);
     c.set_reg(SI, si);
-    c.xor(W, 0, 0);
     let mut dx = 0u16;
     for i in 0..3u16 {
         let w = c.lods(W, ES);
-        let w = c.and(W, w, 0x3030);
+        let w = pure::and(W, w, 0x3030);
         c.set_reg(AX, w);
-        c.cmp(B, w >> 8, 0x10);
         if w >> 8 == 0x10 {
-            dx = c.inc(W, dx);
+            dx = pure::inc(W, dx);
         }
-        c.cmp(B, w & 0xff, 0x10);
         if w & 0xff == 0x10 {
-            dx = c.inc(W, dx);
+            dx = pure::inc(W, dx);
         }
         c.set_reg(CX, 2 - i);
     }
@@ -1413,11 +1388,9 @@ pub fn redraw_map_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(0x46eb);
     if k & 0x40 == 0 {
         c.run(start, 3)?;
-        c.test(B, k as u16, 0x40);
         return c.ret();
     }
     c.run(start, 3)?;
-    c.test(B, k as u16, 0x40);
     c.call(0x58fa, 0x82c1)?;
     c.run(0x82c1, 1)?;
     c.call(code::SAVE_REGS, 0x82c4)?;
@@ -1626,21 +1599,20 @@ pub fn draw_map_dot(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for v in [bx, dx, si, di, bp, es] {
         c.push(v);
     }
-    c.cmp(B, ah as u16, 0x10);
     let mut ax = 0x78;
     if eq {
-        ax = c.inc(W, ax);
+        ax = pure::inc(W, ax);
     }
     c.set_reg(AX, ax);
-    let p = c.add(W, bp, di);
-    let d = c.and(W, di, 3);
-    let p = c.shr1(W, p, 2);
-    let p = c.and(W, p, 3);
+    let p = pure::add(W, bp, di);
+    let d = pure::and(W, di, 3);
+    let p = pure::shr1(W, p, 2);
+    let p = pure::and(W, p, 3);
     c.set_reg(BP, p);
     c.set_reg(DI, d);
-    let b = c.add(W, bx, d);
+    let b = pure::add(W, bx, d);
     c.set_reg(BX, b);
-    let y = c.add(W, dx, p);
+    let y = pure::add(W, dx, p);
     c.set_reg(DX, y);
     c.call(0xc343, 0x63e9)?;
     c.run(0x63e9, 7)?;
@@ -1677,7 +1649,7 @@ pub fn place_panel_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
         b = b.wrapping_sub(0x6d);
     }
     c.set_word_in(SS, 0x1942, b);
-    let ax = c.add(W, b, 0x28);
+    let ax = pure::add(W, b, 0x28);
     c.set_reg(AX, ax);
     c.set_word_in(SS, 0x1946, ax);
     c.ret()
@@ -1769,7 +1741,6 @@ pub fn dialogue_frame_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if w == 0 {
         c.run(0x9bb4, 6)?;
         c.push(si);
-        c.cmp(W, w, 0);
         c.set_reg(SI, 0x1bf0);
         c.set_reg(DI, 0xd834);
         c.call(0x5b99, 0x9bc5)?;
@@ -1779,23 +1750,19 @@ pub fn dialogue_frame_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x9bb4, 4)?;
         c.push(si);
-        c.cmp(W, w, 0);
         c.call(0x9c2d, 0x9bcf)?;
         let x = c.word(0xd834);
         if x == 0x13f {
             c.run(0x9bcf, 4)?;
-            c.cmp(W, x, 0x13f);
             let s = c.pop();
             c.set_reg(SI, s);
             return c.ret();
         }
         c.run(0x9bcf, 2)?;
-        c.cmp(W, x, 0x13f);
     }
     let b = c.word(0xd83a);
     c.run(0x9bd7, 4 + (b >= 0x98) as u32)?;
     c.set_reg(SI, 0xd834);
-    c.cmp(W, b, 0x98);
     if b >= 0x98 {
         c.set_word(0xd83a, 0x98);
     }
@@ -2415,30 +2382,20 @@ pub fn map_point_moved(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(0x4723);
     if k == 0 {
         c.run(start, 5)?;
-        c.xor(B, 0, 0);
         c.set_reg8(r8::AL, 0);
-        c.or(B, 0, 0);
         return c.ret();
     }
     c.run(start, 5)?;
-    c.xor(B, 0, 0);
     c.set_byte(0x4723, 0);
     c.set_reg8(r8::AL, k);
-    c.or(B, k as u16, k as u16);
     c.call(0x557b, 0x59ac)?;
     let (dx, bx) = (c.reg(DX), c.reg(BX));
     let (x, y) = (c.word(0x11c1), c.word(0x11c3));
     if dx == x && bx == y {
         c.run(0x59ac, 4)?;
-        c.cmp(W, dx, x);
-        c.cmp(W, bx, y);
         return gfx_call_3961(c.m, 0x5982);
     }
     c.run(0x59ac, if dx != x { 4 } else { 6 })?;
-    c.cmp(W, dx, x);
-    if dx == x {
-        c.cmp(W, bx, y);
-    }
     c.set_word(0xdbe0, 0);
     after_8850(c.m, 0x5b10)
 }
@@ -2544,10 +2501,10 @@ pub fn caption_count_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x605f, 6)?;
     c.set_reg8(r8::CL, 0x90);
     let bx = c.reg(BX);
-    let bx = c.add(W, bx, 0x0a);
+    let bx = pure::add(W, bx, 0x0a);
     c.set_reg(BX, bx);
     let x = c.word(0x1668);
-    let dx = c.add(W, x, 4);
+    let dx = pure::add(W, x, 4);
     c.set_reg(DX, dx);
     c.set_reg(AX, 0x6c);
     c.call(0xd194, 0x6071)?;
@@ -2558,15 +2515,14 @@ pub fn caption_count_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, al);
     c.set_reg(SI, 0x75);
     c.set_reg(BP, 0x6d);
-    c.test(B, f as u16, 0x20);
     if f & 0x20 == 0 {
         c.run(0x609d, 5)?;
         c.set_reg(AX, 0x6d);
         let bx = c.reg(BX);
-        let bx = c.add(W, bx, 7);
+        let bx = pure::add(W, bx, 7);
         c.set_reg(BX, bx);
         let x = c.word(0x1668);
-        let dx = c.add(W, x, 0x0a);
+        let dx = pure::add(W, x, 0x0a);
         c.set_reg(DX, dx);
         return super::text::font_draw_string_with_color_at_pos(c.m, 0xd194);
     }
@@ -2582,10 +2538,10 @@ pub fn caption_count_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let x = c.pop();
     c.set_reg(CX, x);
     let bx = c.reg(BX);
-    let bx = c.add(W, bx, 7);
+    let bx = pure::add(W, bx, 7);
     c.set_reg(BX, bx);
     let x = c.word(0x1668);
-    let dx = c.add(W, x, 4);
+    let dx = pure::add(W, x, 4);
     c.set_reg(DX, dx);
     let bp = c.word(0x166c);
     c.set_reg(BP, bp);
@@ -2615,14 +2571,13 @@ pub fn draw_scroll_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x4be5, 17)?;
     for (pos, step, out) in [(0x4878u16, 0x4874u16, 0x4870u16), (0x4876, 0x4872, 0x486e)] {
         let a = c.word(pos);
-        c.xor(B, 0, 0);
         let s = c.word(step);
-        let a = c.add(W, a & 0xff, s);
+        let a = pure::add(W, a & 0xff, s);
         c.set_word(pos, a);
         let v = (a >> 8) as u8 as i8 as i16 as u16;
         c.set_reg(AX, v);
         let o = c.word(out);
-        let o = c.add(W, o, v);
+        let o = pure::add(W, o, v);
         c.set_word(out, o);
     }
     let dx = c.word(0x486e);
@@ -2636,7 +2591,6 @@ pub fn draw_scroll_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x4c16, if b == 0xff { 5 } else { 4 })?;
     c.set_reg(SI, si);
     c.set_sreg(DS, seg);
-    c.cmp(B, b as u16, 0xff);
     if b == 0xff {
         let s = c.word_in(SS, 0x4868);
         c.set_reg(SI, s);
@@ -2647,10 +2601,7 @@ pub fn draw_scroll_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if al == 0 {
             c.run(0x4c29, 8)?;
             c.lods(B, DS);
-            let ah = c.reg8(r8::AH);
-            c.xor(B, ah as u16, ah as u16);
             c.set_reg8(r8::AH, 0);
-            c.or(B, 0, 0);
             let ss = c.sreg(SS);
             c.push(ss);
             let v = c.pop();
@@ -2661,11 +2612,7 @@ pub fn draw_scroll_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0x4c29, 8 + if al == 1 { 2 } else { 0 })?;
         c.lods(B, DS);
-        let ah = c.reg8(r8::AH);
-        c.xor(B, ah as u16, ah as u16);
         c.set_reg8(r8::AH, 0);
-        c.or(B, al as u16, al as u16);
-        c.cmp(B, al as u16, 1);
         if al == 1 {
             c.set_reg8(r8::AH, 1);
             c.lods(B, DS);
@@ -3397,7 +3344,7 @@ pub fn nearest_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, best);
     c.set_reg(DX, dx0);
     c.set_reg(BX, bx0);
-    let sp = c.add(W, low, 8);
+    let sp = pure::add(W, low, 8);
     c.set_reg(SP, sp);
     let s = c.pop();
     c.set_reg(SI, s);
@@ -4182,16 +4129,12 @@ pub fn drop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let old = c.word(0x46f8);
     if old == 0 {
         c.run(start, 5)?;
-        c.xor(W, 0, 0);
         c.set_reg(AX, 0);
-        c.or(W, 0, 0);
         return c.ret();
     }
     c.run(start, 5)?;
-    c.xor(W, 0, 0);
     c.set_word(0x46f8, 0);
     c.set_reg(AX, old);
-    c.or(W, old, old);
     c.call(0xd41b, 0x5f86)?;
     let bp = c.reg(BP);
     let b = c.byte_in(SS, bp);
@@ -4199,7 +4142,7 @@ pub fn drop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if b != 0xff {
         c.run(0x5f86, 4 + 1)?;
         c.set_reg(AX, a & 0xff00 | b as u16);
-        let v = c.inc(B, b as u16);
+        let v = pure::inc(B, b as u16);
         c.set_reg8(r8::AL, v as u8);
         c.call(0xd316, 0xd2e5)?;
         c.run(0xd2e5, 1)?;
@@ -4209,7 +4152,6 @@ pub fn drop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x5f86, 3 + 4)?;
     c.set_reg8(r8::AL, 0);
-    c.inc(B, 0xff);
     c.set_word(0x46f8, 0);
     c.set_byte(0x46f7, 0);
     c.set_reg(SI, 0x1668);
@@ -5066,19 +5008,14 @@ pub fn move_map_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(0x4723);
     if k == 0 {
         c.run(start, 3)?;
-        c.cmp(B, 0, 0);
         return c.ret();
     }
     let bx = c.reg(BX);
     if bx >= 0x98 {
         c.run(start, 4)?;
-        c.cmp(B, k as u16, 0);
-        c.cmp(W, bx, 0x98);
         return map_point_moved(c.m, 0x599f);
     }
     c.run(start, 5)?;
-    c.cmp(B, k as u16, 0);
-    c.cmp(W, bx, 0x98);
     c.call(0x5982, 0x59d1)?;
     let (di, cx) = (c.reg(DI), c.reg(CX));
     let (x, y) = (c.word(0x11c1), c.word(0x11c3));
@@ -5096,32 +5033,15 @@ pub fn move_map_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (d2, e2) = clamp(y, 0x18, cx);
     c.run(0x59d1, 6 + e1 + 6 + e2 + 2)?;
     c.set_reg(SI, 0x11c1);
-    let a = c.add(W, x, di);
-    let a = c.sub(W, a, 5);
-    c.cmp(W, a, 0x8c);
-    let mut a1 = a;
-    if e1 == 3 {
-        a1 = c.sub(W, a, 0x8c);
-    }
-    if e1 != 0 {
-        c.sub(W, di, a1);
-    }
     c.set_reg(DI, d1);
-    let nx = c.add(W, x, d1);
+    let nx = x.wrapping_add(d1);
     c.set_word(0x11c1, nx);
-    let a = c.add(W, y, cx);
-    let a = c.sub(W, a, 5);
-    c.cmp(W, a, 0x18);
-    let mut a2 = a;
-    if e2 == 3 {
-        a2 = c.sub(W, a, 0x18);
-    }
-    if e2 != 0 {
-        c.sub(W, cx, a2);
-    }
+    // AX: the y overshoot as the clamp computed it.
+    let a = y.wrapping_add(cx).wrapping_sub(5);
+    let overshoot = if e2 == 3 { a.wrapping_sub(0x18) } else { a };
     c.set_reg(CX, d2);
-    c.set_reg(AX, a2);
-    let ny = c.add(W, y, d2);
+    c.set_reg(AX, overshoot);
+    let ny = pure::add(W, y, d2);
     c.set_word(0x11c3, ny);
     gfx_call_3961(c.m, 0x5982)
 }
@@ -5598,34 +5518,30 @@ pub fn caption_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let wrap = !((d1 as i16) < 0xd2);
     c.run(start, 8 + lo as u32 + 4 + hi as u32 + 3 + wrap as u32 + 17)?;
     c.set_reg(BX, bx0);
-    c.xor(B, 0, 0);
     c.push(bx0);
     c.push(dx0);
-    let a = c.shr1(W, cx, 1);
+    let a = pure::shr1(W, cx, 1);
     c.set_reg(AX, a);
-    let b = c.sub(W, bx0, a);
-    c.cmp(W, b, 4);
-    let a = c.sub(W, 0x94, cx);
+    let b = pure::sub(W, bx0, a);
+    let a = pure::sub(W, 0x94, cx);
     c.set_reg(AX, a);
-    c.cmp(W, b2, a);
-    let mut d = c.add(W, dx0, 0x0f);
-    c.cmp(W, d, 0xd2);
+    let mut d = pure::add(W, dx0, 0x0f);
     if wrap {
-        d = c.sub(W, d, 0x82);
+        d = pure::sub(W, d, 0x82);
     }
     let _ = b;
     c.set_word(si, d);
     c.set_word(si.wrapping_add(2), b3);
-    let d2 = c.add(W, d, 0x6a);
+    let d2 = pure::add(W, d, 0x6a);
     c.set_word(si.wrapping_add(4), d2);
-    let b4 = c.add(W, b3, cx);
+    let b4 = pure::add(W, b3, cx);
     c.set_word(si.wrapping_add(6), b4);
     c.set_word(0xdbe0, si);
     let dx = c.pop();
     let bx = c.pop();
     c.set_reg(AX, 0x0a);
-    let dx = c.sub(W, dx, 0x0a);
-    let bx = c.sub(W, bx, 0x0a);
+    let dx = pure::sub(W, dx, 0x0a);
+    let bx = pure::sub(W, bx, 0x0a);
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
     c.set_reg(DI, 0xd816);
@@ -7241,14 +7157,11 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let w = c.word(si);
         if w == 0xffff {
             c.run(0x5290, 2)?;
-            c.cmp(W, w, 0xffff);
             break;
         }
         if si == di {
             c.run(0x5290, 6)?;
-            c.cmp(W, w, 0xffff);
-            c.cmp(W, si, di);
-            let s = c.add(W, si, 0x1c);
+            let s = pure::add(W, si, 0x1c);
             c.set_reg(SI, s);
             continue;
         }
@@ -7284,57 +7197,47 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
             + if skip { 0 } else { 2 + 2 * better as u32 + 2 + 2 * better2 as u32 }
             + 2;
         c.run(0x5290, n)?;
-        c.cmp(W, w, 0xffff);
-        c.cmp(W, si, di);
         c.set_reg(CX, px);
-        let mut cx = c.sub(W, px, dx);
+        let mut cx = pure::sub(W, px, dx);
         if xneg {
-            cx = c.neg(W, cx);
+            cx = pure::neg(W, cx);
         }
         c.set_reg(AX, py);
-        let mut ax = c.sub(W, py, bx);
+        let mut ax = pure::sub(W, py, bx);
         if yneg {
-            ax = c.neg(W, ax);
+            ax = pure::neg(W, ax);
         }
         c.set_reg(AX, ax);
         c.set_reg(CX, (cx & 0xff00) | (cx >> 8));
-        c.xor(B, cx >> 8, cx >> 8);
         c.set_reg(CX, cx >> 8);
-        c.cmp(B, cx >> 8, ax & 0xff);
         if take_y {
             c.set_reg(CX, ax);
         }
-        c.cmp(B, k8 as u16, 0x28);
         if k8 >= 0x28 {
             c.set_reg(BP, 0xe2);
-            c.test(B, f as u16, 0x80);
             if f & 0x80 == 0 {
                 c.set_reg(BP, 0xdc);
             }
         } else {
             c.set_reg(BP, 0xd0);
-            c.test(B, f as u16, 0x80);
             if f & 0x80 != 0 {
                 c.set_reg8(r8::AL, hour);
-                c.cmp(B, hour as u16, due as u16);
                 if !skip {
                     c.set_reg(BP, 0xd6);
                 }
             }
         }
         if !skip {
-            c.cmp(W, d, slot);
             if better {
                 c.set_word_in(SS, bp, d);
                 c.set_word_in(SS, bp.wrapping_add(2), si);
             }
-            c.cmp(W, d, best);
             if better2 {
                 c.set_word(0xca, d);
                 c.set_word(0xcc, si);
             }
         }
-        let s = c.add(W, si, 0x1c);
+        let s = pure::add(W, si, 0x1c);
         c.set_reg(SI, s);
     }
     c.run(0x52fb, 3)?;
@@ -7349,7 +7252,7 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x530e, 4)?;
     let ax = c.reg(AX);
-    let ax = c.add(W, ax, 0xda);
+    let ax = pure::add(W, ax, 0xda);
     c.set_reg(AX, ax);
     c.set_word(0x11fd, ax);
     c.set_reg(BP, 0xcc);

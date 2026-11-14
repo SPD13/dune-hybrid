@@ -23,8 +23,10 @@ pub mod troop_state {
     pub const MARKED: u8 = 0x10;
     /// Set when the troop is started (`start_troop`, 668Fh).
     pub const STARTED: u8 = 0x20;
-    /// The troop is at its own location (word 4), not one found for it.
-    pub const OWN_LOCATION: u8 = 0x40;
+    /// On its way: between places, at its own map position (words 6, 8),
+    /// going to word 4. Set when it sets out (`troop_set_out`), cleared
+    /// when it arrives (`update_troop_83bc`).
+    pub const TRAVELLING: u8 = 0x40;
     /// Not a troop of yours.
     pub const NOT_A_TROOP: u8 = 0x80;
 }

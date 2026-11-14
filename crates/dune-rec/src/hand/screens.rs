@@ -3,6 +3,7 @@
 //! starts with a byte: its kind in the low 4 bits (0Fh: none to leave),
 //! FFh at the end of the stack.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -127,10 +128,9 @@ pub fn ask_redraw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let v = c.word(0x35a6);
     c.run(start, if v == 0 { 4 } else { 3 })?;
-    c.cmp(W, v, 0);
     if v == 0 {
         let t = c.byte(TRANSITION);
-        let t = c.or(B, t as u16, 1);
+        let t = pure::or(B, t as u16, 1);
         c.set_byte(TRANSITION, t as u8);
     }
     c.ret()
@@ -153,18 +153,15 @@ pub fn item_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = list.wrapping_add(1);
     c.set_reg(SI, si);
     c.set_reg8(r8::CH, 0);
-    let ch = c.reg8(r8::CH);
-    c.xor(B, ch as u16, ch as u16);
-    c.cmp(B, cl as u16, special as u16);
     if !text {
         let n = c.lods(B, pc::cpu::DS) as u8;
         let skip = n as i8 as u16;
         c.set_reg(AX, skip);
         let si = c.reg(SI);
-        let si = c.add(W, si, skip);
-        let off = c.shl1(W, cl as u16, 2);
+        let si = pure::add(W, si, skip);
+        let off = pure::shl1(W, cl as u16, 2);
         c.set_reg(AX, off);
-        let si = c.add(W, si, off);
+        let si = pure::add(W, si, off);
         c.set_reg(SI, si);
         let (x, y) = (c.word(si), c.word(si.wrapping_add(2)));
         c.set_reg(AX, x);
@@ -173,11 +170,10 @@ pub fn item_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg(AX, 0xa0);
     c.set_reg(BX, 0xd423);
-    c.cmp(B, k as u8 as u16, 0);
     if k >= 0 {
         c.set_reg(BX, 0xd429);
         if k == 0 {
-            let z = c.xor(W, 0xd429, 0xd429);
+            let z = pure::xor(W, 0xd429, 0xd429);
             c.set_reg(BX, z);
         }
     }
@@ -255,9 +251,7 @@ pub fn highlight_at_origin(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (bx, dx) = (c.reg(BX), c.reg(pc::cpu::DX));
     c.push(bx);
     c.push(dx);
-    c.xor(W, bx, bx);
     c.set_reg(BX, 0);
-    c.xor(W, dx, dx);
     c.set_reg(pc::cpu::DX, 0);
     c.call(code::HIGHLIGHT_HOVERED_TEXT_ACTION_ITEM, 0xd657)?;
     c.run(0xd657, 3)?;
@@ -277,13 +271,12 @@ pub fn draw_element_pressed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(di.wrapping_add(9));
     let on = f & 0x20 != 0;
     c.run(start, if on { 9 } else { 3 })?;
-    c.test(B, f as u16, 0x20);
     if !on {
         return c.ret();
     }
     c.set_word(0xdc60, di);
     let v = c.word(di.wrapping_add(0x0a));
-    let v = c.inc(W, v);
+    let v = pure::inc(W, v);
     c.set_word(di.wrapping_add(0x0a), v);
     let si = c.reg(SI);
     c.push(si);
@@ -297,7 +290,7 @@ pub fn draw_element_pressed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.pop();
     c.set_reg(SI, si);
     let v = c.word(di.wrapping_add(0x0a));
-    let v = c.dec(W, v);
+    let v = pure::dec(W, v);
     c.set_word(di.wrapping_add(0x0a), v);
     c.ret()
 }
@@ -637,10 +630,8 @@ pub fn cursor_over_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(0x4728);
     if f & 0x80 != 0 {
         c.run(start, 3)?;
-        c.cmp(B, f as u16, 0);
     } else {
         c.run(start, 4)?;
-        c.cmp(B, f as u16, 0);
         c.set_reg(SI, 0x1492);
         c.call(0xc46f, 0x4b38)?;
         c.run(0x4b38, 1)?;
@@ -651,15 +642,13 @@ pub fn cursor_over_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let n = if y >= 0x98 { 4 } else if y >= 0x88 { 5 } else if after & 0x80 != 0 { 8 } else { 9 };
     c.run(0xdbca, n)?;
     c.set_reg(AX, y);
-    c.cmp(W, y, 0x98);
     if y >= 0x98 {
         return c.ret();
     }
-    c.cmp(W, y, 0x88);
     if y >= 0x88 {
         return super::mouse::call_restore_cursor(c.m, 0xdbb2);
     }
-    let v = c.dec(B, shown as u16) as u8;
+    let v = pure::dec(B, shown as u16) as u8;
     c.set_byte(g::CURSOR_SHOWN, v);
     if v & 0x80 == 0 {
         c.set_byte(g::CURSOR_SHOWN, 0x80);
@@ -908,19 +897,16 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let last = c.byte(0xdcf1);
     if ah == last {
         c.run(start, 6)?;
-        let a = c.shl1(W, t, 2);
+        let a = pure::shl1(W, t, 2);
         c.set_reg(AX, a);
-        c.cmp(B, a >> 8, last as u16);
         return c.ret();
     }
     let ax = c.word(0x2222);
     if ax == 0 {
         c.run(start, 10)?;
-        let a = c.shl1(W, t, 2);
-        c.cmp(B, a >> 8, last as u16);
+        let _ = pure::shl1(W, t, 2);
         c.set_byte(0xdcf1, ah);
         c.set_reg(AX, 0);
-        c.or(W, 0, 0);
         return c.ret();
     }
     let (al, ah2) = (ax as u8, (ax >> 8) as u8);
@@ -932,27 +918,21 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.word(0x1afe);
     let n = 9 + 4 + if a1 { 3 + odd1 as u32 } else { 0 } + 2 + if a2 { 3 + odd2 as u32 } else { 0 } + 4 + 2;
     c.run(start, n)?;
-    let a = c.shl1(W, t, 2);
-    c.cmp(B, a >> 8, last as u16);
+    let _ = pure::shl1(W, t, 2);
     c.set_byte(0xdcf1, ah);
-    c.or(W, ax, ax);
     c.set_reg(BX, g);
     c.push(g);
     let mut l = al;
     let mut h = ah2;
     let mut bx = g;
-    c.or(B, al as u16, al as u16);
     if a1 {
-        l = c.dec(B, al as u16) as u8;
-        c.test(B, l as u16, 1);
+        l = pure::dec(B, al as u16) as u8;
         if odd1 {
             bx = bx & 0xff00 | 0xff;
         }
     }
-    c.or(B, ah2 as u16, ah2 as u16);
     if a2 {
-        h = c.dec(B, ah2 as u16) as u8;
-        c.test(B, h as u16, 1);
+        h = pure::dec(B, ah2 as u16) as u8;
         if odd2 {
             bx = bx & 0x00ff | 0xff00;
         }
@@ -962,7 +942,6 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     c.set_word(0x2222, ax2);
     c.set_word(0x1152, bx);
-    c.cmp(W, k, 0);
     if k == 0 {
         let r = c.word(0x2784);
         c.push(r);
@@ -996,10 +975,10 @@ pub fn open_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0xdd06);
     c.set_word(0xdd06, dx);
     c.set_word(0xdd08, bx);
-    let d = c.inc(W, dx);
-    let d = c.inc(W, d);
+    let d = pure::inc(W, dx);
+    let d = pure::inc(W, d);
     c.set_reg(DX, d);
-    let b = c.inc(W, bx);
+    let b = pure::inc(W, bx);
     c.set_reg(BX, b);
     c.set_word(0xdd0a, d);
     c.set_word(0xdd0c, b);
@@ -1030,14 +1009,11 @@ pub fn open_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 dx = if k == 0 { 0xfffc } else { 4 };
             }
             let p = 0xdd06 + 2 * k;
-            let q = 0x2440 + 2 * k;
-            let a = c.add(W, v[k as usize], dx);
-            c.cmp(W, a, b[k as usize]);
+            let _ = 0x2440 + 2 * k;
+            let a = pure::add(W, v[k as usize], dx);
             let clamp = if k < 2 { a < b[k as usize] } else { a >= b[k as usize] };
             ax = if clamp { b[k as usize] } else { a };
             c.set_word(p, ax);
-            c.add(W, q, 2);
-            c.add(W, p, 2);
             dx = c.m.cpu.shift(7, W, dx as u32, 1) as u16;
             c.set_reg(CX, 1 - (k & 1));
         }
@@ -1069,7 +1045,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
     let v = c.byte(0x4751);
-    let v = c.inc(B, v as u16);
+    let v = pure::inc(B, v as u16);
     c.set_byte(0x4751, v as u8);
     let fb = c.word(0xdbda);
     c.push(fb);
@@ -1087,13 +1063,9 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (c2, c3, c0, c1) = (r[2] >= b[2], r[3] >= b[3], r[0] < b[0], r[1] < b[1]);
     c.run(0x44c2, 7 + c2 as u32 + 2 + c3 as u32 + 2 + c0 as u32 + 2 + c1 as u32 + 1)?;
     c.set_reg(SI, 0xd834);
-    c.cmp(W, r[2], b[2]);
     let bp = if c2 { b[2] } else { r[2] };
-    c.cmp(W, r[3], b[3]);
     let ax = if c3 { b[3] } else { r[3] };
-    c.cmp(W, r[0], b[0]);
     let dx = if c0 { b[0] } else { r[0] };
-    c.cmp(W, r[1], b[1]);
     let bx = if c1 { b[1] } else { r[1] };
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
@@ -1105,7 +1077,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x44f1, 3 + if odd { 4 } else { 0 })?;
     let bx = c.reg(BX);
     c.set_reg(BX, bx & 0xff00 | k as u16);
-    let bl = c.shr1(B, k as u16, 1);
+    let bl = pure::shr1(B, k as u16, 1);
     c.set_reg(BX, bx & 0xff00 | bl);
     if odd {
         c.set_reg(AX, 0x4c);

@@ -1,6 +1,7 @@
 //! Saved games (their RLE, restoring the map's bits and the game's
 //! state), particles, numbers in strings, reading resources.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -697,10 +698,8 @@ pub fn particles_spawn_variant(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let res = c.byte_in(SS, bp);
     let more = c.byte_in(SS, bp.wrapping_add(3));
     c.run(start, if more == 0 { 4 } else { 6 })?;
-    let ah = c.reg8(r8::AH) as u16;
-    c.xor(B, ah, ah);
+    let _ = c.reg8(r8::AH) as u16;
     c.set_reg(AX, res as u16);
-    c.cmp(B, more as u16, 0);
     if more == 0 {
         return particles_spawn_particle(c.m, 0xc60b);
     }
@@ -728,17 +727,15 @@ pub fn particles_spawn_variant(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let mut bx = 0xffffu16;
     let mut p = bp;
     loop {
-        bx = c.inc(W, bx);
-        p = c.add(W, p, 3);
+        bx = pure::inc(W, bx);
+        p = pure::add(W, p, 3);
         let v = c.byte(p);
-        c.cmp(B, v as u16, 0);
         if v == 0 {
             break;
         }
     }
     c.set_reg(SI, p);
     c.set_reg(BX, bx);
-    c.or(W, bx, bx);
     if count == 0 {
         let si = c.pop();
         c.set_reg(SI, si);
@@ -748,16 +745,16 @@ pub fn particles_spawn_variant(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.run(0xc5fa, 8)?;
     let ax = c.reg(AX);
     c.set_reg(BX, ax);
-    let a2 = c.shl1(W, ax, 1);
-    let a3 = c.add(W, a2, ax);
+    let a2 = pure::shl1(W, ax, 1);
+    let a3 = pure::add(W, a2, ax);
     c.set_reg(AX, a3);
     let bp = c.reg(BP);
-    let bp = c.add(W, bp, a3);
+    let bp = pure::add(W, bp, a3);
     c.set_reg(BP, bp);
     let di = c.reg(DI);
     c.set_word(di.wrapping_add(0x0d), bp);
     let f = c.byte(di.wrapping_add(0x0c));
-    let f = c.or(B, f as u16, 1);
+    let f = pure::or(B, f as u16, 1);
     c.set_byte(di.wrapping_add(0x0c), f as u8);
     let si = c.pop();
     c.set_reg(SI, si);
@@ -906,12 +903,10 @@ pub fn compress_sav(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::DL, 0xf7);
     let di0 = c.reg(DI);
     c.push(di0);
-    let d = c.add(W, di0, 4);
+    let d = pure::add(W, di0, 4);
     c.set_reg(DI, d);
     loop {
         c.run(0xb4f0, 1)?;
-        let dh0 = c.reg8(r8::DH);
-        c.xor(B, dh0 as u16, dh0 as u16);
         let mut dh = 0u8;
         c.set_reg8(r8::DH, 0);
         let mut al;
@@ -926,21 +921,18 @@ pub fn compress_sav(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xb4f2, if ne { 4 } else if full { 6 } else { 9 + end as u32 })?;
             c.lods(B, DS);
             al = a;
-            dh = c.inc(B, dh as u16) as u8;
+            dh = pure::inc(B, dh as u16) as u8;
             c.set_reg8(r8::DH, dh);
-            c.cmp(B, a as u16, nx as u16);
             if ne {
                 break;
             }
-            c.cmp(B, dh as u16, 0xff);
             if full {
                 break;
             }
-            let cx = c.dec(W, cx);
+            let cx = pure::dec(W, cx);
             c.set_reg(CX, cx);
-            c.or(W, cx, cx);
             if cx == 0 {
-                let cx = c.inc(W, 0);
+                let cx = pure::inc(W, 0);
                 c.set_reg(CX, cx);
                 break;
             }
@@ -951,13 +943,6 @@ pub fn compress_sav(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let body = if esc { 6 } else if dh == 2 { 2 } else { 0 };
         let left = c.reg(CX).wrapping_sub(1);
         c.run(0xb504, cmps + body + 2 + if left == 0 { 8 } else { 0 })?;
-        c.cmp(B, al as u16, dl as u16);
-        if al != dl {
-            c.cmp(B, dh as u16, 1);
-            if dh != 1 {
-                c.cmp(B, dh as u16, 2);
-            }
-        }
         if esc {
             c.set_reg8(r8::AH, al);
             c.set_reg8(r8::AL, dl);
@@ -976,12 +961,11 @@ pub fn compress_sav(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let di = c.reg(DI);
     c.set_reg(CX, di);
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.stos(W);
     let d0 = c.pop();
     c.set_reg(DI, d0);
-    let n = c.sub(W, di, d0);
+    let n = pure::sub(W, di, d0);
     c.set_reg(CX, n);
     let dx = c.reg(DX);
     c.set_word_in(ES, d0, dx);

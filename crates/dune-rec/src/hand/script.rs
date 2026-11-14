@@ -6,6 +6,7 @@
 //! - 80h: a byte constant;
 //! - above 80h: a word constant.
 
+use super::pure;
 use super::{B, Ctx, W, entered, r8};
 use pc::{
     Machine,
@@ -21,7 +22,6 @@ pub fn read_condit_operand_into_ax(m: &mut Machine, start: u16) -> Result<(), Ba
     let mut c = Ctx::new(m);
     c.check(start, 13)?;
     let kind = c.lods(B, ES) as u8;
-    c.cmp(B, kind as u16, 0x80);
     if kind < 0x80 {
         let bx = c.reg(BX);
         c.push(bx);
@@ -29,12 +29,10 @@ pub fn read_condit_operand_into_ax(m: &mut Machine, start: u16) -> Result<(), Ba
         let var = c.byte_in(ES, si) as u16;
         c.set_reg(SI, si.wrapping_add(1));
         c.set_reg(BX, var);
-        c.xor(B, 0, 0); // xor bh, bh
-        c.cmp(B, kind as u16, 1);
         if kind == 1 {
             let v = c.byte(var);
             c.set_reg8(r8::AL, v);
-            let zero = c.xor(B, 0, 0);
+            let zero = pure::xor(B, 0, 0);
             c.set_reg8(r8::AH, zero as u8);
             c.count(13);
         } else {
@@ -46,7 +44,7 @@ pub fn read_condit_operand_into_ax(m: &mut Machine, start: u16) -> Result<(), Ba
         c.set_reg(BX, bx);
     } else if kind == 0x80 {
         c.lods(B, ES);
-        let zero = c.xor(B, 0, 0);
+        let zero = pure::xor(B, 0, 0);
         c.set_reg8(r8::AH, zero as u8);
         c.count(7);
     } else {

@@ -234,6 +234,10 @@ for a, t in insn.items():
         tg = target(t)
         if tg in entry_set and owner(a) not in (None, tg):
             jumped.setdefault(tg, set()).add(owner(a))
+        elif tg is not None and owner(tg) not in (None, owner(a)) and owner(a) is not None:
+            # Into the middle of another routine: its RETs then return to
+            # the jumping routine's callers too.
+            jumped.setdefault(owner(tg), set()).add(owner(a))
 for e in entries:
     i = bisect.bisect_left(addrs, e)
     if i > 0:
@@ -262,12 +266,26 @@ while changed:
 
 names = dict((int(e, 16), n) for e, n in re.findall(r'\(0x([0-9a-f]+), "([^"]+)"\)', src))
 show_all = '--all' in sys.argv
+if '--at' in sys.argv:
+    # The flags read from each address given (hex) before being set,
+    # following on into the routine's callers at its RET: where a port can
+    # stop inside a routine (`c.run(at, ..)`), the original goes on from
+    # there with the port's flags.
+    for x in sys.argv[sys.argv.index('--at') + 1:]:
+        a = int(x, 16)
+        fl = ''.join(f for f in 'CZSOPA' if f in walk(a, True)) if a in insn else '?'
+        print(f'{a:04x} {fl or "-"}')
+    sys.exit(0)
 if '--in' in sys.argv:
     # What each routine reads of the flags it is called or jumped to with:
     # a port must set these before `c.call`/`c.jump` to it.
+    # Then the flags that can reach one of its RETs as it was entered
+    # with them: a port that jumps to it (or returns right after calling
+    # it) must have those exact too, where its own callers read them.
     for e in entries:
         fl = ''.join(f for f in 'CZSOPA' if f in IN.get(e, ALL))
-        print(f'{e:04x} {fl or "-"}')
+        ps = ''.join(f for f in 'CZSOPA' if f in PASS.get(e, ALL))
+        print(f'{e:04x} {fl or "-"} {ps or "-"}')
     sys.exit(0)
 used = 0
 for e in entries:

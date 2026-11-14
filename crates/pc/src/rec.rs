@@ -1532,10 +1532,34 @@ fn compare(c1: &Cpu, m1: &[u8], c2: &Cpu, m2: &[u8]) -> Option<String> {
     if let Some(d) = compare_cpu(c1, c2) {
         return Some(d);
     }
+    let dead = dead_stack(c1);
     if m1 != m2 {
-        let i = m1.iter().zip(m2).position(|(a, b)| a != b).unwrap();
-        return Some(format!("mem {:05x}: {:02x} vs {:02x}", i, m1[i], m2[i]));
+        let i = m1.iter().zip(m2).enumerate().position(|(i, (a, b))| a != b && !dead.contains(&i));
+        if let Some(i) = i {
+            return Some(format!("mem {:05x}: {:02x} vs {:02x}", i, m1[i], m2[i]));
+        }
     }
     None
+}
+
+/// The game's stack: set to 3CBCh at the start (F087h); the data the code
+/// addresses ends at 39B9h.
+const STACK_LOW: u16 = 0x39c0;
+const STACK_TOP: u16 = 0x3cbc;
+
+/// The dead part of the game's stack (linear addresses): below SP, down
+/// to [`STACK_LOW`]; empty when SP is not in the stack. Its contents are
+/// not state: an interrupt taken where a readable port stops pushes that
+/// port's flags there (they are not kept exact where no one reads them),
+/// and nothing reads below SP. Any effect such a word could have would
+/// show in the live state. Left out of the shadow compare and the state
+/// hash.
+pub fn dead_stack(cpu: &Cpu) -> std::ops::Range<usize> {
+    let sp = cpu.regs[SP];
+    if !(STACK_LOW..=STACK_TOP).contains(&sp) {
+        return 0..0;
+    }
+    let ss = (cpu.sregs[SS] as usize) << 4;
+    ss + STACK_LOW as usize..ss + sp as usize
 }
 
