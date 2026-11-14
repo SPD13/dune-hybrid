@@ -48,18 +48,21 @@ reached in real play). For each:
    routine, the flags any caller reads after it returns. It follows the
    code after every call site (direct ones, and the indirect calls and
    jumps the coverage runs saw), into callees (what they read on entry,
-   and which flags reach their RET unwritten), and through tail jumps,
-   including jumps into the middle of another routine (whose RETs then
-   return to the jumper's callers).
+   and which flags reach their RET unwritten), and through tail jumps.
+   A jump into the middle of another routine's code (one whose code
+   reaches there from its entry) makes the RETs in that code return to
+   the jumper's callers too: that counts for what is read after the calls
+   made in the shared code, not for the routine's own mask (its port runs
+   only from its entry). `--why ADDR` shows where a mask comes from.
    Whatever it cannot follow counts as read: code never run (not in the
    generated code), an indirect target no run took. INT and far calls
    (BIOS, DOS, the drivers) pass the flags through. The current result:
 
    | Routines | Flags their callers read |
    |---|---|
-   | 699 | none: the port can drop every flag-exact helper on its result |
-   | 66 | some (mostly CF or ZF alone) |
-   | 424 | all, or unknown |
+   | 757 | none: the port can drop every flag-exact helper on its result |
+   | 61 | some (mostly CF or ZF alone) |
+   | 371 | all, or unknown |
 
    `flags_used.py --rust` writes the table
    (`crates/dune-rec/src/hand/flags_read.rs`); the shadow check takes

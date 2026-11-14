@@ -2000,18 +2000,18 @@ pub fn draw_location_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, (ch as u16) << 8 | 0x9a);
     let dx = c.word(0x1668);
     let bx = c.word(0x166a);
-    let dx = c.add(W, dx, 0x0c);
+    let dx = pure::add(W, dx, 0x0c);
     c.set_reg(DX, dx);
-    let bx = c.add(W, bx, 4);
+    let bx = pure::add(W, bx, 4);
     c.set_reg(BX, bx);
     c.call(0x629d, 0x6034)?;
     c.run(0x6034, 4)?;
     c.set_reg8(r8::CL, 0x96);
     let dx = c.reg(DX);
-    let dx = c.sub(W, dx, 8);
+    let dx = pure::sub(W, dx, 8);
     c.set_reg(DX, dx);
     let bx = c.reg(BX);
-    let bx = c.add(W, bx, 9);
+    let bx = pure::add(W, bx, 9);
     c.set_reg(BX, bx);
     c.call(0x62a6, 0x603f)?;
     c.run(0x603f, 1)?;
@@ -2019,18 +2019,12 @@ pub fn draw_location_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let al = c.reg8(r8::AL);
     if al == 2 {
         c.run(0x6042, 3)?;
-        c.cmp(B, 2, 2);
         return super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c);
     }
     let f = c.byte(0x0a);
     let pre = f & 0x20 != 0 && al == 0;
     let n = 2 + 2 + if f & 0x20 != 0 { 2 } else { 0 } + if pre { 2 } else { 0 } + if pre { 0 } else { 1 };
     c.run(0x6042, n)?;
-    c.cmp(B, al as u16, 2);
-    c.test(B, f as u16, 0x20);
-    if f & 0x20 != 0 {
-        c.or(B, al as u16, al as u16);
-    }
     if pre {
         let ax = c.reg(AX);
         c.push(ax);
@@ -4758,7 +4752,7 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x1ac5, 0x7451)?;
     c.run(0x7451, 4)?;
     let al = c.reg8(r8::AL);
-    let a = c.add(B, al as u16, 2);
+    let a = pure::add(B, al as u16, 2);
     let di = c.reg(DI);
     c.set_byte(di.wrapping_add(0x0b), a as u8);
     c.set_reg8(r8::AL, 4);
@@ -4769,7 +4763,7 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7460, 9)?;
     let di = c.reg(DI);
     let f = c.byte(di.wrapping_add(0x0a));
-    let f = c.or(B, f as u16, 8);
+    let f = pure::or(B, f as u16, 8);
     c.set_byte(di.wrapping_add(0x0a), f as u8);
     let cx = c.reg(CX);
     c.push(cx);
@@ -4788,22 +4782,18 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let seed = c.word(0);
     let z = seed & 3 == 0;
     c.run(0x747c, 3 + z as u32)?;
-    c.xor(W, 0, 0);
-    c.test(W, seed, 3);
     let mut dx = 0u16;
     if z {
-        dx = c.inc(W, 0);
+        dx = pure::inc(W, 0);
     }
     c.set_reg(DX, dx);
     loop {
         c.run(0x7487, 3)?;
-        c.xor(W, 0, 0);
         c.set_reg(CX, 0);
         c.set_reg(BP, 0x762a);
         c.call(0x6603, 0x748f)?;
         let (cx, dx) = (c.reg(CX), c.reg(DX));
         c.run(0x748f, 2 + if cx > dx { 0 } else { 3 })?;
-        c.cmp(W, cx, dx);
         if cx <= dx {
             break;
         }
@@ -4815,14 +4805,12 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let dl = c.reg8(r8::DL);
     if dl > 1 {
         c.run(0x7498, 2 + 3)?;
-        c.cmp(B, dl as u16, 1);
     } else {
         c.run(0x7498, 7)?;
-        c.cmp(B, dl as u16, 1);
         c.set_byte(0xc2, 1);
         for p in [0xff7u16, 0x1007] {
             let v = c.byte(p);
-            let v = c.and(B, v as u16, 0xfd);
+            let v = pure::and(B, v as u16, 0xfd);
             c.set_byte(p, v as u8);
         }
         let d = c.pop();

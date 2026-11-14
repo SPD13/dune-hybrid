@@ -116,19 +116,16 @@ pub fn evaluate_operator_bx_on_dx_and_ax(m: &mut Machine, start: u16) -> Result<
         _ => None,
     };
     c.run(start, if compared.is_some() { 6 } else { 4 })?;
-    let bx = c.reg(BX);
-    c.and(W, bx, 0x1f);
     c.set_reg(BX, index);
     let result = match (op, compared) {
         (_, Some(t)) => {
-            c.cmp(W, dx, ax);
-            if t { 0xffff } else { c.xor(W, dx, dx) }
+            if t { 0xffff } else { pure::xor(W, dx, dx) }
         }
-        (Operator::Add, _) => c.add(W, dx, ax),
-        (Operator::Sub, _) => c.sub(W, dx, ax),
-        (Operator::And, _) => c.and(W, dx, ax),
-        (Operator::Or, _) => c.or(W, dx, ax),
-        _ => c.xor(W, dx, dx),
+        (Operator::Add, _) => pure::add(W, dx, ax),
+        (Operator::Sub, _) => pure::sub(W, dx, ax),
+        (Operator::And, _) => pure::and(W, dx, ax),
+        (Operator::Or, _) => pure::or(W, dx, ax),
+        _ => pure::xor(W, dx, dx),
     };
     c.set_reg(DX, result);
     c.ret()

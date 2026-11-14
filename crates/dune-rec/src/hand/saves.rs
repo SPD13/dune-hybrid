@@ -187,7 +187,6 @@ pub fn particles_remove_particle(m: &mut Machine, start: u16) -> Result<(), Bail
     c.run(0xc58d, n)?;
     c.set_reg(SI, g::PARTICLES);
     c.lods(W, DS);
-    c.or(W, count, count);
     if count == 0 {
         return c.ret();
     }
@@ -195,14 +194,13 @@ pub fn particles_remove_particle(m: &mut Machine, start: u16) -> Result<(), Bail
     c.mul8(PARTICLE_SIZE);
     let si = c.reg(SI);
     let ax = c.reg(AX);
-    let end = c.add(W, si, ax);
+    let end = pure::add(W, si, ax);
     c.set_reg(SI, end);
-    c.cmp(W, di, end);
     if di >= end {
         return c.ret();
     }
     let f = c.byte(di + 0x0c);
-    let f = c.or(B, f as u16, 0x80) as u8;
+    let f = pure::or(B, f as u16, 0x80) as u8;
     c.set_byte(di + 0x0c, f);
     c.push(end);
     c.push(di);
@@ -218,7 +216,7 @@ pub fn particles_remove_particle(m: &mut Machine, start: u16) -> Result<(), Bail
     c.push(di);
     let from = di.wrapping_add(PARTICLE_SIZE as u16);
     c.set_reg(SI, from);
-    let n = c.sub(W, end, from);
+    let n = pure::sub(W, end, from);
     c.set_reg(CX, n);
     if n != 0 {
         let ds = c.sreg(DS);
@@ -230,7 +228,7 @@ pub fn particles_remove_particle(m: &mut Machine, start: u16) -> Result<(), Bail
     }
     c.run(0xc5b8, 4)?;
     let count = c.word(g::PARTICLES);
-    let count = c.dec(W, count);
+    let count = pure::dec(W, count);
     c.set_word(g::PARTICLES, count);
     let di = c.pop();
     c.set_reg(DI, di);
@@ -242,9 +240,8 @@ pub fn particles_remove_particle(m: &mut Machine, start: u16) -> Result<(), Bail
         let below = p < di;
         c.run(0xc5c3, 3 + if below { 0 } else { 1 } + 1 + if left == 0 { 1 } else { 0 })?;
         c.lods(W, DS);
-        c.cmp(W, p, di);
         if !below {
-            let v = c.sub(W, p, PARTICLE_SIZE as u16);
+            let v = pure::sub(W, p, PARTICLE_SIZE as u16);
             c.set_word(si, v);
         }
         c.set_reg(CX, left);
@@ -775,7 +772,7 @@ pub fn particles_move_particle(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let si = c.reg(DI);
     c.set_reg(SI, si);
     let sp = c.reg(SP);
-    let sp = c.sub(W, sp, 8);
+    let sp = pure::sub(W, sp, 8);
     c.set_reg(SP, sp);
     c.set_reg(DI, sp);
     let ds = c.sreg(DS);
@@ -786,22 +783,20 @@ pub fn particles_move_particle(m: &mut Machine, start: u16) -> Result<(), Bail> 
         c.movs(W);
     }
     let s = c.reg(SI);
-    let s = c.sub(W, s, 8);
+    let s = pure::sub(W, s, 8);
     c.set_reg(SI, s);
     let d = c.reg(DI);
-    let d = c.sub(W, d, 8);
+    let d = pure::sub(W, d, 8);
     c.set_reg(DI, d);
     for (k, v) in [(0u16, dx), (2, bx), (4, dx), (6, bx)] {
         let w = c.word(s.wrapping_add(k));
-        let w = c.add(W, w, v);
+        let w = pure::add(W, w, v);
         c.set_word(s.wrapping_add(k), w);
     }
-    c.or(W, dx, dx);
     let k = if dx & 0x8000 != 0 { 0 } else { 4 };
     let v = c.word(s.wrapping_add(k));
     c.set_reg(AX, v);
     c.set_word(d.wrapping_add(k), v);
-    c.or(W, bx, bx);
     let k = if bx & 0x8000 != 0 { 2 } else { 6 };
     let v = c.word(s.wrapping_add(k));
     c.set_reg(AX, v);
@@ -810,7 +805,7 @@ pub fn particles_move_particle(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.call(code::PARTICLES_UPDATE_DIRTY_RECT, 0xc6a9)?;
     c.run(0xc6a9, 2)?;
     let sp = c.reg(SP);
-    let sp = c.add(W, sp, 8);
+    let sp = pure::add(W, sp, 8);
     c.set_reg(SP, sp);
     c.ret()
 }

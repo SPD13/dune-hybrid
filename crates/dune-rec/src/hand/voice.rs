@@ -411,11 +411,10 @@ pub fn hex_digit(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let al = c.reg8(r8::AL);
     let d = (al & 0x0f) + 0x30;
     c.run(start, if d <= 0x39 { 5 } else { 6 })?;
-    let v = c.and(B, al as u16, 0x0f);
-    let mut v = c.add(B, v, 0x30);
-    c.cmp(B, v, 0x39);
+    let v = pure::and(B, al as u16, 0x0f);
+    let mut v = pure::add(B, v, 0x30);
     if v > 0x39 {
-        v = c.add(B, v, 7);
+        v = pure::add(B, v, 7);
     }
     c.set_reg8(r8::AL, v as u8);
     c.ret()
@@ -470,7 +469,6 @@ pub fn play_requested_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, if al == 0 { 5 } else { 4 })?;
     c.set_reg8(r8::AL, al);
     c.set_byte(g::CURRENT_MUSIC, 0);
-    c.or(B, al as u16, al as u16);
     if al == 0 {
         return c.ret();
     }

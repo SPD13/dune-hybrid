@@ -300,14 +300,13 @@ pub fn list_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 11)?;
     let dx = c.reg(DX);
-    c.xor(B, 0, 0);
-    let i = c.shl1(W, dx >> 8, 1);
+    let i = pure::shl1(W, dx >> 8, 1);
     let list = c.word(0x13c4u16.wrapping_add(i));
-    let k = c.dec(B, dx & 0xff);
+    let k = pure::dec(B, dx & 0xff);
     c.set_reg(AX, 5 << 8 | k);
     c.mul8(5);
     let ax = c.reg(AX);
-    let si = c.add(W, list, ax);
+    let si = pure::add(W, list, ax);
     c.set_reg(SI, si);
     c.ret()
 }

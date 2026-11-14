@@ -208,28 +208,22 @@ pub fn sub_1ae7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bp = c.reg(BP);
     if bp != 0x1f7e {
         c.run(0x1aea, 3)?;
-        c.cmp(W, bp, 0x1f7e);
         return c.ret();
     }
     let now = c.word(g::TIMER);
     let seen = c.word(g::HEAD_ZOOM_SEEN);
     if now == seen {
         c.run(0x1aea, 6)?;
-        c.cmp(W, bp, 0x1f7e);
         c.set_reg(AX, now);
-        c.cmp(W, now, seen);
         return c.ret();
     }
     let since = c.word(g::HEAD_ZOOM_START);
     let every = c.word(g::TIME_BETWEEN_FACE_ZOOMS);
     let due = now.wrapping_sub(since) >= every;
     c.run(0x1aea, 10)?; // the same count either way: ret, or call
-    c.cmp(W, bp, 0x1f7e);
-    c.cmp(W, now, seen);
     c.set_word(g::HEAD_ZOOM_SEEN, now);
-    let passed = c.sub(W, now, since);
+    let passed = pure::sub(W, now, since);
     c.set_reg(AX, passed);
-    c.cmp(W, passed, every);
     if !due {
         return c.ret();
     }

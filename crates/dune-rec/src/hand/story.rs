@@ -3165,7 +3165,7 @@ pub fn start_task_176b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0x477a, ax);
     c.set_word(0x4778, 0);
     let v = c.byte(0x4774);
-    let v = c.inc(B, v as u16);
+    let v = pure::inc(B, v as u16);
     c.set_byte(0x4774, v as u8);
     c.call(0xb2b9, 0x1781)?;
     c.run(0x1781, 1)?;
@@ -3374,8 +3374,6 @@ pub fn note_pair_0(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x29ee)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    let di = c.reg(DI);
-    c.xor(W, di, di);
     c.set_reg(DI, 0);
     note_pair(c.m, 0x29f0)
 }

@@ -657,7 +657,6 @@ pub fn say_phrase_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x9d6f, 5)?;
             c.lods(B, DS);
             c.set_reg(AX, 0);
-            c.or(B, 0, 0);
             return c.ret();
         }
         c.run(0x9d6f, if entry == 1 { 15 } else { 13 })?;

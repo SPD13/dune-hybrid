@@ -126,7 +126,7 @@ def convert(path):
         # An `if` whose body held only flag helpers is left empty: gone
         # (its condition only reads).
         text = EMPTY_IF.sub('', text)
-        if not re.search(r'^use super::pure;', text, re.M):
+        if 'pure::' in text and not re.search(r'^use super::pure;', text, re.M):
             text = re.sub(r'^(use super::)', r'use super::pure;\n\1', text, count=1, flags=re.M)
         open(path, 'w', encoding='utf-8', newline='\n').write(text)
     return done, left

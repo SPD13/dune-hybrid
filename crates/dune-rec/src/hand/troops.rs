@@ -346,7 +346,6 @@ pub fn gfx_call_30_unless_redrawing(m: &mut Machine, start: u16) -> Result<(), B
     let redrawing = c.byte(REDRAWING);
     c.run(start, 3)?;
     if redrawing != 0 {
-        c.cmp(B, redrawing as u16, 0);
         return c.ret();
     }
     super::gfx::gfx_call_30(c.m, 0xc0e8)
@@ -2171,7 +2170,6 @@ pub fn redraw_panel_18df(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 5)?;
         c.set_reg(AX, 0);
         // `or ax,ax`: its flags pass through to the callers, who read them.
-        c.or(W, 0, 0);
         return super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c);
     }
     c.run(start, 7)?;

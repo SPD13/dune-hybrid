@@ -1086,7 +1086,6 @@ pub fn redraw_date_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let v = c.word(0x1afe);
     c.run(start, 3)?;
-    c.cmp(W, v, 0);
     if v != 0 {
         return c.ret();
     }

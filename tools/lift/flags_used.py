@@ -143,7 +143,10 @@ def walk(start, after_return):
             out |= live & set(READS[op])
         if op in ('ret', 'retf', 'iret'):
             if after_return:
-                out |= live & READ.get(owner(a), set())
+                o = owner(a)
+                out |= live & READ.get(o, set())
+                for j in midjumped.get(o, ()):
+                    out |= live & READ.get(j, set())
             else:
                 passed |= live
             continue
@@ -216,6 +219,11 @@ for a, t in insn.items():
 
 # Indirect calls and jumps seen in the coverage runs.
 jumped = {}  # target -> routines that jump there indirectly
+# Routine -> routines that jump into its middle: a RET in its code then
+# also returns to their callers (for what is read after a call made in
+# that code), though its own mask (its port's exit flags) is only what
+# its callers read.
+midjumped = {}
 for site, tgs in IND.items():
     t = insn.get(site, '')
     for tg in tgs:
@@ -228,16 +236,64 @@ for site, tgs in IND.items():
 # Direct jumps into another routine's entry (tail calls), and code that
 # runs on into the next routine: its RET returns to the jumper's callers.
 entry_set = set(entries)
+
+
+def body(e):
+    """The code a routine runs from its entry up to its RETs: direct jumps
+    and both ways of conditional ones followed, calls stepped over."""
+    seen, todo = set(), [e]
+    while todo and len(seen) < 4000:
+        a = todo.pop()
+        if a in seen or a not in insn:
+            continue
+        seen.add(a)
+        t = insn[a]
+        op = t.split()[0]
+        if op in ('ret', 'retf', 'iret', 'hlt') or far(t) and op.startswith('jmp'):
+            continue
+        tg = target(t)
+        if op == 'jmp' or op.startswith('jmp'):
+            if tg is not None and 'far' not in t and 'ptr' not in t:
+                todo.append(tg)
+            continue
+        if (op in JCC or op in ('loop', 'jcxz')) and tg is not None:
+            todo.append(tg)
+        if a in nxt:
+            todo.append(nxt[a])
+    return seen
+
+
+bodies = {}
+
+
+def owners_of(tg):
+    """The routines whose code reaches `tg` (not merely the one before it)."""
+    o = owner(tg)
+    out = []
+    # Look back over a few routines before it: a body can run past later
+    # entries only by jumping.
+    i = bisect.bisect_right(entries, tg)
+    for e in entries[max(0, i - 8):i]:
+        if e not in bodies:
+            bodies[e] = body(e)
+        if tg in bodies[e]:
+            out.append(e)
+    return out if out else ([o] if o is not None and o == tg else [])
+
+
 for a, t in insn.items():
     op = t.split()[0]
     if (op in JCC or op == 'jmp') and 'far' not in t and 'ptr' not in t:
         tg = target(t)
         if tg in entry_set and owner(a) not in (None, tg):
             jumped.setdefault(tg, set()).add(owner(a))
-        elif tg is not None and owner(tg) not in (None, owner(a)) and owner(a) is not None:
-            # Into the middle of another routine: its RETs then return to
-            # the jumping routine's callers too.
-            jumped.setdefault(owner(tg), set()).add(owner(a))
+        elif tg is not None and tg not in entry_set and owner(a) is not None:
+            # Into the middle of another routine (one whose code reaches
+            # there): its RETs then return to the jumping routine's callers
+            # too. Code no routine reaches belongs to the jumper alone.
+            for o in owners_of(tg):
+                if o != owner(a):
+                    midjumped.setdefault(o, set()).add(owner(a))
 for e in entries:
     i = bisect.bisect_left(addrs, e)
     if i > 0:
@@ -266,6 +322,23 @@ while changed:
 
 names = dict((int(e, 16), n) for e, n in re.findall(r'\(0x([0-9a-f]+), "([^"]+)"\)', src))
 show_all = '--all' in sys.argv
+if '--why' in sys.argv:
+    # Where a routine's mask comes from: per call site, the flags read
+    # after it and whether they reach the RET (then the caller's own
+    # mask, followed up to a few levels).
+    def why(e, depth, seen):
+        for r in calls.get(e, []):
+            fl = ''.join(f for f in 'CZSOPA' if f in reads_after(r))
+            print('  ' * depth + f'{e:04x} called from {owner(r) or 0:04x} (ret {r:04x}): {fl or "-"}')
+            o = owner(r)
+            if fl and o is not None and o not in seen and depth < 6:
+                seen.add(o)
+                why(o, depth + 1, seen)
+        for j in sorted(jumped.get(e, ())):
+            print('  ' * depth + f'{e:04x} jumped to from {j:04x}: {"".join(f for f in "CZSOPA" if f in READ[j]) or "-"}')
+    for x in sys.argv[sys.argv.index('--why') + 1:]:
+        why(int(x, 16), 0, set())
+    sys.exit(0)
 if '--at' in sys.argv:
     # The flags read from each address given (hex) before being set,
     # following on into the routine's callers at its RET: where a port can
