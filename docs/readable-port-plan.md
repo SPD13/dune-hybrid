@@ -59,7 +59,9 @@ reached in real play). For each:
    When the analysis changes, `tools/lift/recheck_dropped.py BASE` puts
    the ports the tools converted (those with `pure::`) back to their
    exact form where the conversion's rules would now refuse them (masks
-   only shrink safely); hand rewrites it only lists, for a look.
+   only shrink safely); hand rewrites (anything but the tools' own
+   output, and the ports listed in `tools/lift/hand_ports.txt`) it only
+   lists, for a look.
    Whatever it cannot follow counts as read: code never run (not in the
    generated code), an indirect target no run took. INT and far calls
    (BIOS, DOS, the drivers) pass the flags through.
@@ -232,6 +234,13 @@ in 1 call of 52 (around its `c.interp` of the driver's fill). Not looked
 into yet. `hnm_render_timer_callback` differed in 8 of 204, all with the
 code segment written (a harness artifact).
 
+- **The suite's hash and dropped flags.** The suite's state hash leaves
+  out the arithmetic flags (CF, PF, AF, ZF, SF, OF): a port that drops
+  flags nobody reads leaves them different from the original's, and a
+  hash taken right after one (at the 10-second mark) showed a difference
+  in the CPU part only, gone in the next state (`flight_step`, once in
+  two of the seven games). A flag that is read and wrong still shows in
+  the memory soon after.
 - **INT and far calls.** A port that has the interpreter run an INT or a
   far call (`c.interp`) keeps its flags exact before it: an INT pushes
   them and its service sees them (the check compares a service's

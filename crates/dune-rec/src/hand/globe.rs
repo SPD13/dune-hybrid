@@ -844,12 +844,11 @@ pub fn globe_turn_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, 0x18e);
         let dx = c.reg(DX);
         c.mul16(dx);
-        let b = c.word(0x494a);
-        let bp = c.add(W, b, b);
+        let bp = c.word(0x494a).wrapping_mul(2);
         c.set_reg(BP, bp);
         let dx = c.reg(DX);
         let r = c.word(0x494c);
-        let dx = c.sub(W, dx, r);
+        let dx = c.sub(W, dx, r); // `loc_0b683` reads its SF
         c.set_reg(DX, dx);
         c.call(0xb683, 0xbab3)?;
         let (dx, bx) = (c.reg(DX), c.reg(BX));
@@ -864,33 +863,11 @@ pub fn globe_turn_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let c4 = y1 <= -0x18;
         let n = 4 + 2 * c1 as u32 + 3 + 2 * c2 as u32 + 4 + 2 * c3 as u32 + 3 + 2 * c4 as u32 + 4;
         c.run(0xbab3, n)?;
-        let mut cx = 1u16;
-        c.set_reg(AX, 0x20);
-        let mut x = dx;
-        c.cmp(W, x, 0x20);
-        if c1 {
-            x = 0x20;
-            cx = c.inc(W, cx);
-        }
-        let a = c.neg(W, 0x20);
-        c.cmp(W, x, a);
-        if c2 {
-            x = a;
-            cx = c.inc(W, cx);
-        }
-        let mut yv = c.sub(W, bx, top);
-        c.set_reg(AX, 0x18);
-        c.cmp(W, yv, 0x18);
-        if c3 {
-            yv = 0x18;
-            cx = c.inc(W, cx);
-        }
-        let a = c.neg(W, 0x18);
-        c.cmp(W, yv, a);
-        if c4 {
-            yv = a;
-            cx = c.inc(W, cx);
-        }
+        // The step, at most 20h around and 18h up or down; CX counts the
+        // clampings (one more).
+        let x = (x1 as i16).max(-0x20) as u16;
+        let yv = (y1 as i16).max(-0x18) as u16;
+        let cx = 1 + c1 as u16 + c2 as u16 + c3 as u16 + c4 as u16;
         c.set_reg(DX, x);
         c.set_reg(BX, yv);
         c.set_reg(CX, cx);
@@ -1453,33 +1430,24 @@ pub fn globe_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let b = bx0.wrapping_sub(0x36);
     let bneg = b & 0x8000 != 0;
     c.run(0xbd25, 3 + bneg as u32)?;
-    let b = c.sub(W, bx0, 0x36);
     c.set_reg(BX, b);
-    c.set_reg(CX, b);
-    let mut cx = b;
-    if bneg {
-        cx = c.neg(W, b);
-        c.set_reg(CX, cx);
-    }
+    let row = if bneg { b.wrapping_neg() } else { b };
+    c.set_reg(CX, row);
     c.run(0xbd2e, 5)?;
     let ds = c.sreg(DS);
     c.push(ds);
     let v = c.pop();
     c.set_sreg(ES, v);
     c.set_reg(SI, 0x4c60);
-    let cx = c.inc(W, cx);
-    c.set_reg(CX, cx);
-    c.xor(W, 0, 0);
+    c.set_reg(CX, row.wrapping_add(1));
     c.set_reg(AX, 0);
+    // The row: each one's bytes after its -(n + 1) length byte.
     let mut ax = 0u16;
     loop {
         c.run(0xbd36, 5)?;
-        let si = c.reg(SI);
-        let si = c.add(W, si, ax);
+        let si = c.reg(SI).wrapping_add(ax);
         c.set_reg(SI, si);
-        let v = c.lods(B, DS);
-        let v = c.inc(B, v);
-        let v = c.neg(B, v);
+        let v = (c.lods(B, DS) as u8).wrapping_add(1).wrapping_neg() as u16;
         c.set_reg8(r8::AL, v as u8);
         ax = v;
         let cx = c.reg(CX).wrapping_sub(1);
@@ -1498,21 +1466,17 @@ pub fn globe_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let dabs = if dneg { d.wrapping_neg() } else { d };
     let si2 = si.wrapping_add(dabs);
     if si2 >= di {
+        // Outside the row's width: CF clear (`cmp si, di; jae`).
         c.run(0xbd3f, 5 + dneg as u32 + 4)?;
-        let di = c.add(W, si, ax);
-        c.set_reg(DI, di);
-        let d = c.sub(W, dx0, 0x40);
-        c.set_reg(DX, d);
+        c.set_reg(DI, si.wrapping_add(ax));
         c.set_reg(AX, d);
-        if dneg {
-            let n = c.neg(W, d);
-            c.set_reg(DX, n);
-        }
-        let s = c.add(W, si, dabs);
-        c.set_reg(SI, s);
-        c.cmp(W, s, di);
+        c.set_reg(DX, dabs);
+        c.set_reg(SI, si2);
+        c.set_flag(CF, false);
         return c.ret();
     }
+    // The column's longitude byte, signed by the side, through the tables
+    // 8C3Bh, 593Ah (C8h a row) and 494Ah (the circle's length and offset).
     let lon = c.byte(si2) as u16;
     let a1 = if bneg { lon } else { lon.wrapping_neg() };
     let t = 0x8c3bu16.wrapping_add(a1).wrapping_add(a1);
@@ -1521,9 +1485,9 @@ pub fn globe_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let aneg = a & 0x8000 != 0;
     let bp = if aneg { a.wrapping_neg() } else { a };
     let prod = 0xc8u32 * dabs as u32;
-    let row = 0x593au16.wrapping_add(prod as u16);
-    let bl = c.byte_in(SS, bp.wrapping_add(row)) as u16;
-    let al = c.byte_in(SS, bp.wrapping_add(row).wrapping_add(0x64)) as u16;
+    let table = 0x593au16.wrapping_add(prod as u16);
+    let bl = c.byte_in(SS, bp.wrapping_add(table)) as u16;
+    let al = c.byte_in(SS, bp.wrapping_add(table).wrapping_add(0x64)) as u16;
     let di2 = bl * 4;
     let len = c.word(di2.wrapping_add(0x494a));
     let off = c.word(di2.wrapping_add(0x494c));
@@ -1549,94 +1513,21 @@ pub fn globe_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
         + 2 + (!below) as u32
         + 5;
     c.run(0xbd3f, n)?;
-    let di = c.add(W, si, ax);
-    c.set_reg(DI, di);
-    let d = c.sub(W, dx0, 0x40);
-    c.set_reg(AX, d);
-    let mut dxr = d;
-    if dneg {
-        dxr = c.neg(W, d);
-    }
-    c.set_reg(DX, dxr);
-    let s = c.add(W, si, dabs);
-    c.cmp(W, s, di);
+    // (The pushes of AX and the table word are popped again.)
     c.push(d);
-    c.set_reg(SI, s);
-    c.lods(B, DS);
-    c.xor(B, 0, 0);
-    c.set_reg(AX, lon);
-    c.or(W, b, b);
-    if !bneg {
-        c.neg(W, lon);
-        c.set_reg(AX, a1);
-    }
-    let s = c.add(W, 0x8c3b, a1);
-    let s = c.add(W, s, a1);
-    c.set_reg(SI, s);
-    c.lods(W, DS);
     c.push(w);
-    c.set_reg(SI, 0x593a);
-    c.set_reg(AX, a);
-    c.set_reg(BP, a);
-    c.or(W, a, a);
-    if aneg {
-        c.neg(W, a);
-        c.set_reg(BP, bp);
-    }
-    c.set_reg(AX, 0xc8);
-    c.mul16(dabs);
-    let p = c.reg(AX);
-    let s = c.add(W, 0x593a, p);
-    c.set_reg(SI, s);
-    c.set_reg8(r8::BL, bl as u8);
-    c.set_reg8(r8::AL, al as u8);
-    c.xor(B, 0, 0);
-    c.set_reg8(r8::AH, 0);
-    c.xor(B, 0, 0);
-    c.set_reg8(r8::BH, 0);
-    c.set_reg(DI, bl);
-    let x1 = c.add(W, bl, bl);
-    let x1 = c.add(W, x1, x1);
-    c.set_reg(DI, x1);
-    c.set_reg(CX, len);
-    let dxw = c.pop();
-    c.set_reg(DX, dxw);
-    c.or(B, w >> 8, w >> 8);
-    let mut bxr = bl;
-    if dh_neg {
-        bxr = c.neg(W, bl);
-        c.set_reg(BX, bxr);
-    }
-    c.or(B, w & 0xff, w & 0xff);
-    if dl_neg {
-        let v = c.neg(W, al);
-        c.add(W, v, len);
-    }
-    c.set_reg(AX, ax3);
-    let cx = c.add(W, len, len);
-    c.set_reg(CX, cx);
-    c.set_reg(DX, off);
-    let dip = c.pop();
-    c.set_reg(DI, dip);
-    c.or(W, dip, dip);
-    if dneg {
-        c.neg(W, ax3);
-    }
-    c.set_reg(AX, ax4);
-    let mut x = c.add(W, off, ax4);
-    if xneg {
-        x = c.add(W, x, cx2);
-    }
-    c.cmp(W, x, cx2);
-    if !below {
-        x = c.sub(W, x, cx2);
-    }
-    c.set_reg(DX, x);
-    c.xor(W, 0, 0);
-    c.set_reg(AX, 0);
-    c.m.cpu.mul_div(&mut c.m.hw, W, 6, cx2 as u32);
-    let s = c.m.cpu.shift(7, W, bxr as u32, 1) as u16;
-    c.set_reg(BX, s);
+    c.pop();
+    c.pop();
+    let x = if below { x2 } else { x2.wrapping_sub(cx2) };
+    let wide = (x as u32) << 16;
+    c.set_reg(SI, table);
+    c.set_reg(BP, bp);
+    c.set_reg(DI, d);
+    c.set_reg(CX, cx2);
+    c.set_reg(AX, (wide / cx2 as u32) as u16);
+    c.set_reg(DX, (wide % cx2 as u32) as u16);
+    let lat = if dh_neg { bl.wrapping_neg() } else { bl };
+    c.set_reg(BX, ((lat as i16) >> 1) as u16);
     c.set_flag(CF, true);
     c.ret()
 }
@@ -1682,9 +1573,7 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let k = c.byte(0x227d);
     c.run(0xbaf2, 4)?;
-    c.xor(W, 0, 0);
     c.set_reg(DX, 0);
-    c.cmp(B, k as u16, 0);
     if k != 0 {
         return c.ret();
     }
@@ -1692,18 +1581,17 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx0 = c.reg(BX);
     let bneg = (bx0 << 3) & 0x8000 != 0;
     c.run(0xbafe, 7 + 2 * bneg as u32)?;
-    let sp = c.reg(SP);
-    let sp = c.sub(W, sp, 0x0a);
+    // A frame of 0Ah bytes for the signs and the results.
+    let sp = c.reg(SP).wrapping_sub(0x0a);
     c.set_reg(SP, sp);
     c.set_reg(BP, sp);
     c.set_word_in(SS, sp, 0);
-    let mut bx = c.shl1(W, bx0, 3);
-    c.set_reg(BX, bx);
+    let mut bx = bx0 << 3;
     if bneg {
         c.m.cpu.write8(&mut c.m.hw, SS, sp.wrapping_add(1), 0xff);
-        bx = c.neg(W, bx);
-        c.set_reg(BX, bx);
+        bx = bx.wrapping_neg();
     }
+    c.set_reg(BX, bx);
     // BB16h: the longitude folded.
     let cx = c.word(bx.wrapping_add(0x494a));
     let off = c.word(bx.wrapping_add(0x494c));
@@ -1719,60 +1607,27 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let half = cx >> 1;
     let back = d2 >= half;
     c.run(0xbb16, 9 + 2 * dneg as u32 + 2 + 4 * wrap as u32 + 3 + 4 * back as u32)?;
-    c.set_reg(CX, cx);
-    c.set_reg(AX, cx);
-    let a = c.add(W, cx, cx);
-    c.set_reg(AX, a);
-    c.mul16(dx);
-    let a = c.reg(AX);
-    let a2 = c.add(W, a, a);
-    c.set_reg(AX, a2);
-    let h = c.reg(DX);
-    let h = c.adc(W, h, 0);
-    c.set_reg(DX, h);
-    c.xor(W, a2, a2);
-    let mut al = 0u8;
-    c.set_reg(AX, 0);
-    let mut dv = c.sub(W, h, off);
-    c.set_reg(DX, dv);
-    if dneg {
-        dv = c.neg(W, dv);
-        c.set_reg(DX, dv);
-        al = !al;
-        c.set_reg(AX, 0xffff);
-    }
-    c.cmp(W, dv, cx);
-    if wrap {
-        let t = c.sub(W, dv, cx);
-        let t = c.sub(W, t, cx);
-        dv = c.neg(W, t);
-        c.set_reg(DX, dv);
-        al = !al;
-        let ax = c.reg(AX);
-        c.set_reg(AX, !ax);
-    }
-    let hf = c.shr1(W, cx, 1);
-    c.set_reg(CX, hf);
-    c.cmp(W, dv, hf);
+    // The longitude folded into a quarter: the circle's length CX,
+    // (2 · CX · DX) >> 15 less its offset; the signs of the folds kept
+    // (AL, the frame's byte 0).
+    let al = (dneg as u8 * 0xff) ^ (wrap as u8 * 0xff);
+    c.set_reg(CX, cx >> 1);
+    c.set_reg(DX, d2);
+    c.set_reg(AX, al as u16 * 0x101);
     if back {
         c.m.cpu.write8(&mut c.m.hw, SS, sp, 0x80);
-        let t = c.sub(W, dv, hf);
-        let t = c.sub(W, t, hf);
-        dv = c.neg(W, t);
-        c.set_reg(DX, dv);
+        c.set_reg(DX, d2.wrapping_sub(half).wrapping_sub(half).wrapping_neg());
     }
     // BB4Dh: the column searched.
     c.run(0xbb4d, 9)?;
     c.m.cpu.write8(&mut c.m.hw, SS, sp.wrapping_add(4), al);
-    let b2 = c.shr1(W, bx, 2);
     let ds = c.sreg(DS);
     c.push(ds);
     let v = c.pop();
     c.set_sreg(ES, v);
     c.set_reg(DI, 0x593a);
-    c.set_reg(AX, b2);
+    c.set_reg(AX, bx >> 2);
     c.set_reg(CX, 0x64);
-    c.xor(W, b2, b2);
     c.set_reg(BX, 0);
     loop {
         c.run(0xbb60, 1)?;
@@ -1789,24 +1644,21 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let cx = c.reg(CX);
         if dl <= t {
             c.run(0xbb62, 4)?;
-            let cx = c.inc(W, cx);
+            let cx = pure::inc(W, cx);
             c.set_reg(CX, cx);
-            c.cmp(B, dl as u16, t as u16);
             break;
         }
         let di2 = di.wrapping_add(0xc7);
         let more = di2 < 0x8b3b;
         c.run(0xbb62, 9 + (!more) as u32)?;
-        let cx = c.inc(W, cx);
+        let cx = pure::inc(W, cx);
         c.set_reg(CX, cx);
-        c.cmp(B, dl as u16, t as u16);
         c.set_word_in(SS, sp.wrapping_add(2), cx);
         let b = c.reg(BX);
-        let b = c.inc(W, b);
+        let b = pure::inc(W, b);
         c.set_reg(BX, b);
-        let d = c.add(W, di, 0xc7);
+        let d = pure::add(W, di, 0xc7);
         c.set_reg(DI, d);
-        c.cmp(W, d, 0x8b3b);
         if !more {
             return end_bbe6(&mut c);
         }
@@ -1819,14 +1671,13 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let nal = fl & 0x80 != 0;
     c.run(0xbb7d, 7 + nal as u32)?;
     c.set_reg(AX, 0x64);
-    let a = c.sub(W, 0x64, cx);
+    let a = pure::sub(W, 0x64, cx);
     c.set_reg(AX, a);
     c.set_word_in(SS, sp.wrapping_add(2), bxv);
     c.set_reg(CX, f);
     c.set_reg8(r8::AH, fh);
-    c.or(B, fl as u16, fl as u16);
     if nal {
-        let v = c.neg(B, a & 0xff);
+        let v = pure::neg(B, a & 0xff);
         c.set_reg8(r8::AL, v as u8);
     }
     c.run(0xbb90, 3)?;
@@ -1841,12 +1692,11 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let t = di.wrapping_sub(0x8c3d);
     let tneg = t & 0x8000 != 0;
     c.run(0xbb98, 1 + 3 + 2 * tneg as u32 + 9)?;
-    c.xor(B, 0, 0);
     let mut al = 0u8;
-    let mut dv = c.sub(W, di, 0x8c3d);
+    let mut dv = pure::sub(W, di, 0x8c3d);
     c.set_reg(DI, dv);
     if tneg {
-        dv = c.neg(W, dv);
+        dv = pure::neg(W, dv);
         c.set_reg(DI, dv);
         al = 0xff;
     }
@@ -1854,14 +1704,13 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.m.cpu.write8(&mut c.m.hw, SS, sp.wrapping_add(5), al);
     c.set_reg(BX, 0x36);
     c.set_reg(AX, dv);
-    let a = c.shr1(W, dv, 1);
+    let a = pure::shr1(W, dv, 1);
     c.set_reg(AX, a);
     c.set_reg(SI, 0x4c60);
     let dx = c.word_in(SS, sp.wrapping_add(2));
     c.set_reg(DX, dx);
     c.set_reg8(r8::CL, a as u8);
     c.set_reg8(r8::CH, 0xff);
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     // BBBCh: the nearest row.
     loop {
@@ -1871,7 +1720,6 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if a1 == 0 {
             c.run(0xbbbc, 3)?;
             c.lods(B, DS);
-            c.inc(B, b as u16);
             c.set_reg8(r8::AL, 0);
             break;
         }
@@ -1880,10 +1728,7 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if nb <= dl {
             c.run(0xbbbc, 6)?;
             c.lods(B, DS);
-            c.inc(B, b as u16);
-            c.neg(B, a1 as u16);
             c.set_reg8(r8::AL, nb);
-            c.cmp(B, nb as u16, dl as u16);
             break;
         }
         let di = si.wrapping_add(1);
@@ -1898,27 +1743,21 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let hit = better && s == 0;
         c.run(0xbbbc, 6 + 7 + if better { 4 } else { 0 } + if hit { 0 } else { 2 })?;
         c.lods(B, DS);
-        c.inc(B, b as u16);
-        c.neg(B, a1 as u16);
-        c.cmp(B, nb as u16, dl as u16);
         c.set_reg(DI, di);
-        let s2 = c.add(W, di, nb as u16);
+        let s2 = pure::add(W, di, nb as u16);
         c.set_reg(SI, s2);
-        let d2 = c.add(W, di, dx);
+        let d2 = pure::add(W, di, dx);
         c.set_reg(DI, d2);
         c.set_reg8(r8::AL, v);
-        c.sub(B, v as u16, cl as u16);
         c.set_reg8(r8::AL, s);
-        c.cmp(B, s as u16, ch as u16);
         if better {
             c.set_reg8(r8::CH, s);
             c.set_word_in(SS, sp.wrapping_add(6), bxv);
-            c.or(B, s as u16, s as u16);
             if hit {
                 return found_bbec(&mut c);
             }
         }
-        let b2 = c.dec(W, bxv);
+        let b2 = pure::dec(W, bxv);
         c.set_reg(BX, b2);
         if last {
             break;
@@ -1926,7 +1765,6 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let ch = c.reg8(r8::CH);
     c.run(0xbbe1, 2)?;
-    c.cmp(B, ch as u16, 2);
     if ch <= 2 {
         return found_bbec(&mut c);
     }
@@ -1937,9 +1775,8 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn end_bbe6(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xbbe6, 3)?;
     let sp = c.reg(SP);
-    let sp = c.add(W, sp, 0x0a);
+    let sp = pure::add(W, sp, 0x0a);
     c.set_reg(SP, sp);
-    c.xor(W, 0, 0);
     c.set_reg(DX, 0);
     c.ret()
 }
@@ -1953,21 +1790,19 @@ fn found_bbec(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xbbec, 5 + (ah != 0) as u32 + 3 + (al != 0) as u32 + 3)?;
     c.set_reg(AX, ax);
     c.set_reg(BX, bx);
-    let mut b = c.sub(W, bx, 0x36);
-    c.or(B, ah as u16, ah as u16);
+    let mut b = pure::sub(W, bx, 0x36);
     if ah != 0 {
-        b = c.neg(W, b);
+        b = pure::neg(W, b);
     }
-    let b = c.add(W, b, 0x4f);
+    let b = pure::add(W, b, 0x4f);
     c.set_reg(BX, b);
-    c.or(B, al as u16, al as u16);
     let mut dx = c.reg(DX);
     if al != 0 {
-        dx = c.neg(W, dx);
+        dx = pure::neg(W, dx);
     }
-    let dx = c.add(W, dx, 0xa0);
+    let dx = pure::add(W, dx, 0xa0);
     c.set_reg(DX, dx);
-    let sp = c.add(W, sp, 0x0a);
+    let sp = pure::add(W, sp, 0x0a);
     c.set_reg(SP, sp);
     c.ret()
 }

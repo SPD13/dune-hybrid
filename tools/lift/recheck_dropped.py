@@ -9,9 +9,10 @@ BASE is a commit with the ports as they were before `drop_flags.py` ran
 rewrites came later). Every port that differs from its BASE form is
 checked again with `drop_flags.py`'s rules on that form, with the current
 masks (`hand/flags_read.rs`) and entry reads (`flags_used.py --in`); one
-it would no longer convert gets its BASE form back. Ports that differ by
-a hand rewrite (no `pure::` in them) are only reported (CHECK): their
-exits and calls need a look.
+it would no longer convert gets its BASE form back, but only when it is
+the tools' output (BASE with lines dropped and `pure::`) and not listed in
+`hand_ports.txt` (pruned by hand); hand rewrites are only reported
+(CHECK): their exits and calls need a look.
 
 Masks only shrink safely: run this whenever `flags_used.py` changes.
 """
@@ -34,6 +35,30 @@ base = args[0]
 per_file = dict(a.split('=', 1) for a in args[1:])
 hand = set(per_file)
 PORT = re.compile(r'^pub fn (\w+)\(m: &mut Machine, start: u16\)[^\n]*\n.*?^\}', re.M | re.S)
+
+def tool_output(base, body):
+    """Whether `body` is what the tools make of `base`: some of its lines
+    dropped, `c.op(` become `pure::op(`, unused bindings `_` (a line
+    subsequence). Anything else is a hand rewrite."""
+    want = base.split('\n')
+    k = 0
+    for ln in body.split('\n'):
+        ln = re.sub(r'\bpure::(\w+)\(', r'c.\1(', ln)
+        # A binding the tools renamed `_` matches any name.
+        pat = re.compile(re.sub(r'(?<![\w\\])_(?!\w)', r'\\w+', re.escape(ln)) + '$')
+        while k < len(want) and not (want[k] == ln or pat.match(want[k])):
+            k += 1
+        if k == len(want):
+            return False
+        k += 1
+    return True
+
+
+by_hand = set()
+for line in open(os.path.join(HERE, 'hand_ports.txt'), encoding='utf-8'):
+    p = line.split()
+    if len(p) == 2 and not line.startswith('#'):
+        by_hand.add((p[0], p[1]))
 
 restored = 0
 for path in sorted(glob.glob(os.path.join(REPO, 'crates/dune-rec/src/hand/*.rs'))):
@@ -59,9 +84,9 @@ for path in sorted(glob.glob(os.path.join(REPO, 'crates/dune-rec/src/hand/*.rs')
             why = d.blocker(before[fn], consts, set())
         if not why:
             continue
-        if 'pure::' not in body:
-            # A hand rewrite (the tool's conversions use `pure::`): its
-            # exits and calls need a look, not the old form back.
+        if (name, fn) in by_hand or not tool_output(before[fn], body):
+            # A hand rewrite: its exits and calls need a look, not the
+            # old form back.
             print(f'CHECK {name} {fn}: {why}')
             continue
         print(f'restore {name} {fn}: {why}')

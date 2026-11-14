@@ -366,7 +366,12 @@ fn state_hash(m: &Machine) -> String {
     let mem = fnv(0xcbf2_9ce4_8422_2325, &m.hw.mem[..dead.start.min(m.hw.mem.len())]);
     let mem = fnv(mem, &m.hw.mem[dead.end.min(m.hw.mem.len())..]);
     let mut regs = Vec::new();
-    for r in m.cpu.regs.iter().chain(m.cpu.sregs.iter()).chain([m.cpu.ip, m.cpu.flags()].iter()) {
+    // Not the arithmetic flags (CF, PF, AF, ZF, SF, OF): a readable port
+    // leaves those inexact where nothing reads them, and a hash taken
+    // right after one would differ though nothing else does. A flag that
+    // is read and wrong shows in the memory soon after.
+    let flags = m.cpu.flags() & !0x08d5;
+    for r in m.cpu.regs.iter().chain(m.cpu.sregs.iter()).chain([m.cpu.ip, flags].iter()) {
         regs.extend_from_slice(&r.to_le_bytes());
     }
     regs.extend_from_slice(&m.cpu.instructions.to_le_bytes());

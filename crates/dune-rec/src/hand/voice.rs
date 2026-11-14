@@ -1112,8 +1112,7 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let s = c.byte(0xdbcd);
         if s & 0x80 != 0 {
             c.run(0xad66, 5)?;
-            c.cmp(B, f as u16, 0);
-            c.cmp(B, s as u16, 0);
+            c.cmp(B, s as u16, 0); // the exit's flags
             return c.ret();
         }
         let ops = |c: &mut Ctx| {
@@ -1126,18 +1125,16 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte(0x375cu16.wrapping_add(al as u16));
     if v == 0 {
         c.run(0xad66, 2 + 4 + 1)?;
-        c.cmp(B, 0, 0);
         c.set_reg(BX, 0x375c);
         c.set_reg8(r8::AL, 0);
-        c.or(B, 0, 0);
+        c.or(B, 0, 0); // the exit's flags
         return c.ret();
     }
     if v & 0x80 == 0 {
+        // A plain song: the driver's (far [3979h], which sees the flags).
         c.run(0xad66, 2 + 4 + 2 + 1)?;
-        c.cmp(B, 0, 0);
         c.set_reg(BX, 0x375c);
         c.set_reg8(r8::AL, v);
-        c.or(B, v as u16, v as u16);
         c.or(B, v as u16, v as u16);
         c.set_byte(0xdbcc, v);
         c.interp(0xad84, 0xad88)?;
@@ -1147,15 +1144,12 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = v & 0x3f;
     let cur = c.byte(0xdbcb);
     c.run(0xad66, 2 + 4 + 2 + 4 + if a == cur { 1 } else { 0 })?;
-    c.cmp(B, 0, 0);
+    // A marked one, through `music_driver_397d` when it changes.
     c.set_reg(BX, 0x375c);
-    c.or(B, v as u16, v as u16);
-    c.or(B, v as u16, v as u16);
-    let a = c.and(B, v as u16, 0x3f);
-    c.set_reg8(r8::AL, a as u8);
-    c.set_byte(0xdbcc, a as u8);
-    c.cmp(B, a, cur as u16);
-    if a as u8 == cur {
+    c.set_reg8(r8::AL, a);
+    c.set_byte(0xdbcc, a);
+    c.cmp(B, a as u16, cur as u16); // the exit's flags
+    if a == cur {
         return c.ret();
     }
     music_driver_397d(c.m, 0xadbe)
@@ -1775,13 +1769,13 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
     let mut c = Ctx::new(m);
     let bx = c.reg(BX);
     if bx == 0xffff {
+        // The test sound: the immediate at A6D2h, flipped in the code
+        // between 0FFFh and 1FFFh each time.
         c.run(0xa6cc, 2 + 4)?;
-        c.cmp(W, bx, 0xffff);
         let imm = c.code_word(0xa6d2);
         c.set_reg(AX, imm);
-        let b = c.byte_in(CS, 0xa6d3);
-        let b = c.xor(B, b as u16, 0x10);
-        c.m.cpu.write8(&mut c.m.hw, CS, 0xa6d3, b as u8);
+        let b = c.byte_in(CS, 0xa6d3) ^ 0x10;
+        c.m.cpu.write8(&mut c.m.hw, CS, 0xa6d3, b);
         let h = c.word(0x22a6);
         c.set_reg(BX, h);
         c.call(0xa8bc, 0xa6e1)?;
@@ -1801,41 +1795,25 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
         } else {
             n += 2 + if intro == 0 { 3 } else { 0 };
         }
+        // The phrase made relative to the head's first.
         c.run(0xa6cc, n)?;
-        c.cmp(W, bx, 0xffff);
         c.push(bx);
-        c.cmp(B, bx & 0xff, 0xe);
         c.set_reg(BX, bx1);
-        let h = c.and(B, ax >> 8, 0xf3);
-        let mut ax = (h << 8) | (ax & 0xff);
-        c.set_reg(AX, ax);
-        c.cmp(B, f as u16, 0);
+        let mut ax = ax & 0xf3ff;
         if f != 0 {
-            let d = c.word(0xd814);
-            ax = c.sub(W, ax, d);
-            ax = c.add(W, ax, 0x3e7);
-            c.set_reg(AX, ax);
-        } else {
-            c.cmp(B, intro as u16, 0);
-            if intro == 0 {
-                let b2 = c.shl1(W, bx1, 1);
-                c.set_reg(BX, b2);
-                let d = c.word(b2.wrapping_sub(0x280c));
-                ax = c.sub(W, ax, d);
-                c.set_reg(AX, ax);
-                let b3 = c.shr1(W, b2, 1);
-                c.set_reg(BX, b3);
-            }
+            ax = ax.wrapping_sub(c.word(0xd814)).wrapping_add(0x3e7);
+        } else if intro == 0 {
+            ax = ax.wrapping_sub(c.word((bx1 << 1).wrapping_sub(0x280c)));
+            // `shl bx, 1` .. `shr bx, 1`: the top bit dropped.
+            c.set_reg(BX, bx1 & 0x7fff);
         }
+        c.set_reg(AX, ax);
         let bl = c.reg8(r8::BL);
         let twelve = bl == 0xe && (ax as u8 & 0xfe) == 0x2c;
         c.run(0xa710, 2 + if bl == 0xe { 4 + if twelve { 4 } else { 0 } } else { 0 } + 1)?;
-        c.cmp(B, bl as u16, 0xe);
         if bl == 0xe {
-            c.set_reg(CX, ax);
-            let cl = c.and(B, ax & 0xff, 0xfe);
-            c.set_reg8(r8::CL, cl as u8);
-            c.cmp(B, cl, 0x2c);
+            // Head 0Eh saying phrase 2Ch or 2Dh: head 0Ch.
+            c.set_reg(CX, ax & 0xff00 | ax & 0xfe);
             if twelve {
                 let v = c.pop();
                 let v = (v & 0xff00) | 0x0c;
@@ -1852,9 +1830,8 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
         c.set_reg(AX, v);
         c.call(0x9123, 0xa731)?;
         c.run(0xa731, 6)?;
-        let a = c.reg(AX);
-        let a = c.shl1(W, a, 3);
-        let a = c.add(W, a, 0x27fa);
+        // Its lip-sync table: 8 bytes a head from 27FAh.
+        let a = (c.reg(AX) << 3).wrapping_add(0x27fa);
         c.set_reg(AX, a);
         c.set_reg(SI, a);
         c.set_word(0xdc28, a);
@@ -1865,9 +1842,8 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
     let mut fail = c.flag(CF);
     if !fail {
         c.run(0xa748, 3)?;
-        let v = c.byte(0x37e2);
-        let v = c.xor(B, v as u16, 6);
-        c.set_byte(0x37e2, v as u8);
+        let v = c.byte(0x37e2) ^ 6;
+        c.set_byte(0x37e2, v);
         c.call(0xa83f, 0xa752)?;
         fail = c.flag(CF);
         c.run(0xa752, 1 + if fail { 1 } else { 1 })?;

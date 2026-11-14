@@ -1,0 +1,9 @@
+# Ports pruned by hand (flags dropped where a closer look than
+# drop_flags.py's rules showed nobody reads them), checked by the shadow
+# check: recheck_dropped.py only lists them, it never puts their old
+# form back. One `FILE FUNCTION` a line.
+ui.rs head_blink
+ui.rs scene_24
+tails.rs palace_plan_18ee
+globe.rs set_globe_tilt_and_rotation
+globe.rs globe_or_map_list

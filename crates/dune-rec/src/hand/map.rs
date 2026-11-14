@@ -6484,15 +6484,9 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let stop = c.byte(0x11ca);
     if f == 0 || stop != 0 {
         c.run(0x4f0c, if f == 0 { 3 } else { 5 })?;
-        c.cmp(B, f as u16, 0);
-        if f != 0 {
-            c.cmp(B, stop as u16, 0);
-        }
         return c.ret();
     }
     c.run(0x4f0c, 8)?;
-    c.cmp(B, f as u16, 0);
-    c.cmp(B, 0, 0);
     c.set_word(0x1c06, 0x80);
     c.set_reg(AX, 0xdbec);
     c.push(0xdbec);
@@ -6502,9 +6496,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let d = t.wrapping_sub(last);
     c.run(0x4f27, if d < 0x300 { 5 } else { 4 })?;
     c.set_reg(AX, t);
-    c.sub(W, t, last);
     c.set_reg(AX, d);
-    c.cmp(W, d, 0x300);
     if d < 0x300 {
         return ret_mouse(&mut c);
     }
@@ -6525,33 +6517,25 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x4f49, 4)?;
     c.set_reg(SI, si);
-    c.cmp(W, di, w);
     c.call(0x2e52, 0x4f55)?;
     let k = c.byte(0x47a7);
     if k != 0 {
         c.run(0x4f55, 3)?;
-        c.cmp(B, k as u16, 0);
         return ret_mouse(&mut c);
     }
     let mk = c.byte(0x4728);
     if mk & 0x80 != 0 {
         c.run(0x4f55, 5)?;
-        c.cmp(B, 0, 0);
-        c.cmp(B, mk as u16, 0);
         return speed_4e8e(&mut c);
     }
     if mk != 0 {
         c.run(0x4f55, 7)?;
-        c.cmp(B, 0, 0);
-        c.cmp(B, mk as u16, 0);
         c.set_byte(0x4728, 0);
         c.call(0x5b5d, 0x4f6d)?;
         c.run(0x4f6d, 1)?;
         c.call(0x49d9, 0x4f70)?;
     } else {
         c.run(0x4f55, 5)?;
-        c.cmp(B, 0, 0);
-        c.cmp(B, 0, 0);
     }
     c.run(0x4f70, 1)?;
     c.call(0x407e, 0x4f73)?;
@@ -6594,15 +6578,13 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if stop != 0 {
         c.run(0x4f76, n + 3)?;
         test_box(&mut c, dx, bx);
-        c.cmp(B, stop as u16, 0);
         return speed_4e8e(&mut c);
     }
     c.run(0x4f76, n + 5)?;
     test_box(&mut c, dx, bx);
-    c.cmp(B, 0, 0);
-    let b = c.dec(W, bx as u16);
+    let b = pure::dec(W, bx as u16);
     c.set_reg(BX, b);
-    let d = c.dec(W, dx as u16);
+    let d = pure::dec(W, dx as u16);
     c.set_reg(DX, d);
     c.call(0xc137, 0x4fa1)?;
     c.run(0x4fa1, 2)?;

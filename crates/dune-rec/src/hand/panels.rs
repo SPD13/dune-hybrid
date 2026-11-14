@@ -84,20 +84,17 @@ pub fn ui_draw_date_and_time_indicator(m: &mut Machine, start: u16) -> Result<()
     let hidden = c.word(g::WORD_1AFE);
     if hidden != 0 {
         c.run(start, 3)?;
-        c.cmp(W, hidden, 0);
+        c.cmp(W, hidden, 0); // the exit's flags
         return c.ret();
     }
     c.run(start, 4)?;
-    c.cmp(W, 0, 0);
     let fb = c.word(g::FRAMEBUFFER_ACTIVE);
     c.push(fb);
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x1a42)?;
     c.run(0x1a42, 9)?;
-    let time = c.word(g::GAME_TIME);
-    let slot = c.and(W, time, 0x0f);
-    let off = c.shl1(W, slot, 3);
-    let si = c.add(W, off, g::SUN_MOON_POSITIONS);
-    c.set_reg(AX, si);
+    // The sun and the moon for the time of day (8 bytes a slot).
+    let slot = c.word(g::GAME_TIME) & 0x0f;
+    let si = (slot << 3) + g::SUN_MOON_POSITIONS;
     c.set_reg(SI, si);
     c.set_reg(AX, 0x4a);
     c.call(code::DRAW_MOON_AND_SUN, 0x1a59)?;
@@ -112,34 +109,23 @@ pub fn ui_draw_date_and_time_indicator(m: &mut Machine, start: u16) -> Result<()
     // The day of the year: AX + 365, less 365 while not below.
     c.run(0x1a6b, 2)?;
     c.set_reg(BX, 0x16d);
-    let ax = c.reg(AX);
-    let mut day = c.add(W, ax, 0x16d);
+    let mut day = c.reg(AX).wrapping_add(0x16d);
     loop {
         let more = day.wrapping_sub(0x16d) >= 0x16d;
         c.run(0x1a70, 3)?;
-        day = c.sub(W, day, 0x16d);
-        c.cmp(W, day, 0x16d);
+        day = day.wrapping_sub(0x16d);
+        c.set_reg(AX, day);
         if !more {
             break;
         }
     }
+    // Right-aligned: the x 2 less for each digit fewer than 3.
     let day = day.wrapping_add(1);
     let n = if day >= 100 { 6 } else if day >= 10 { 9 } else { 10 };
     c.run(0x1a76, n)?;
-    let day = c.inc(W, day.wrapping_sub(1));
     c.set_reg(AX, day);
-    c.set_reg(DX, 0x0b);
+    c.set_reg(DX, if day >= 100 { 0x0b } else if day >= 10 { 9 } else { 7 });
     c.set_reg(BX, 0xbe);
-    c.cmp(W, day, 100);
-    if day < 100 {
-        let dl = c.sub(B, 0x0b, 2);
-        c.set_reg(DX, dl);
-        c.cmp(W, day, 10);
-        if day < 10 {
-            let dl = c.sub(B, dl, 2);
-            c.set_reg(DX, dl);
-        }
-    }
     c.call(code::DRAW_NUMBER, 0x1a90)?;
     c.run(0x1a90, 2)?;
     c.set_reg8(r8::AL, b' ');

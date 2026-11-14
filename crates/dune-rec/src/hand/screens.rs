@@ -505,8 +505,10 @@ pub fn element_under_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
         di = 0x1b48;
     }
     let mut n = 1 + 5 + few as u32 + 2 + if alt { 2 } else { 0 };
-    // The scan, purely.
+    // The elements in turn: one whose rect (left, top, right, bottom;
+    // bit 7 of +8 on) holds the cursor.
     let (mut k, mut d) = (cx, di);
+    let mut found = false;
     loop {
         let f = c.byte(d.wrapping_add(8));
         let r = [c.word(d), c.word(d.wrapping_add(2)), c.word(d.wrapping_add(4)), c.word(d.wrapping_add(6))];
@@ -534,6 +536,7 @@ pub fn element_under_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
         };
         if inside {
             n += 1;
+            found = true;
             break;
         }
         n += 2;
@@ -545,60 +548,16 @@ pub fn element_under_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
         d = d.wrapping_add(0x0e);
     }
     c.run(0xd6ba, n)?;
-    c.set_reg(DI, list);
-    let w = c.word(list);
-    c.set_reg(CX, w);
-    let d0 = c.add(W, list, 2);
-    c.set_reg(DI, d0);
-    c.cmp(W, handler, 0x1ad6);
-    if few {
-        let v = c.sub(W, w, 5);
-        c.set_reg(CX, v);
-    }
-    let a = c.byte(0x46d9);
-    c.cmp(B, a as u16, 0);
-    if alt {
-        c.set_reg(CX, 5);
-        c.set_reg(DI, 0x1b48);
-    }
-    loop {
-        let d = c.reg(DI);
-        let f = c.byte(d.wrapping_add(8));
-        c.cmp(B, f as u16, 0);
-        let mut inside = false;
-        if f & 0x80 != 0 {
-            let r0 = c.word(d);
-            c.cmp(W, dx, r0);
-            if dx > r0 {
-                let r2 = c.word(d.wrapping_add(4));
-                c.cmp(W, dx, r2);
-                if dx < r2 {
-                    let r1 = c.word(d.wrapping_add(2));
-                    c.cmp(W, bx, r1);
-                    if bx > r1 {
-                        let b1 = c.dec(W, bx);
-                        let r3 = c.word(d.wrapping_add(6));
-                        c.cmp(W, b1, r3);
-                        let cf = c.flag(CF);
-                        c.inc(W, b1);
-                        c.set_flag(CF, cf);
-                        inside = b1 < r3;
-                    }
-                }
-            }
-        }
-        if inside {
-            return c.ret();
-        }
-        let d = c.add(W, d, 0x0e);
+    if found {
         c.set_reg(DI, d);
-        let k = c.reg(CX).wrapping_sub(1);
         c.set_reg(CX, k);
-        if k == 0 {
-            c.set_flag(CF, false);
-            return c.ret();
-        }
+        c.set_flag(CF, true);
+    } else {
+        c.set_reg(DI, d.wrapping_add(0x0e));
+        c.set_reg(CX, 0);
+        c.set_flag(CF, false);
     }
+    c.ret()
 }
 
 /// `loc_0301a`: the buttons from 1D1Eh (see [`set_buttons`]).
