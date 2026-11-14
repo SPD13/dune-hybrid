@@ -612,8 +612,8 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let z = c.flag(ZF);
     c.run(0x021c, 3 + if z { 0 } else { 1 })?;
-    c.set_byte(0x289e, 0x8c);
-    c.set_byte(0x28e7, 1);
+    c.set_byte(g::SLIDER_MUSIC_2, 0x8c);
+    c.set_byte(g::VOICE_LANGUAGE, 1);
     if !z {
         c.call(0xad50, 0x022b)?;
         c.run(0x022b, 2)?;
@@ -683,30 +683,30 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg8(r8::BL, 0x0c);
             c.call(0x38f1, 0x0277)?;
             c.run(0x0277, 3)?;
-            c.set_byte(0x46df, 1);
+            c.set_byte(g::SKY_PALETTE_SET, 1);
             c.set_reg(AX, 0x4b0);
             c.call(0xddb0, 0x0282)?;
             c.run(0x0282, 1)?;
             c.call(0x3950, 0x0285)?;
             c.run(0x0285, 4)?;
-            c.set_byte(0x46df, 0);
+            c.set_byte(g::SKY_PALETTE_SET, 0);
             c.set_reg(BP, 0xc0ad);
             c.set_reg8(r8::AL, 0x10);
             c.call(0xc108, 0x0292)?;
         }
     }
     c.run(0x0292, 1)?;
-    let es = c.word(0xdbd8);
+    let es = c.word(g::SCREEN_BUFFER);
     c.set_sreg(ES, es);
     c.interp(0x0296, 0x029a)?;
     c.run(0x029a, 1)?;
     c.call(0xac14, 0x029d)?;
     c.run(0x029d, 3)?;
-    c.set_byte(0x227d, 0);
+    c.set_byte(g::MAP_VIEW_FLAG, 0);
     c.set_byte(0xc5, 0);
     c.call(0x0911, 0x02aa)?;
     c.run(0x02aa, 6)?;
-    c.set_byte(0x28e7, 0);
+    c.set_byte(g::VOICE_LANGUAGE, 0);
     c.set_byte(0xdbe6, 6);
     let v = c.byte(0x115);
     let v = c.inc(B, v as u16);

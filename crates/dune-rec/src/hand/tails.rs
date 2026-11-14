@@ -142,7 +142,7 @@ pub fn screen_b2aa(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn frieze_1860(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1860)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0x11c9);
+    let f = c.byte(g::HEAD_ANIMATION_BLOCKED);
     c.run(0x1860, 3)?;
     if f != 0 {
         return c.ret();
@@ -194,10 +194,10 @@ pub fn intro_somebody_in_sietch(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.run(0x07c6, 4)?;
     c.set_reg(BX, 0x1080);
     c.set_reg(DX, 0x802);
-    c.set_word(0x12, 0x100);
+    c.set_word(g::INTRO_0012, 0x100);
     c.call(0x0981, 0x07d5)?;
     c.run(0x07d5, 3)?;
-    c.set_word(0x12, 0);
+    c.set_word(g::INTRO_0012, 0);
     c.set_reg8(r8::AL, 5);
     c.jump(0x099d)
 }
@@ -266,14 +266,14 @@ pub fn intro_06d8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xac14, 0x06db)?;
     c.run(0x06db, 4)?;
     c.set_reg8(r8::AL, 1);
-    c.set_byte(0x46df, 1);
+    c.set_byte(g::SKY_PALETTE_SET, 1);
     c.set_reg8(r8::BL, 0x12);
     c.call(0x38a2, 0x06e5)?;
     c.run(0x06e5, 4)?;
     c.set_reg(AX, 0x12);
-    let v = c.word(0xdbda);
+    let v = c.word(g::FRAMEBUFFER_ACTIVE);
     let v = pure::add(W, v, 0x1e0);
-    c.set_word(0xdbda, v);
+    c.set_word(g::FRAMEBUFFER_ACTIVE, v);
     c.jump(0xca1b)
 }
 
@@ -289,7 +289,7 @@ pub fn intro_0802(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, 0x180);
     c.interp(0x080b, 0x080f)?;
     c.run(0x080f, 3)?;
-    c.set_byte(0x46d7, 0);
+    c.set_byte(g::FRAME_TASKS_ACTIVE, 0);
     c.set_reg(AX, 0x2e);
     c.call(0xc13e, 0x081a)?;
     c.run(0x081a, 2)?;
@@ -451,8 +451,8 @@ pub fn intro_09f5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x09ef, 0x09f8)?;
     c.run(0x09f8, 1)?;
     c.call(0xc0f4, 0x09fb)?;
-    let f = c.byte(0x227d);
-    let v = c.byte(0x3810);
+    let f = c.byte(g::MAP_VIEW_FLAG);
+    let v = c.byte(g::MUSIC_SETTINGS);
     let skip = f == 0 && v & 1 != 0;
     c.run(0x09fb, 2 + if f == 0 { 2 } else { 0 } + (!skip) as u32)?;
     if !skip {
@@ -511,12 +511,12 @@ pub fn steps_47fb(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, 0x14);
         c.call(0xe353, 0x4804)?;
         let cl = c.reg8(r8::CL);
-        let v = c.byte(0x4731).wrapping_add(cl);
+        let v = c.byte(g::ORNI_SPEED).wrapping_add(cl);
         let sound = v == 0x1a && cl & 0x80 == 0;
         c.run(0x4804, 4 + if v == 0x1a { 2 } else { 0 } + 1)?;
-        let old = c.byte(0x4731);
+        let old = c.byte(g::ORNI_SPEED);
         let v = pure::add(B, old as u16, cl as u16);
-        c.set_byte(0x4731, v as u8);
+        c.set_byte(g::ORNI_SPEED, v as u8);
         c.set_reg8(r8::AL, v as u8);
         if v == 0x1a {
             if sound {
@@ -527,7 +527,7 @@ pub fn steps_47fb(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x4816, 1)?;
         }
         c.call(0xae04, 0x4819)?;
-        let k = c.byte(0x4731);
+        let k = c.byte(g::ORNI_SPEED);
         c.run(0x4819, 2 + (k >= 0x21) as u32)?;
         if k >= 0x21 {
             return c.ret();
@@ -542,7 +542,7 @@ pub fn steps_47fb(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn book_aed6(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xaed6)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0x11c9);
+    let f = c.byte(g::HEAD_ANIMATION_BLOCKED);
     c.run(0xaed6, 3)?;
     if f != 0 {
         return c.ret();
@@ -583,7 +583,7 @@ pub fn head_09c7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x91a0, 0x09d0)?;
     let sp = c.reg(pc::cpu::SP);
     let d = c.word_in(pc::cpu::SS, sp);
-    let x = c.word(0x1bf0);
+    let x = c.word(g::HEAD_ORIGIN_X);
     if x >= d {
         c.run(0x09d0, 5 + 1)?;
     } else {
@@ -599,7 +599,7 @@ pub fn head_09c7(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let v = pure::add(W, x, d);
-    c.set_word(0x1bf0, v);
+    c.set_word(g::HEAD_ORIGIN_X, v);
     let r = c.word(0x1bf4);
     let r = pure::add(W, r, d);
     c.set_word(0x1bf4, r);
@@ -623,7 +623,7 @@ pub fn intro_25_sting_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x088c, 3)?;
     c.set_reg(SI, 0x1470);
     c.set_reg8(r8::AL, 0xde);
-    let es = c.word(0xdbda);
+    let es = c.word(g::FRAMEBUFFER_ACTIVE);
     c.set_sreg(ES, es);
     c.interp(0x0895, 0x0899)?;
     c.run(0x0899, 2)?;
@@ -683,7 +683,7 @@ pub fn sheets_cfe4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::ES;
     entered(start, 0xcfe4)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0xceeb);
+    let k = c.byte(g::LANGUAGE);
     c.run(0xcfe4, 4 + (k == 6) as u32 + 4)?;
     c.set_reg8(r8::AL, k);
     c.set_reg(SI, 0xbb);
@@ -697,11 +697,11 @@ pub fn sheets_cfe4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, v);
     c.call(0xf0b9, 0xcff9)?;
     c.run(0xcff9, 6)?;
-    let k = c.byte(0xceeb);
+    let k = c.byte(g::LANGUAGE);
     let a = pure::add(B, 0xc0, k as u16);
     c.set_reg(AX, a);
     c.set_reg(SI, a);
-    let (d, e) = (c.word(0x47ac), c.word(0x47ae));
+    let (d, e) = (c.word(g::COMMAND_STRINGS), c.word(0x47ae));
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
     c.call(0xf0b9, 0xd00a)?;
@@ -837,12 +837,12 @@ pub fn results_be1d(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn intro_0826(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0826)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0x46d7);
+    let k = c.byte(g::FRAME_TASKS_ACTIVE);
     if k != 0 {
         c.run(0x0826, 3)?;
         return c.jump(0x391d);
     }
-    let al = c.byte(0x46d6);
+    let al = c.byte(g::PALETTE_SUB);
     let ax = (c.reg(AX) & 0xff00 | al as u16).wrapping_add(1);
     let n = ax as u8;
     if n == 0xb {
@@ -863,7 +863,7 @@ pub fn intro_0826(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let ah = if n == 0xd { 0x0a } else { 0x1e };
     c.set_reg8(r8::AH, ah);
-    c.set_byte(0x46d7, ah);
+    c.set_byte(g::FRAME_TASKS_ACTIVE, ah);
     c.set_reg8(r8::BL, n);
     c.call(0x0820, 0x084a)?;
     c.run(0x084a, 2)?;
@@ -934,9 +934,9 @@ pub fn globe_b96b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xb96b, 1)?;
     c.call(0xb8f3, 0xb96e)?;
     c.run(0xb96e, 2)?;
-    let v = c.byte(0xdd02);
+    let v = c.byte(g::MAP_GFX_ARG);
     let v = pure::dec(B, v as u16);
-    c.set_byte(0xdd02, v as u8);
+    c.set_byte(g::MAP_GFX_ARG, v as u8);
     c.call(0xb98b, 0xb975)?;
     c.run(0xb975, 1)?;
     c.jump(0xb941)
@@ -1026,7 +1026,7 @@ pub fn intro_night_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xc07c, 0x0adf)?;
     c.run(0x0adf, 4)?;
     c.set_reg(SI, 0x1582);
-    let es = c.word(0xdbda);
+    let es = c.word(g::FRAMEBUFFER_ACTIVE);
     c.set_sreg(ES, es);
     c.set_reg(AX, 2);
     c.call(0xc370, 0x0aec)?;
@@ -1215,7 +1215,7 @@ pub fn dialogue_941d(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x9433, 1)?;
         return c.jump(0x0eb9);
     }
-    let f = c.byte(0x11c9);
+    let f = c.byte(g::HEAD_ANIMATION_BLOCKED);
     let g = c.byte(0x11ca);
     let book = f & 3 != 0 && g == 0;
     let open = c.word(0x479e);
@@ -1257,9 +1257,9 @@ pub fn jessica_0f08(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x9197, 0x0f1f)?;
     c.run(0x0f1f, 3)?;
     c.set_byte(0x478c, 0);
-    let v = c.word(0x1bf2);
+    let v = c.word(g::HEAD_ORIGIN_Y);
     let v = pure::add(W, v, 0xf);
-    c.set_word(0x1bf2, v);
+    c.set_word(g::HEAD_ORIGIN_Y, v);
     c.call(0x978e, 0x0f2c)?;
     c.run(0x0f2c, 1)?;
     c.call(0x998e, 0x0f2f)?;
@@ -1320,7 +1320,7 @@ pub fn script_1707(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1736, 2)?;
     c.set_reg(SI, 0x176b);
     c.call(0xda5f, 0x173c)?;
-    let ph = c.byte(0x2a);
+    let ph = c.byte(g::GAME_PHASE);
     c.run(0x173c, 7 + (ph != 0x48) as u32)?;
     let ax = c.word(0x4776);
     c.set_reg(AX, ax);
@@ -1381,7 +1381,7 @@ pub fn palace_plan_18ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1912, 3)?;
     c.set_reg(SI, 0x143c);
     c.set_reg8(r8::AL, 0xf1);
-    let es = c.word(0xdbda);
+    let es = c.word(g::FRAMEBUFFER_ACTIVE);
     c.set_sreg(ES, es);
     c.interp(0x191b, 0x191f)?;
     c.run(0x191f, 3)?;
@@ -1458,7 +1458,7 @@ pub fn place_7c02(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     c.push(si);
     c.call(0x9efd, 0x7c3a)?;
-    let k = c.byte(0x47a5);
+    let k = c.byte(g::FLAG_47A5);
     c.run(0x7c3a, 4 + if k == 0x80 { 2 } else { 0 })?;
     let v = c.pop();
     c.set_reg(SI, v);
@@ -1548,7 +1548,7 @@ pub fn sky_380c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x380c)?;
     let mut c = Ctx::new(m);
     c.run(0x380c, 2)?;
-    c.set_byte(0x22e3, 1);
+    c.set_byte(g::SKY_VARIANT, 1);
     c.call(0x388d, 0x3814)?;
     c.run(0x3814, 3)?;
     let si = c.word(0x1150);
@@ -1680,7 +1680,7 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::SS;
     entered(start, 0x1c46)?;
     let mut c = Ctx::new(m);
-    let ph = c.byte(0x2a);
+    let ph = c.byte(g::GAME_PHASE);
     let last = c.byte(0xfe);
     c.run(0x1c46, 5 + (ph != last) as u32 + 2)?;
     c.set_reg8(r8::AL, ph);
@@ -1688,11 +1688,11 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0xfe, ph);
     c.set_reg8(r8::AL, last);
     if ph != last {
-        c.set_byte(0xff, 0);
+        c.set_byte(g::PHASE_CHANGED_FLAG, 0);
     }
-    let v = c.byte(0xff);
+    let v = c.byte(g::PHASE_CHANGED_FLAG);
     let v = pure::inc(B, v as u16);
-    c.set_byte(0xff, v as u8);
+    c.set_byte(g::PHASE_CHANGED_FLAG, v as u8);
     c.call(0x1d66, 0x1c5f)?;
     c.run(0x1c5f, 1)?;
     c.call(0x1e43, 0x1c62)?;
@@ -2227,7 +2227,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if face & 0x80 == 0 {
         c.call(0x91a0, 0x0dfd)?;
         c.run(0x0dfd, 10)?;
-        let (s, e) = (c.word(0xdbb0), c.word(0xdbb2));
+        let (s, e) = (c.word(g::SPRITE_SHEET), c.word(0xdbb2));
         c.set_reg(SI, s);
         c.set_sreg(ES, e);
         // The face: the sheet's sprite count / 2 - 3, at the box + 1.
@@ -2389,7 +2389,7 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(es);
     let ds = c.sreg(DS);
     c.push(ds);
-    let (s, seg) = (c.word(0xdcfe), c.word(0xdd00));
+    let (s, seg) = (c.word(g::MAP_GFX_DATA), c.word(0xdd00));
     c.set_reg(SI, s);
     c.set_sreg(DS, seg);
     let si = c.reg(SI);
@@ -2463,10 +2463,10 @@ pub fn night_4795(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if al == 4 {
         c.run(0x4795, 5)?;
         c.call(0xce53, 0x47d1)?;
-        let old = c.byte(0x4732);
+        let old = c.byte(g::SAL_FLAGS);
         let set = old & 0x80 != 0;
         c.run(0x47d1, 4 + if set { 1 } else { 1 })?;
-        c.set_byte(0x4732, 0);
+        c.set_byte(g::SAL_FLAGS, 0);
         let v = pure::shl1(B, old as u16, 1);
         c.set_reg8(r8::AL, v as u8);
         if !set {
@@ -2474,7 +2474,7 @@ pub fn night_4795(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.call(0x181e, 0x47de)?;
         c.run(0x47de, 2)?;
-        c.set_byte(0x4731, 0xff);
+        c.set_byte(g::ORNI_SPEED, 0xff);
         c.call(0xc07c, 0x47e6)?;
         c.run(0x47e6, 1)?;
         c.call(0x37b2, 0x47e9)?;
@@ -2483,7 +2483,7 @@ pub fn night_4795(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x47ec, 1)?;
         c.call(0x5ba0, 0x47ef)?;
         c.run(0x47ef, 3)?;
-        c.set_byte(0x4731, 0);
+        c.set_byte(g::ORNI_SPEED, 0);
         c.set_reg8(r8::AL, 6);
         c.call(0xab15, 0x47f9)?;
         c.run(0x47f9, 1)?;
@@ -2493,21 +2493,21 @@ pub fn night_4795(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x4795, 5)?;
     c.call(0x98af, 0x47a3)?;
     c.run(0x47a3, 3)?;
-    c.set_byte(0xcee8, 0);
+    c.set_byte(g::KEY_HIT, 0);
     c.set_reg8(r8::AL, 0x50);
     c.call(0x121f, 0x47ad)?;
     c.run(0x47ad, 2)?;
-    c.set_byte(0xe8, 0);
+    c.set_byte(g::HEAD_ANIMATION_STEP, 0);
     c.call(0x1797, 0x47b5)?;
     c.run(0x47b5, 3)?;
     c.set_reg8(r8::AL, 0x10);
     c.set_reg(BP, 0x4913);
     c.call(0xc108, 0x47bd)?;
     c.run(0x47bd, 2)?;
-    c.set_byte(0x227d, 1);
+    c.set_byte(g::MAP_VIEW_FLAG, 1);
     c.call(0x491c, 0x47c5)?;
     c.run(0x47c5, 2)?;
-    c.set_byte(0x227d, 0);
+    c.set_byte(g::MAP_VIEW_FLAG, 0);
     c.jump(0xac14)
 }
 
@@ -2574,9 +2574,9 @@ pub fn map_panel_5692(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(0xc13b, 0x56d6)?;
     c.run(0x56d6, 3)?;
-    let v = c.byte(0xdbe4);
+    let v = c.byte(g::TEXT_COLOUR);
     let v = pure::sub(B, v as u16, 3);
-    c.set_byte(0xdbe4, v as u8);
+    c.set_byte(g::TEXT_COLOUR, v as u8);
     c.set_reg(AX, 0);
     c.call(0x56ed, 0x56e0)?;
     c.run(0x56e0, 3)?;
@@ -2621,7 +2621,7 @@ pub fn set_47a5_ff(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1d0)?;
     let mut c = Ctx::new(m);
     c.run(0xa1d0, 2)?;
-    c.set_byte(0x47a5, 0xff);
+    c.set_byte(g::FLAG_47A5, 0xff);
     c.ret()
 }
 
@@ -2630,7 +2630,7 @@ pub fn set_47a5_80(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1dc)?;
     let mut c = Ctx::new(m);
     c.run(0xa1dc, 2)?;
-    c.set_byte(0x47a5, 0x80);
+    c.set_byte(g::FLAG_47A5, 0x80);
     c.ret()
 }
 
@@ -2667,7 +2667,7 @@ pub fn screen_2c9a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2c9a)?;
     let mut c = Ctx::new(m);
     c.run(0x2c9a, 3)?;
-    c.set_byte(0xe8, 0);
+    c.set_byte(g::HEAD_ANIMATION_STEP, 0);
     c.set_reg8(r8::AL, 0x23);
     c.call(0xc2f2, 0x2ca4)?;
     c.run(0x2ca4, 1)?;
@@ -2680,7 +2680,7 @@ pub fn screen_2c9a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0);
     c.set_word(0x1bea, 0);
     c.set_word(0x1bf8, 0);
-    c.set_byte(0x46df, 0);
+    c.set_byte(g::SKY_PALETTE_SET, 0);
     c.set_reg(SI, 0xc0b6);
     c.call(0xda5f, 0x2cbe)?;
     c.run(0x2cbe, 3)?;
@@ -2703,7 +2703,7 @@ pub fn nothing_2540(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn by_day_a1f7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1f7)?;
     let mut c = Ctx::new(m);
-    let day = c.byte(0x2a);
+    let day = c.byte(g::GAME_PHASE);
     let steps: [(u16, u8); 3] = [(0x12f8, 0x14), (0x134f, 0x18), (0x1370, 0x30)];
     let k = steps.iter().position(|&(_, lim)| day < lim);
     // `mov bl`, then `mov ax` / `cmp` / `jb` per limit tried, the last

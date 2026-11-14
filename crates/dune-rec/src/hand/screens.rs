@@ -123,7 +123,7 @@ pub fn leave_screens(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn ask_redraw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd316)?;
     let mut c = Ctx::new(m);
-    let v = c.word(0x35a6);
+    let v = c.word(g::HNM_FILE_HANDLE);
     c.run(start, if v == 0 { 4 } else { 3 })?;
     if v == 0 {
         let t = c.byte(TRANSITION);
@@ -385,7 +385,7 @@ pub fn draw_1b48_and_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xdf07)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
-    let sheet = c.word(0x2784);
+    let sheet = c.word(g::RESOURCE_ID);
     c.push(sheet);
     c.set_reg(SI, 0x1b48);
     c.set_reg(CX, 5);
@@ -436,7 +436,7 @@ pub fn set_buttons_for_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd717)?;
     let mut c = Ctx::new(m);
     let kinds = c.byte(0x46eb);
-    let f = c.byte(0x11c9);
+    let f = c.byte(g::HEAD_ANIMATION_BLOCKED);
     let prefix = if kinds != 0 { 4 } else if f & 3 == 0 { 5 } else { 6 };
     set_buttons(&mut c, start, prefix, |c| {
         c.cmp(B, kinds as u16, 0);
@@ -467,7 +467,7 @@ pub fn draw_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::DRAW_UI_ELEMENTS_LIST, 0xd775)?;
     c.run(0xd775, 11)?;
     c.set_reg(SI, si);
-    let a = c.byte(0x1152) as i8 as u16;
+    let a = c.byte(g::BOOK_PAGE) as i8 as u16;
     let a = pure::add(W, a, 0x41);
     c.set_word(si + 0x0a, a);
     let b = c.byte(0x1153) as i8 as u16;
@@ -619,7 +619,7 @@ pub fn cursor_over_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd280)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0xdce6);
+    let k = c.byte(g::TRANSITION_ACTIVE);
     if (k as i8) <= 0 {
         c.run(start, 3)?;
         c.cmp(B, k as u16, 0);
@@ -629,7 +629,7 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.cmp(B, k as u16, 0);
     c.call(0xe270, 0xd28a)?;
     c.run(0xd28a, 2)?;
-    c.set_byte(0xdce6, 0);
+    c.set_byte(g::TRANSITION_ACTIVE, 0);
     c.call(0xd239, 0xd292)?;
     c.run(0xd292, 1)?;
     c.set_reg(CX, 0x11);
@@ -639,7 +639,7 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(cx);
         let t = c.word(g::TIMER);
         c.push(t);
-        let si = c.word(0xdbde);
+        let si = c.word(g::FRAMEBUFFER_2);
         c.set_reg(SI, si);
         c.set_reg8(r8::AL, 0x18);
         c.call(0xc0d5, 0xd2a3)?;
@@ -752,7 +752,7 @@ pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xbdbb)?;
     let mut c = Ctx::new(m);
-    let k = c.word(0xdd0f);
+    let k = c.word(g::GLOBE_DECORATIONS_X);
     if k == 0 {
         c.run(start, 3)?;
         return c.ret();
@@ -863,7 +863,7 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let (al, ah2) = (ax as u8, (ax >> 8) as u8);
-    let g = c.word(0x1152);
+    let g = c.word(g::BOOK_PAGE);
     let a1 = al != 0;
     let odd1 = a1 && al.wrapping_sub(1) & 1 != 0;
     let a2 = ah2 != 0;
@@ -894,9 +894,9 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax2);
     c.set_reg(BX, bx);
     c.set_word(0x2222, ax2);
-    c.set_word(0x1152, bx);
+    c.set_word(g::BOOK_PAGE, bx);
     if k == 0 {
-        let r = c.word(0x2784);
+        let r = c.word(g::RESOURCE_ID);
         c.push(r);
         c.call(0xc137, 0xd803)?;
         c.run(0xd803, 1)?;
@@ -912,7 +912,7 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xd810, 2)?;
     }
     let v = c.pop();
-    c.set_word(0x1152, v);
+    c.set_word(g::BOOK_PAGE, v);
     c.ret()
 }
 
@@ -1000,7 +1000,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte(0x4751);
     let v = pure::inc(B, v as u16);
     c.set_byte(0x4751, v as u8);
-    let fb = c.word(0xdbda);
+    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
     c.push(fb);
     c.call(0xc08e, 0x44b6)?;
     c.run(0x44b6, 1)?;
@@ -1012,7 +1012,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xdb74, 0x44c2)?;
     let si = c.reg(SI);
     let r = [c.word(si), c.word(si.wrapping_add(2)), c.word(si.wrapping_add(4)), c.word(si.wrapping_add(6))];
-    let b = [c.word(0xd834), c.word(0xd836), c.word(0xd838), c.word(0xd83a)];
+    let b = [c.word(g::RECT_D834), c.word(0xd836), c.word(0xd838), c.word(0xd83a)];
     let (c2, c3, c0, c1) = (r[2] >= b[2], r[3] >= b[3], r[0] < b[0], r[1] < b[1]);
     c.run(0x44c2, 7 + c2 as u32 + 2 + c3 as u32 + 2 + c0 as u32 + 2 + c1 as u32 + 1)?;
     c.set_reg(SI, 0xd834);
@@ -1041,7 +1041,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x4507, 2)?;
     let fb = c.pop();
-    c.set_word(0xdbda, fb);
+    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
     super::mouse::draw_mouse_cursor_if_needed(c.m, 0xdb67)
 }
 
@@ -1071,7 +1071,7 @@ pub fn panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_02ffb` after `pre` instructions from `at` (with `ops`).
 pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
     let dlg = c.byte(0x2b);
-    let mode = c.byte(0x11c9);
+    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
     let (ca, cb) = (c.byte(0x11ca), c.byte(0x11cb));
     if dlg != 0 || mode & 3 != 0 {
         let (n, si) = if dlg != 0 {
@@ -1135,7 +1135,7 @@ pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ct
     c.cmp(B, dx >> 8, 0x21);
     c.call(0x3efe, 0x3035)?;
     let si = c.reg(SI).wrapping_add(1);
-    let here = c.word(0x114e);
+    let here = c.word(g::MAP_POSITION_RECORD);
     let dl = c.reg8(r8::DL);
     let step = c.string_step(B);
     let mut n = 5 + (here == 0x100) as u32 + 3 + if dl == 1 { 2 } else { 0 } + 4;
@@ -1338,18 +1338,18 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, 4)?;
     c.cmp(B, 0, 0);
-    let di = c.word(0x114e);
+    let di = c.word(g::MAP_POSITION_RECORD);
     c.set_reg(DI, di);
     c.call(0x2e98, 0x2ed0)?;
     c.run(0x2ed0, 1)?;
     c.call(0x2efb, 0x2ed3)?;
-    let mode = c.byte(0x11c9);
+    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
     c.run(0x2ed3, if mode == 0 { 3 } else { 2 })?;
     c.cmp(B, mode as u16, 0);
     if mode == 0 {
         c.call(0x3090, 0x2edd)?;
     }
-    let y = c.word(0xdc38);
+    let y = c.word(g::MOUSE_Y);
     if y >= 0x74 {
         c.m.cpu.ip = 0x2edd;
         return Err(Bail);
@@ -1421,14 +1421,14 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.run(0x2f1d, 15)?;
                 copy(&mut c, 0x2218, 4);
                 c.set_reg(SI, 0x2214);
-                let phase = c.byte(0x2a);
+                let phase = c.byte(g::GAME_PHASE);
                 let v = c.lods(W, DS);
                 flagged(&mut c, v, phase < 0x4f);
             } else {
                 c.run(0x2f1d, 5)?;
                 let di = c.reg(DI);
                 c.push(di);
-                let p = c.word(0x114e);
+                let p = c.word(g::MAP_POSITION_RECORD);
                 c.set_reg(DI, p);
                 c.call(0x7f27, 0x2f45)?;
                 c.run(0x2f45, 9)?;
@@ -1478,13 +1478,13 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         copy(&mut c, 0x21f4, 2);
         return end_2ff7(&mut c);
     }
-    let mode = c.byte(0x11c9);
+    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
     if mode & 3 == 0 {
         c.run(0x2faa, 13)?;
         copy(&mut c, 0x220c, 2);
         c.set_reg(SI, 0x2214);
         let v = c.lods(W, DS);
-        let phase = c.byte(0x2a);
+        let phase = c.byte(g::GAME_PHASE);
         flagged(&mut c, v, phase < 0x4f);
         c.call(0x1ae0, 0x2fc9)?;
         // By the time of day (`loc_01ae0`): 21E0h or, from 0Bh, 21E4h.
@@ -1496,7 +1496,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return end_2ff7(&mut c);
     }
     let cb = c.byte(0x11cb);
-    let p = c.byte(0x2a);
+    let p = c.byte(g::GAME_PHASE);
     let n = if cb == 0 { 3 } else if p < 0x32 { 6 } else { 9 };
     c.run(0x2faa, 2 + n + 5)?;
     c.set_reg(SI, 0x21fc);

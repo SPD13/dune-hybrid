@@ -1131,7 +1131,7 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xf13f, 7)?;
     let cx = c.reg(CX);
     c.push(cx);
-    let bp = c.word(2);
+    let bp = c.word(g::GAME_TIME);
     c.set_reg(BP, bp);
     c.set_reg(SI, 0xd844);
     c.set_reg(DI, 0xda8c);

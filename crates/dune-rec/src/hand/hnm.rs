@@ -343,7 +343,7 @@ pub fn irulx_draw_or_clear_subtitle(m: &mut Machine, start: u16) -> Result<(), B
     // (Not drawing: the `rep stosw` iterations counted too.)
     c.run(start, 6 + if draw { 3 } else { 5 + 0xb40 })?;
     c.set_reg(AX, si);
-    c.set_word(0x3622, si);
+    c.set_word(g::SUBTITLE_NEXT, si);
     let a = pure::sub(W, si, 0x35a8);
     let a = pure::shr1(W, a, 2);
     c.set_reg(AX, a);
@@ -353,7 +353,7 @@ pub fn irulx_draw_or_clear_subtitle(m: &mut Machine, start: u16) -> Result<(), B
         return super::draw::draw_sprite_clobbering_bx_dx(c.m, 0xc22f);
     }
     c.set_reg(DI, 0xed80);
-    let es = c.word(0xdbd8);
+    let es = c.word(g::SCREEN_BUFFER);
     c.set_sreg(pc::cpu::ES, es);
     c.set_reg(AX, 0);
     c.set_reg(CX, 0xb40);

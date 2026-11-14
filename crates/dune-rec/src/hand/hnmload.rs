@@ -379,7 +379,7 @@ pub fn hnm_open_noting_body(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn hnm_initialize_memory_handler(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xce6c)?;
     let mut c = Ctx::new(m);
-    let mem = c.byte(0x2943);
+    let mem = c.byte(g::CMD_ARGS_MEMORY);
     let big = c.word(0x39a9);
     let clear4 = mem & 2 != 0 || big < 0x15e;
     c.run(start, if mem & 2 != 0 { 2 } else { 4 } + if clear4 { 2 } else { 0 })?;
@@ -400,7 +400,7 @@ pub fn hnm_initialize_memory_handler(m: &mut Machine, start: u16) -> Result<(), 
             }
         }
     }
-    let mem = c.byte(0x2943);
+    let mem = c.byte(g::CMD_ARGS_MEMORY);
     let clear80 = mem & 3 != 0;
     c.run(0xce8a, 2 + if clear80 { 2 } else { 0 })?;
     if clear80 {
@@ -454,15 +454,15 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc93c)?;
     let mut c = Ctx::new(m);
     c.run(0xc93c, 3)?;
-    let ax = c.word(0xdc00);
+    let ax = c.word(g::HNM_VIDEO);
     c.set_reg(AX, ax);
-    c.set_word(0xdc02, ax);
+    c.set_word(g::HNM_VIDEO_2, ax);
     c.call(0xc921, 0xc945)?;
     c.run(0xc945, 4)?;
     let bx = c.reg(BX);
     let ax = c.word(bx);
     c.set_reg(AX, ax);
-    c.set_word(0xdbfe, ax);
+    c.set_word(g::HNM_FLAGS, ax);
     c.set_reg(DX, bx.wrapping_add(2));
     c.call(0xf229, 0xc950)?;
     c.run(0xc950, 8)?;
@@ -470,9 +470,9 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.reg(r);
         c.set_word(at, v);
     }
-    let a = c.word(0xdc1a);
+    let a = c.word(g::HNM_READ_PTR_2);
     c.push(a);
-    let b = c.word(0xdc0c);
+    let b = c.word(g::HNM_READ_PTR);
     c.push(b);
     c.call(0xcd8f, 0xc96e)?;
     if !c.flag(CF) {
@@ -483,7 +483,7 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xc96e, 3 + if carry { 0 } else { 2 } + drop as u32 + 3)?;
         c.set_reg(SI, s);
         if drop {
-            c.set_word(0xdc0c, 0);
+            c.set_word(g::HNM_READ_PTR, 0);
         }
         let a = ax.wrapping_sub(2);
         c.set_reg(AX, a);
@@ -495,13 +495,13 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cf = c.flag(CF);
     c.run(0xc988, 3 + cf as u32)?;
     let v = c.pop();
-    c.set_word(0xdc0c, v);
+    c.set_word(g::HNM_READ_PTR, v);
     let v = c.pop();
-    c.set_word(0xdc1a, v);
+    c.set_word(g::HNM_READ_PTR_2, v);
     if cf {
         return c.ret();
     }
-    let (s0, e) = (c.word(0xdc0c), c.word(0xdc0e));
+    let (s0, e) = (c.word(g::HNM_READ_PTR), c.word(g::HNM_BUF_SEG));
     let w = c.word_at(e, s0);
     let s1 = s0.wrapping_add(2);
     let (sum, carry) = w.overflowing_add(s1);
@@ -515,7 +515,7 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if reset {
         c.set_reg(SI, 0);
     }
-    c.set_byte(0xdbb4, 0xff);
+    c.set_byte(g::PALETTE_RESOURCE, 0xff);
     c.call(0xc1ba, 0xc9ac)?;
     c.run(0xc9ac, 1)?;
     let si = c.reg(SI);
@@ -531,7 +531,7 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
             break;
         }
     }
-    let f = c.byte(0xdbfe);
+    let f = c.byte(g::HNM_FLAGS);
     let two = f & 4 != 0;
     c.run(0xc9b4, 3 + two as u32 + 16)?;
     let o = if two { 0x10u16 } else { 0 };
@@ -541,14 +541,14 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx = c.word_in(ES, o.wrapping_add(si).wrapping_add(2));
     c.set_reg(BX, bx);
     // The data's start: the file's offset plus the frame's.
-    let off = (c.word(0xdc06) as u32) << 16 | c.word(0xdc04) as u32;
+    let off = (c.word(0xdc06) as u32) << 16 | c.word(g::HNM_FILE_OFFSET) as u32;
     let at = off.wrapping_add((bx as u32) << 16 | cx as u32);
-    c.set_word(0xdbf6, at as u16);
+    c.set_word(g::HNM_BODY_OFFSET, at as u16);
     c.set_word(0xdbf8, (at >> 16) as u16);
     // The bytes left (the exit's flags are the `sbb`'s).
-    let a = c.word(0xdc08);
+    let a = c.word(g::HNM_FILE_REMAIN);
     let a = c.sub(W, a, cx);
-    c.set_word(0xdbfa, a);
+    c.set_word(g::HNM_BODY_SIZE, a);
     let a = c.word(0xdc0a);
     let a = c.sbb(W, a, bx);
     c.set_word(0xdbfc, a);
@@ -572,14 +572,14 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if cx == 0 {
             c.run(0xcb1a, 2)?;
             c.set_reg(CX, 0);
-            let (a, b) = (c.word(0xdbea), c.word(0xdbee));
+            let (a, b) = (c.word(g::HNM_FRAME_2), c.word(g::HNM_FRAME_4));
             c.run(0xcb00, 3)?;
             c.set_reg(AX, a);
             if a == b {
                 c.m.cpu.ip = 0xcb61;
                 return Err(Bail);
             }
-            let (a, b) = (c.word(0xdc08), c.word(0xdc0a));
+            let (a, b) = (c.word(g::HNM_FILE_REMAIN), c.word(0xdc0a));
             c.run(0xcb09, 3)?;
             c.set_reg(AX, a);
             let o = a | b;
@@ -597,9 +597,9 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(0xcc0c, 0xcb1a)?;
             continue;
         }
-        let f = c.byte(0xdbfe);
+        let f = c.byte(g::HNM_FLAGS);
         let neg = f & 0x80 != 0;
-        let a = (c.word(0xdc04).wrapping_neg() & 0x7ff) + 0x800;
+        let a = (c.word(g::HNM_FILE_OFFSET).wrapping_neg() & 0x7ff) + 0x800;
         let clip = !neg && a < cx;
         c.run(0xcb1a, 2 + 2 + if neg { 0 } else { 6 + clip as u32 } + 1)?;
         c.set_reg(CX, cx);
@@ -646,7 +646,7 @@ pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let si = c.word(0xdc14);
-    let f = c.byte(0xdbfe);
+    let f = c.byte(g::HNM_FLAGS);
     c.run(0xcca7, 4)?;
     c.set_reg(SI, si);
     c.set_reg8(r8::AL, f);
@@ -663,9 +663,9 @@ pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let w1 = c.word_at(seg, si.wrapping_add(2));
     c.run(0xccbb, 10)?;
-    let es = c.word(0xdbda);
+    let es = c.word(g::FRAMEBUFFER_ACTIVE);
     c.set_sreg(ES, es);
-    let vid = c.word(0xdc00);
+    let vid = c.word(g::HNM_VIDEO);
     c.set_reg(BX, vid);
     c.set_sreg(DS, seg);
     let a = c.lods(W, DS);
@@ -723,8 +723,8 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let lim = c.word(0xce74);
     let zero = carry || sum > lim;
     c.run(0xccf4, 4 + if carry { 0 } else { 2 } + zero as u32)?;
-    c.set_word(0xdc1c, 0xffff);
-    c.set_word(0xdc1e, 0xffff);
+    c.set_word(g::HNM_SYNC, 0xffff);
+    c.set_word(g::HNM_PAL_CHUNK, 0xffff);
     let s = pure::add(W, ax, si);
     c.set_reg(AX, s);
     if zero {
@@ -742,7 +742,7 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xcd16, 1 + (!z) as u32 + 4)?;
             if !z {
                 let si = c.reg(SI);
-                c.set_word(0xdc1c, si);
+                c.set_word(g::HNM_SYNC, si);
             }
             let n = c.lods(W, ES);
             let n = pure::sub(W, n, 4);
@@ -759,7 +759,7 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xcd25, 2 + 5)?;
             let n = c.lods(W, ES);
             let si = c.reg(SI);
-            c.set_word(0xdc1e, si);
+            c.set_word(g::HNM_PAL_CHUNK, si);
             let n = pure::sub(W, n, 4);
             c.set_reg(AX, n);
             let s = pure::add(W, si, n);
@@ -799,7 +799,7 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, bp);
     c.set_reg(DI, 0);
     if big {
-        let b = c.word(0xdbda);
+        let b = c.word(g::FRAMEBUFFER_ACTIVE);
         c.set_sreg(ES, b);
     }
     let es = c.sreg(ES);

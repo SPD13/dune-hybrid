@@ -483,8 +483,6 @@ const OTHER_CENTRE: u16 = 0x1980;
 const OTHER_SCREEN_CENTRE: u16 = 0xdcfa;
 /// The latitude table: 8-byte rows (SS for [BP+...]).
 const LATITUDES: u16 = 0x4948;
-/// Bit 7: the zoomed map (shifts by 2).
-const HOTSPOT_KINDS: u16 = 0x46eb;
 
 /// `loc_0b69a`: the two projection centres swapped.
 pub fn swap_projection(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -508,7 +506,7 @@ pub fn swap_projection(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn map_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb647)?;
     let mut c = Ctx::new(m);
-    let zoom = c.byte(HOTSPOT_KINDS) & 0x80 != 0;
+    let zoom = c.byte(g::MAP_MODE) & 0x80 != 0;
     let shift = if zoom { 2 } else { 0 };
     let (along, row) = (c.reg(DX), c.reg(BX));
     let y = (row.wrapping_sub(c.word(CENTRE + 2)) << shift).wrapping_add(c.word(SCREEN_CENTRE + 2));
@@ -712,7 +710,7 @@ const ROWS_BUFFER: u16 = 0x9e68;
 pub fn screen_to_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb5f9)?;
     let mut c = Ctx::new(m);
-    let zoom = c.byte(HOTSPOT_KINDS) & 0x80 != 0;
+    let zoom = c.byte(g::MAP_MODE) & 0x80 != 0;
     let cl = if zoom { 2u16 } else { 0 };
     let (dx, bx) = (c.reg(DX), c.reg(BX));
     let (sx, sy) = (c.word(SCREEN_CENTRE), c.word(SCREEN_CENTRE + 2));
@@ -847,7 +845,7 @@ pub fn globe_turn_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let bp = c.word(0x494a).wrapping_mul(2);
         c.set_reg(BP, bp);
         let dx = c.reg(DX);
-        let r = c.word(0x494c);
+        let r = c.word(g::GLOBE_ROTATION);
         let dx = c.sub(W, dx, r); // `loc_0b683` reads its SF
         c.set_reg(DX, dx);
         c.call(0xb683, 0xbab3)?;
@@ -1116,7 +1114,7 @@ pub fn set_globe_tilt_and_rotation(m: &mut Machine, start: u16) -> Result<(), Ba
     let dx = c.reg(DX);
     c.mul16(dx);
     let d = c.reg(DX);
-    c.set_word(0x494c, d);
+    c.set_word(g::GLOBE_ROTATION, d);
     c.set_word(0x494e, 0);
     c.set_reg(AX, a);
     c.set_word(0x2460, a);
@@ -1135,7 +1133,7 @@ pub fn globe_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb9ae)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    let es = c.word(0xdbd6);
+    let es = c.word(g::FRAMEBUFFER_FRONT);
     c.set_sreg(ES, es);
     c.interp(0xb9b2, 0xb9b6)?;
     if !c.flag(CF) {
@@ -1196,7 +1194,7 @@ pub fn globe_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xbc6e, 4)?;
     let (ax, bx) = (c.reg(AX), c.reg(BX));
-    c.set_word(0x197c, ax);
+    c.set_word(g::GLOBE_TILT_START, ax);
     c.set_word(0x197e, bx);
     c.call(0xb98b, 0xbc7a)?;
     c.run(0xbc7a, 4)?;
@@ -1225,8 +1223,8 @@ pub fn enter_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(to, at + 3)?;
     }
     c.run(0xb8cf, 5)?;
-    let v = c.byte(0xdd03).wrapping_add(1);
-    c.set_byte(0xdd03, v);
+    let v = c.byte(g::GLOBE_DD03).wrapping_add(1);
+    c.set_byte(g::GLOBE_DD03, v);
     c.set_reg8(r8::AL, 0);
     c.set_reg(DX, 0xffff);
     c.set_reg(BP, 0xb827);
@@ -1277,7 +1275,7 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x017d, 3)?;
     let d = c.pop();
     c.set_reg(DI, d);
-    let (p, s) = (c.word(0xdbb0), c.word(0xdbb2));
+    let (p, s) = (c.word(g::SPRITE_SHEET), c.word(0xdbb2));
     c.set_reg(SI, p);
     c.set_sreg(ES, s);
     c.set_reg(CX, 0xc5f9);
@@ -1360,7 +1358,7 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn globe_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb941)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0xdd02);
+    let k = c.byte(g::MAP_GFX_ARG);
     c.run(start, 5 + if k != 0 { 2 } else { 0 } + 4)?;
     c.set_reg(BP, 0x204a);
     let mut ax = 0xb1u16;
@@ -1539,10 +1537,10 @@ pub fn draw_globe_and_ui(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb827)?;
     let mut c = Ctx::new(m);
     c.run(0xb827, 2)?;
-    c.set_byte(0xdd02, 0);
+    c.set_byte(g::MAP_GFX_ARG, 0);
     c.call(0xb84a, 0xb82f)?;
     c.run(0xb82f, 2)?;
-    c.set_word(0xdd0f, 0);
+    c.set_word(g::GLOBE_DECORATIONS_X, 0);
     c.call(0xb87e, 0xb838)?;
     for (at, to) in [(0xb838u16, 0x1797u16), (0xb83b, 0xb941), (0xb83e, 0xd7b2)] {
         c.run(at, 1)?;
@@ -1571,7 +1569,7 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if c.flag(pc::cpu::DF) {
         return Err(Bail);
     }
-    let k = c.byte(0x227d);
+    let k = c.byte(g::MAP_VIEW_FLAG);
     c.run(0xbaf2, 4)?;
     c.set_reg(DX, 0);
     if k != 0 {
@@ -1854,17 +1852,17 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, 0x4b);
         clamp_197e(&mut c, 0x4b);
         c.set_reg(BP, 0x4948);
-        let dx = c.word(0x197c);
+        let dx = c.word(g::GLOBE_TILT_START);
         c.set_reg(DX, dx);
         let t = c.word(0x197e);
         let a = c.sub(W, t, 0x12); // the driver's far call sees these flags
         c.set_reg(AX, a);
-        let di = c.word(0xdcfe);
+        let di = c.word(g::MAP_GFX_DATA);
         let es = c.word(0xdd00);
         c.set_reg(DI, di);
         c.set_sreg(ES, es);
         c.set_reg(SI, 0x4c60);
-        let bx = c.word(0xdbda);
+        let bx = c.word(g::FRAMEBUFFER_ACTIVE);
         c.set_reg(BX, bx);
         c.interp(0xb70f, 0xb713)?;
         c.run(0xb713, 1)?;
@@ -1900,7 +1898,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, lim);
     clamp_197e(&mut c, lim);
     c.set_reg(BP, 0x4948);
-    let dx = c.word(0x197c);
+    let dx = c.word(g::GLOBE_TILT_START);
     c.set_reg(DX, dx);
     // The first latitude row: 4948h + 8 · (row - half), from the end
     // backwards when that is negative.
@@ -1967,7 +1965,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let f = c.byte(0x46eb);
     c.run(0xb7ae, 9 + (f & 0x40 != 0) as u32)?;
-    let es = c.word(0xdbda);
+    let es = c.word(g::FRAMEBUFFER_ACTIVE);
     c.set_sreg(ES, es);
     let di = c.word(0xdcf2);
     c.set_reg(DI, di);
@@ -1999,7 +1997,7 @@ pub fn globe_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let (dx0, di0, cx0, bx0, bp) = (c.reg(DX), c.reg(DI), c.reg(CX), c.reg(BX), c.reg(BP));
     let ds0 = c.sreg(DS);
-    let si0 = c.word(0xdcfe);
+    let si0 = c.word(g::MAP_GFX_DATA);
     let seg = c.word(0xdd00);
     let bx2 = bx0.wrapping_add(bx0);
     let prod = dx0 as u32 * bx2 as u32;

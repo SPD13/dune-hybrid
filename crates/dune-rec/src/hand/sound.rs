@@ -7,8 +7,6 @@ use pc::{
     rec::Bail,
 };
 
-/// The data segment's value, which `check_pcm_enabled` loads itself.
-const GAME_DS: u16 = 0x1f4b;
 
 /// `advance_lipsync` (A814): the next lip-sync byte. CF set and the read
 /// pointer advanced if there is one (DI past it, AL = it); CF clear at the
@@ -96,7 +94,7 @@ pub fn check_pcm_enabled(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(ax);
     let ds = c.sreg(DS);
     c.push(ds);
-    let settings = c.word_at(GAME_DS, g::SOUND_SETTINGS);
+    let settings = c.word_at(g::GAME_DS, g::SOUND_SETTINGS);
     c.test(W, settings, 1);
     let ds = c.pop();
     c.set_sreg(DS, ds);
@@ -169,7 +167,7 @@ pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{BX, DX, SI};
     entered(start, 0xde0c)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0xdbcd);
+    let f = c.byte(g::IS_SOUND_PRESENT);
     if f & 0x80 == 0 {
         c.run(0xde0c, 6)?;
         let ax = c.reg(AX);
@@ -182,20 +180,20 @@ pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xde0c, 3)?;
     c.call(0xe270, 0xde16)?;
     c.run(0xde16, 3)?;
-    c.set_byte(0xcee8, 0);
+    c.set_byte(g::KEY_HIT, 0);
     c.set_reg(SI, 0xffff);
     c.set_reg(DI, 0xffff);
     loop {
         c.run(0xde20, 14)?;
         c.set_reg(AX, 0x60);
-        let t = c.word(0xdbd0);
+        let t = c.word(g::MIDI_FUNC5_CX);
         // The target: [0DBCEh] * 16 + (60h - [0DBD0h]) / 6.
         let a = 0x60u16.wrapping_sub(t) & 0xff;
         let (q, r) = (a / 6, a % 6);
         let al = q as u8 & 0xf;
         c.set_reg(AX, (r << 8) | al as u16);
         c.set_reg8(r8::DL, 6);
-        let dx = (c.word(0xdbce) << 4) | al as u16;
+        let dx = (c.word(g::MIDI_FUNC5_BX) << 4) | al as u16;
         c.set_reg(DX, dx);
         let bx = c.reg(BX);
         if bx <= dx {

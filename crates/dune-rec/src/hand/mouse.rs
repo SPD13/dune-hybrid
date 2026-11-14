@@ -331,7 +331,7 @@ pub fn redraw_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn get_mouse_cursor_image_addr(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xdc6a)?;
     let mut c = Ctx::new(m);
-    let busy = c.byte(g::FLAG_28BE);
+    let busy = c.byte(g::SETTINGS_HOVER);
     if busy != 0 {
         c.run(start, 4)?;
         c.set_reg(BP, cursor::BUSY);

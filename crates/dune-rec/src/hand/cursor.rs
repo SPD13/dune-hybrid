@@ -7,6 +7,7 @@
 //! best point (x, y). DX, BX are the cursor. A candidate is scored with DX,
 //! BX as they are and AX, SI its point; a lower score wins.
 
+use super::globals as g;
 use super::pure;
 use super::{B, Ctx, W, entered, r8};
 use pc::{
@@ -27,11 +28,6 @@ const UI_ELEMENTS_PTR: u16 = 0x21da;
 /// words, FFFFh at the end).
 const UI_ELEMENTS_WITH_POINTS: u16 = 0x201a;
 const POINTS: u16 = 0x28e9;
-/// What else is a hotspot: bit 7 the particles (sprites on screen), not 0
-/// the records at [`MARKERS`], bit 0 the 8 points at [`EIGHT_POINTS`]
-/// (when [`EIGHT_POINTS_ON`] is set).
-const HOTSPOT_KINDS: u16 = 0x46eb;
-const PARTICLES: u16 = 0x3cbe;
 const PARTICLE_SIZE: u16 = 0x11;
 /// 6-byte records: a non-zero word, x, y (its low byte).
 const MARKERS: u16 = 0xa5c0;
@@ -177,26 +173,26 @@ pub fn hotspots_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// `loc_0e0a2`: the particles (when bit 7 of [`HOTSPOT_KINDS`] is set): each
+/// `loc_0e0a2`: the particles (when bit 7 of [`g::MAP_MODE`] is set): each
 /// not hidden (bits C0h of its byte 0Ch) and not under the cursor, at
 /// its rect's hotspot.
 pub fn hotspots_particles(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe0a2)?;
     let mut c = Ctx::new(m);
-    let kinds = c.byte(HOTSPOT_KINDS);
+    let kinds = c.byte(g::MAP_MODE);
     let on = kinds & 0x80 != 0;
     c.run(start, if on { 2 } else { 3 })?;
     if !on {
         return c.ret();
     }
-    let count = c.word(PARTICLES);
+    let count = c.word(g::PARTICLES);
     c.run(0xe0a9, 4)?;
-    c.set_reg(DI, PARTICLES);
+    c.set_reg(DI, g::PARTICLES);
     c.set_reg(CX, count);
     if count == 0 {
         return c.ret();
     }
-    let mut di = pure::add(W, PARTICLES, 2);
+    let mut di = pure::add(W, g::PARTICLES, 2);
     c.set_reg(DI, di);
     loop {
         let flags = c.byte(di.wrapping_add(0x0c));
@@ -230,12 +226,12 @@ pub fn hotspots_particles(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// `loc_0e0db`: the records at [`MARKERS`] (when [`HOTSPOT_KINDS`] is not
+/// `loc_0e0db`: the records at [`MARKERS`] (when [`g::MAP_MODE`] is not
 /// 0), up to the first whose word 0 is 0.
 pub fn hotspots_markers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe0db)?;
     let mut c = Ctx::new(m);
-    let kinds = c.byte(HOTSPOT_KINDS);
+    let kinds = c.byte(g::MAP_MODE);
     c.run(start, 3)?;
     if kinds == 0 {
         return c.ret();
@@ -273,11 +269,11 @@ pub fn hotspots_markers(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0e11c`: the 8 points at [`EIGHT_POINTS`] (when bit 0 of
-/// [`HOTSPOT_KINDS`] and [`EIGHT_POINTS_ON`] are set).
+/// [`g::MAP_MODE`] and [`EIGHT_POINTS_ON`] are set).
 pub fn hotspots_eight_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe11c)?;
     let mut c = Ctx::new(m);
-    let kinds = c.byte(HOTSPOT_KINDS);
+    let kinds = c.byte(g::MAP_MODE);
     if kinds & 1 == 0 {
         c.run(start, 3)?;
         return c.ret();
@@ -349,7 +345,7 @@ pub fn accelerated_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x92c9)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0x1152);
+    let k = c.byte(g::BOOK_PAGE);
     if k == 0xff {
         c.run(start, 5)?;
         c.set_reg(CX, 0xff);
@@ -501,13 +497,13 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
     // 4 D55Dh (CX the speaker), 5 D545h, 6 D593h.
     let mut at;
     if fixed != 0 {
-        let cl = c.byte(0x4775);
+        let cl = c.byte(g::BLINK_PHASE);
         c.set_reg8(r8::CL, cl);
         at = 0;
     } else {
         c.call(0xd41b, 0xd526)?;
         let bp = c.reg(BP);
-        let mode = c.byte(0x11c9);
+        let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
         if bp != 0x1f0e || mode != 0 {
             c.run(0xd526, if bp != 0x1f0e { 2 } else { 4 })?;
             if bp == 0x1f0e {
@@ -1031,7 +1027,7 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
 /// D410h: the hover highlight at the mouse.
 fn slots_end(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xd410, 3)?;
-    let (x, y) = (c.word(0xdc36), c.word(0xdc38));
+    let (x, y) = (c.word(g::MOUSE_X), c.word(g::MOUSE_Y));
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     highlight_hovered_text_action_item(c.m, 0xd50f)

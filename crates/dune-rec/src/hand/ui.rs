@@ -518,7 +518,7 @@ pub fn sky_palette_with_tasks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x38a2)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_byte(0x46d7, 0x30);
+    c.set_byte(g::FRAME_TASKS_ACTIVE, 0x30);
     c.call(0x3971, 0x38aa)?;
     c.run(0x38aa, 1)?;
     sky_palette_rows(&mut c)
@@ -824,7 +824,7 @@ pub fn draw_counter(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 fn draw_counter_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xa49c, 2)?;
-    let fb = c.word(0xdbda);
+    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
     c.push(fb);
     c.call(0xc08e, 0xa4a3)?;
     c.run(0xa4a3, 2)?;
@@ -850,7 +850,7 @@ fn draw_counter_at(c: &mut Ctx) -> Result<(), Bail> {
     c.call(0xc22f, 0xa4c1)?;
     c.run(0xa4c1, 2)?;
     let fb = c.pop();
-    c.set_word(0xdbda, fb);
+    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
     c.ret()
 }
 
@@ -859,7 +859,7 @@ fn draw_counter_at(c: &mut Ctx) -> Result<(), Bail> {
 pub fn draw_counters(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa47d)?;
     let mut c = Ctx::new(m);
-    let f = c.word(0xdbc8);
+    let f = c.word(g::SOUND_SETTINGS);
     if f & 8 != 0 {
         c.run(start, 4)?;
         c.set_reg(SI, 0x28a6);
@@ -867,7 +867,7 @@ pub fn draw_counters(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(start, 2)?;
     }
-    let f = c.word(0xdbc8);
+    let f = c.word(g::SOUND_SETTINGS);
     if f & 0x800 == 0 {
         c.run(0xa48b, 3)?;
         return c.ret();
@@ -889,7 +889,7 @@ pub fn sky_refresh(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x395f, 0x0fb5)?;
     c.run(0x0fb5, 1)?;
     c.call(0x3971, 0x0fb8)?;
-    let k = c.byte(0x46d7);
+    let k = c.byte(g::FRAME_TASKS_ACTIVE);
     c.run(0x0fb8, 3)?;
     if k != 0 {
         sub_39b9(c.m, 0x39b9)
@@ -908,9 +908,9 @@ pub fn start_sky_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x3971, 0x38f4)?;
     c.run(0x38f4, 1)?;
     c.call(0x39b9, 0x38f7)?;
-    let old = c.byte(0x46d7);
+    let old = c.byte(g::FRAME_TASKS_ACTIVE);
     c.run(0x38f7, if old != 0 { 5 } else { 7 })?;
-    c.set_byte(0x46d7, 0x40);
+    c.set_byte(g::FRAME_TASKS_ACTIVE, 0x40);
     c.set_reg8(r8::AL, old);
     if old != 0 {
         return c.ret();
@@ -926,7 +926,7 @@ pub fn start_sky_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn sky_if_changed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x38e1)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0x46df);
+    let k = c.byte(g::SKY_PALETTE_SET);
     if k == 0 {
         c.run(start, 3)?;
         return c.ret();
@@ -934,7 +934,7 @@ pub fn sky_if_changed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 3)?;
     c.call(0x395c, 0x38eb)?;
     let bl = c.reg8(r8::BL);
-    let cur = c.byte(0x46d6);
+    let cur = c.byte(g::PALETTE_SUB);
     c.run(0x38eb, if cur == bl { 3 } else { 2 })?;
     if cur == bl {
         return c.ret();
@@ -948,7 +948,7 @@ pub fn redraw_2886(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa541)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let v = c.byte(0x28e7);
+    let v = c.byte(g::VOICE_LANGUAGE);
     c.set_reg8(r8::AL, v);
     c.set_byte(0x28e8, v);
     c.call(0xdaa3, 0xa54a)?;
@@ -979,7 +979,7 @@ pub fn redraw_head_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.set_reg(BP, 0x1e76);
         c.set_reg(SI, 0xcd9e);
-        let es = c.word(0xdbd6);
+        let es = c.word(g::FRAMEBUFFER_FRONT);
         c.set_sreg(ES, es);
         c.interp(0x17db, 0x17df)?;
         c.run(0x17df, 1)?;
@@ -998,25 +998,25 @@ pub fn redraw_head_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn sky_fade_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3916)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0x46df);
+    let k = c.byte(g::SKY_PALETTE_SET);
     if k == 0 {
         c.run(start, 5)?;
-        c.set_byte(0x46d7, 0);
+        c.set_byte(g::FRAME_TASKS_ACTIVE, 0);
         c.set_reg(SI, 0x3916);
         return super::tasks::remove_frame_task(c.m, 0xda5f);
     }
-    let alt = c.byte(0x22e3);
+    let alt = c.byte(g::SKY_VARIANT);
     c.run(start, 2 + 4 + if alt == 0 { 2 } else { 0 } + 2)?;
     c.cmp(B, alt as u16, 0); // the driver's far call sees these flags
     let (cx, bx) = if alt == 0 { (0xf0, 0x180) } else { (0x1c5, 0xdb) };
     c.set_reg(CX, cx);
     c.set_reg(BX, bx);
-    let al = c.byte(0x46d7);
+    let al = c.byte(g::FRAME_TASKS_ACTIVE);
     c.set_reg8(r8::AL, al);
     let ax = c.reg(AX);
     c.push(ax);
     c.interp(0x3934, 0x3938)?;
-    let night = c.byte(0x227d);
+    let night = c.byte(g::MAP_VIEW_FLAG);
     c.run(0x3938, 3 + if night == 0 { 2 } else { 0 })?;
     let a = c.pop();
     c.set_reg(AX, a);
@@ -1026,14 +1026,14 @@ pub fn sky_fade_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, 0x2d0);
         c.interp(0x3946, 0x394a)?;
     }
-    let v = c.byte(0x46d7);
+    let v = c.byte(g::FRAME_TASKS_ACTIVE);
     let r = v.wrapping_sub(1);
     c.run(0x394a, if r != 0 { 3 } else { 5 })?;
-    c.set_byte(0x46d7, r);
+    c.set_byte(g::FRAME_TASKS_ACTIVE, r);
     if r != 0 {
         return c.ret();
     }
-    c.set_byte(0x46d7, 0);
+    c.set_byte(g::FRAME_TASKS_ACTIVE, 0);
     c.set_reg(SI, 0x3916);
     super::tasks::remove_frame_task(c.m, 0xda5f)
 }
@@ -1048,7 +1048,7 @@ pub fn show_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let k = c.byte(0x473e);
     if k == 0 {
-        let e = c.word(0xdbea);
+        let e = c.word(g::HNM_FRAME_2);
         if e == 0 {
             c.run(start, 7)?;
             c.set_reg(SI, 0x14ac);
@@ -1084,19 +1084,19 @@ pub fn show_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn head_blink(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1843)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0xe8);
+    let k = c.byte(g::HEAD_ANIMATION_STEP);
     if k == 0 {
         c.run(start, 3)?;
         return c.ret();
     }
     c.run(start, 4)?;
-    c.set_byte(0xe8, 9);
+    c.set_byte(g::HEAD_ANIMATION_STEP, 9);
     c.call(0x17be, 0x1852)?;
     c.run(0x1852, 2)?;
     c.set_reg(AX, 8);
     c.call(0xe387, 0x1858)?;
     c.run(0x1858, 2)?;
-    c.set_byte(0xe8, 8);
+    c.set_byte(g::HEAD_ANIMATION_STEP, 8);
     redraw_head_panel(c.m, 0x17be)
 }
 
@@ -1112,11 +1112,11 @@ pub fn chankiss(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1445, 1)?;
     c.call(0x37b2, 0x1448)?;
     c.run(0x1448, 6)?;
-    let es = c.word(0xdbde);
+    let es = c.word(g::FRAMEBUFFER_2);
     c.set_sreg(ES, es);
     let ds = c.sreg(DS);
     c.push(ds);
-    let nds = c.word(0xdbda);
+    let nds = c.word(g::FRAMEBUFFER_ACTIVE);
     c.set_sreg(DS, nds);
     c.xor(W, 0, 0);
     c.set_reg(DX, 0);
@@ -1185,11 +1185,11 @@ pub fn bring_portrait(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, x.min(0xf0));
     c.set_reg(BX, y.min(0x71));
     c.cmp(W, y, 0x71); // the driver's far call sees these flags
-    let es = c.word(0xdbde);
+    let es = c.word(g::FRAMEBUFFER_2);
     c.set_sreg(ES, es);
     let ds = c.sreg(DS);
     c.push(ds);
-    let nds = c.word(0xdbda);
+    let nds = c.word(g::FRAMEBUFFER_ACTIVE);
     c.set_sreg(DS, nds);
     c.set_reg(BP, 6);
     c.interp(0x3b4f, 0x3b54)?;
@@ -1210,7 +1210,7 @@ pub fn ui_draw_head_and_shoulders(m: &mut Machine, start: u16) -> Result<(), Bai
 
 fn head_and_shoulders_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x1797, 2)?;
-    let r = c.word(0x2784);
+    let r = c.word(g::RESOURCE_ID);
     c.push(r);
     c.call(0xc137, 0x179e)?;
     c.run(0x179e, 4)?;
@@ -1219,7 +1219,7 @@ fn head_and_shoulders_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(AX, 0x0f);
     c.call(0xc22f, 0x17aa)?;
     c.run(0x17aa, 5)?;
-    let h = c.byte(0xe8);
+    let h = c.byte(g::HEAD_ANIMATION_STEP);
     let al = c.add(B, 0x10, h as u16);
     c.set_reg(AX, al);
     c.set_reg(DX, 0x96);
@@ -1273,7 +1273,7 @@ pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x43bc, 3)?;
         c.set_reg(SI, 0x14a4);
         c.set_reg8(r8::AL, 0xf5);
-        let es = c.word(0xdbda);
+        let es = c.word(g::FRAMEBUFFER_ACTIVE);
         c.set_sreg(ES, es);
         c.interp(0x43c5, 0x43c9)?;
         c.run(0x43c9, 1)?;
@@ -1466,7 +1466,7 @@ pub fn scene_2a(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(at, 1)?;
         c.call(to, at + 3)?;
     }
-    let z = c.byte(0x4731);
+    let z = c.byte(g::ORNI_SPEED);
     c.run(0x4834, 3 + if z == 0x0d { 2 } else { 0 })?;
     c.set_reg8(r8::AL, z);
     if z == 0x0d {
@@ -1520,19 +1520,19 @@ pub fn scene_2a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x4863, 3 + if ov != 0 { 4 } else { 1 })?;
     c.set_reg(CX, ov as u16);
     if ov != 0 {
-        let z = c.byte(0x4731);
+        let z = c.byte(g::ORNI_SPEED);
         c.set_reg8(r8::AL, z);
         let ax = c.reg(AX);
         c.push(ax);
-        c.set_byte(0x4731, 0);
+        c.set_byte(g::ORNI_SPEED, 0);
         c.call(0x3a73, 0x4877)?;
         c.run(0x4877, 3)?;
         let a = c.pop();
         c.set_reg(AX, a);
-        c.set_byte(0x4731, a as u8);
+        c.set_byte(g::ORNI_SPEED, a as u8);
     }
     c.call(0xc4dd, 0x487e)?;
-    let k = c.byte(0x46d7);
+    let k = c.byte(g::FRAME_TASKS_ACTIVE);
     c.run(0x487e, 2 + if k != 0 { 1 } else { 2 })?;
     if k != 0 {
         c.call(0x3916, 0x4888)?;
@@ -1597,7 +1597,7 @@ pub fn draw_character(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3d2f)?;
     let mut c = Ctx::new(m);
     c.run(start, 10)?;
-    let r = c.word(0x2784);
+    let r = c.word(g::RESOURCE_ID);
     c.push(r);
     let ax = c.reg(AX);
     c.push(ax);
@@ -1669,10 +1669,10 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd48a)?;
     let mut c = Ctx::new(m);
     c.run(0xd48a, 2)?;
-    let fb = c.word(0xdbda);
+    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
     c.push(fb);
     c.call(0xc08e, 0xd491)?;
-    let k = c.byte(0xdce6);
+    let k = c.byte(g::TRANSITION_ACTIVE);
     let back = (k as i8) > 0;
     c.run(0xd491, 2 + back as u32)?;
     if back {
@@ -1718,11 +1718,11 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
         }
         let al = c.reg8(r8::AL);
-        c.set_byte(0xdbe4, al);
+        c.set_byte(g::TEXT_COLOUR, al);
         c.call(0xcf70, 0xd4e0)?;
         c.run(0xd4e0, 2)?;
         c.set_reg8(r8::AL, 0x20);
-        let to = c.word(0x2518);
+        let to = c.word(g::FONT_DRAW);
         c.call(to, 0xd4e6)?;
         c.run(0xd4e6, 1)?;
         c.call(0xd1bb, 0xd4e9)?;
@@ -1740,11 +1740,11 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0xdcef, b);
     let bg = c.byte(0xdbe5);
     c.set_reg8(r8::AL, bg);
-    let es = c.word(0xdbda);
+    let es = c.word(g::FRAMEBUFFER_ACTIVE);
     c.set_sreg(pc::cpu::ES, es);
     c.interp(0xd506, 0xd50a)?;
     c.run(0xd50a, 2)?;
     let v = c.pop();
-    c.set_word(0xdbda, v);
+    c.set_word(g::FRAMEBUFFER_ACTIVE, v);
     c.ret()
 }

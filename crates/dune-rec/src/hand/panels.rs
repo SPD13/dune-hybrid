@@ -572,8 +572,6 @@ const BUTTON_COLUMNS: u16 = 0x28dc;
 /// sliders, three switches.
 const SLIDERS: [u16; 3] = [0x288e, 0x2896, 0x289e];
 const SWITCHES: [u16; 3] = [0x28a6, 0x28ae, 0x28b6];
-/// What the cursor is on: 1 a slider, 2 a switch, 0 nothing.
-const SETTINGS_HOVER: u16 = 0x28be;
 
 /// From A685 (the stretch from `at`, `prefix` instructions before it, the
 /// last `mov si, record`): whether the cursor (DX, BX, relative) is on the
@@ -650,7 +648,7 @@ pub fn settings_on_a_switch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     on_any(&mut Ctx::new(m), start, SWITCHES, 0xa6b2, 0x0d, 0x0b)
 }
 
-/// `loc_0a594`: what the cursor is on, at [`SETTINGS_HOVER`].
+/// `loc_0a594`: what the cursor is on, at [`g::SETTINGS_HOVER`].
 pub fn settings_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa594)?;
     let mut c = Ctx::new(m);
@@ -658,14 +656,14 @@ pub fn settings_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xa672, 0xa597)?;
     if c.flag(CF) {
         c.run(0xa597, 3)?;
-        c.set_byte(SETTINGS_HOVER, 1);
+        c.set_byte(g::SETTINGS_HOVER, 1);
         return c.ret();
     }
     c.run(0xa597, 2)?;
     c.call(0xa69f, 0xa5a2)?;
     let on = c.flag(CF);
     c.run(0xa5a2, 3)?;
-    c.set_byte(SETTINGS_HOVER, if on { 2 } else { 0 });
+    c.set_byte(g::SETTINGS_HOVER, if on { 2 } else { 0 });
     c.ret()
 }
 
@@ -983,7 +981,7 @@ pub fn settings_music_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xac4e, 2)?;
         return c.ret();
     }
-    let f = c.byte(0x2943);
+    let f = c.byte(g::CMD_ARGS_MEMORY);
     let set = c.byte(g::MUSIC_SETTINGS);
     c.run(0xac4e, 7 + if f & 0x10 != 0 { 1 } else { 4 })?;
     let bp = c.reg(BP);
@@ -1058,7 +1056,7 @@ pub fn redraw_date_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(0xdbb2, 0x1a19)?;
     c.run(0x1a19, 2)?;
-    let sheet = c.word(0x2784);
+    let sheet = c.word(g::RESOURCE_ID);
     c.push(sheet);
     c.call(0xc137, 0x1a20)?;
     c.run(0x1a20, 2)?;
@@ -1112,7 +1110,7 @@ pub fn leave_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let v = c.byte(0x2b);
     c.run(0x18de, if v == 0 { 4 } else { 4 })?;
-    c.set_byte(0x46df, 0);
+    c.set_byte(g::SKY_PALETTE_SET, 0);
     if v == 0 {
         return c.ret();
     }
@@ -1176,7 +1174,7 @@ pub fn settings_ui_draw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa3f9)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let fb = c.word(0xdbda);
+    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
     c.push(fb);
     c.call(0xc08e, 0xa400)?;
     c.run(0xa400, 2)?;
@@ -1184,13 +1182,13 @@ pub fn settings_ui_draw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xc13e, 0xa406)?;
     c.run(0xa406, 4)?;
     c.set_reg(AX, 0);
-    let (dx, bx) = (c.word(0x2886), c.word(0x2888));
+    let (dx, bx) = (c.word(g::SETTINGS_UI_ORIGIN_X), c.word(g::SETTINGS_UI_ORIGIN_Y));
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
     c.call(0xc22f, 0xa413)?;
     c.run(0xa413, 2)?;
     let fb = c.pop();
-    c.set_word(0xdbda, fb);
+    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
     c.call(0xa4c6, 0xa41a)?;
     for (at, to) in [(0xa41au16, 0xa47du16), (0xa41d, 0xa42c), (0xa420, 0xa44c), (0xa423, 0xac3a)] {
         c.run(at, 1)?;
@@ -1239,7 +1237,7 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xa564, 1)?;
         c.call(0xade0, 0xa567)?;
         c.run(0xa567, 3)?;
-        c.set_byte(0xdc2b, 1);
+        c.set_byte(g::VOC_PCM_PLAYING, 1);
         c.set_reg(SI, 0x3811);
         let to = c.word(0x3991);
         c.call(to, 0xa573)?;
@@ -1254,14 +1252,14 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0xa672, 0xa597)?;
         if c.flag(CF) {
             c.run(0xa597, 3)?;
-            c.set_byte(0x28be, 1);
+            c.set_byte(g::SETTINGS_HOVER, 1);
             return c.ret();
         }
         c.run(0xa597, 2)?;
         c.call(0xa69f, 0xa5a2)?;
         let v = if c.flag(CF) { 2 } else { 0 };
         c.run(0xa5a2, 3)?;
-        c.set_byte(0x28be, v);
+        c.set_byte(g::SETTINGS_HOVER, v);
         return c.ret();
     }
     // The language row.
@@ -1274,7 +1272,7 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let q = (ax / 7) as u8;
     let al = c.byte(0x28cfu16.wrapping_add(q as u16));
-    let lang = c.byte(0xceeb);
+    let lang = c.byte(g::LANGUAGE);
     let n = 1 + 8 + if al > 7 {
         5
     } else if al == 7 {
@@ -1294,15 +1292,15 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if al > 7 {
         let mode = al - 8;
         c.set_reg8(r8::AL, mode);
-        c.set_byte(0x28e7, mode);
+        c.set_byte(g::VOICE_LANGUAGE, mode);
         return settings_ui_draw(c.m, 0xa3f9);
     }
     if al == lang {
         return c.ret();
     }
-    let v = c.byte(0x28e7) & 0xfd;
-    c.set_byte(0x28e7, v);
-    c.set_byte(0xceeb, al);
+    let v = c.byte(g::VOICE_LANGUAGE) & 0xfd;
+    c.set_byte(g::VOICE_LANGUAGE, v);
+    c.set_byte(g::LANGUAGE, al);
     c.call(0xcfe4, 0xa5db)?;
     c.run(0xa5db, 1)?;
     settings_ui_draw(c.m, 0xa3f9)
@@ -1326,7 +1324,7 @@ pub fn settings_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let b = pure::sub(W, bx, cx);
     c.set_reg(BX, b);
     c.call(0xa594, 0xa5e7)?;
-    let mode = c.byte(0x28be);
+    let mode = c.byte(g::SETTINGS_HOVER);
     let si = c.reg(SI);
     let cx = c.reg(CX);
     if mode == 1 {

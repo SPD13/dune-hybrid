@@ -11,8 +11,6 @@ use pc::{
     rec::Bail,
 };
 
-/// The game's data segment.
-const GAME_DS: u16 = 0x1f4b;
 
 /// `pit_timer_callback` (EF6A), the INT 8 handler: unless [0CEEAh] is
 /// above 0 (the clock held), the ticks [0CE7Ah] (with [0CE7Ch] above)
@@ -25,7 +23,7 @@ const GAME_DS: u16 = 0x1f4b;
 pub fn pit_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xef6a)?;
     let mut c = Ctx::new(m);
-    let held = c.byte_at_seg(GAME_DS, 0xceea) as i8 > 0;
+    let held = c.byte_at_seg(g::GAME_DS, 0xceea) as i8 > 0;
     c.run(0xef6a, 8)?;
     let ax = c.reg(AX);
     c.push(ax);
@@ -33,8 +31,8 @@ pub fn pit_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(ds);
     let es = c.sreg(ES);
     c.push(es);
-    c.set_reg(AX, GAME_DS);
-    c.set_sreg(DS, GAME_DS);
+    c.set_reg(AX, g::GAME_DS);
+    c.set_sreg(DS, g::GAME_DS);
     c.set_flag(pc::cpu::DF, false);
     let v = c.byte(0xceea);
     c.cmp(B, v as u16, 0);
@@ -83,7 +81,7 @@ pub fn pit_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.m.cpu.ip = 0xefd5;
         return Err(Bail);
     }
-    let frame = c.byte(0xdbb5);
+    let frame = c.byte(g::HNM_FLAG_MSB);
     c.check(0xefa9, 4 + (frame != 0) as u32)?;
     c.set_reg8(r8::AL, 0x20);
     c.count(1);
@@ -119,8 +117,8 @@ pub fn hnm_render_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail
     let es = c.sreg(ES);
     c.push(es);
     c.xor(W, 0, 0);
-    let due = c.byte(0xdbb5);
-    c.set_byte(0xdbb5, 0);
+    let due = c.byte(g::HNM_FLAG_MSB);
+    c.set_byte(g::HNM_FLAG_MSB, 0);
     c.set_reg(AX, due as u16);
     // STI; its one-instruction hold is over: the next instruction is
     // already in the `run` above.
@@ -130,7 +128,7 @@ pub fn hnm_render_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail
     if c.flag(CF) || c.flag(ZF) {
         c.run(0xcedc, 1)?;
     } else {
-        let f = c.word(0xdc1e).wrapping_add(1);
+        let f = c.word(g::HNM_PAL_CHUNK).wrapping_add(1);
         c.run(0xcedc, 4 + (f == 0) as u32)?;
         c.set_reg(AX, f.wrapping_sub(1));
         let ax = c.inc(W, f.wrapping_sub(1));
@@ -150,7 +148,7 @@ pub fn hnm_render_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail
     c.run(0xceef, 11)?;
     let ax = c.pop();
     c.set_reg(AX, ax);
-    c.set_byte(0xdbb5, ax as u8);
+    c.set_byte(g::HNM_FLAG_MSB, ax as u8);
     let es = c.pop();
     c.set_sreg(ES, es);
     for r in [BP, DI, SI, DX, CX, BX] {

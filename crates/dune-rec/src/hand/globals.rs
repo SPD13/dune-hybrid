@@ -18,7 +18,8 @@ pub const WORD_0006: u16 = 0x0006;
 pub const INTRO_0012: u16 = 0x0012;
 /// Sietches discovered.
 pub const SIETCHES_FOUND: u16 = 0x0027;
-pub const BYTE_0028: u16 = 0x0028;
+/// How many have joined you ([28h]).
+pub const JOINED: u16 = 0x0028;
 /// The player's charisma (0..C8h); every 4 points raise the troops'
 /// motivation.
 pub const CHARISMA: u16 = 0x0029;
@@ -27,13 +28,15 @@ pub const GAME_PHASE: u16 = 0x002a;
 /// Cleared when the game phase changes.
 pub const PHASE_CHANGED_FLAG: u16 = 0x00ff;
 /// Story bits.
-pub const STORY_BITS_000A: u16 = 0x000a;
+pub const EVENT_FLAGS: u16 = 0x000a;
 /// Talking-head animation step (counted down by `ui_head_animate_down`).
 pub const HEAD_ANIMATION_STEP: u16 = 0x00e8;
 pub const BYTE_0FE8: u16 = 0x0fe8;
 pub const BYTE_1038: u16 = 0x1038;
-pub const BYTE_1141: u16 = 0x1141;
-pub const WORD_1156: u16 = 0x1156;
+/// The chance of an event, by the location's byte 0 (`troop_event_roll`).
+pub const CHANCES: u16 = 0x1141;
+/// The day from which `pick_attack_location` picks ([1156h]).
+pub const ATTACK_DAY: u16 = 0x1156;
 pub const BYTE_11D0: u16 = 0x11d0;
 pub const COUNTER_122A: u16 = 0x122a;
 pub const BYTE_0FD8: u16 = 0x0fd8;
@@ -44,7 +47,8 @@ pub const WORD_0FFA: u16 = 0x0ffa;
 pub const WORD_1018: u16 = 0x1018;
 pub const BYTE_1057: u16 = 0x1057;
 pub const WORD_1154: u16 = 0x1154;
-pub const BYTE_1178: u16 = 0x1178;
+/// The count of [`g::JOINED`] from which `troop_joins` calls 121Fh.
+pub const JOINED_ENOUGH: u16 = 0x1178;
 pub const WORD_1201: u16 = 0x1201;
 pub const FLAG_0FFB: u16 = 0x0ffb;
 pub const BITS_1067: u16 = 0x1067;
@@ -80,7 +84,8 @@ pub const FONT_WIDTHS: u16 = 0x47a0;
 /// Settings UI: the menu's origin, subtracted from / added to a position.
 pub const SETTINGS_UI_ORIGIN_X: u16 = 0x2886;
 pub const SETTINGS_UI_ORIGIN_Y: u16 = 0x2888;
-pub const FLAG_28BE: u16 = 0x28be;
+/// What the cursor is on: 1 a slider, 2 a switch, 0 nothing.
+pub const SETTINGS_HOVER: u16 = 0x28be;
 /// Pointer to the next scene of the intro script (Cryogenic:
 /// `SceneSequenceOffset`).
 pub const SCENE_SEQUENCE_OFFSET: u16 = 0x4854;
@@ -373,7 +378,8 @@ pub const HNM_FLAGS: u16 = 0xdbfe;
 pub const HNM_FLAG_MSB: u16 = 0xdbb5;
 /// The voice buffer playing.
 pub const VOICE_BUFFER_PLAYING: u16 = 0x3824;
-pub const WORD_479E: u16 = 0x479e;
+/// The dialogue box up ([479Eh]): 2 or more when drawn.
+pub const BOX_SHOWN: u16 = 0x479e;
 /// The end of the table `handle_ctrl_v_once` appends to (in the code
 /// segment).
 pub const CTRL_V_TABLE_END: u16 = 0x11bd;
@@ -402,3 +408,14 @@ pub const SUBTITLE_NEXT: u16 = 0x3622;
 /// The bitmap fonts' rows.
 pub const TALL_FONT_ROWS: u16 = 0x2514;
 pub const SMALL_FONT_ROWS: u16 = 0x2516;
+
+/// The game's data segment.
+pub const GAME_DS: u16 = 0x1f4b;
+/// The map's mode (0 when the map is not up): 80h and up zoomed in (a
+/// map view; bit 7 also: the particles are hotspots), 40h the place
+/// view; below 80h the hotspot mode (bit 0: the 8 points are hotspots,
+/// when on; not 0: the markers' records too).
+pub const MAP_MODE: u16 = 0x46eb;
+/// How far from the map position a caption (a troop's, a place's) shows;
+/// raised by the charisma step.
+pub const REACH: u16 = 0x1176;

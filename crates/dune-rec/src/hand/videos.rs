@@ -116,23 +116,23 @@ pub fn repeat_1566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1566)?;
     let mut c = Ctx::new(m);
     c.run(0x1566, 1)?;
-    let v = c.byte(0x227d);
+    let v = c.byte(g::MAP_VIEW_FLAG);
     let v = pure::inc(B, v as u16);
-    c.set_byte(0x227d, v as u8);
+    c.set_byte(g::MAP_VIEW_FLAG, v as u8);
     loop {
         c.run(0x156a, 3)?;
         c.set_reg(BP, 0x1556);
         c.set_reg(AX, 0x10);
         c.call(0xe353, 0x1573)?;
-        let n = c.byte(0x46d7);
+        let n = c.byte(g::FRAME_TASKS_ACTIVE);
         let last = n == 1;
         c.run(0x1573, if last { 4 } else { 2 })?;
         let n = pure::dec(B, n as u16);
-        c.set_byte(0x46d7, n as u8);
+        c.set_byte(g::FRAME_TASKS_ACTIVE, n as u8);
         if last {
-            let v = c.byte(0x227d);
+            let v = c.byte(g::MAP_VIEW_FLAG);
             let v = pure::dec(B, v as u16);
-            c.set_byte(0x227d, v as u8);
+            c.set_byte(g::MAP_VIEW_FLAG, v as u8);
             return c.ret();
         }
     }
@@ -258,8 +258,8 @@ pub fn frame_wait_c8c1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, y);
     let ds = c.sreg(DS);
     c.push(ds);
-    let es = c.word(0xdbd8);
-    let ds2 = c.word(0xdbd6);
+    let es = c.word(g::SCREEN_BUFFER);
+    let ds2 = c.word(g::FRAMEBUFFER_FRONT);
     c.set_sreg(ES, es);
     c.set_sreg(DS, ds2);
     c.interp(0xc8e6, 0xc8eb)?;
@@ -299,7 +299,7 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x488a, 3)?;
     c.set_reg(AX, 6);
-    let loc = c.word(0x114e);
+    let loc = c.word(g::MAP_POSITION_RECORD);
     c.set_reg(SI, loc);
     c.call(0x5e4f, 0x4894)?;
     let al = c.reg(AX) & 0xff;
@@ -318,7 +318,7 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, 0);
             c.call(0x4ec6, 0x48ab)?;
             let bx = c.word_in(SS, c.reg(pc::cpu::SP));
-            let video = c.word(0xdc00);
+            let video = c.word(g::HNM_VIDEO);
             if video != 2 {
                 c.run(0x48ab, 5)?;
                 c.pop();
@@ -326,7 +326,7 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 continue;
             }
             let want = if bx == 6 { 0x3c } else { 0x16 };
-            let frame = c.word(0xdbea);
+            let frame = c.word(g::HNM_FRAME_2);
             let n = 3 + 3 + (bx != 6) as u32 + 2;
             c.run(0x48ab, if want != frame { n + 2 } else { n + 1 })?;
             c.pop();
@@ -360,7 +360,7 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return sal_end(&mut c);
     }
     c.run(0x48e9, 2)?;
-    c.set_byte(0x4731, 0xff);
+    c.set_byte(g::ORNI_SPEED, 0xff);
     c.call(0xc07c, 0x48f1)?;
     c.run(0x48f1, 1)?;
     c.call(0x5ba0, 0x48f4)?;
@@ -371,15 +371,15 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x48fa, 1)?;
     c.call(0xc412, 0x48fd)?;
     c.run(0x48fd, 3)?;
-    c.set_byte(0x4731, 0x1f);
+    c.set_byte(g::ORNI_SPEED, 0x1f);
     c.set_reg8(r8::AL, 7);
     c.call(0xab15, 0x4907)?;
     c.run(0x4907, 2)?;
     c.set_reg8(r8::CL, 0xff);
     c.call(0x47fb, 0x490c)?;
     c.run(0x490c, 4)?;
-    c.set_byte(0x4731, 0);
-    c.set_byte(0x4732, 0);
+    c.set_byte(g::ORNI_SPEED, 0);
+    c.set_byte(g::SAL_FLAGS, 0);
     c.jump(0x2d74)
 }
 
@@ -389,7 +389,7 @@ fn sal_end(c: &mut Ctx) -> Result<(), Bail> {
     let v = c.byte(0x46e0);
     let v = c.dec(B, v as u16);
     c.set_byte(0x46e0, v as u8);
-    c.set_byte(0x4732, 0);
+    c.set_byte(g::SAL_FLAGS, 0);
     c.jump(0x2d74)
 }
 
@@ -538,7 +538,7 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x261f, 3)?;
     c.set_reg(SI, 0x4c60);
     c.set_reg(BP, 0x15aa);
-    let es = c.word(0xdbd6);
+    let es = c.word(g::FRAMEBUFFER_FRONT);
     c.set_sreg(ES, es);
     c.interp(0x2629, 0x262d)?;
     c.run(0x262d, 2)?;

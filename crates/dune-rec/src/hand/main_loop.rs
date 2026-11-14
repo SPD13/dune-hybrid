@@ -39,7 +39,7 @@ pub fn start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0016, 1)?;
     c.call(0xaeb7, 0x0019)?;
     c.run(0x0019, 3)?;
-    c.set_byte(0x3810, 0);
+    c.set_byte(g::MUSIC_SETTINGS, 0);
     c.set_word(g::GAME_TIME, 2);
     c.call(0x0083, 0x0027)?;
     c.run(0x0027, 2)?;
@@ -48,7 +48,7 @@ pub fn start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x002c, 1)?;
     c.call(0x1860, 0x002f)?;
     c.run(0x002f, 2)?;
-    c.set_byte(0xce80, 0xff);
+    c.set_byte(g::PAUSE_ALLOWED, 0xff);
     c.call(0xb2be, 0x0037)?;
     c.run(0x0037, 1)?;
     c.call(0xd815, 0x003a)?;
@@ -189,7 +189,7 @@ fn intro_end(c: &mut Ctx) -> Result<(), Bail> {
     c.push(f);
     c.call(0x9985, 0x0601)?;
     c.run(0x0601, 1)?;
-    let es = c.word(0xdbd8);
+    let es = c.word(g::SCREEN_BUFFER);
     c.set_sreg(ES, es);
     c.interp(0x0605, 0x0609)?;
     c.run(0x0609, 3)?;
@@ -216,7 +216,7 @@ pub fn game_loop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd815, 3)?;
     let t = c.word(g::TIMER);
     c.set_reg(AX, t);
-    c.set_word(0xdc68, t);
+    c.set_word(g::FRAME_TASKS_LAST_TICK, t);
     c.set_byte(0xdc4b, 0);
     main_loop(&mut c)
 }
@@ -243,7 +243,7 @@ fn main_loop(c: &mut Ctx) -> Result<(), Bail> {
 /// its moves DI/CX against [0DC62h]/[0DC64h]); then the dispatch through
 /// the handler table at [2570h] by the buttons ([`dispatch`]).
 fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
-    let k = c.byte(0xcee8);
+    let k = c.byte(g::KEY_HIT);
     let ctrl_v = k == 0x2f && c.byte(0xce9e) == 0xff;
     c.run(0xd820, 2 + if k == 0x2f { 2 + ctrl_v as u32 } else { 0 })?;
     c.cmp(B, k as u16, 0x2f);
@@ -302,7 +302,7 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
     let cx = c.neg(W, cx);
     c.set_reg(DI, di);
     c.set_reg(CX, cx);
-    let si = c.word(0x2570);
+    let si = c.word(g::MAP_CLICK_HANDLER);
     c.set_reg(SI, si);
     let ax = c.and(W, ax, 0x0f);
     c.set_reg(AX, ax);
@@ -381,7 +381,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
             if moved {
                 c.call(0xdbb2, 0xd8d1)?;
                 c.run(0xd8d1, 2)?;
-                let a = c.byte(0xdc35);
+                let a = c.byte(g::MOUSE_BUTTONS_SEEN);
                 c.set_reg8(r8::AL, a);
                 let si = c.reg(SI);
                 let h = c.word(si.wrapping_add(0x0a));
@@ -433,7 +433,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
             return release_at_d92b(c);
         }
         c.run(0xd952, 2)?;
-        let a = c.byte(0xdc35);
+        let a = c.byte(g::MOUSE_BUTTONS_SEEN);
         c.set_reg8(r8::AL, a);
         let si = c.reg(SI);
         let h = c.word(si.wrapping_add(6));
@@ -441,7 +441,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
         c.run(0xd958, 1)?;
         return Ok(());
     }
-    let top = c.word(0x2570);
+    let top = c.word(g::MAP_CLICK_HANDLER);
     let si = c.reg(SI);
     c.run(0xd8fe, 2)?;
     c.cmp(W, si, top);
@@ -475,7 +475,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
     }
     let si = c.reg(SI);
     c.run(0xd90e, 2)?;
-    let a = c.byte(0xdc35);
+    let a = c.byte(g::MOUSE_BUTTONS_SEEN);
     c.set_reg8(r8::AL, a);
     let h = c.word(si.wrapping_add(2));
     c.call(h, 0xd914)?;
@@ -498,7 +498,7 @@ fn press_at_d935(c: &mut Ctx) -> Result<(), Bail> {
     let t = c.word(g::TIMER);
     c.set_reg(AX, t);
     c.set_word(0xdc5e, t);
-    let a = c.byte(0xdc35);
+    let a = c.byte(g::MOUSE_BUTTONS_SEEN);
     c.set_reg8(r8::AL, a);
     let di = c.reg(DI);
     let h = c.word(di.wrapping_add(0x0c));
@@ -589,8 +589,8 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let di = c.reg(DI);
                 let to = c.word_in(CS, di.wrapping_add(3));
                 c.run(0xe4e6, 10 + (to != 0) as u32)?;
-                c.set_reg(AX, GAME_DS);
-                c.set_sreg(ES, GAME_DS);
+                c.set_reg(AX, g::GAME_DS);
+                c.set_sreg(ES, g::GAME_DS);
                 let bl = c.byte_in(CS, di.wrapping_add(1));
                 c.set_reg(BX, bl as u16);
                 c.xor(B, 0, 0);
@@ -804,5 +804,3 @@ fn look_up_option(c: &mut Ctx) -> Result<Parse, Bail> {
     Ok(Parse::Skip)
 }
 
-/// The game's data segment.
-const GAME_DS: u16 = 0x1f4b;

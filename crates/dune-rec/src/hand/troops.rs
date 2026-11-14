@@ -795,7 +795,7 @@ pub fn start_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_068eb`: SI = the troop shown: in the zoomed map ([`MAP_MODE`]
+/// `loc_068eb`: SI = the troop shown: in the zoomed map ([`g::MAP_MODE`]
 /// 80h or more) troop [`SHOWN_TROOP`] (`troop_ptr`, AX kept but AL that
 /// number), else the one at [`SHOWN_LIST`] by [`SHOWN_INDEX`] (AX twice
 /// the index, AL the troop's number).
@@ -803,7 +803,7 @@ pub fn shown_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x68eb)?;
     let mut c = Ctx::new(m);
     let number = c.byte(SHOWN_TROOP);
-    if c.byte(MAP_MODE) >= 0x80 {
+    if c.byte(g::MAP_MODE) >= 0x80 {
         c.run(start, 3 + 8)?;
         c.set_reg8(r8::AL, number);
         c.set_reg(SI, Troop::number(number).offset());
@@ -818,15 +818,10 @@ pub fn shown_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// The map's mode ([46EBh]): 80h and up zoomed in, below in hotspot mode.
-const MAP_MODE: u16 = 0x46eb;
 /// The list of troops `shown_troop` picks from by [`SHOWN_INDEX`].
 const SHOWN_LIST: u16 = 0x4758;
 const SHOWN_INDEX: u16 = 0x476c;
 
-/// The particles: a count at 3CBEh, 11h-byte records after it (word 0Ah
-/// the troop, byte 0Ch flags).
-const PARTICLES: u16 = 0x3cbe;
 
 /// `loc_06917`: DI = the particle of the troop SI (not hidden, bit 40h),
 /// ZF set; ZF clear (from `or di, di`) when none or not in hotspot mode.
@@ -836,7 +831,7 @@ pub fn troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(0x46eb);
     let si = c.reg(SI);
     // The path, purely.
-    let n_all = c.word(PARTICLES);
+    let n_all = c.word(g::PARTICLES);
     let mut n = 3;
     let mut di = 0x3cafu16;
     let mut cx = n_all;
@@ -924,8 +919,8 @@ pub fn particle_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     let (x, y) = (c.reg(DX) as i16, c.reg(BX) as i16);
-    let count = c.word(PARTICLES);
-    let first = (PARTICLES + 2).wrapping_add(0x11 * (count & 0xff));
+    let count = c.word(g::PARTICLES);
+    let first = (g::PARTICLES + 2).wrapping_add(0x11 * (count & 0xff));
     let mut cost = if count == 0 { 6 } else { 7 };
     let mut found = None;
     let mut at = first;
@@ -967,7 +962,7 @@ pub fn particle_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, cost)?;
     if count == 0 {
-        c.set_reg(SI, PARTICLES + 2);
+        c.set_reg(SI, g::PARTICLES + 2);
         c.set_reg(AX, 0);
         c.set_reg(CX, 0);
         c.set_flag(CF, false);
@@ -1747,10 +1742,10 @@ pub fn troop_joins(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 5)?;
         return c.ret();
     }
-    let joined = c.byte(JOINED).wrapping_add(1);
-    let enough = joined >= c.byte(JOINED_ENOUGH);
+    let joined = c.byte(g::JOINED).wrapping_add(1);
+    let enough = joined >= c.byte(g::JOINED_ENOUGH);
     c.run(start, if enough { 11 } else { 10 })?;
-    c.set_byte(JOINED, joined);
+    c.set_byte(g::JOINED, joined);
     c.set_reg8(r8::AL, joined);
     if enough {
         c.save(&[SI]);
@@ -1784,10 +1779,6 @@ pub fn troop_joins(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// How many have joined you ([28h]).
-const JOINED: u16 = 0x28;
-/// The count of [`JOINED`] from which `troop_joins` calls 121Fh.
-const JOINED_ENOUGH: u16 = 0x1178;
 
 /// `loc_06d7b`: once every 40h ticks of the game time, the troop SI's
 /// skills 2, 1, 0 (bytes 18h, 17h, 16h) each 1 lower (not below 0) where
@@ -2594,7 +2585,7 @@ fn clear_bit_40(c: &mut Ctx, item: u16) {
 }
 
 /// `loc_0686e`: the troop SI's place on the screen; CF set when it has
-/// none. Only with the map zoomed in ([`MAP_MODE`] 80h or more). A troop
+/// none. Only with the map zoomed in ([`g::MAP_MODE`] 80h or more). A troop
 /// travelling: its map point (words 6, 8; `map_to_screen`) in
 /// DX, BX, CF when off the view (signed: x -10h or less or 148h or more,
 /// y -10h or less or A0h or more). Else the place at SS:[BP+2], [BP+4]
@@ -2606,7 +2597,7 @@ fn clear_bit_40(c: &mut Ctx, item: u16) {
 pub fn troop_screen_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x686e)?;
     let mut c = Ctx::new(m);
-    if c.byte(MAP_MODE) < 0x80 {
+    if c.byte(g::MAP_MODE) < 0x80 {
         c.run(start, 3)?;
         c.set_flag(CF, true);
         return c.ret();
@@ -2653,7 +2644,7 @@ pub fn troop_screen_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// The offsets of a troop's slot around its place (byte pairs, signed).
 const SLOT_OFFSETS: u16 = 0x1672;
 
-/// `loc_01e43`: in phase 5Ch, once the day reaches [`ATTACK_DAY`], unless
+/// `loc_01e43`: in phase 5Ch, once the day reaches [`g::ATTACK_DAY`], unless
 /// the player is at [`PALACE_7C8`]: of the locations below kind 28h
 /// (byte 8), without bit 80h of byte 0Ah and other than [`PLACE_2C0`],
 /// the one where `loc_01ea1` counts the most troops (DX, over its chain)
@@ -2665,7 +2656,7 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(0x1ac5, 0x1e46)?;
-    let cost = if c.reg(AX) < c.word(ATTACK_DAY) {
+    let cost = if c.reg(AX) < c.word(g::ATTACK_DAY) {
         3
     } else if c.byte(g::GAME_PHASE) != 0x5c {
         5
@@ -2728,8 +2719,6 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     call_29f0_f(c.m, 0x71b2)
 }
 
-/// The day from which `pick_attack_location` picks ([1156h]).
-const ATTACK_DAY: u16 = 0x1156;
 /// Location 63 (7C8h): no attack picked while the player is there; job 8
 /// there can become 0Ah (`set_job_6ad4`).
 const PALACE_7C8: u16 = 0x07c8;
@@ -2851,10 +2840,10 @@ const AGE: u16 = 0x42;
 /// Written by `troop_rate_by_age` ([4Ah]).
 const RATE_BY_AGE: u16 = 0x4a;
 
-/// `loc_0714c`: with bit 1 of [`EVENT_FLAGS`], for a troop SI with bit 80h
+/// `loc_0714c`: with bit 1 of [`g::EVENT_FLAGS`], for a troop SI with bit 80h
 /// of byte 19h on its tick (the game time's low nibble = its number's):
 /// `maybe_mark_troop`, then a random AH (`rand`) against the chance at
-/// [`CHANCES`] by the location DI's byte 0. When it passes: bit 4000h of
+/// [`g::CHANCES`] by the location DI's byte 0. When it passes: bit 4000h of
 /// word 10h, and unless bit 40h of byte 19h, by AH & 3: 1 its size 2
 /// lower when above 2 (bit 2000h); 2 bit 200h and `mark_troop_10`; 3 bit
 /// 1000h, bit 80h of byte 19h off, the location's need 0 one lower and
@@ -2862,7 +2851,7 @@ const RATE_BY_AGE: u16 = 0x4a;
 pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x714c)?;
     let mut c = Ctx::new(m);
-    if c.byte(EVENT_FLAGS) & 1 == 0 {
+    if c.byte(g::EVENT_FLAGS) & 1 == 0 {
         c.run(start, 3)?;
         return c.ret();
     }
@@ -2885,11 +2874,11 @@ pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
     let roll = c.reg8(r8::AH);
     let k = place.byte_00(&mut c);
-    let chance = c.byte(CHANCES.wrapping_add(k as u16));
+    let chance = c.byte(g::CHANCES.wrapping_add(k as u16));
     if chance < roll {
         c.run(0x716b, 6)?;
         c.set_reg8(r8::AL, chance);
-        c.set_reg(BX, CHANCES);
+        c.set_reg(BX, g::CHANCES);
         return c.ret();
     }
     let bits = troop.byte_19(&mut c);
@@ -2905,7 +2894,7 @@ pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
     };
     c.run(0x716b, cost)?;
     c.set_reg8(r8::AL, chance);
-    c.set_reg(BX, CHANCES);
+    c.set_reg(BX, g::CHANCES);
     let w = troop.word_10(&mut c) | 0x4000;
     troop.set_word_10(&mut c, w);
     if immune {
@@ -2936,10 +2925,6 @@ pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// Bit 1: the troops' random events on (`troop_event_roll`, [0Ah]).
-const EVENT_FLAGS: u16 = 0x0a;
-/// The chance of an event, by the location's byte 0 (`troop_event_roll`).
-const CHANCES: u16 = 0x1141;
 
 /// `loc_0342d`: AX = the troop SI's yield. Its effective motivation
 /// (`troop_motivation`) doubled plus skill 1 (at most FFh), times its
@@ -3330,7 +3315,7 @@ const JOB_HANDLERS: u16 = 0x6c26;
 /// particle [`PARTICLE_4752`] gets 1916h in words 0Dh and 0Fh;
 /// `loc_09719` until CF clear; `loc_09efd`; [46F4h] 0, or 1 for an order
 /// panel ([47A5h] 80h) with the bits spread (`spread_location_bits`) and
-/// the skill bars (`loc_07e1e`); with bit 80h of [`MAP_MODE`]
+/// the skill bars (`loc_07e1e`); with bit 80h of [`g::MAP_MODE`]
 /// `loc_09901`; the front buffer made active.
 pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7be0)?;
@@ -3404,7 +3389,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.save(&[SI]);
     c.call(0x9efd, 0x7c3a)?;
-    let orders = c.byte(0x47a5) == 0x80;
+    let orders = c.byte(g::FLAG_47A5) == 0x80;
     c.run(0x7c3a, if orders { 6 } else { 4 })?;
     c.restore(&[SI]);
     c.set_byte(0x46f4, orders as u8);
@@ -3416,7 +3401,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x7c52, 2)?;
         c.restore(&[SI]);
     }
-    let zoomed = c.byte(MAP_MODE) & 0x80 != 0;
+    let zoomed = c.byte(g::MAP_MODE) & 0x80 != 0;
     c.run(0x7c56, 3)?;
     if zoomed {
         c.call(0x9901, 0x7c60)?;
@@ -3706,7 +3691,7 @@ pub fn map_troop_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_078bc`: for the troop SI within reach of the map position
-/// ([`troop_map_distance`] below [`REACH`]) and shown (`troop_particle`,
+/// ([`troop_map_distance`] below [`g::REACH`]) and shown (`troop_particle`,
 /// ZF; DI its particle): on the screen (`loc_0c08e`), it becomes the
 /// panel's troop ([`PANEL_DIRTY`]), the panel box ([`PANEL`], 64h wide)
 /// is placed at its particle (`loc_05f25`; SI kept), [1955h] = its
@@ -3719,7 +3704,7 @@ pub fn troop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let place = Troop(c.reg(SI)).location(&mut c);
     c.set_reg(DI, place);
     c.call(0x7c63, 0x78c2)?;
-    let (distance, reach) = (c.reg(AX), c.word(REACH));
+    let (distance, reach) = (c.reg(AX), c.word(g::REACH));
     c.run(0x78c2, 3)?;
     if distance >= reach {
         return c.ret();
@@ -3750,8 +3735,6 @@ pub fn troop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     troop_panel_at(&mut c)
 }
 
-/// How far from the map position a troop's caption shows ([1176h]).
-const REACH: u16 = 0x1176;
 /// The troop panel's box: x, y words, the bars' sprite at +6, its colour
 /// at +9.
 const PANEL: u16 = 0x18df;

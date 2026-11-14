@@ -3,6 +3,7 @@
 //! so the port bails (or, in a shadow replay, settles the interrupt) at
 //! the tick, as the original meets it.
 
+use super::globals as g;
 use super::pure;
 use super::{B, Ctx, W, r8, entered};
 use pc::{
@@ -11,8 +12,6 @@ use pc::{
     rec::Bail,
 };
 
-/// The timer word (ticks of the PIT interrupt).
-const TIMER: u16 = 0xce7a;
 
 /// `pushf` then `sti`; `hold`: the STI is the last instruction counted so
 /// far, so its one-instruction hold is still on (else the next instruction
@@ -57,11 +56,11 @@ pub fn wait_a_bit(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut n = ax;
     loop {
         c.run(0xe38f, 1)?;
-        let t0 = c.word_in(SS, TIMER);
+        let t0 = c.word_in(SS, g::TIMER);
         c.set_reg(AX, t0);
         loop {
             c.run(0xe393, 2)?;
-            let t = c.word_in(SS, TIMER);
+            let t = c.word_in(SS, g::TIMER);
             if t != t0 {
                 break;
             }
@@ -95,11 +94,11 @@ pub fn wait_interruptable(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xddb0, 1)?;
     c.call(0xe270, 0xddb3)?;
-    let k = c.byte(0x227d);
+    let k = c.byte(g::MAP_VIEW_FLAG);
     c.run(0xddb3, 4 + (k == 0) as u32)?;
     let ax = c.reg(AX);
     c.push(ax);
-    c.set_byte(0xcee8, 0);
+    c.set_byte(g::KEY_HIT, 0);
     c.cmp(B, k as u16, 0);
     if k == 0 {
         c.call(0xd64e, 0xddc3)?;
@@ -112,7 +111,7 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
     c.sti();
     loop {
         c.run(0xddca, 3)?;
-        let t0 = c.word(TIMER);
+        let t0 = c.word(g::TIMER);
         c.push(t0);
         let cx = c.reg(CX);
         c.push(cx);
@@ -129,7 +128,7 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
         c.set_reg(BX, t0);
         let d = loop {
             c.run(0xddd8, 3)?;
-            let t = c.word_in(SS, TIMER);
+            let t = c.word_in(SS, g::TIMER);
             let d = c.sub(W, t0, t);
             c.set_reg(AX, d);
             if d != 0 {
@@ -165,7 +164,7 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
 pub fn wait_for_pcm_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xddf0)?;
     let mut c = Ctx::new(m);
-    let v = c.byte(0xdbcd);
+    let v = c.byte(g::IS_SOUND_PRESENT);
     c.run(0xddf0, 2)?;
     c.cmp(B, v as u16, 0);
     if v & 0x80 != 0 {
@@ -230,7 +229,7 @@ pub fn audio_test_frequency(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x3811);
     c.interp(0xa890, 0xa894)?;
     c.run(0xa894, 2)?;
-    let t0 = c.word(TIMER);
+    let t0 = c.word(g::TIMER);
     c.push(t0);
     c.call(0xa9e7, 0xa89b)?;
     while c.flag(ZF) {
@@ -238,7 +237,7 @@ pub fn audio_test_frequency(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0xa9e7, 0xa89b)?;
     }
     c.run(0xa89b, 10)?;
-    let t = c.word(TIMER);
+    let t = c.word(g::TIMER);
     let bx = c.pop();
     c.set_reg(BX, bx);
     let d = pure::sub(W, t, bx);

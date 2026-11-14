@@ -596,7 +596,7 @@ pub fn gfx_zero_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 10)?;
     let al = c.reg8(super::r8::AL);
-    c.set_byte(0x46d7, al);
+    c.set_byte(g::FRAME_TASKS_ACTIVE, al);
     let (cx, bx) = (c.reg(CX), c.reg(BX));
     c.set_word(0xd81a, cx);
     c.set_word(0xd818, bx);
@@ -737,7 +737,7 @@ pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_word(0x487e, 1);
     c.set_byte(0x473e, 0);
-    c.set_byte(0x11c9, 8);
+    c.set_byte(g::HEAD_ANIMATION_BLOCKED, 8);
     let p = c.code_word(0x167);
     let q = c.code_word(p);
     let si = pure::add(W, p, q);
@@ -757,7 +757,7 @@ pub fn fill_and_outline(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7b1b)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let es = c.word(0xdbda);
+    let es = c.word(g::FRAMEBUFFER_ACTIVE);
     c.set_sreg(ES, es);
     let si = c.reg(SI);
     let al = c.byte(si.wrapping_add(9));

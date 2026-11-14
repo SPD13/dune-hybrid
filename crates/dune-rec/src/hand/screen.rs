@@ -21,8 +21,6 @@ mod code {
     pub const NO_PARTICLES_HANDLER: u16 = 0x1ad6;
 }
 
-/// The timer the transitions pace themselves by.
-const TRANSITION_TIMER: u16 = 0xce7a;
 
 /// Loads the rectangle at SI: DX, BX = left, top; BP, AX = its width and
 /// height (`sub`, flags from the last). Returns whether it is empty, and
@@ -245,7 +243,7 @@ fn transition(c: &mut Ctx) -> Result<(), Bail> {
     c.set_sreg(ES, screen);
     let front = c.word(g::FRAMEBUFFER_FRONT);
     c.set_sreg(DS, front);
-    c.set_reg(BP, TRANSITION_TIMER);
+    c.set_reg(BP, g::TIMER);
     c.interp(0xc124, 0xc129)?;
     c.run(0xc129, 2)?;
     let ds = c.pop();

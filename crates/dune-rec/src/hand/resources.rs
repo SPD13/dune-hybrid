@@ -307,7 +307,7 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
             break;
         }
     }
-    let k = c.byte(0xceeb);
+    let k = c.byte(g::LANGUAGE);
     n += 4 + (k == 6) as u32 + 4;
     c.run(start, n)?;
     let mut bx = 0u16;
@@ -340,19 +340,19 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, v);
     c.call(0xf0b9, 0xcff9)?;
     c.run(0xcff9, 6)?;
-    let k = c.byte(0xceeb);
+    let k = c.byte(g::LANGUAGE);
     let a = pure::add(B, 0xc0, k as u16);
     c.set_reg(AX, a);
     c.set_reg(SI, a);
-    let (di, es) = (c.word(0x47ac), c.word(0x47ae));
+    let (di, es) = (c.word(g::COMMAND_STRINGS), c.word(0x47ae));
     c.set_reg(DI, di);
     c.set_sreg(ES, es);
     c.call(0xf0b9, 0xd00a)?;
     c.run(0xd00a, 1)?;
     c.call(0x0098, 0xd00d)?;
-    let k = c.byte(0xceeb);
+    let k = c.byte(g::LANGUAGE);
     let a = (0x9au8).wrapping_add(k);
-    let cur = c.byte(0x477e);
+    let cur = c.byte(g::PHRASE_LOADED);
     c.run(0xd00d, 5 + if a == cur { 1 } else { 6 })?;
     let a = pure::add(B, 0x9a, k as u16);
     c.set_reg8(super::r8::AL, a as u8);
@@ -361,10 +361,10 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let si = c.reg(SI);
     c.push(si);
-    c.set_byte(0x477e, a as u8);
+    c.set_byte(g::PHRASE_LOADED, a as u8);
     c.set_reg(AX, a);
     c.set_reg(SI, a);
-    let (di, es) = (c.word(0x47b0), c.word(0x47b2));
+    let (di, es) = (c.word(g::PHRASE_STRINGS), c.word(0x47b2));
     c.set_reg(DI, di);
     c.set_sreg(ES, es);
     c.call(0xf0b9, 0xd035)?;

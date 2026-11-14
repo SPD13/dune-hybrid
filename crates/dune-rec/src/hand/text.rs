@@ -336,7 +336,7 @@ pub fn word_width(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0);
     let bx0 = c.reg(BX);
     c.push(bx0);
-    let tab = c.word(0x47a0);
+    let tab = c.word(g::FONT_WIDTHS);
     c.set_reg(BX, tab);
     loop {
         let si = c.reg(SI);
@@ -364,17 +364,17 @@ pub fn word_width(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x8eda, n)?;
             c.lods(B, DS);
             if al == 6 {
-                c.set_word(0x47a0, 0xcf6c);
+                c.set_word(g::FONT_WIDTHS, 0xcf6c);
             } else {
                 if al == 8 {
-                    c.set_word(0x47a0, 0xceec);
+                    c.set_word(g::FONT_WIDTHS, 0xceec);
                 }
             }
             continue;
         }
         // A character (0, or 9 and up below 89h): its width.
         let pre = if al == 0 { 7 } else { 10 };
-        let wr = c.word(0x2518);
+        let wr = c.word(g::FONT_DRAW);
         let sp = wr == 0xd0ff && si.wrapping_add(c.string_step(B)) == 0xa6b1;
         let n1 = pre + 2 + if wr == 0xd0ff { 2 } else { 0 } + sp as u32;
         c.run(0x8eda, n1)?;
@@ -433,7 +433,7 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let ax = c.reg(AX) & 0xff;
         c.set_reg(AX, ax);
         // The glyph's 9 bytes in the font.
-        let s = (ax * 9).wrapping_add(c.word(0x2514));
+        let s = (ax * 9).wrapping_add(c.word(g::TALL_FONT_ROWS));
         c.set_reg(SI, s);
         c.set_reg(BX, 0xceec);
         let w = c.byte(0xceecu16.wrapping_add(ax));
@@ -441,14 +441,14 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0xd05f, 0xd0b5)?;
         c.run(0xd0b5, 5)?;
         let ax = c.reg(AX);
-        let x = c.word(0xd82c);
+        let x = c.word(g::FONT_X);
         let x = c.add(W, x, ax); // the driver's far call sees the flags
-        c.set_word(0xd82c, x);
+        c.set_word(g::FONT_X, x);
         c.set_reg8(r8::CL, ax as u8);
         c.set_reg8(r8::CH, 9);
-        let col = c.word(0xdbe4);
+        let col = c.word(g::TEXT_COLOUR);
         c.set_reg(AX, col);
-        let fb = c.word(0xdbda);
+        let fb = c.word(g::FRAMEBUFFER_ACTIVE);
         c.set_sreg(ES, fb);
         c.interp(0xd0c4, 0xd0c8)?;
         c.run(0xd0c8, 9)?;
@@ -475,8 +475,8 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd115, 7 + if bx < 0x13 { 1 } else { 0 } + 1)?;
     let ax = c.pop();
     c.set_reg8(r8::CL, (ax >> 8) as u8);
-    let x = c.word(0xd82c).wrapping_add(ax & 0xff);
-    c.set_word(0xd82c, x);
+    let x = c.word(g::FONT_X).wrapping_add(ax & 0xff);
+    c.set_word(g::FONT_X, x);
     c.set_reg(AX, ax >> 8);
     c.set_reg(BX, bx.saturating_sub(0x13));
     c.call(0xc22f, 0xd12a)?;

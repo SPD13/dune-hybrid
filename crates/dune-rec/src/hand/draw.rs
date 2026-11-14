@@ -398,7 +398,7 @@ pub fn blit_repeated_x(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let h = y2.wrapping_sub(y);
     c.set_reg(CX, h);
     c.push(h);
-    let (s0, sg) = (c.word(0xdbb0), c.word(0xdbb2));
+    let (s0, sg) = (c.word(g::SPRITE_SHEET), c.word(0xdbb2));
     c.set_reg(SI, s0);
     c.set_sreg(DS, sg);
     let bp = ax << 1;

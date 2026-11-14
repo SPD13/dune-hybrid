@@ -655,7 +655,7 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // The scene's place (27B6h, 4 bytes a scene): none, no sound.
     let p = sc << 2;
     let (dx, bx) = (c.word(p.wrapping_add(0x27b6)), c.word(p.wrapping_add(0x27b8)));
-    let night = c.byte(0x227d);
+    let night = c.byte(g::MAP_VIEW_FLAG);
     if dx | bx == 0 {
         c.run(0xc86b, 12)?;
     } else {
@@ -719,14 +719,14 @@ pub fn transfer_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     // The block's size (its first word, less the 4-byte header): the two
     // `rep` copies' iterations are counted in the `run`s.
-    let (p, seg) = (c.word(0xdc1c), c.word(0xdbde));
+    let (p, seg) = (c.word(g::HNM_SYNC), c.word(g::FRAMEBUFFER_2));
     let block = c.word_at(seg, p).wrapping_sub(4);
     c.run(start, 9 + (block >> 1) as u32)?;
     let (si0, ds0) = (c.reg(SI), c.sreg(DS));
     c.push(si0);
     c.push(ds0);
-    let p = c.word(0xdc1c);
-    let seg = c.word(0xdbde);
+    let p = c.word(g::HNM_SYNC);
+    let seg = c.word(g::FRAMEBUFFER_2);
     c.set_reg(SI, p);
     c.set_sreg(DS, seg);
     // The block less its 4-byte header: words, then the odd byte
@@ -787,7 +787,7 @@ pub fn play_voice_19(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xab4f, 3)?;
-    c.set_byte(0x47e0, 0);
+    c.set_byte(g::VOICE_LANGUAGE_PART, 0);
     c.set_reg(BX, 0x19);
     c.call(0xa8bc, 0xab5a)?;
     c.run(0xab5a, 2)?;
@@ -813,9 +813,9 @@ fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
     c.call(0xa90b, 0xab73)?;
     if !c.flag(CF) {
         c.run(0xab73, 3)?;
-        let v = c.word(0x3811);
+        let v = c.word(g::VOC_BUFFER);
         let v = c.add(W, v, 0x1a);
-        c.set_word(0x3811, v);
+        c.set_word(g::VOC_BUFFER, v);
         c.call(0xa9b9, 0xab7d)?;
         c.run(0xab7d, 3)?;
         c.set_reg(SI, 0xab92);
@@ -869,7 +869,7 @@ fn music_walk(c: &mut Ctx, write: bool) -> u32 {
     let k = c.byte(0x4774);
     c.cmp(B, k as u16, 0);
     n += 2;
-    let ph = c.byte(0x2a);
+    let ph = c.byte(g::GAME_PHASE);
     if k != 0 {
         c.cmp(B, ph as u16, 0x48);
         n += 2;
@@ -904,7 +904,7 @@ fn music_walk(c: &mut Ctx, write: bool) -> u32 {
         n += 2;
     }
     if !at_place || dx & 0xff == 1 {
-        let mode = c.byte(0x11c9);
+        let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
         let b = c.and(B, mode as u16, 3);
         bx = bx & 0xff00 | b;
         n += 3;
@@ -976,7 +976,7 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xace9, 2)?;
         return c.ret();
     }
-    let f = c.byte(0x3810);
+    let f = c.byte(g::MUSIC_SETTINGS);
     if f & 1 == 0 {
         c.run(0xace9, 4)?;
         c.call(0xaec6, 0xad3a)?;
@@ -984,7 +984,7 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xad3a, 2)?;
             return c.ret();
         }
-        let s = c.byte(0xdbcd);
+        let s = c.byte(g::IS_SOUND_PRESENT);
         if s & 0x80 != 0 {
             c.run(0xad3a, 4)?;
             return c.ret();
@@ -992,19 +992,19 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let al = c.byte(0xdbcc);
         c.run(0xad3a, 7 + if al == 0 { 1 } else { 0 })?;
         c.set_reg8(r8::AL, al);
-        c.set_byte(0xdbcb, 0);
+        c.set_byte(g::CURRENT_MUSIC, 0);
         if al == 0 {
             return c.ret();
         }
         return music_start_at(&mut c, 0xad95, 0);
     }
-    let night = c.byte(0x227d);
-    let s = c.byte(0xdbcd);
+    let night = c.byte(g::MAP_VIEW_FLAG);
+    let s = c.byte(g::IS_SOUND_PRESENT);
     if night != 0 || s & 0x80 != 0 {
         c.run(0xace9, 3 + 2 + if night != 0 { 1 } else { 3 })?;
         return c.ret();
     }
-    let t0 = c.word(0xdbd2);
+    let t0 = c.word(g::MUSIC_DBD2);
     let now = c.word(g::TIMER);
     let base = if t0 == 0 { now } else { t0 };
     let el = now.wrapping_sub(base);
@@ -1017,7 +1017,7 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, t0);
     if t0 == 0 {
         c.set_reg(AX, now);
-        c.set_word(0xdbd2, now);
+        c.set_word(g::MUSIC_DBD2, now);
     }
     let a = pure::sub(W, base, now);
     let a = pure::neg(W, a);
@@ -1067,7 +1067,7 @@ fn music_start_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
         return c.ret();
     }
     let al = c.reg8(r8::AL);
-    let cur = c.byte(0xdbcb);
+    let cur = c.byte(g::CURRENT_MUSIC);
     if al == cur {
         c.run(0xad9a, 4)?;
         c.cmp(B, al as u16, cur as u16);
@@ -1078,20 +1078,20 @@ fn music_start_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.call(0xae62, 0xada5)?;
     c.run(0xada5, 4)?;
     let al = c.reg8(r8::AL);
-    c.set_byte(0xdbcb, al);
-    let (si, es) = (c.word(0xdbb6), c.word(0xdbb8));
+    c.set_byte(g::CURRENT_MUSIC, al);
+    let (si, es) = (c.word(g::MUSIC_DATA), c.word(0xdbb8));
     c.set_reg(SI, si);
     c.set_sreg(ES, es);
-    let f = c.byte(0x3810);
+    let f = c.byte(g::MUSIC_SETTINGS);
     let a = c.and(B, f as u16, 1);
     c.set_reg8(r8::AL, a as u8);
     c.interp(0xadb1, 0xadb5)?;
     c.run(0xadb5, 4)?;
     let al = c.reg8(r8::AL);
-    c.set_byte(0xdbcd, al);
+    c.set_byte(g::IS_SOUND_PRESENT, al);
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
-    c.set_word(0xdbd2, 0);
+    c.set_word(g::MUSIC_DBD2, 0);
     c.ret()
 }
 
@@ -1111,9 +1111,9 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xad61, 2)?;
     c.call(0xaa96, 0xad66)?;
-    let f = c.byte(0x3810);
+    let f = c.byte(g::MUSIC_SETTINGS);
     if f != 0 {
-        let s = c.byte(0xdbcd);
+        let s = c.byte(g::IS_SOUND_PRESENT);
         if s & 0x80 != 0 {
             c.run(0xad66, 5)?;
             c.cmp(B, s as u16, 0); // the exit's flags
@@ -1146,7 +1146,7 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let a = v & 0x3f;
-    let cur = c.byte(0xdbcb);
+    let cur = c.byte(g::CURRENT_MUSIC);
     c.run(0xad66, 2 + 4 + 2 + 4 + if a == cur { 1 } else { 0 })?;
     // A marked one, through `music_driver_397d` when it changes.
     c.set_reg(BX, 0x375c);
@@ -1204,7 +1204,7 @@ pub fn alloc_music_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xae42, 2)?;
         return c.ret();
     }
-    let (a, b) = (c.word(0xdbb6), c.word(0xdbb8));
+    let (a, b) = (c.word(g::MUSIC_DATA), c.word(0xdbb8));
     if a | b != 0 {
         c.run(0xae42, 6)?;
         c.set_reg(DI, 0xdbb6);
@@ -1257,7 +1257,7 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xa7c5, 2)?;
         return c.ret();
     }
-    let k = c.word(0xdc26);
+    let k = c.word(g::LIPSYNC_PTR);
     if k == 0 {
         c.run(0xa7c5, 4)?;
         c.call(0xa9e7, 0xa7d1)?;
@@ -1371,7 +1371,7 @@ fn next_phrase_a789(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(SI, 0xa7c2);
     c.call(0xda25, 0xa768)?;
     c.run(0xa768, 2)?;
-    c.set_byte(0xdc2b, 1);
+    c.set_byte(g::VOC_PCM_PLAYING, 1);
     c.set_reg(SI, 0x3811);
     c.interp(0xa770, 0xa774)?;
     c.run(0xa774, 4)?;
@@ -1398,7 +1398,7 @@ fn stop_a7a5(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(SI, 0xa7c2);
     c.call(0xda5f, 0xa7ab)?;
     c.run(0xa7ab, 2)?;
-    c.set_word(0xdc26, 0);
+    c.set_word(g::LIPSYNC_PTR, 0);
     c.call(0xd61d, 0xa7b4)?;
     c.run(0xa7b4, 1)?;
     c.call(0xabcc, 0xa7b7)?;
@@ -1410,7 +1410,7 @@ fn stop_a7a5(c: &mut Ctx) -> Result<(), Bail> {
     c.call(0xabc6, 0xa7bc)?;
     c.run(0xa7bc, 1)?;
     c.call(0xa9a1, 0xa7bf)?;
-    let bl = c.byte(0x2896);
+    let bl = c.byte(g::SLIDER_MUSIC);
     let bh = c.byte(0x28ae);
     c.run(0xa7bf, 1 + 5 + (bl < 4) as u32)?;
     c.set_reg(AX, 0x190);
@@ -1436,7 +1436,7 @@ fn feed_a9b9(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0xa9bc, 2)?;
         return c.ret();
     }
-    let (a, b) = (c.byte(0x3817), c.byte(0x381f));
+    let (a, b) = (c.byte(g::PCM_STATE), c.byte(g::PCM_STATE_2));
     if a != 0 && b != 0 {
         c.run(0xa9bc, 7)?;
         c.set_reg(SI, 0x3811);
@@ -1452,7 +1452,7 @@ fn feed_a9b9(c: &mut Ctx) -> Result<(), Bail> {
         c.cmp(B, b as u16, 0);
         c.set_reg(SI, 0x3819);
     }
-    let bx = c.word(0x3821);
+    let bx = c.word(g::VOICE_FILE_HANDLE);
     c.set_reg(BX, bx);
     let dx = c.word(si);
     let es = c.word(si.wrapping_add(2));
@@ -1484,29 +1484,29 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{DS, ES};
     entered(start, 0xaa0f)?;
     let mut c = Ctx::new(m);
-    let ax = c.word(0xdc1c);
+    let ax = c.word(g::HNM_SYNC);
     c.run(0xaa0f, if ax == 0xffff { 4 } else { 5 })?;
     c.set_reg(AX, ax.wrapping_add(1));
     if ax == 0xffff {
         return c.ret();
     }
-    c.set_byte(0x376a, 0xff);
+    c.set_byte(g::VOC_LOADED, 0xff);
     c.call(0xac14, 0xaa1d)?;
     c.run(0xaa1d, 7)?;
     c.set_reg(AX, 0);
-    c.set_word(0x3811, 0);
-    c.set_word(0x3817, 0);
-    c.set_word(0x381f, 0);
+    c.set_word(g::VOC_BUFFER, 0);
+    c.set_word(g::PCM_STATE, 0);
+    c.set_word(g::PCM_STATE_2, 0);
     c.set_reg(SI, 0x3811);
-    let (d, e) = (c.word(0x3811), c.word(0x3813));
+    let (d, e) = (c.word(g::VOC_BUFFER), c.word(g::LIPSYNC_SEG));
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
     c.call(0xaa70, 0xaa30)?;
     // (The `rep movsb` iterations counted in the `run`.)
-    let v = c.word(0x3815).wrapping_sub(0x20);
+    let v = c.word(g::VOC_SIZE).wrapping_sub(0x20);
     let moved = v.wrapping_add(6);
     c.run(0xaa30, 7 + moved as u32)?;
-    c.set_word(0x3815, v);
+    c.set_word(g::VOC_SIZE, v);
     c.set_word(0x381d, v);
     c.set_reg(CX, moved);
     c.set_reg(SI, 0x1a);
@@ -1516,16 +1516,16 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let counted = c.m.cpu.instructions;
     c.m.cpu.string_op(&mut c.m.hw, 0xa4, Some(ES), 0xf3);
     c.m.cpu.instructions = counted;
-    let filled = c.word(0x3815);
+    let filled = c.word(g::VOC_SIZE);
     c.run(0xaa48, 9 + filled as u32)?; // the `rep stosb` iterations too
     let (d, e) = (c.word(0x3819), c.word(0x381b));
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
-    let n = c.word(0x3815);
+    let n = c.word(g::VOC_SIZE);
     c.set_reg(CX, n);
     let ds = c.sreg(DS);
     c.push(ds);
-    let (s, sg) = (c.word(0x3811), c.word(0x3813));
+    let (s, sg) = (c.word(g::VOC_BUFFER), c.word(g::LIPSYNC_SEG));
     c.set_reg(SI, s);
     c.set_sreg(DS, sg);
     c.movs(W);
@@ -1537,7 +1537,7 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.pop();
     c.set_sreg(DS, v);
     c.set_reg(SI, 0x3819);
-    c.set_word(0x3824, 0x3819);
+    c.set_word(g::VOICE_BUFFER_PLAYING, 0x3819);
     c.interp(0xaa64, 0xaa68)?;
     c.run(0xaa68, 1)?;
     c.set_reg(SI, 0x3811);
@@ -1607,9 +1607,9 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     let none = d.wrapping_sub(1) & 0x80 != 0;
     let kind = c.word(0x22a6);
     c.run(0x9dfe, 10 + if none { 0 } else { 2 + (kind == 0xd) as u32 + 3 } + 4)?;
-    let dx = c.word(0x1bf0);
+    let dx = c.word(g::HEAD_ORIGIN_X);
     c.set_reg(DX, dx);
-    let bx = c.word(0x1bf2);
+    let bx = c.word(g::HEAD_ORIGIN_Y);
     c.set_reg(BX, bx);
     let di = c.reg(DI);
     for (o, v) in [(8u16, dx), (6, bx), (4, dx), (2, bx)] {
@@ -1649,7 +1649,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     if skip {
         return c.ret();
     }
-    let n = c.word(0x4608);
+    let n = c.word(g::HEAD_FRAME_COUNT);
     if n >= 2 {
         c.run(0x9e40, 3)?;
         c.cmp(W, n, 2);
@@ -1669,7 +1669,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(SI, 0xd834);
     c.call(0xdb74, 0x9e5d)?;
     c.run(0x9e5d, 2)?;
-    let v = c.word(0xdbda);
+    let v = c.word(g::FRAMEBUFFER_ACTIVE);
     c.push(v);
     c.call(0xc08e, 0x9e64)?;
     c.run(0x9e64, 2)?;
@@ -1679,7 +1679,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     c.call(0x908c, 0x9e6d)?;
     c.run(0x9e6d, 2)?;
     let v = c.pop();
-    c.set_word(0xdbda, v);
+    c.set_word(g::FRAMEBUFFER_ACTIVE, v);
     c.jump(0xdb67)
 }
 
@@ -1797,7 +1797,7 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
         let bl = if big { 0xe } else { bx & 0xff };
         let bx1 = (bx & 0xff00) | bl;
         let f = c.byte(0x47dc);
-        let intro = c.byte(0x227d);
+        let intro = c.byte(g::MAP_VIEW_FLAG);
         let mut n = 2 + 3 + big as u32 + 3;
         if f != 0 {
             n += 3;

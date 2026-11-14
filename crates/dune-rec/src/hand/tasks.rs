@@ -204,18 +204,18 @@ const ROOM_ANIMATION_TASK: u16 = 0xc0b6;
 pub fn task_391d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x391d)?;
     let mut c = Ctx::new(m);
-    let flag = c.byte(0x22e3);
+    let flag = c.byte(g::SKY_VARIANT);
     c.run(0x391d, if flag != 0 { 6 } else { 8 })?;
     let (cx, bx) = if flag != 0 { (0x1c5, 0xdb) } else { (0xf0, 0x180) };
     c.cmp(B, flag as u16, 0);
     c.set_reg(CX, cx);
     c.set_reg(BX, bx);
-    let n = c.byte(0x46d7);
+    let n = c.byte(g::FRAME_TASKS_ACTIVE);
     c.set_reg8(r8::AL, n);
     let ax = c.reg(AX);
     c.push(ax);
     c.interp(0x3934, 0x3938)?;
-    let video = c.byte(0x227d);
+    let video = c.byte(g::MAP_VIEW_FLAG);
     c.run(0x3938, if video != 0 { 3 } else { 5 })?;
     let ax = c.pop();
     c.set_reg(AX, ax);
@@ -225,15 +225,15 @@ pub fn task_391d(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, 0x2d0);
         c.interp(0x3946, 0x394a)?;
     }
-    let n = c.byte(0x46d7);
+    let n = c.byte(g::FRAME_TASKS_ACTIVE);
     let last = n == 1;
     c.run(0x394a, if last { 5 } else { 3 })?;
     let n = c.dec(B, n as u16);
-    c.set_byte(0x46d7, n as u8);
+    c.set_byte(g::FRAME_TASKS_ACTIVE, n as u8);
     if !last {
         return c.ret();
     }
-    c.set_byte(0x46d7, 0);
+    c.set_byte(g::FRAME_TASKS_ACTIVE, 0);
     c.set_reg(SI, 0x3916);
     c.jump(0xda5f)
 }
