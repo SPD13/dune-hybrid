@@ -302,8 +302,11 @@ replace it:
 - **Save files as state**: load a save, play scripted input, write a
   save; the written save (the game's own serialisation of its state) must
   match the reference byte for byte. This is the check that still works
-  once the state lives in Rust structs. It needs a scripted "save now"
-  event in the runner; that is the first task of this stage.
+  once the state lives in Rust structs. The runner's event `T:save:N`
+  makes the game write `DUNE37SN.SAV` at the next main-loop top
+  (`create_save_cl`, B389h, as the mirror menu does), and `suite.sh`
+  has each of its seven games save 5 s before the end and compares the
+  save's bytes with the reference's (all equal with `--rec on`).
 
 ## Tools in place
 
@@ -312,9 +315,10 @@ replace it:
 | `--rec shadow` (`REC_ONLY`, `REC_BUDGET`, `REC_SAMPLES`) | Each port's call against the original, from the same state. |
 | `tools/lift/validate.sh` | All ports in two 10-minute games and the harness, plus `--rec on` screenshots. |
 | `tools/lift/hashcmp.sh` | One game, plain emulation against `--rec on`, the whole memory every 10 s (`STATE_HASH=1`). |
-| `tools/lift/suite.sh record\|check` | Seven games from the start and from the saves, against a stored reference. |
+| `tools/lift/suite.sh record\|check` | Seven games from the start and from the saves, against a stored reference (states, screens and a save written near the end). |
 | `tools/lift/flags_used.py` | Which routines' returned flags any caller reads. |
 | `--save FILE` + event `T:load:1` | Real play from any point of the game (the test saves, Day 1 to 23). |
+| event `T:save:N` | The game's state as it serialises it (`DUNE37SN.SAV` in the output folder). |
 
 ## The suite made clean (done)
 

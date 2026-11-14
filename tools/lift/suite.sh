@@ -4,15 +4,18 @@
 # Cases: the start of the game (seed 12, English and German) and the test
 # saves (Day 1 to 23, see SAVES below), each played 300 s with the
 # monkey's input, with the machine state hashed every 10 s (STATE_HASH=1)
-# and a screenshot every 10 s.
+# and a screenshot every 10 s. Near the end each game writes its state as
+# a save (event `save:2`, the game's own serialisation): the save written
+# is compared too, byte for byte (the check that will still apply once a
+# subsystem's state lives in Rust instead of the 8086 memory).
 #
 #   record        plain emulation: the reference ($LIFT_DATA/suite/ref)
 #   check [ARGS]  the same games with the runner's extra ARGS (default
 #                 `--rec on`), compared with the reference: per case, the
 #                 first state whose memory or screen differs.
 #
-# Compared: the whole machine state (CPU, instruction count, memory) and
-# the screens.
+# Compared: the whole machine state (CPU, instruction count, memory), the
+# screens and the save written.
 #
 # The saves are game-derived and stay outside git (SAVES, default
 # ../dune-hybrid/tests-data/saves).
@@ -38,12 +41,15 @@ play() { # out-dir name seed lang save extra...
     rm -rf "$out/$name"
     ev="61.5:key:1:1,61.6:key:1:0"; extra=""
     if [ "$save" != "-" ]; then ev="$ev,68:load:1"; extra="--save $save"; fi
+    ev="$ev,$((SECS - 5)).5:save:2"
     STATE_HASH=1 $RUN_HAND --dir "$GAME" --cmd "ADP220 SBP2227 $lang" --events "$ev" $extra \
         --seconds $SECS --monkey $seed:66:0.6 --shot-every 10 --out $out/$name "$@" > $out/$name.log 2>&1
     grep '^state' $out/$name.log | awk '{print $2, $5, $6}' > $out/$name.st
     for p in $out/$name/shot-*.png; do
         printf '%s %s\n' "$(basename $p .png | sed 's/shot-//')" "$(sha1sum < $p | cut -c1-16)"
     done > $out/$name.shots
+    f=$out/$name/saves/DUNE37S2.SAV
+    if [ -f $f ]; then sha1sum < $f | cut -c1-16; else echo none; fi > $out/$name.sav
 }
 
 mode=$1; shift
@@ -58,7 +64,9 @@ echo "$CASES" | while read name seed lang save; do
         play $S/run $name $seed $lang $save "$@"
         dm=$(diff $S/ref/$name.st $S/run/$name.st | grep '^<' | head -1)
         ds=$(diff $S/ref/$name.shots $S/run/$name.shots | grep '^<' | head -1)
+        dv=$(diff $S/ref/$name.sav $S/run/$name.sav | grep '^<' | head -1)
         n=$(wc -l < $S/ref/$name.st)
-        if [ -z "$dm$ds" ]; then echo "$name: $n states equal"; else echo "$name: DIFFERS state [$dm] screen [$ds]"; fi
+        if [ -z "$dm$ds$dv" ]; then echo "$name: $n states and the save equal ($(cat $S/run/$name.sav))"
+        else echo "$name: DIFFERS state [$dm] screen [$ds] save [$dv]"; fi
     fi
 done

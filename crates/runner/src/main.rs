@@ -25,6 +25,8 @@
 //! `--save FILE` copies a save in as `<out>/saves/DUNE37S1.SAV`; the event
 //! `T:load:1` makes the game load it at the next main-loop top (1000:B3B0,
 //! the mirror menu's load). Real play from any point of the game.
+//! `T:save:N` makes the game write `<out>/saves/DUNE37SN.SAV` the same way
+//! (`create_save_cl`, 1000:B389): its state as the game serialises it.
 //!
 //! `--rec shadow` checks the recompiled routines (`crates/dune-rec`) against
 //! the original as the game runs (see `pc::rec`) and prints a report;
@@ -91,6 +93,8 @@ struct Args {
 const MAIN_LOOP: u16 = 0xd820;
 /// `loc_0b3b0`: load save CL + 1 (the mirror menu's load).
 const LOAD_SAVE: u16 = 0xb3b0;
+/// `create_save_cl` (B389): write save CL + 1 (the mirror menu's save).
+const CREATE_SAVE: u16 = 0xb389;
 /// `set_game_phase` (AL = phase): raises `[2Ah]`, runs the phase's handler.
 const SET_GAME_PHASE: u16 = 0x121f;
 /// Phases for the ladder. The handler table (word pointers at CS:11E7 +
@@ -332,24 +336,26 @@ fn enter_phase(m: &mut Machine, phase: u8) -> Option<RunExit> {
 
 /// Waits (up to 10 virtual seconds) for the top of the main loop, then makes
 /// the game load `DUNE37S<slot>.SAV` from there (`loc_0b3b0` with CL =
-/// slot - 1, the mirror menu's load), as if the loop had called it.
-fn enter_load(m: &mut Machine, slot: u8) -> Option<RunExit> {
+/// slot - 1, the mirror menu's load), as if the loop had called it; or
+/// write it (`create_save_cl`).
+fn enter_load(m: &mut Machine, slot: u8, save: bool) -> Option<RunExit> {
+    let what = if save { "save" } else { "load" };
     m.break_at = Some((pc::LOAD_SEG, MAIN_LOOP));
     let r = m.run_until(m.now_ns() + 10_000_000_000);
     m.break_at = None;
     match r {
         RunExit::Break => {
-            println!("load DUNE37S{slot}.SAV at {:.1}s", m.now_ns() as f64 / 1e9);
+            println!("{what} DUNE37S{slot}.SAV at {:.1}s", m.now_ns() as f64 / 1e9);
             let (ss, sp) = (m.cpu.sregs[pc::cpu::SS], m.cpu.regs[pc::cpu::SP].wrapping_sub(2));
             m.cpu.regs[pc::cpu::SP] = sp;
             let a = (ss as usize * 16 + sp as usize) & 0xf_ffff;
             m.hw.mem[a..a + 2].copy_from_slice(&MAIN_LOOP.to_le_bytes());
             m.cpu.regs[pc::cpu::CX] = (m.cpu.regs[pc::cpu::CX] & 0xff00) | slot.wrapping_sub(1) as u16;
-            m.cpu.ip = LOAD_SAVE;
+            m.cpu.ip = if save { CREATE_SAVE } else { LOAD_SAVE };
             None
         }
         RunExit::Deadline => {
-            println!("load: main loop not reached in 10 s, skipped");
+            println!("{what}: main loop not reached in 10 s, skipped");
             None
         }
         other => Some(other),
@@ -627,9 +633,9 @@ fn main() -> ExitCode {
                         break;
                     }
                 }
-                "load" => {
+                "load" | "save" => {
                     let slot: u8 = ev[1].parse().unwrap();
-                    if let Some(r2) = enter_load(&mut m, slot) {
+                    if let Some(r2) = enter_load(&mut m, slot, ev[0] == "save") {
                         r = r2;
                         break;
                     }
