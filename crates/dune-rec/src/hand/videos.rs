@@ -8,7 +8,7 @@ use super::pure;
 use super::{B, Ctx, W, entered, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DS, DX, ES, SI, SS, ZF},
+    cpu::{AX, BP, BX, CX, DS, DX, ES, SI, SS, ZF},
     rec::Bail,
 };
 
@@ -246,13 +246,10 @@ pub fn frame_wait_c8c1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(dx);
     let t0 = c.word(0xce7a);
     c.push(t0);
-    let si = c.shl1(W, bp, 2);
-    c.set_reg(SI, si);
-    let mut x = c.sub(W, dx, ox);
-    if dx < ox {
-        x = c.xor(W, x, x);
-    }
-    c.set_reg(DX, x);
+    c.set_reg(SI, at);
+    c.set_reg(DX, dx.saturating_sub(ox));
+    // The driver's far call sees the flags of this `sub` (or the `xor`
+    // when it went below 0).
     let mut y = c.sub(W, bx, oy);
     if bx < oy {
         y = c.xor(W, y, y);
@@ -273,12 +270,10 @@ pub fn frame_wait_c8c1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         c.run(0xc8ed, 4)?;
         let t = c.word(0xce7a);
-        let d = c.sub(W, t, t0);
+        // Until [0DBE6h] ticks have passed.
+        let d = t.wrapping_sub(t0);
         c.set_reg(AX, d);
-        let lim = c.byte(0xdbe6);
-        c.cmp(B, d & 0xff, lim as u16);
-
-        if !c.flag(CF) {
+        if d as u8 >= c.byte(0xdbe6) {
             break;
         }
     }

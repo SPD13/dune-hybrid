@@ -989,14 +989,11 @@ pub fn unrle_image_to_tmp_buffer(m: &mut Machine, start: u16) -> Result<(), Bail
     let di0 = c.reg(DI);
     c.set_reg(BP, di0);
     c.set_reg(DI, 0x4c60);
-    let w = c.and(W, di0, 0x1ff);
-    let w = c.add(W, w, 3);
-    let w = c.shr1(W, w, 2);
-    let w = c.shl1(W, w, 1);
+    // A row's bytes: the width rounded up to 4, halved.
+    let w = (((di0 & 0x1ff) + 3) >> 2) << 1;
     c.set_reg(BP, w);
     let si = c.reg(SI);
     let n = c.word(si.wrapping_sub(2));
-    c.xor(B, n >> 8, n >> 8);
     let mut rows = n & 0xff;
     c.set_reg(CX, rows);
     loop {
@@ -1012,15 +1009,8 @@ pub fn unrle_image_to_tmp_buffer(m: &mut Machine, start: u16) -> Result<(), Bail
             let left = bx.wrapping_sub(len);
             c.run(0xc2c3, 3 + if lit { 5 } else { 6 } + len as u32)?; // the `rep` iterations too
             c.lods(B, DS);
-            c.test(B, al as u16, 0x80);
-            if lit {
-                c.add(B, 1, al as u16);
-            } else {
-                c.sub(B, 1, al as u16);
-            }
-            c.set_reg8(r8::CL, len as u8);
-            c.xor(B, 0, 0);
             c.set_reg(CX, len);
+            // The `jne` after the copy (and the exit) read this ZF.
             bx = c.sub(W, bx, len);
             c.set_reg(BX, bx);
             if lit {

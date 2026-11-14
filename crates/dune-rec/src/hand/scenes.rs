@@ -210,9 +210,7 @@ pub fn sub_be57(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::LOAD_ICONES_SPRITES, 0xbe63)?;
     c.run(0xbe63, 2)?;
     c.set_reg(SI, g::RESULT_BARS);
-    let bp = c.reg(BP);
-    let zero = c.xor(W, bp, bp);
-    c.set_reg(BP, zero);
+    c.set_reg(BP, 0);
     loop {
         let (si, bp) = (c.reg(SI), c.reg(BP));
         let (target, current) = (c.byte(si), c.byte(si + 6));
@@ -220,46 +218,29 @@ pub fn sub_be57(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let tail = 4 + if last { 1 } else { 0 };
         if target == current {
             c.run(0xbe68, 3 + tail)?;
-            let d = c.sub(B, target as u16, current as u16);
-            c.set_reg8(r8::CL, d as u8);
+            c.set_reg8(r8::CL, 0);
         } else {
             let up = target >= current;
             let now = if up { current.wrapping_add(1) } else { current.wrapping_sub(1) };
             let capped = now >= 0x1e;
             c.run(0xbe68, 5 + !up as u32 + 4 + capped as u32 + 13)?;
-            let d = c.sub(B, target as u16, current as u16);
-            c.set_reg8(r8::CL, d as u8);
-            let mut al = 1u8;
-            c.set_reg8(r8::AL, 1);
-            if !up {
-                al = c.neg(B, 1) as u8;
-                c.set_reg8(r8::AL, al);
-            }
-            let v = c.add(B, current as u16, al as u16) as u8;
-            c.set_byte(si + 6, v);
-            c.set_reg8(r8::AL, v);
-            c.cmp(B, v as u16, 0x1e);
-            let h = if capped { 0x1e } else { v };
-            c.set_reg8(r8::AL, h);
-            let slot = c.shl1(W, bp, 2);
-            c.set_reg(BX, slot);
+            // One step toward the target; drawn at most 1Eh high.
+            c.set_reg8(r8::CL, target.wrapping_sub(current));
+            c.set_byte(si + 6, now);
+            let h = if capped { 0x1e } else { now };
+            let slot = bp << 2;
             let x = c.word(slot.wrapping_add(0x24ee));
             let base = c.word(slot.wrapping_add(0x24f0));
             c.set_reg(DX, x);
-            c.xor(B, 0, 0);
-            let y = c.sub(W, base, h as u16);
-            c.set_reg(BX, y);
+            c.set_reg(BX, base.wrapping_sub(h as u16));
             c.push(si);
             c.push(bp);
-            c.set_reg(AX, 0x37);
-            let half = c.shr1(W, bp, 1);
-            c.set_reg(BP, half);
-            let sprite = c.adc(W, 0x37, 0);
-            c.set_reg(AX, sprite);
+            // The bar's sprite: 37h, 38h for the odd ones.
+            c.set_reg(BP, bp >> 1);
+            c.set_reg(AX, 0x37 + (bp & 1));
             c.call(code::DRAW_SPRITE, 0xbea0)?;
             c.run(0xbea0, 3)?;
-            let bx = c.reg(BX);
-            let bx = c.sub(W, bx, 0x0a);
+            let bx = c.reg(BX).wrapping_sub(0x0a);
             c.set_reg(BX, bx);
             c.set_reg(AX, 0x39);
             c.call(code::DRAW_SPRITE, 0xbea9)?;
@@ -274,15 +255,11 @@ pub fn sub_be57(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(SI, si);
             let t = c.byte(si);
             c.set_reg8(r8::AL, t);
-            let cur = c.byte(si + 6);
-            c.cmp(B, t as u16, cur as u16);
             if reached {
-                c.test(W, bp, 1);
                 c.set_reg(AX, if odd { 0x25 } else { 0x3f });
                 let colour = c.reg(AX);
                 c.set_word(g::TEXT_COLOUR, colour);
-                let dx = c.reg(DX);
-                let dx = c.add(W, dx, 4);
+                let dx = c.reg(DX).wrapping_add(4);
                 c.set_reg(DX, dx);
                 c.call(code::FONT_SET_DRAW_POSITION, 0xbec6)?;
                 let bp = c.reg(BP);
@@ -295,13 +272,11 @@ pub fn sub_be57(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
         }
         // BECD: the next bar.
-        let si = c.reg(SI);
-        let si = c.inc(W, si);
+        let si = c.reg(SI).wrapping_add(1);
         c.set_reg(SI, si);
-        let bp = c.reg(BP);
-        let bp = c.inc(W, bp);
+        let bp = c.reg(BP).wrapping_add(1);
         c.set_reg(BP, bp);
-        c.cmp(W, bp, 6);
+        c.cmp(W, bp, 6); // the flags `set_fb1_as_active_framebuffer` passes on
         if bp >= 6 {
             return super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c);
         }
@@ -318,15 +293,10 @@ pub fn map_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 6)?;
     let ds = c.sreg(DS);
     c.push(ds);
-    for r in [BX, DX] {
-        let v = c.reg(r);
-        let zero = c.xor(W, v, v);
-        c.set_reg(r, zero);
-    }
+    c.set_reg(BX, 0);
+    c.set_reg(DX, 0);
     c.set_reg(CX, 0xc5f9);
-    let si = c.reg(SI);
-    let zero = c.xor(W, si, si);
-    c.set_reg(SI, zero);
+    c.set_reg(SI, 0);
     let map = c.word(g::MAP_GFX_DATA + 2);
     c.set_sreg(DS, map);
     loop {
@@ -334,16 +304,12 @@ pub fn map_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let kind = c.byte_in(DS, si) & 0x30;
         c.run(0xbff1, 3 + if kind == 0 { 0 } else { 3 + (kind != 0x30) as u32 } + 1)?;
         c.lods(B, DS);
-        let al = c.and(B, kind as u16, 0x30);
-        c.set_reg8(r8::AL, al as u8);
-        if al != 0 {
-            let dx = c.reg(DX);
-            let dx = c.inc(W, dx);
+        c.set_reg8(r8::AL, kind);
+        if kind != 0 {
+            let dx = c.reg(DX).wrapping_add(1);
             c.set_reg(DX, dx);
-            c.cmp(B, al, 0x30);
-            if al != 0x30 {
-                let bx = c.reg(BX);
-                let bx = c.inc(W, bx);
+            if kind != 0x30 {
+                let bx = c.reg(BX).wrapping_add(1);
                 c.set_reg(BX, bx);
             }
         }
@@ -360,32 +326,19 @@ pub fn map_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     c.run(0xbffe, 21)?;
-    let some = c.sub(W, dx, bx);
-    c.set_reg(DX, some);
-    c.set_reg(AX, 0);
-    c.xor(W, 0, 0);
-    let s = c.sub(W, si, 0x188);
-    let cells = c.inc(W, s);
-    c.set_reg(SI, cells);
-    let share = |c: &mut Ctx| {
-        c.m.cpu.mul_div(&mut c.m.hw, W, 6, cells as u32); // div si
-        c.set_reg(DX, 0x64);
-        c.mul16(0x64);
-        let (ax, dx) = (c.reg(AX), c.reg(DX));
-        let ax = c.add(W, ax, ax);
-        c.set_reg(AX, ax);
-        let dx = c.adc(W, dx, 0);
-        c.set_reg(DX, dx);
+    // n * 10000h / cells * 100, the low word doubled (its top bit
+    // carried into the high one): DX:AX.
+    let share = |n: u16| -> (u16, u16) {
+        let q = ((n as u32) << 16) / cells as u32;
+        let p = q * 100;
+        ((p >> 16) as u16 + ((p as u16) >> 15), (p as u16) << 1)
     };
-    share(&mut c);
-    let (dx, bx) = (c.reg(DX), c.reg(BX));
-    c.set_reg(BX, dx);
-    c.set_reg(DX, bx);
-    c.xor(W, 0, 0);
-    c.set_reg(AX, 0);
-    share(&mut c);
-    let dx = c.reg(DX);
-    let dx = c.inc(W, dx);
+    c.set_reg(SI, cells);
+    let (a_hi, _) = share(dx.wrapping_sub(bx));
+    let (b_hi, b_lo) = share(bx);
+    c.set_reg(BX, a_hi);
+    c.set_reg(AX, b_lo);
+    let dx = b_hi.wrapping_add(1);
     c.set_reg(DX, dx);
     let ds = c.pop();
     c.set_sreg(DS, ds);

@@ -391,29 +391,29 @@ pub fn blit_repeated_x(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, y);
     c.push(y);
     let x2 = c.word(si.wrapping_add(4));
-    let w = c.sub(W, x2, x);
+    let w = x2.wrapping_sub(x);
     c.set_reg(CX, w);
     c.push(w);
     let y2 = c.word(si.wrapping_add(6));
-    let h = c.sub(W, y2, y);
+    let h = y2.wrapping_sub(y);
     c.set_reg(CX, h);
     c.push(h);
     let (s0, sg) = (c.word(0xdbb0), c.word(0xdbb2));
     c.set_reg(SI, s0);
     c.set_sreg(DS, sg);
-    let bp = c.shl1(W, ax, 1);
+    let bp = ax << 1;
     c.set_reg(BP, bp);
     let o = c.word(bp.wrapping_add(s0));
-    let s1 = c.add(W, s0, o);
+    let s1 = s0.wrapping_add(o);
     c.set_reg(SI, s1);
     let a = c.lods(W, DS);
     c.set_reg(DI, a);
-    let sw = c.and(W, a, 0x1ff);
+    let sw = a & 0x1ff;
     c.set_reg(AX, sw);
     c.push(sw);
     let a = c.lods(W, DS);
     c.set_reg(CX, a);
-    c.xor(B, a >> 8, a >> 8);
+    c.xor(B, a >> 8, a >> 8); // the driver's far call sees the flags
     let sh = a & 0xff;
     c.set_reg(AX, sh);
     c.push(sh);
@@ -438,8 +438,7 @@ pub fn blit_repeated_x(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, bp);
     let w = c.word_in(SS, bp.wrapping_add(0x12));
     let t = c.word_in(SS, bp.wrapping_add(4));
-    let dx = c.sub(W, w, t);
-    c.set_reg(DX, dx);
+    c.set_reg(DX, w.wrapping_sub(t));
     tile_run(&mut c, DX, 4, 8, 0xc3c7)?;
     c.run(0xc3e0, 7)?;
     let bp = c.reg(BP);
@@ -451,15 +450,14 @@ pub fn blit_repeated_x(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word_in(SS, bp.wrapping_add(8), x);
     let h = c.word_in(SS, bp.wrapping_add(0x10));
     let t = c.word_in(SS, bp.wrapping_add(6));
-    let bx = c.sub(W, h, t);
+    let bx = h.wrapping_sub(t);
     c.set_reg(BX, bx);
     if bx != 0 {
         tile_run(&mut c, BX, 6, 0xa, 0xc3f4)?;
     }
     c.run(0xc40d, 3)?;
     let sp = c.reg(SP);
-    let s = c.add(W, sp, 0x18);
-    c.set_reg(SP, s);
+    c.set_reg(SP, sp.wrapping_add(0x18));
     let v = c.pop();
     c.set_sreg(DS, v);
     c.ret()
@@ -478,8 +476,9 @@ fn tile_run(c: &mut Ctx, r: usize, size: u16, pos: u16, at: u16) -> Result<(), B
         c.run(at, 5 + borrow as u32)?;
         c.set_reg(AX, a);
         let v = c.word_in(SS, bp.wrapping_add(pos));
-        let v = c.add(W, v, a);
-        c.set_word_in(SS, bp.wrapping_add(pos), v);
+        c.set_word_in(SS, bp.wrapping_add(pos), v.wrapping_add(a));
+        // The driver's far call sees the flags of this `sub`, or of the
+        // `add` that trims the last tile.
         let left = c.sub(W, left, a);
         c.set_reg(r, left);
         if borrow {
@@ -492,7 +491,6 @@ fn tile_run(c: &mut Ctx, r: usize, size: u16, pos: u16, at: u16) -> Result<(), B
         c.run(call + 5, 3)?;
         let left = c.pop();
         c.set_reg(r, left);
-        c.cmp(W, left, 0);
         if left as i16 <= 0 {
             return Ok(());
         }

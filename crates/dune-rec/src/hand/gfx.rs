@@ -350,27 +350,24 @@ pub fn draw_sprite_centred(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, sheet);
     c.set_sreg(DS, seg);
     let ax = c.reg(AX);
-    let bp = c.shl1(W, ax, 1);
+    let bp = ax << 1;
     c.set_reg(BP, bp);
     let off = c.word(bp.wrapping_add(sheet));
-    let si = c.add(W, sheet, off);
+    let si = sheet.wrapping_add(off);
     c.set_reg(SI, si);
     let w = c.lods(W, DS);
     c.set_reg(DI, w);
-    let hi = c.and(B, w >> 8, 0x0f);
-    let half = c.shr1(W, hi << 8 | w & 0xff, 1);
+    // Centred: back by half the width (its low 12 bits) and the height.
+    let half = (w & 0x0fff) >> 1;
     c.set_reg(AX, half);
-    let dx = c.reg(DX);
-    let dx = c.sub(W, dx, half);
+    let dx = c.reg(DX).wrapping_sub(half);
     c.set_reg(DX, dx);
-    let h = c.lods(W, DS);
-    c.xor(B, h >> 8, h >> 8);
-    let h = h & 0xff;
+    let h = c.lods(W, DS) & 0xff;
     c.set_reg(CX, h);
-    let half = c.shr1(W, h, 1);
+    let half = h >> 1;
     c.set_reg(AX, half);
     let bx = c.reg(BX);
-    let bx = c.sub(W, bx, half);
+    let bx = c.sub(W, bx, half); // the driver's far call sees the flags
     c.set_reg(BX, bx);
     c.set_reg(BP, g::RECT_D834);
     c.interp(0xc368, 0xc36d)?;

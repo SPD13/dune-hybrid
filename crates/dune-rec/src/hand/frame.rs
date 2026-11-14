@@ -48,15 +48,14 @@ pub fn process_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let last = c.word(g::FRAME_TASKS_LAST_TICK);
     c.set_word(g::FRAME_TASKS_LAST_TICK, now);
     c.set_reg(CX, last);
-    let mut ticks = c.sub(W, now, last);
+    let mut ticks = now.wrapping_sub(last);
     c.set_reg(BX, ticks);
     c.set_reg(SI, g::FRAME_TASKS_LAST_TICK);
     c.set_reg(CX, count);
     if count == 0 {
         return c.ret();
     }
-    let si = c.add(W, g::FRAME_TASKS_LAST_TICK, 4);
-    c.set_reg(SI, si);
+    c.set_reg(SI, g::FRAME_TASKS_LAST_TICK + 4);
     loop {
         // D9EB: an entry (period, counter, routine).
         let (si, cx) = (c.reg(SI), c.reg(CX));
@@ -69,13 +68,10 @@ pub fn process_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xd9eb, 9 + if left == 0 { 2 } else { 0 })?;
             c.lods(W, DS);
             c.set_reg(BP, period);
-            let v = c.add(W, ticks, counter);
-            c.set_reg(AX, v);
-            c.cmp(W, v, period);
+            c.set_reg(AX, reached);
             let si = c.reg(SI);
-            c.set_word(si, v);
-            let si = c.add(W, si, 4);
-            c.set_reg(SI, si);
+            c.set_word(si, reached);
+            c.set_reg(SI, si.wrapping_add(4));
             c.set_reg(CX, left);
             if left == 0 {
                 c.set_word(g::FRAME_TASK_WALK, 0);
@@ -86,21 +82,16 @@ pub fn process_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xd9eb, 6 + 2 + if period != 0 { 3 } else { 0 } + 6)?;
         c.lods(W, DS);
         c.set_reg(BP, period);
-        let v = c.add(W, ticks, counter);
-        c.set_reg(AX, v);
-        c.cmp(W, v, period);
-        c.or(W, period, period);
+        c.set_reg(AX, reached);
         if period != 0 {
-            let dx = c.reg(DX);
-            let zero = c.xor(W, dx, dx);
-            c.set_reg(DX, zero);
-            c.m.cpu.mul_div(&mut c.m.hw, W, 6, period as u32); // div bp
+            // Due: the counter keeps what passed the period (`div bp`).
+            c.set_reg(AX, reached / period);
+            c.set_reg(DX, reached % period);
             let si = c.reg(SI);
-            let rest = c.reg(DX);
-            c.set_word(si, rest);
+            c.set_word(si, reached % period);
         }
         let si = c.reg(SI);
-        let si = c.sub(W, si, 2);
+        let si = c.sub(W, si, 2); // the task (called through) gets these flags
         c.set_reg(SI, si);
         c.push(ticks);
         c.push(cx);
@@ -118,8 +109,7 @@ pub fn process_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.pop();
         let bx = c.pop();
         c.set_reg(BX, bx);
-        let si = c.add(W, si, 6);
-        c.set_reg(SI, si);
+        c.set_reg(SI, si.wrapping_add(6));
         c.set_reg(CX, left);
         if left == 0 {
             c.set_word(g::FRAME_TASK_WALK, 0);

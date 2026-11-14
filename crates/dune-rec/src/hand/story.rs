@@ -5570,7 +5570,6 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if start != 0x2dd3 {
         c.call(0x2d74, 0x2dc2)?;
         c.run(0x2dc2, 6)?;
-        c.xor(W, 0, 0);
         c.set_reg(AX, 0);
         c.set_byte(0xdce6, 0);
         c.set_byte(0x47a4, 0);
@@ -5581,13 +5580,11 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(0x2b);
     if k != 0 {
         c.run(0x2dd3, 4)?;
-        c.cmp(B, k as u16, 0);
         c.set_byte(0x4732, 0);
         c.call(0x2d74, 0x2de2)?;
         c.run(0x2de2, 3)?;
         let v = c.byte(0x11bc);
-        let v = c.or(B, v as u16, 1);
-        c.set_byte(0x11bc, v as u8);
+        c.set_byte(0x11bc, v | 1);
         c.set_byte(0x46df, 0);
         c.call(0x0acd, 0x2def)?;
         for (at, to) in [(0x2defu16, 0x1797u16), (0x2df2, 0xc4cd), (0x2df5, 0xc0f4)] {
@@ -5599,13 +5596,10 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let f = c.byte(0x4732);
     c.run(0x2dd3, 4 + (f & 1 != 0) as u32)?;
-    c.cmp(B, k as u16, 0);
-    c.test(B, f as u16, 1);
     if f & 1 != 0 {
         c.call(0x488a, 0x2e05)?;
     }
     c.run(0x2e05, 4)?;
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.set_word(0x14, 0);
     c.set_byte(0x46df, 0);
@@ -5616,7 +5610,6 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let mode = c.byte(0x11c9);
     c.run(0x2e16, 2 + (mode & 3 == 0) as u32)?;
-    c.test(B, mode as u16, 3);
     if mode & 3 == 0 {
         c.call(0xc412, 0x2e20)?;
     }
@@ -5631,7 +5624,6 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::AH, a);
         c.set_byte(0x46e0, a);
         c.set_reg8(r8::AL, old);
-        c.cmp(B, old as u16, a as u16);
     };
     if old == a {
         c.run(0x2e29, 6)?;
@@ -5645,7 +5637,6 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x2e29, if x == y { 8 } else { 11 })?;
     swap(&mut c);
     c.set_reg(AX, x);
-    c.cmp(W, x, y);
     if x != y {
         c.set_reg8(r8::AL, 0x10);
         c.set_reg(BP, 0x0f66);
@@ -5733,7 +5724,6 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(0x26, 0);
         c.set_reg(DX, dx);
         c.set_reg(BX, bx);
-        c.cmp(B, bx & 0xff, 0x80);
     };
     if bx & 0xff != 0x80 {
         let s = c.byte(0x4735);
@@ -5742,19 +5732,12 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let n = 7 + 4 + (a & 0x80 != 0) as u32 + 4 + (f4 < 0x14) as u32 + 1;
         c.run(0x3f31, n)?;
         start_ops(&mut c);
-        c.set_reg8(r8::AL, s);
-        let x = c.and(B, s as u16, 0x7f);
-        let mut x = c.inc(B, x);
-        if x & 0x80 != 0 {
-            x = c.dec(B, x);
-        }
-        let x = c.or(B, x, 0x80);
-        c.set_reg8(r8::AL, x as u8);
-        c.set_byte(0x4735, x as u8);
-        c.cmp(B, f4 as u16, 0x14);
+        // The travel steps counted up to 7Fh (bit 7 set).
+        let x = (if a & 0x80 != 0 { a - 1 } else { a }) | 0x80;
+        c.set_reg8(r8::AL, x);
+        c.set_byte(0x4735, x);
         if f4 < 0x14 {
-            let v = c.inc(B, f4 as u16);
-            c.set_byte(0xf4, v as u8);
+            c.set_byte(0xf4, f4 + 1);
         }
         return step_3ff5(&mut c);
     }
@@ -5765,7 +5748,7 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let dl = c.byte_in(SS, bp.wrapping_add(si));
     let pick = |c: &mut Ctx| {
         c.set_reg8(r8::DL, dl);
-        c.or(B, dl as u16, dl as u16);
+        c.or(B, dl as u16, dl as u16); // the flags of the exit without one
     };
     if dl == 0 {
         c.run(0x3f6a, 4)?;
@@ -5781,7 +5764,6 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if b == 1 {
         c.run(0x3f6a, 7)?;
         pick(&mut c);
-        c.cmp(B, 1, 1);
         c.call(0xe270, 0x3f7c)?;
         c.run(0x3f7c, 2)?;
         c.set_reg8(r8::CL, 2);
@@ -5791,25 +5773,20 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x3f6a, 6)?;
         pick(&mut c);
-        c.cmp(B, b as u16, 1);
     }
     let si = c.word(0x114e);
     let t = c.byte(si.wrapping_add(0x0a));
     if t & 0x10 != 0 {
         c.run(0x3f84, 3)?;
         c.set_reg(SI, si);
-        c.test(B, t as u16, 0x10);
     } else {
         c.run(0x3f84, 8)?;
         c.set_reg(SI, si);
-        c.test(B, t as u16, 0x10);
-        let v = c.or(B, t as u16, 0x10);
-        c.set_byte(si.wrapping_add(0x0a), v as u8);
+        // A first visit: noted, and counted when DH is below 20h.
+        c.set_byte(si.wrapping_add(0x0a), t | 0x10);
         let dh = c.reg8(r8::DH);
-        c.cmp(B, dh as u16, 0x20);
-        let k = c.byte(0x25);
-        let k = c.adc(B, k as u16, 0);
-        c.set_byte(0x25, k as u8);
+        let k = c.byte(0x25).wrapping_add((dh < 0x20) as u8);
+        c.set_byte(0x25, k);
         c.set_byte(0x26, 0xff);
         c.call(0xe270, 0x3fa2)?;
         c.run(0x3fa2, 2)?;
@@ -5991,12 +5968,9 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if b8 == 0xff {
         c.run(0x37c4, 6)?;
         c.set_reg(AX, 0xffff);
-        c.cmp(B, b8 as u16, 0xff);
-        c.or(W, 0xffff, 0xffff);
     } else {
         c.run(0x37c4, 5)?;
         c.set_reg(AX, 0xffff);
-        c.cmp(B, b8 as u16, 0xff);
         let dx = c.word(4);
         c.set_reg(DX, dx);
         c.call(0x3efe, 0x37d4)?;
@@ -6006,7 +5980,6 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let ax = (ah as u16) << 8 | al as u16;
         c.run(0x37d4, 4)?;
         c.lods(B, DS);
-        c.or(W, ax, ax);
         if ax & 0x8000 == 0 {
             return room_scene_39ec(&mut c);
         }
@@ -6016,9 +5989,7 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte(0x47a4);
     if mode & 3 == 0 {
         c.run(0x37df, 4)?;
-        let v = c.or(B, v as u16, 1);
-        c.set_byte(0x47a4, v as u8);
-        c.test(B, mode as u16, 3);
+        c.set_byte(0x47a4, v | 1);
         c.call(0x380c, 0x37ee)?;
         c.run(0x37ee, 1)?;
         c.call(0x4e12, 0x37f1)?;
@@ -6026,9 +5997,7 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return enemy_watch_4d06(&mut c);
     }
     c.run(0x37df, 5)?;
-    let v = c.or(B, v as u16, 1);
-    c.set_byte(0x47a4, v as u8);
-    c.test(B, mode as u16, 3);
+    c.set_byte(0x47a4, v | 1);
     c.set_byte(0x4728, 0);
     c.call(0x4988, 0x37fc)?;
     c.run(0x37fc, 1)?;

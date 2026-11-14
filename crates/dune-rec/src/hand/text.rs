@@ -200,34 +200,27 @@ pub fn font_draw_string(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if ch == 0xff {
             c.run(0xd1bb, 4)?; // lodsb; cmp; je; ret
             c.lods(B, ES);
-            c.cmp(B, 0xff, 0xff);
+            c.cmp(B, 0xff, 0xff); // the exit's flags
             return c.ret();
         }
         if ch == 0x0d {
             let small = c.word(g::FONT_DRAW) == code::SMALL_FONT_DRAW;
             c.run(0xd1bb, 5 + if small { 9 } else { 8 })?;
             c.lods(B, ES);
-            c.cmp(B, 0x0d, 0xff);
-            c.cmp(B, 0x0d, 0x0d);
+            // A new line: 7 down in the small font, else 10.
             let line_x = c.word(g::FONT_LINE_X);
             c.set_word(g::FONT_X, line_x);
-            let draw = c.word(g::FONT_DRAW);
-            c.cmp(W, draw, code::SMALL_FONT_DRAW);
             let step = if small { 7 } else { 0x0a };
             c.set_reg(AX, step);
-            let y = c.word(g::FONT_LINE_Y);
-            let y = c.add(W, y, step);
+            let y = c.word(g::FONT_LINE_Y).wrapping_add(step);
             c.set_word(g::FONT_LINE_Y, y);
-            let y = c.word(g::FONT_Y);
-            let y = c.add(W, y, step);
+            let y = c.word(g::FONT_Y).wrapping_add(step);
             c.set_word(g::FONT_Y, y);
             continue;
         }
         c.run(0xd1bb, if ch & 0x80 != 0 { 9 } else { 8 })?;
         c.lods(B, ES);
-        c.cmp(B, ch as u16, 0xff);
-        c.cmp(B, ch as u16, 0x0d);
-        c.or(B, ch as u16, ch as u16);
+        c.or(B, ch as u16, ch as u16); // the glyph routine (called through) gets these
         if ch & 0x80 != 0 {
             c.set_reg8(r8::AL, b'@');
         }
@@ -437,13 +430,10 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let es = c.sreg(ES);
         c.push(es);
-        c.xor(B, 0, 0);
         let ax = c.reg(AX) & 0xff;
         c.set_reg(AX, ax);
-        let s = c.shl1(W, ax, 3);
-        let s = c.add(W, s, ax);
-        let t = c.word(0x2514);
-        let s = c.add(W, s, t);
+        // The glyph's 9 bytes in the font.
+        let s = (ax * 9).wrapping_add(c.word(0x2514));
         c.set_reg(SI, s);
         c.set_reg(BX, 0xceec);
         let w = c.byte(0xceecu16.wrapping_add(ax));
@@ -452,7 +442,7 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xd0b5, 5)?;
         let ax = c.reg(AX);
         let x = c.word(0xd82c);
-        let x = c.add(W, x, ax);
+        let x = c.add(W, x, ax); // the driver's far call sees the flags
         c.set_word(0xd82c, x);
         c.set_reg8(r8::CL, ax as u8);
         c.set_reg8(r8::CH, 9);
@@ -485,18 +475,10 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd115, 7 + if bx < 0x13 { 1 } else { 0 } + 1)?;
     let ax = c.pop();
     c.set_reg8(r8::CL, (ax >> 8) as u8);
-    c.xor(B, 0, 0);
-    let a = ax & 0xff;
-    let x = c.word(0xd82c);
-    let x = c.add(W, x, a);
+    let x = c.word(0xd82c).wrapping_add(ax & 0xff);
     c.set_word(0xd82c, x);
     c.set_reg(AX, ax >> 8);
-    let b = c.sub(W, bx, 0x13);
-    c.set_reg(BX, b);
-    if bx < 0x13 {
-        c.xor(W, 0, 0);
-        c.set_reg(BX, 0);
-    }
+    c.set_reg(BX, bx.saturating_sub(0x13));
     c.call(0xc22f, 0xd12a)?;
     c.run(0xd12a, 2)?;
     let es = c.pop();

@@ -640,11 +640,8 @@ pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = c.word(0x38fb);
     c.set_reg(AX, a);
     c.set_word_in(CS, 0xcc94, a);
-    let b0 = c.reg(BP);
-    c.xor(W, b0, b0);
     c.set_word(0xdc16, 0);
     c.set_reg(BP, seg);
-    c.or(W, seg, seg);
     if seg == 0 {
         return c.ret();
     }
@@ -653,17 +650,14 @@ pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xcca7, 4)?;
     c.set_reg(SI, si);
     c.set_reg8(r8::AL, f);
-    c.test(B, f as u16, 0x30);
     if f & 0x30 != 0 {
         c.run(0xccea, 3)?;
-        c.test(B, f as u16, 0x20);
         return c.jump(if f & 0x20 != 0 { 0x4aeb } else { 0x4afd });
     }
     let k = c.word(0xdc24);
     c.run(0xccb2, 3)?;
     let ds = c.sreg(DS);
     c.push(ds);
-    c.test(W, k, 0x400);
     if k & 0x400 != 0 {
         return pop_ds_ret_cce1(&mut c);
     }
@@ -675,13 +669,11 @@ pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, vid);
     c.set_sreg(DS, seg);
     let a = c.lods(W, DS);
-    let h = c.and(B, a >> 8, 0xf9);
-    let a = (h << 8) | (a & 0xff);
+    let a = a & 0xf9ff;
     c.set_reg(AX, a);
     c.set_reg(DI, a);
     let a = c.lods(W, DS);
     c.set_reg(CX, a);
-    c.or(B, a & 0xff, a & 0xff);
     if w1 & 0xff == 0 {
         return pop_ds_ret_cce1(&mut c);
     }
@@ -691,7 +683,7 @@ pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = c.lods(W, DS);
     c.set_reg(AX, vid);
     c.set_reg(BX, a);
-    c.cmp(W, vid, 0x19);
+    c.cmp(W, vid, 0x19); // the driver's far call sees the flags
     if vid >= 0x19 {
         c.interp(0xcce3, 0xcce8)?;
         c.run(0xcce8, 2)?;

@@ -397,17 +397,14 @@ pub fn copy_rect_clipped(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let passed = tests.iter().take_while(|&&t| t).count();
     if passed < 4 {
         c.run(start, 4 * passed as u32 + 4)?;
-        let mut v = 0;
+        // Outside: the coordinates read up to the failing test.
         for i in 0..=passed {
-            v = c.lods(W, DS);
-            let lim = [k[2], k[3], k[0], k[1]][i];
-            c.cmp(W, v, lim);
+            let v = c.lods(W, DS);
             if i == passed {
                 break;
             }
             c.set_reg([DX, BX, BP, AX][i], v);
         }
-        let _ = v;
         return c.ret();
     }
     let x0 = if r[0] < k[0] { k[0] } else { r[0] };
@@ -426,27 +423,21 @@ pub fn copy_rect_clipped(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(start, n + 2 + 2)?;
     }
-    for (i, reg) in [DX, BX, BP, AX].into_iter().enumerate() {
+    for reg in [DX, BX, BP, AX] {
         let v = c.lods(W, DS);
-        c.cmp(W, v, [k[2], k[3], k[0], k[1]][i]);
         if reg != AX {
             c.set_reg(reg, v);
         }
     }
-    c.cmp(W, r[0], k[0]);
+    // The intersection: its width and height.
     c.set_reg(DX, x0);
-    c.cmp(W, r[2], k[2]);
-    c.set_reg(BP, x1);
-    c.cmp(W, r[1], k[1]);
     c.set_reg(BX, y0);
-    c.cmp(W, r[3], k[3]);
     c.set_reg(AX, y1);
-    let w = c.sub(W, x1, x0);
-    c.set_reg(BP, w);
+    c.set_reg(BP, x1.wrapping_sub(x0));
     if x1 <= x0 {
         return c.ret();
     }
-    let h = c.sub(W, y1, y0);
+    let h = c.sub(W, y1, y0); // the driver's far call sees the flags
     c.set_reg(AX, h);
     if y1 <= y0 {
         return c.ret();
