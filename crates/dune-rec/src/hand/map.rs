@@ -748,12 +748,12 @@ pub fn place_octant(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bp = c.pop();
     c.set_reg(BP, bp);
     let al = c.reg8(r8::AL);
-    let mut v = c.add(B, al as u16, 0x10);
+    let mut v = pure::add(B, al as u16, 0x10);
     for _ in 0..3 {
-        v = c.rol1(B, v);
+        v = pure::rol1(B, v);
     }
     let ax = c.reg(AX) & 0xff00 | v;
-    let ax = c.and(W, ax, 7);
+    let ax = pure::and(W, ax, 7);
     c.set_reg(AX, ax);
     c.m.cpu.write8(&mut c.m.hw, SS, bp.wrapping_add(2), ax as u8);
     let dx = c.pop();
@@ -1360,19 +1360,16 @@ pub fn map_mode_flag(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 7 + if on { 0 } else { 2 } + 2)?;
     c.set_reg(BP, 0x2136);
     let v = c.byte_in(SS, 0x2139);
-    let v = c.and(B, v as u16, 0xbf);
+    let v = pure::and(B, v as u16, 0xbf);
     c.m.cpu.write8(&mut c.m.hw, SS, 0x2139, v as u8);
-    let cx = c.reg(CX);
-    c.xor(W, cx, cx);
     c.set_reg(CX, 0);
     c.set_reg8(r8::AL, k);
-    let al = c.dec(B, k as u16);
+    let al = pure::dec(B, k as u16);
     c.set_reg8(r8::AL, al as u8);
-    c.cmp(B, al, 2);
     if !on {
-        let v = c.or(B, v, 0x40);
+        let v = pure::or(B, v, 0x40);
         c.m.cpu.write8(&mut c.m.hw, SS, 0x2139, v as u8);
-        let cx = c.inc(W, 0);
+        let cx = pure::inc(W, 0);
         c.set_reg(CX, cx);
     }
     c.set_reg(BX, 0x824d);
@@ -1953,19 +1950,17 @@ pub fn clamp_view_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
     n += 1 + 1;
     c.run(start, n)?;
     c.set_reg(SI, 0x1470);
-    let replay = |c: &mut Ctx, v: u16, lo: u16, hi: u16| -> u16 {
-        c.cmp(W, v, lo);
+    let replay = |_: &mut Ctx, v: u16, lo: u16, hi: u16| -> u16 {
         let v = if (v as i16) < lo as i16 { lo } else { v };
-        c.cmp(W, v, hi);
         if (v as i16) > hi as i16 { hi } else { v }
     };
-    let ax = c.add(W, dx, w);
+    let ax = pure::add(W, dx, w);
     let v = replay(&mut c, dx, b[0], b[2]);
     c.set_reg(DX, v);
     c.set_word(0x4860, x0);
     let v = replay(&mut c, ax, b[0], b[2]);
     c.set_word(0x4864, x1);
-    let ax = c.add(W, bx, h);
+    let ax = pure::add(W, bx, h);
     let v2 = replay(&mut c, bx, b[1], b[3]);
     c.set_reg(BX, v2);
     c.set_word(0x4862, y0);
@@ -2000,18 +1995,18 @@ pub fn draw_location_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, (ch as u16) << 8 | 0x9a);
     let dx = c.word(0x1668);
     let bx = c.word(0x166a);
-    let dx = pure::add(W, dx, 0x0c);
+    let dx = c.add(W, dx, 0x0c);
     c.set_reg(DX, dx);
-    let bx = pure::add(W, bx, 4);
+    let bx = c.add(W, bx, 4);
     c.set_reg(BX, bx);
     c.call(0x629d, 0x6034)?;
     c.run(0x6034, 4)?;
     c.set_reg8(r8::CL, 0x96);
     let dx = c.reg(DX);
-    let dx = pure::sub(W, dx, 8);
+    let dx = c.sub(W, dx, 8);
     c.set_reg(DX, dx);
     let bx = c.reg(BX);
-    let bx = pure::add(W, bx, 9);
+    let bx = c.add(W, bx, 9);
     c.set_reg(BX, bx);
     c.call(0x62a6, 0x603f)?;
     c.run(0x603f, 1)?;
@@ -2019,12 +2014,18 @@ pub fn draw_location_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let al = c.reg8(r8::AL);
     if al == 2 {
         c.run(0x6042, 3)?;
+        c.cmp(B, 2, 2);
         return super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c);
     }
     let f = c.byte(0x0a);
     let pre = f & 0x20 != 0 && al == 0;
     let n = 2 + 2 + if f & 0x20 != 0 { 2 } else { 0 } + if pre { 2 } else { 0 } + if pre { 0 } else { 1 };
     c.run(0x6042, n)?;
+    c.cmp(B, al as u16, 2);
+    c.test(B, f as u16, 0x20);
+    if f & 0x20 != 0 {
+        c.or(B, al as u16, al as u16);
+    }
     if pre {
         let ax = c.reg(AX);
         c.push(ax);
@@ -2402,7 +2403,6 @@ pub fn location_balance(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x60f8)?;
     let mut c = Ctx::new(m);
     c.run(start, 6)?;
-    c.xor(W, 0, 0);
     c.set_reg(BX, 0);
     c.set_reg(CX, 0);
     c.set_reg(DX, 0);
@@ -2437,9 +2437,8 @@ pub fn location_balance(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let n = 3 + 3 * (s1 != 0) as u32 + 5 + 3 * (s2 != 0) as u32 + 4 + (q1 < q2) as u32 + 4 + 4 * (si != 0) as u32 + 3;
     c.run(0x6108, n)?;
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
-    let b = c.add(W, bx, dx);
+    let b = pure::add(W, bx, dx);
     c.set_reg(BX, b);
     if s1 != 0 {
         c.set_reg(AX, (dx & 0xff) << 8);
@@ -2448,10 +2447,9 @@ pub fn location_balance(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let ax = c.reg(AX);
     c.set_reg(BX, ax);
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.set_reg(DX, e);
-    let s = c.add(W, cx, e);
+    let s = pure::add(W, cx, e);
     c.set_reg(CX, s);
     if s2 != 0 {
         c.set_reg(AX, (e & 0xff) << 8);
@@ -2461,12 +2459,10 @@ pub fn location_balance(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     c.set_reg(CX, ax);
     c.set_reg(SI, q1);
-    c.cmp(W, q1, q2);
     c.set_reg(SI, si);
     c.set_reg(AX, q1);
-    let d = c.sub(W, q1, q2);
+    let d = pure::sub(W, q1, q2);
     c.set_reg(AX, d);
-    c.or(W, si, si);
     if si != 0 {
         let dxs = if d & 0x8000 != 0 { 0xffff } else { 0 };
         let a = d.swap_bytes();
@@ -2477,7 +2473,7 @@ pub fn location_balance(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let ax = c.reg(AX);
     let ax = c.m.cpu.shift(7, W, ax as u32, 1) as u16;
-    let al = c.add(B, ax & 0xff, 0x80);
+    let al = pure::add(B, ax & 0xff, 0x80);
     c.set_reg(AX, ax & 0xff00 | al);
     c.ret()
 }
@@ -2666,8 +2662,6 @@ pub fn location_circle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
     c.set_byte(0x4739, 0x20);
-    let cx = c.reg(CX);
-    c.xor(W, cx, cx);
     let di = c.reg(DI);
     let r = c.byte(di.wrapping_add(0x0b));
     c.set_reg(CX, r as u16);
@@ -2905,9 +2899,8 @@ pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if di == here {
         c.run(start, 5)?;
         let v = c.byte(di.wrapping_add(0x0a));
-        let v = c.and(B, v as u16, 0xfd);
+        let v = pure::and(B, v as u16, 0xfd);
         c.set_byte(di.wrapping_add(0x0a), v as u8);
-        c.cmp(W, di, here);
         c.set_byte(0x46d9, 6);
         return c.ret();
     }
@@ -2915,24 +2908,20 @@ pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if al >= 0x28 {
         c.run(start, 6 + 2)?;
         let v = c.byte(di.wrapping_add(0x0a));
-        let v = c.and(B, v as u16, 0xfd);
+        let v = pure::and(B, v as u16, 0xfd);
         c.set_byte(di.wrapping_add(0x0a), v as u8);
-        c.cmp(W, di, here);
         c.set_reg8(r8::AL, al);
-        c.cmp(B, al as u16, 0x28);
     } else {
         c.run(start, 12)?;
         let v = c.byte(di.wrapping_add(0x0a));
-        let v = c.and(B, v as u16, 0xfd);
+        let v = pure::and(B, v as u16, 0xfd);
         c.set_byte(di.wrapping_add(0x0a), v as u8);
-        c.cmp(W, di, here);
-        c.cmp(B, al as u16, 0x28);
-        let a = c.and(B, al as u16, 7);
-        let a = c.add(B, a, 0x28);
+        let a = pure::and(B, al as u16, 7);
+        let a = pure::add(B, a, 0x28);
         c.set_reg8(r8::AL, a as u8);
         c.set_byte(di.wrapping_add(8), a as u8);
         let v = c.byte(0x27);
-        let v = c.dec(B, v as u16);
+        let v = pure::dec(B, v as u16);
         c.set_byte(0x27, v as u8);
         let si = c.reg(SI);
         c.push(si);
@@ -2949,11 +2938,10 @@ pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let mut si = 0xfd8u16;
         for i in 0..9u16 {
             let w = c.word(si.wrapping_add(2));
-            c.cmp(W, bx, w);
             if w == bx {
                 c.set_word(si, dx);
             }
-            si = c.add(W, si, 0x10);
+            si = pure::add(W, si, 0x10);
             c.set_reg(CX, 8 - i);
         }
         let s = c.pop();
@@ -2997,12 +2985,10 @@ pub fn sprite_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cx = c.reg(CX) & 0xff;
     if cx == 0 {
         c.run(start, 3)?;
-        c.and(W, 0, 0xff);
         c.set_reg(CX, 0);
         return c.ret();
     }
     c.run(start, 7)?;
-    c.and(W, cx, 0xff);
     c.set_reg(CX, cx);
     let (bx, di, ax, dx) = (c.reg(BX), c.reg(DI), c.reg(AX), c.reg(DX));
     for v in [bx, di, ax, dx] {
@@ -3029,32 +3015,27 @@ pub fn sprite_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     c.run(0x6187, n + 2 + 6)?;
-    let di1 = c.sub(W, bp0, dx1);
+    let di1 = pure::sub(W, bp0, dx1);
     c.set_reg(DI, di1);
     let b = c.word_in(ES, si);
-    let b = c.and(W, b, 0xfff);
-    let b = c.add(W, b, 2);
+    let b = pure::and(W, b, 0xfff);
+    let b = pure::add(W, b, 2);
     c.set_reg(BP, b);
     c.set_reg(AX, di1);
-    c.xor(W, 0, 0);
     c.set_reg(DX, 0);
     c.m.cpu.mul_div(&mut c.m.hw, W, 6, cx as u32);
-    let a = c.reg(AX);
-    c.cmp(W, a, b);
     if n > 10 {
-        let d = c.sub(W, di1, b);
+        let d = pure::sub(W, di1, b);
         c.set_reg(DI, d);
         c.set_reg(AX, d);
-        c.xor(W, 0, 0);
         c.set_reg(DX, 0);
         c.m.cpu.mul_div(&mut c.m.hw, W, 6, cx as u32);
         let a = c.reg(AX);
         c.set_reg(BP, a);
-        c.cmp(W, a, 2);
         if n > 17 {
             c.set_reg(BP, 2);
             c.set_reg(CX, d);
-            let h = c.shr1(W, d, 1);
+            let h = pure::shr1(W, d, 1);
             c.set_reg(CX, h);
         }
     }
@@ -3081,7 +3062,7 @@ pub fn sprite_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(r, v);
         }
         let (dx, bp) = (c.reg(DX), c.reg(BP));
-        let dx = c.add(W, dx, bp);
+        let dx = pure::add(W, dx, bp);
         c.set_reg(DX, dx);
         c.set_reg(CX, cx);
         if cx == 0 {
@@ -3099,8 +3080,8 @@ pub fn sprite_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     let h = c.byte_in(ES, si.wrapping_add(2));
     let bx = c.reg(BX);
-    let bl = c.add(B, bx & 0xff, h as u16);
-    let bx = c.inc(W, bx & 0xff00 | bl);
+    let bl = pure::add(B, bx & 0xff, h as u16);
+    let bx = pure::inc(W, bx & 0xff00 | bl);
     c.set_reg(BX, bx);
     c.ret()
 }
@@ -3586,12 +3567,10 @@ pub fn sprite_column(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cx = c.reg(CX) & 0xff;
     if cx == 0 {
         c.run(start, 3)?;
-        c.and(W, 0, 0xff);
         c.set_reg(CX, 0);
         return c.ret();
     }
     c.run(start, 7)?;
-    c.and(W, cx, 0xff);
     c.set_reg(CX, cx);
     let (bx, di, ax, dx) = (c.reg(BX), c.reg(DI), c.reg(AX), c.reg(DX));
     for v in [bx, di, ax, dx] {
@@ -3613,31 +3592,26 @@ pub fn sprite_column(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     c.run(0x61e0, n + 2 + 6)?;
-    let di1 = c.sub(W, bp0, bx1);
+    let di1 = pure::sub(W, bp0, bx1);
     c.set_reg(DI, di1);
     let b = c.word_in(ES, si.wrapping_add(2));
-    let b = c.and(W, b, 0xff);
-    let b = c.add(W, b, 2);
+    let b = pure::and(W, b, 0xff);
+    let b = pure::add(W, b, 2);
     c.set_reg(BP, b);
     c.set_reg(AX, di1);
-    c.xor(W, 0, 0);
     c.set_reg(DX, 0);
     c.m.cpu.mul_div(&mut c.m.hw, W, 6, cx as u32);
-    let a = c.reg(AX);
-    c.cmp(W, a, b);
     if n > 10 {
-        let d = c.sub(W, di1, b);
+        let d = pure::sub(W, di1, b);
         c.set_reg(DI, d);
         c.set_reg(AX, d);
-        c.xor(W, 0, 0);
         c.set_reg(DX, 0);
         c.m.cpu.mul_div(&mut c.m.hw, W, 6, cx as u32);
         let a = c.reg(AX);
         c.set_reg(BP, a);
-        c.cmp(W, a, 2);
         if n > 17 {
             c.set_reg(BP, 2);
-            let k = c.shr1(W, d, 1);
+            let k = pure::shr1(W, d, 1);
             c.set_reg(CX, k);
         }
     }
@@ -3664,7 +3638,7 @@ pub fn sprite_column(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(r, v);
         }
         let (bx, bp) = (c.reg(BX), c.reg(BP));
-        let bx = c.add(W, bx, bp);
+        let bx = pure::add(W, bx, bp);
         c.set_reg(BX, bx);
         c.set_reg(CX, cx);
         if cx == 0 {
@@ -3679,12 +3653,12 @@ pub fn sprite_column(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x6227, 5)?;
     let si = c.reg(SI);
     let w = c.word_in(ES, si);
-    let hi = c.and(B, w >> 8, 0x0f);
+    let hi = pure::and(B, w >> 8, 0x0f);
     let ax = hi << 8 | w & 0xff;
     c.set_reg(AX, ax);
     let dx = c.reg(DX);
-    let dx = c.add(W, dx, ax);
-    let dx = c.inc(W, dx);
+    let dx = pure::add(W, dx, ax);
+    let dx = pure::inc(W, dx);
     c.set_reg(DX, dx);
     c.ret()
 }
@@ -3710,9 +3684,9 @@ pub fn skill_bars_4705(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7e21, 7)?;
     c.set_reg(SI, 0x4705);
     let (x, y) = (c.word(0x18e9), c.word(0x18eb));
-    let dx = c.add(W, x, 0x80);
+    let dx = pure::add(W, x, 0x80);
     c.set_reg(DX, dx);
-    let bx = c.add(W, y, 0x2d);
+    let bx = pure::add(W, y, 0x2d);
     c.set_reg(BX, bx);
     let bp = c.word(0x18ef);
     c.set_reg(BP, bp);
@@ -4321,7 +4295,6 @@ pub fn troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let b3 = c.byte(si.wrapping_add(3));
     if b3 & 0x40 != 0 {
         c.run(0x62f5, 5)?;
-        c.test(B, b3 as u16, 0x40);
         let (x, y) = (c.word(si.wrapping_add(6)), c.word(si.wrapping_add(8)));
         c.set_reg(DX, x);
         c.set_reg(BX, y);
@@ -4329,7 +4302,6 @@ pub fn troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return map_marker(&mut c, 0x630f, 2, |c| c.set_reg(AX, 0x36));
     }
     c.run(0x62f5, 4)?;
-    c.test(B, b3 as u16, 0x40);
     let l = c.word(si.wrapping_add(4));
     c.set_reg(SI, l);
     c.call(0x62c9, 0x6301)?;
@@ -4612,11 +4584,9 @@ pub fn redraw_and_toggle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(0x46f3);
     if k == 0 {
         c.run(start, 2)?;
-        c.cmp(B, 0, 0);
         return redraw_8770(c.m, 0x8770);
     }
     c.run(start, 3)?;
-    c.cmp(B, k as u16, 0);
     c.call(0x8770, 0x876d)?;
     toggle_map_at(&mut c, 0x876d, 1)
 }
@@ -4752,7 +4722,7 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x1ac5, 0x7451)?;
     c.run(0x7451, 4)?;
     let al = c.reg8(r8::AL);
-    let a = pure::add(B, al as u16, 2);
+    let a = c.add(B, al as u16, 2);
     let di = c.reg(DI);
     c.set_byte(di.wrapping_add(0x0b), a as u8);
     c.set_reg8(r8::AL, 4);
@@ -4763,7 +4733,7 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7460, 9)?;
     let di = c.reg(DI);
     let f = c.byte(di.wrapping_add(0x0a));
-    let f = pure::or(B, f as u16, 8);
+    let f = c.or(B, f as u16, 8);
     c.set_byte(di.wrapping_add(0x0a), f as u8);
     let cx = c.reg(CX);
     c.push(cx);
@@ -4782,18 +4752,22 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let seed = c.word(0);
     let z = seed & 3 == 0;
     c.run(0x747c, 3 + z as u32)?;
+    c.xor(W, 0, 0);
+    c.test(W, seed, 3);
     let mut dx = 0u16;
     if z {
-        dx = pure::inc(W, 0);
+        dx = c.inc(W, 0);
     }
     c.set_reg(DX, dx);
     loop {
         c.run(0x7487, 3)?;
+        c.xor(W, 0, 0);
         c.set_reg(CX, 0);
         c.set_reg(BP, 0x762a);
         c.call(0x6603, 0x748f)?;
         let (cx, dx) = (c.reg(CX), c.reg(DX));
         c.run(0x748f, 2 + if cx > dx { 0 } else { 3 })?;
+        c.cmp(W, cx, dx);
         if cx <= dx {
             break;
         }
@@ -4805,12 +4779,14 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let dl = c.reg8(r8::DL);
     if dl > 1 {
         c.run(0x7498, 2 + 3)?;
+        c.cmp(B, dl as u16, 1);
     } else {
         c.run(0x7498, 7)?;
+        c.cmp(B, dl as u16, 1);
         c.set_byte(0xc2, 1);
         for p in [0xff7u16, 0x1007] {
             let v = c.byte(p);
-            let v = pure::and(B, v as u16, 0xfd);
+            let v = c.and(B, v as u16, 0xfd);
             c.set_byte(p, v as u8);
         }
         let d = c.pop();
@@ -4837,11 +4813,9 @@ pub fn grow_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(0x46de);
     if k == 0 {
         c.run(start, 3)?;
-        c.cmp(B, 0, 0);
         return c.ret();
     }
     c.run(start, 4)?;
-    c.cmp(B, k as u16, 0);
     let es = c.word(0xdd00);
     c.set_sreg(ES, es);
     c.set_reg(DI, 0x100);
@@ -4853,22 +4827,17 @@ pub fn grow_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
             if al & 0x20 == 0 {
                 c.run(0x63fe, 3)?;
                 c.set_reg8(r8::AL, al);
-                c.test(B, al as u16, 0x20);
                 break 'one;
             }
             if bl >= 0xfa {
                 c.run(0x63fe, 7)?;
                 c.set_reg8(r8::AL, al);
-                c.test(B, al as u16, 0x20);
                 c.set_reg(BX, 0xfa00 | bl as u16);
-                c.cmp(B, bl as u16, 0xfa);
                 break 'one;
             }
             c.run(0x63fe, 9)?;
             c.set_reg8(r8::AL, al);
-            c.test(B, al as u16, 0x20);
             c.set_reg(BX, 0xfa00 | bl as u16);
-            c.cmp(B, bl as u16, 0xfa);
             let si = c.word(di.wrapping_add(6));
             c.set_reg(SI, si);
             c.call(0x642e, 0x6414)?;
@@ -4877,11 +4846,10 @@ pub fn grow_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let v = bl.wrapping_add(d as u8);
             let cap = v >= 0xfa;
             c.run(0x6414, 5 + cap as u32 + 1)?;
-            let d = c.shr1(W, dx, 1);
-            let d = c.inc(W, d);
+            let d = pure::shr1(W, dx, 1);
+            let d = pure::inc(W, d);
             c.set_reg(DX, d);
-            let v = c.add(B, bl as u16, d & 0xff);
-            c.cmp(B, v, 0xfa);
+            let v = pure::add(B, bl as u16, d & 0xff);
             let v = if cap { 0xfa } else { v as u8 };
             c.set_reg(BX, 0xfa00 | v as u16);
             let di = c.reg(DI);
@@ -4891,9 +4859,8 @@ pub fn grow_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let nd = di.wrapping_add(0x1c);
         let w = c.word(nd);
         c.run(0x6422, 3 + if w == 0xffff { 1 } else { 0 })?;
-        let d = c.add(W, di, 0x1c);
+        let d = pure::add(W, di, 0x1c);
         c.set_reg(DI, d);
-        c.cmp(W, w, 0xffff);
         di = d;
         if w == 0xffff {
             break;
@@ -7319,39 +7286,37 @@ pub fn span_646f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.pop();
     c.set_reg(AX, ax);
     let di = c.reg(DI);
-    let di = c.add(W, di, ax);
+    let di = pure::add(W, di, ax);
     c.set_reg(DI, di);
     let dx = c.reg(DX);
-    let mut dx = c.add(W, dx, ax);
+    let mut dx = pure::add(W, dx, ax);
     c.set_reg(DX, dx);
     while dx & 0x8000 != 0 {
         let di = c.reg(DI);
-        let di = c.add(W, di, bp);
+        let di = pure::add(W, di, bp);
         c.set_reg(DI, di);
-        dx = c.add(W, dx, bp);
+        dx = pure::add(W, dx, bp);
         c.set_reg(DX, dx);
     }
     let mut cx = count;
     loop {
         let di = c.reg(DI);
         let al = c.byte_in(ES, di);
-        let ah = c.and(B, al as u16, 0x30);
-        c.cmp(B, ah, 0x10);
+        let ah = pure::and(B, al as u16, 0x30);
         let mut al = al as u16;
         if ah != 0x10 {
-            al = c.xor(B, al, ah);
-            al = c.or(B, al, colour as u16);
+            al = pure::xor(B, al, ah);
+            al = pure::or(B, al, colour as u16);
         }
         c.set_reg(AX, (ah << 8) | al);
         c.stos(B);
         let di = c.reg(DI);
-        dx = c.inc(W, dx);
+        dx = pure::inc(W, dx);
         c.set_reg(DX, dx);
-        c.cmp(W, dx, bp);
         if dx >= bp {
-            dx = c.sub(W, dx, bp);
+            dx = pure::sub(W, dx, bp);
             c.set_reg(DX, dx);
-            let di = c.sub(W, di, bp);
+            let di = pure::sub(W, di, bp);
             c.set_reg(DI, di);
         }
         cx = cx.wrapping_sub(1);

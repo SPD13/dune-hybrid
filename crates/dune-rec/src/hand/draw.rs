@@ -28,7 +28,7 @@ pub fn load_icones_sprites(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     let ax = c.reg(AX);
-    let zero = c.xor(W, ax, ax);
+    let zero = pure::xor(W, ax, ax);
     c.set_reg(AX, zero);
     super::resources::open(&mut c)
 }

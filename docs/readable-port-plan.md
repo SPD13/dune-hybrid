@@ -52,17 +52,21 @@ reached in real play). For each:
    A jump into the middle of another routine's code (one whose code
    reaches there from its entry) makes the RETs in that code return to
    the jumper's callers too: that counts for what is read after the calls
-   made in the shared code, not for the routine's own mask (its port runs
-   only from its entry). `--why ADDR` shows where a mask comes from.
+   made in the shared code and for its tail jumps (code run on behalf of
+   the routines that jump into it), not for the routine's own mask (its
+   port runs only from its entry). `--why ADDR` shows where a mask comes
+   from. When the analysis changes, the ports the tools converted whose
+   mask is no longer 0 go back to their exact form (masks only shrink
+   safely).
    Whatever it cannot follow counts as read: code never run (not in the
    generated code), an indirect target no run took. INT and far calls
    (BIOS, DOS, the drivers) pass the flags through. The current result:
 
    | Routines | Flags their callers read |
    |---|---|
-   | 757 | none: the port can drop every flag-exact helper on its result |
+   | 712 | none: the port can drop every flag-exact helper on its result |
    | 61 | some (mostly CF or ZF alone) |
-   | 371 | all, or unknown |
+   | 416 | all, or unknown |
 
    `flags_used.py --rust` writes the table
    (`crates/dune-rec/src/hand/flags_read.rs`); the shadow check takes
@@ -107,10 +111,11 @@ helpers into their flag-free forms (`hand/pure.rs`: `pure::add(W, a, b)`
 for `c.add(W, a, b)`, same results). It leaves a port alone when
 anything could still see those flags: it reads a flag itself, calls or
 jumps to a routine that reads flags on entry or one the analysis doesn't
-know, calls through a register, or hands its context to a helper.
+know, calls through a register, has an INT or far call run, or hands its
+context to a helper that could (followed through the helpers).
 `tools/lift/drop_unused_reads.py` then removes the reads only the
-dropped compares used. This converted about 220 ports across the other
-modules (story 40, map 31, the tails, UI, panels, screens and more). The
+dropped compares used. This converted about 300 ports across the other
+modules (story 58, map 46, the tails, UI, panels, screens and more). The
 ports whose callers read flags (about 430) need their exit flags kept,
 which a line-by-line tool can't place safely: they are for the hand
 rewrite, module by module.

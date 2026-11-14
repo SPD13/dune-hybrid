@@ -103,6 +103,21 @@ def direct_call(t):
     return None
 
 
+def context_read(o):
+    """What the callers read of the flags at a RET (or a tail jump) in the
+    code of routine `o`: its own callers, and those of every routine that
+    jumps into its code (and so on)."""
+    out, todo, seen = set(), [o], set()
+    while todo:
+        x = todo.pop()
+        if x is None or x in seen:
+            continue
+        seen.add(x)
+        out |= READ.get(x, set())
+        todo.extend(midjumped.get(x, ()))
+    return out
+
+
 def walk(start, after_return):
     """Flags read before being set, from `start`.
 
@@ -143,10 +158,7 @@ def walk(start, after_return):
             out |= live & set(READS[op])
         if op in ('ret', 'retf', 'iret'):
             if after_return:
-                o = owner(a)
-                out |= live & READ.get(o, set())
-                for j in midjumped.get(o, ()):
-                    out |= live & READ.get(j, set())
+                out |= live & context_read(owner(a))
             else:
                 passed |= live
             continue
@@ -290,9 +302,10 @@ for a, t in insn.items():
         elif tg is not None and tg not in entry_set and owner(a) is not None:
             # Into the middle of another routine (one whose code reaches
             # there): its RETs then return to the jumping routine's callers
-            # too. Code no routine reaches belongs to the jumper alone.
-            for o in owners_of(tg):
-                if o != owner(a):
+            # Also the routine before it, whose RETs a RET there counts
+            # as (owner()): only RET reads widen, never a mask.
+            for o in set(owners_of(tg)) | {owner(tg)}:
+                if o is not None and o != owner(a):
                     midjumped.setdefault(o, set()).add(owner(a))
 for e in entries:
     i = bisect.bisect_left(addrs, e)
@@ -315,7 +328,9 @@ while changed:
         for r in calls.get(e, []):
             fl |= reads_after(r)
         for j in jumped.get(e, ()):
-            fl |= READ[j]
+            # The jump may run on behalf of the routines that jump into
+            # j's code, too.
+            fl |= context_read(j)
         if fl != READ[e]:
             READ[e] = fl
             changed = True

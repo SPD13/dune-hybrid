@@ -469,6 +469,7 @@ pub fn play_requested_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, if al == 0 { 5 } else { 4 })?;
     c.set_reg8(r8::AL, al);
     c.set_byte(g::CURRENT_MUSIC, 0);
+    c.or(B, al as u16, al as u16);
     if al == 0 {
         return c.ret();
     }
@@ -531,10 +532,10 @@ pub fn shuffle_37fa(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, a);
         let t = c.word(g::TIMER);
         let cx = c.reg(CX);
-        let t = c.xor(W, t, cx);
+        let t = pure::xor(W, t, cx);
         c.set_reg(AX, t);
         let s = c.word(g::RAND_BELOW_SEED);
-        let s = c.add(W, s, t);
+        let s = pure::add(W, s, t);
         c.set_word(g::RAND_BELOW_SEED, s);
         c.call(0xe3df, 0xacd9)?;
         let cx = c.reg(CX).wrapping_sub(1);

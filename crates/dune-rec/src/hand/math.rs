@@ -113,9 +113,7 @@ pub fn nearness_e16f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe16f)?;
     let mut c = Ctx::new(m);
     let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
-    nearness(&mut c, start, 2, ax.wrapping_sub(dx), si.wrapping_sub(bx), |c| {
-        c.sub(W, ax, dx);
-        c.sub(W, si, bx);
+    nearness(&mut c, start, 2, ax.wrapping_sub(dx), si.wrapping_sub(bx), |_| {
     })
 }
 
@@ -124,10 +122,8 @@ pub fn nearness_e18c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe18c)?;
     let mut c = Ctx::new(m);
     let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
-    nearness(&mut c, start, 4, dx.wrapping_sub(ax), si.wrapping_sub(bx), |c| {
-        let d = c.sub(W, ax, dx);
-        c.neg(W, d);
-        c.sub(W, si, bx);
+    nearness(&mut c, start, 4, dx.wrapping_sub(ax), si.wrapping_sub(bx), |_| {
+        let _ = pure::sub(W, ax, dx);
     })
 }
 
@@ -136,10 +132,8 @@ pub fn nearness_e192(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe192)?;
     let mut c = Ctx::new(m);
     let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
-    nearness(&mut c, start, 5, bx.wrapping_sub(si), ax.wrapping_sub(dx), |c| {
-        let d = c.sub(W, si, bx);
-        c.neg(W, d);
-        c.sub(W, ax, dx);
+    nearness(&mut c, start, 5, bx.wrapping_sub(si), ax.wrapping_sub(dx), |_| {
+        let _ = pure::sub(W, si, bx);
     })
 }
 
@@ -148,9 +142,7 @@ pub fn nearness_e19b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe19b)?;
     let mut c = Ctx::new(m);
     let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
-    nearness(&mut c, start, 4, si.wrapping_sub(bx), ax.wrapping_sub(dx), |c| {
-        c.sub(W, si, bx);
-        c.sub(W, ax, dx);
+    nearness(&mut c, start, 4, si.wrapping_sub(bx), ax.wrapping_sub(dx), |_| {
     })
 }
 
@@ -336,19 +328,17 @@ pub fn unpack_signed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let neg = dl & 0x80 != 0;
     c.run(start, if neg { 6 } else { 14 })?;
     c.set_reg(AX, 0);
-    c.xor(W, 0, 0);
     c.set_reg8(r8::AL, dl);
-    c.or(Width::B, dl as u16, dl as u16);
     if !neg {
         unpack(&mut c);
         return c.ret();
     }
-    let al = c.neg(Width::B, dl as u16);
+    let al = pure::neg(Width::B, dl as u16);
     c.set_reg8(r8::AL, al as u8);
     c.call(0x0cf2, 0x0d0a)?;
     c.run(0x0d0a, 2)?;
     let dh = c.reg8(r8::DH);
-    let dh = c.neg(Width::B, dh as u16);
+    let dh = pure::neg(Width::B, dh as u16);
     c.set_reg8(r8::DH, dh as u8);
     c.ret()
 }

@@ -1,6 +1,7 @@
 //! Dialogue state: the talking character's mode bytes (47C2h, 47C4h,
 //! 47DCh...), the phrase pointers, and small steps of the conversation.
 
+use super::pure;
 use super::{B, Ctx, W, entered, game, r8};
 use pc::{
     Machine,
@@ -4200,7 +4201,7 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
     let mut c = Ctx::new(m);
     c.run(0x8944, 4)?;
     let sp = c.reg(SP);
-    let sp = c.sub(W, sp, 0x32);
+    let sp = pure::sub(W, sp, 0x32);
     c.set_reg(SP, sp);
     c.set_reg(BP, sp);
     let ds = c.sreg(DS);
@@ -4215,12 +4216,10 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                 let b = c.byte(si);
                 if b == 0x20 {
                     c.run(0x894b, 4)?;
-                    c.cmp(B, b as u16, 0x20);
-                    let si = c.inc(W, si);
+                    let si = pure::inc(W, si);
                     c.set_reg(SI, si);
                 } else {
                     c.run(0x894b, 2)?;
-                    c.cmp(B, b as u16, 0x20);
                     at = 0x8953;
                 }
             }
@@ -4230,12 +4229,10 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                 if al & 0x80 == 0 {
                     c.run(0x8953, 5)?;
                     c.lods(B, DS);
-                    c.or(B, al as u16, al as u16);
                     c.stos(B);
                 } else {
                     c.run(0x8953, 3)?;
                     c.lods(B, DS);
-                    c.or(B, al as u16, al as u16);
                     at = 0x895b;
                 }
             }
@@ -4246,8 +4243,7 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                 let n = 1 + 2 * (k as u32 + 1).min(4) + (k == 3) as u32;
                 c.run(0x895b, n)?;
                 c.set_byte(0x477f, al);
-                for &t in &tests[..(k + 1).min(4)] {
-                    c.cmp(B, al as u16, t as u16);
+                for &_ in &tests[..(k + 1).min(4)] {
                 }
                 at = match k {
                     0 => 0x89b0,
@@ -4261,15 +4257,13 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                 let al = c.reg8(r8::AL);
                 if al == 0x80 {
                     c.run(0x8970, 5)?;
-                    c.cmp(B, al as u16, 0x80);
                     let w = c.lods(W, DS);
                     c.set_reg(AX, w.rotate_left(8));
                 } else {
                     c.run(0x8970, 6)?;
-                    c.cmp(B, al as u16, 0x80);
                     let ax = c.reg(AX);
-                    let ax = c.and(W, ax, 0x0f);
-                    let bx = c.shl1(W, ax, 1);
+                    let ax = pure::and(W, ax, 0x0f);
+                    let bx = pure::shl1(W, ax, 1);
                     c.set_reg(BX, bx);
                     let v = c.word(bx.wrapping_add(0x11eb));
                     c.set_reg(AX, v);
@@ -4280,7 +4274,7 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                 c.set_word_in(SS, bp, si);
                 let ds = c.sreg(DS);
                 c.set_word_in(SS, bp.wrapping_add(2), ds);
-                let bp = c.add(W, bp, 4);
+                let bp = pure::add(W, bp, 4);
                 c.set_reg(BP, bp);
                 let ax = c.reg(AX);
                 c.set_reg(SI, ax);
@@ -4307,10 +4301,8 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                 }
                 c.stos(B);
                 c.movs(B);
-                c.cmp(B, al as u16, 0xd2);
                 if al < 0xd2 {
                     c.movs(B);
-                    c.cmp(B, al as u16, 0xd0);
                     if al != 0xd0 {
                         c.movs(W);
                     }
@@ -4328,8 +4320,7 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                 if bp != sp {
                     c.run(0x89b0, 7)?;
                     c.set_reg(BX, sp);
-                    c.cmp(W, bp, sp);
-                    let bp = c.sub(W, bp, 4);
+                    let bp = pure::sub(W, bp, 4);
                     c.set_reg(BP, bp);
                     let si = c.word_in(SS, bp);
                     c.set_reg(SI, si);
@@ -4343,21 +4334,17 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                 let wait = f & 0x10 != 0;
                 c.run(0x89b0, 3 + 3 + (al == 0xff) as u32 + 5 + if wait { 2 } else { 1 })?;
                 c.set_reg(BX, sp);
-                c.cmp(W, bp, sp);
                 c.stos(B);
-                c.cmp(B, al as u16, 0xff);
                 let mut si = c.reg(SI);
                 if al == 0xff {
-                    c.xor(W, si, si);
                     si = 0;
                     c.set_reg(SI, 0);
                 }
                 c.set_word(0x47b6, si);
                 let ds = c.sreg(DS);
                 c.set_word(0x47b8, ds);
-                let sp = c.add(W, sp, 0x32);
+                let sp = pure::add(W, sp, 0x32);
                 c.set_reg(SP, sp);
-                c.test(B, f as u16, 0x10);
                 if !wait {
                     return c.ret();
                 }
@@ -4377,14 +4364,11 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                 c.push(bp);
                 c.set_reg8(r8::BL, al);
                 c.lods(B, DS);
-                c.xor(B, 0, 0);
                 c.set_reg(AX, p);
                 c.set_reg(BP, p);
                 let mut v = c.word_in(SS, p);
                 c.set_reg(AX, v);
-                c.cmp(B, al as u16, 0x92);
                 if al != 0x92 {
-                    c.xor(B, v >> 8, v >> 8);
                     v &= 0xff;
                     c.set_reg(AX, v);
                 }
@@ -4410,7 +4394,6 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                 loop {
                     c.run(0x8a0d, 2)?;
                     let al = c.reg8(r8::AL);
-                    c.or(B, al as u16, al as u16);
                     let cx = c.reg(CX).wrapping_sub(1);
                     c.set_reg(CX, cx);
                     if !(cx != 0 && al == 0) {
@@ -4421,12 +4404,12 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                 }
                 c.run(0x8a11, 1)?;
                 let cx = c.reg(CX);
-                let cx = c.inc(W, cx);
+                let cx = pure::inc(W, cx);
                 c.set_reg(CX, cx);
                 loop {
                     c.run(0x8a12, 7)?;
                     let al = c.reg8(r8::AL);
-                    let d = c.add(B, al as u16, 0x30);
+                    let d = pure::add(B, al as u16, 0x30);
                     c.set_reg8(r8::AL, d as u8);
                     c.stos(B);
                     shift(&mut c);
@@ -5039,8 +5022,6 @@ pub fn dialogue_scene_a244(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa244)?;
     let mut c = Ctx::new(m);
     c.run(0xa244, 2 + 5)?;
-    let ax = c.reg(AX);
-    c.xor(B, ax & 0xff, ax & 0xff);
     c.set_reg8(r8::AL, 0);
     scene_setup_a24a(&mut c)
 }

@@ -317,8 +317,6 @@ pub fn decimal_digits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8a23)?;
     let mut c = Ctx::new(m);
     c.run(start, 12)?;
-    let dx = c.reg(DX);
-    c.xor(W, dx, dx);
     c.set_reg(DX, 0);
     c.set_reg(CX, 0x2710);
     c.m.cpu.mul_div(&mut c.m.hw, W, 6, 0x2710); // div cx
@@ -327,7 +325,6 @@ pub fn decimal_digits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0x64);
     let r = c.reg(DX);
     c.set_reg(AX, r);
-    c.xor(W, r, r);
     c.set_reg(DX, 0);
     c.m.cpu.mul_div(&mut c.m.hw, W, 6, 0x64); // div cx
     c.aam(10);

@@ -212,9 +212,8 @@ pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if gap < 6 {
         c.run(start, 5)?;
         c.set_reg(AX, t);
-        let a = c.sub(B, t & 0xff, last as u16);
+        let a = pure::sub(B, t & 0xff, last as u16);
         c.set_reg8(r8::AL, a as u8);
-        c.cmp(B, a, 6);
         return mouse_stuff(c.m, 0xdb4c);
     }
     let cx: u16 = if gap < 0x0c { 2 } else if gap < 0x18 { 1 } else { 0 };
@@ -231,29 +230,21 @@ pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let zero = fdx | fdy == 0;
     c.run(start, n + if zero { 3 } else { 1 })?;
     c.set_reg(AX, t);
-    let a = c.sub(B, t & 0xff, last as u16);
-    c.cmp(B, a, 6);
+    let _ = pure::sub(B, t & 0xff, last as u16);
     c.set_reg(CX, 2);
-    c.cmp(B, a, 0x0c);
     if gap >= 0x0c {
-        c.dec(W, 2);
-        c.cmp(B, a, 0x18);
-        if gap >= 0x18 {
-            c.dec(W, 1);
-        }
     }
     c.set_reg(CX, cx);
     c.set_reg(AX, t);
     c.set_byte(0xdc4a, t as u8);
     let k = c.byte(0xdc4b);
-    let k = c.dec(B, k as u16);
+    let k = pure::dec(B, k as u16);
     c.set_byte(0xdc4b, k as u8);
     let d = leg_ops(&mut c, tx, cx0, cx);
     let b = leg_ops(&mut c, ty, cy0, cx);
     c.set_reg(DX, d);
     c.set_reg(BX, b);
     c.set_reg(AX, b);
-    c.or(W, b, d);
     c.set_reg(AX, b | d);
     if zero {
         c.set_byte(0xdc4b, 0);

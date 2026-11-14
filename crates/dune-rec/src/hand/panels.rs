@@ -269,14 +269,13 @@ pub fn comm_draw_glow_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let step = c.word(g::COMM_STEP);
     let low = step & 7 < 5;
     c.run(start, if low { 6 } else { 8 })?;
-    let ax = c.and(W, step, 7);
-    c.cmp(B, ax, 5);
+    let ax = pure::and(W, step, 7);
     let mut al = ax;
     if !low {
-        al = c.sub(B, al, 8);
-        al = c.neg(B, al);
+        al = pure::sub(B, al, 8);
+        al = pure::neg(B, al);
     }
-    let glow = c.add(B, al, 2);
+    let glow = pure::add(B, al, 2);
     c.set_reg(AX, glow);
     c.call(code::COMM_DRAW_GLOW, 0x27c9)?;
     flicker(&mut c)
@@ -563,7 +562,7 @@ pub fn settings_ui_draw_second_buttons(m: &mut Machine, start: u16) -> Result<()
     let mut c = Ctx::new(m);
     lit_button(&mut c, start, 3, |c| {
         let v = c.byte(SETTINGS_SECOND_BUTTON);
-        let al = c.add(B, v as u16, 8);
+        let al = pure::add(B, v as u16, 8);
         c.set_reg8(r8::AL, al as u8);
     })
 }

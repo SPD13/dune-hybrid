@@ -1,5 +1,6 @@
 //! Sprite sheets: lists of icons, palettes from sheets, the ornithopters.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -85,7 +86,7 @@ pub fn open_sky_or_skydn_palette_al_sub_bl(m: &mut Machine, start: u16) -> Resul
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     let variant = c.byte(g::SKY_VARIANT);
-    let sheet = c.add(B, SKY as u16, variant as u16);
+    let sheet = pure::add(B, SKY as u16, variant as u16);
     c.set_reg(AX, sheet);
     open_palette(&mut c)
 }

@@ -597,7 +597,7 @@ pub fn handle_ctrl_v_once(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let di = c.reg(DI);
     c.set_word(g::CTRL_V_TABLE_END, di);
     let ax = c.reg(AX);
-    let zero = c.xor(W, ax, ax);
+    let zero = pure::xor(W, ax, ax);
     c.set_reg(AX, zero);
     c.stos(W);
     c.m.cpu.write8(&mut c.m.hw, CS, 0xb270, 0xc3);

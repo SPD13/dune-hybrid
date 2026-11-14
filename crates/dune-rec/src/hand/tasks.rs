@@ -186,6 +186,10 @@ pub fn add_room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let animated = low == 4 && high < 0x20;
     c.run(0x3a7f, if low != 4 { 4 } else if !animated { 6 } else { 8 })?;
     c.set_reg(AX, place);
+    c.cmp(super::B, low, 4);
+    if low == 4 {
+        c.cmp(super::B, high, 0x20);
+    }
     if animated {
         c.set_reg(SI, ROOM_ANIMATION_TASK);
         c.set_reg(BP, 0x0c);

@@ -4,6 +4,7 @@
 //! [`g::CURSOR_SHOWN`] counts: 0 while the cursor is drawn, negative while
 //! hidden (each hide one lower).
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -210,37 +211,31 @@ pub fn restore_mouse_if_rect_intersects(m: &mut Machine, start: u16) -> Result<(
     let shown = c.byte(g::CURSOR_SHOWN);
     if shown & 0x80 != 0 {
         c.run(start, 3)?;
-        c.cmp(B, shown as u16, 0);
         return c.ret();
     }
     c.check(start, 23)?;
-    c.cmp(B, shown as u16, 0);
     let (bx, dx) = (c.reg(BX), c.reg(DX));
     c.push(bx);
     c.push(dx);
     let image = c.word(g::MOUSE_CURSOR_IMAGE);
     let (hx, hy) = (c.word(image), c.word(image.wrapping_add(2)));
     let x0 = c.word(g::CURSOR_X);
-    let x = c.sub(W, x0, hx);
-    let y = c.neg(W, hy);
+    let x = pure::sub(W, x0, hx);
+    let y = pure::neg(W, hy);
     let y0 = c.word(g::CURSOR_Y);
-    let y = c.add(W, y, y0);
+    let y = pure::add(W, y, y0);
     let si = c.reg(SI);
     let (l, t, r, b) = (c.word(si), c.word(si + 2), c.word(si + 4), c.word(si + 6));
     let mut n = 12;
     let mut meets = false;
     let (mut dx, mut bx) = (x, y);
-    c.cmp(W, dx, r);
     if (dx as i16) < (r as i16) {
-        c.cmp(W, bx, b);
         n += 2;
         if (bx as i16) < (b as i16) {
-            dx = c.add(W, dx, 0x10);
-            c.cmp(W, dx, l);
+            dx = pure::add(W, dx, 0x10);
             n += 3;
             if (dx as i16) > (l as i16) {
-                bx = c.add(W, bx, 0x10);
-                c.cmp(W, bx, t);
+                bx = pure::add(W, bx, 0x10);
                 n += 3;
                 meets = (bx as i16) > (t as i16);
             }
@@ -258,7 +253,7 @@ pub fn restore_mouse_if_rect_intersects(m: &mut Machine, start: u16) -> Result<(
     }
     c.count(n + 3);
     let v = c.byte(g::CURSOR_HIDDEN_FOR_RECT);
-    let v = c.dec(B, v as u16) as u8;
+    let v = pure::dec(B, v as u16) as u8;
     c.set_byte(g::CURSOR_HIDDEN_FOR_RECT, v);
     hide(&mut c)
 }
@@ -299,8 +294,6 @@ pub fn redraw_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, before);
     c.set_reg8(r8::AL, shown);
     c.set_byte(g::CURSOR_SHOWN, 0);
-    if shown & 0x80 == 0 {
-    }
     if !unchanged {
         if shown & 0x80 == 0 {
             c.interp(0xdc52, 0xdc56)?; // restore under the old one

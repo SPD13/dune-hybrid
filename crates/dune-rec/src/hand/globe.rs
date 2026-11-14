@@ -199,17 +199,15 @@ pub fn globe_slide_decorations_close(m: &mut Machine, start: u16) -> Result<(), 
     c.run(0xb91b, 2)?;
     loop {
         let x = c.word(g::GLOBE_DECORATIONS_X);
-        let x = c.add(W, x, 0x10);
+        let x = pure::add(W, x, 0x10);
         c.set_word(g::GLOBE_DECORATIONS_X, x);
         c.call(code::DRAW_GLOBE_SIDE_DECORATIONS, 0xb923)?;
         let x = c.word(g::GLOBE_DECORATIONS_X);
         if x != 0 {
             c.run(0xb923, 4)?; // cmp; jne; add; call
-            c.cmp(W, x, 0);
             continue;
         }
         c.run(0xb923, 3)?;
-        c.cmp(W, x, 0);
         c.call(code::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0xb92d)?;
         c.run(0xb92d, 1)?; // jmp B87Eh
         return side_decorations(&mut c);
@@ -793,42 +791,37 @@ pub fn screen_to_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     c.run(start, 5 + zoom as u32 + 4 + neg as u32 + 6 + n2 + 4)?;
-    let dx = c.sub(W, dx, sx);
-    let bx = c.sub(W, bx, sy);
-    c.xor(W, 0, 0);
-    let k = c.byte(HOTSPOT_KINDS);
-    c.test(B, k as u16, 0x80);
+    let dx = pure::sub(W, dx, sx);
+    let bx = pure::sub(W, bx, sy);
     c.set_reg(CX, cl);
     let bx = c.m.cpu.shift(7, W, bx as u32, cl as u32) as u16; // sar bx, cl
     let cy = c.word(CENTRE + 2);
-    let bx = c.add(W, bx, cy);
+    let bx = pure::add(W, bx, cy);
     c.set_reg(BX, bx);
     let mut ax = bx;
     if neg {
-        ax = c.neg(W, ax);
+        ax = pure::neg(W, ax);
     }
-    let ax = c.shl1(W, ax, 3);
-    let si = c.add(W, LATITUDES, ax);
+    let ax = pure::shl1(W, ax, 3);
+    let si = pure::add(W, LATITUDES, ax);
     c.set_reg(SI, si);
     let mut dx = dx;
     if zoom {
         dx = c.m.cpu.shift(7, W, dx as u32, cl as u32) as u16; // sar dx, cl
         let a = c.word(si.wrapping_add(4));
-        dx = c.add(W, dx, a);
-        dx = c.add(W, dx, cl);
+        dx = pure::add(W, dx, a);
+        dx = pure::add(W, dx, cl);
     } else {
         let a = c.word(si.wrapping_add(6));
-        dx = c.add(W, dx, a);
+        dx = pure::add(W, dx, a);
         let w = c.word(si.wrapping_add(2));
-        let w = c.shl1(W, w, 1);
+        let w = pure::shl1(W, w, 1);
         c.set_reg(CX, w);
-        c.cmp(W, dx, w);
         if dx >= w {
-            dx = if dx.wrapping_sub(w) & 0x8000 != 0 { c.add(W, dx, w) } else { c.sub(W, dx, w) };
+            dx = if dx.wrapping_sub(w) & 0x8000 != 0 { pure::add(W, dx, w) } else { pure::sub(W, dx, w) };
         }
     }
     c.set_reg(DX, dx);
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.m.cpu.mul_div(&mut c.m.hw, W, 6, div as u32); // div cx
     let q = c.reg(AX);

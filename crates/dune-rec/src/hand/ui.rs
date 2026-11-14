@@ -882,21 +882,17 @@ pub fn draw_counters(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.word(0xdbc8);
     if f & 8 != 0 {
         c.run(start, 4)?;
-        c.test(W, f, 8);
         c.set_reg(SI, 0x28a6);
         c.call(0xa49c, 0xa48b)?;
     } else {
         c.run(start, 2)?;
-        c.test(W, f, 8);
     }
     let f = c.word(0xdbc8);
     if f & 0x800 == 0 {
         c.run(0xa48b, 3)?;
-        c.test(W, f, 0x800);
         return c.ret();
     }
     c.run(0xa48b, 4)?;
-    c.test(W, f, 0x800);
     c.set_reg(SI, 0x28ae);
     c.call(0xa49c, 0xa499)?;
     c.run(0xa499, 1)?;

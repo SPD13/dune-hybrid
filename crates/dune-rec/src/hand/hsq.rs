@@ -12,6 +12,7 @@
 //!   count + 2); a count of 0 means the count is in the next byte (+ 2),
 //!   and a 0 there ends the data.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -167,10 +168,10 @@ pub fn hsq_decomp_skip_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(di);
     c.push(ds);
     let si = c.reg(SI);
-    let si = c.add(W, si, 6);
+    let si = pure::add(W, si, 6);
     c.set_reg(SI, si);
     let bp = c.reg(BP);
-    let zero = c.xor(W, bp, bp);
+    let zero = pure::xor(W, bp, bp);
     c.set_reg(BP, zero);
     decompress(&mut c)
 }
@@ -186,11 +187,9 @@ pub fn check_hsq_checksum(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let disabled = c.byte(g::DISABLE_HSQ);
     if disabled != 0 {
         c.run(start, 3)?;
-        c.cmp(B, disabled as u16, 0);
         return c.ret();
     }
     c.run(start, 12)?;
-    c.cmp(B, 0, 0);
     let (cx, di, ds) = (c.reg(CX), c.reg(DI), c.sreg(DS));
     c.push(cx);
     c.push(di);
@@ -199,32 +198,30 @@ pub fn check_hsq_checksum(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(es);
     let es = c.pop();
     c.set_sreg(DS, es);
-    let end = c.add(W, di, cx);
+    let end = pure::add(W, di, cx);
     c.set_reg(DX, end);
     c.set_reg(CX, 6);
     c.set_reg(SI, di);
     let ax = c.reg(AX);
-    let zero = c.xor(W, ax, ax);
+    let zero = pure::xor(W, ax, ax);
     c.set_reg(AX, zero);
     // The header's sum (lodsb; add ah, al; loop) × 6.
     c.run(0xf3ea, 18)?;
     let mut sum = 0u16;
     for i in 0..6 {
         let b = c.lods(B, DS);
-        sum = c.add(B, sum, b);
+        sum = pure::add(B, sum, b);
         c.set_reg8(r8::AH, sum as u8);
         c.set_reg(CX, 5 - i);
     }
     let header_zero = c.byte_in(DS, di.wrapping_add(2)) == 0;
     if sum as u8 != CHECKSUM || !header_zero {
         c.run(0xf3ef, if sum as u8 != CHECKSUM { 2 } else { 8 } + 5)?;
-        c.cmp(B, sum, CHECKSUM as u16);
         if sum as u8 == CHECKSUM {
             c.set_reg(SI, di);
             let size = c.lods(W, DS);
             c.set_reg(DI, size);
-            let zero = c.lods(B, DS);
-            c.or(B, zero, zero);
+            let _ = c.lods(B, DS);
         }
         c.set_flag(CF, true);
         let ds = c.pop();
@@ -236,12 +233,10 @@ pub fn check_hsq_checksum(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0xf3ef, 8)?;
-    c.cmp(B, sum, CHECKSUM as u16);
     c.set_reg(SI, di);
     let size = c.lods(W, DS);
     c.set_reg(DI, size);
-    let zero = c.lods(B, DS);
-    c.or(B, zero, zero);
+    let _ = c.lods(B, DS);
     decomp_no_header(&mut c)
 }
 

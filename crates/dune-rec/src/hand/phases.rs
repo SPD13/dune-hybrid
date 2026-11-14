@@ -1,6 +1,7 @@
 //! Game-phase handlers (called by `set_game_phase` through its table) and
 //! the discovery of locations they trigger.
 
+use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -138,7 +139,7 @@ pub fn sub_10be(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::INCREASE_CHARISMA_BY_AL, 0x10ec)?;
     c.run(0x10ec, 3)?;
     let bits = c.byte(g::STORY_BITS_000A);
-    let bits = c.or(B, bits as u16, 0x10) as u8;
+    let bits = pure::or(B, bits as u16, 0x10) as u8;
     c.set_byte(g::STORY_BITS_000A, bits);
     c.set_reg(SI, 0x10f7);
     discover_list(&mut c)
@@ -157,11 +158,11 @@ pub fn sub_1139(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::SUB_1771, 0x1144)?;
     c.run(0x1144, 9)?;
     let v = c.byte(g::BYTE_1057);
-    let v = c.or(B, v as u16, 0x10);
-    let v = c.and(B, v, 0xfd) as u8;
+    let v = pure::or(B, v as u16, 0x10);
+    let v = pure::and(B, v, 0xfd) as u8;
     c.set_byte(g::BYTE_1057, v);
     let b = c.byte(g::BYTE_0028);
-    let b = c.add(B, b as u16, 2) as u8;
+    let b = pure::add(B, b as u16, 2) as u8;
     c.set_reg8(r8::AL, b);
     c.set_byte(g::BYTE_1178, b);
     c.set_reg(SI, 0x115c);
@@ -175,7 +176,7 @@ pub fn sub_1196(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
     let bits = c.byte(g::STORY_BITS_000A);
-    let bits = c.or(B, bits as u16, 0x20) as u8;
+    let bits = pure::or(B, bits as u16, 0x20) as u8;
     c.set_byte(g::STORY_BITS_000A, bits);
     c.set_reg(AX, 0x12fb);
     c.call(code::SUB_1771, 0x11a1)?;

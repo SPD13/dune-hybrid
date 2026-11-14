@@ -7,6 +7,7 @@
 //! best point (x, y). DX, BX are the cursor. A candidate is scored with DX,
 //! BX as they are and AX, SI its point; a lower score wins.
 
+use super::pure;
 use super::{B, Ctx, W, entered, r8};
 use pc::{
     Machine,
@@ -148,7 +149,6 @@ pub fn hotspots_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let list = c.reg(BP);
     let ours = list == UI_ELEMENTS_WITH_POINTS;
     c.run(0xe06c, 4)?;
-    c.cmp(W, list, UI_ELEMENTS_WITH_POINTS);
     let bp = c.pop();
     c.set_reg(BP, bp);
     if !ours {
@@ -174,10 +174,8 @@ pub fn hotspots_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let next = di.wrapping_add(4);
         let end = c.word(next) == 0xffff;
         c.run(0xe099, 3 + end as u32)?;
-        di = c.add(W, di, 4);
+        di = pure::add(W, di, 4);
         c.set_reg(DI, di);
-        let v = c.word(di);
-        c.cmp(W, v, 0xffff);
         if end {
             return c.ret();
         }
@@ -246,7 +244,6 @@ pub fn hotspots_markers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let kinds = c.byte(HOTSPOT_KINDS);
     c.run(start, 3)?;
-    c.cmp(B, kinds as u16, 0);
     if kinds == 0 {
         return c.ret();
     }
@@ -256,7 +253,6 @@ pub fn hotspots_markers(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let w = c.word(di);
         if w == 0 {
             c.run(0xe0e5, 3)?;
-            c.cmp(W, w, 0);
             return c.ret();
         }
         let y = c.word(di.wrapping_add(4)) & 0xff;
@@ -264,9 +260,8 @@ pub fn hotspots_markers(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let (dx, bx) = (c.reg(DX), c.reg(BX));
         let at_x = x == dx;
         c.run(0xe0e5, 2 + if at_x { 7 } else { 5 } + if at_x && y == bx { 0 } else { 1 })?;
-        c.cmp(W, w, 0);
         let raw = c.word(di.wrapping_add(4));
-        let y = c.and(W, raw, 0xff);
+        let y = pure::and(W, raw, 0xff);
         c.set_reg(SI, y);
         c.set_reg(AX, x);
         if not_at_cursor(&mut c, x, y) && score(&mut c, 0xe0fc, 6)? {
@@ -274,12 +269,12 @@ pub fn hotspots_markers(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, x);
             set_frame(&mut c, 4, x);
             let raw = c.word(di.wrapping_add(4));
-            let y = c.and(W, raw, 0xff);
+            let y = pure::and(W, raw, 0xff);
             c.set_reg(SI, y);
             set_frame(&mut c, 6, y);
         }
         c.run(0xe117, 2)?;
-        di = c.add(W, di, 6);
+        di = pure::add(W, di, 6);
         c.set_reg(DI, di);
     }
 }
@@ -292,13 +287,10 @@ pub fn hotspots_eight_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let kinds = c.byte(HOTSPOT_KINDS);
     if kinds & 1 == 0 {
         c.run(start, 3)?;
-        c.test(B, kinds as u16, 1);
         return c.ret();
     }
     let on = c.word(EIGHT_POINTS_ON);
     c.run(start, if on == 0 { 5 } else { 6 })?;
-    c.test(B, kinds as u16, 1);
-    c.cmp(W, on, 0);
     if on == 0 {
         return c.ret();
     }
@@ -322,7 +314,7 @@ pub fn hotspots_eight_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let cx = c.reg(CX).wrapping_sub(1);
         c.run(0xe153, 2 + (cx == 0) as u32)?;
         di = c.reg(DI);
-        di = c.add(W, di, 4);
+        di = pure::add(W, di, 4);
         c.set_reg(DI, di);
         c.set_reg(CX, cx);
         if cx == 0 {
@@ -342,18 +334,17 @@ pub fn accelerated_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let negative = p & 0x8000 != 0;
     c.run(start, if negative { 14 } else { 12 })?;
     c.m.cpu.mul_div(&mut c.m.hw, B, 5, cl as u32); // imul cl
-    c.or(W, p, p);
-    let mag = if negative { c.neg(W, p) } else { p };
+    let mag = if negative { pure::neg(W, p) } else { p };
     let si = c.reg(SI);
     let frac = c.byte(si);
-    let sum = c.add(B, mag & 0xff, frac as u16) as u8;
-    let ch = c.and(B, sum as u16, 7) as u8;
+    let sum = pure::add(B, mag & 0xff, frac as u16) as u8;
+    let ch = pure::and(B, sum as u16, 7) as u8;
     c.set_reg8(r8::CH, ch);
     c.set_byte(si, ch);
     let ax = sum as i8 as i16 as u16; // cbw
-    let mut ax = c.shr1(W, ax, 3);
+    let mut ax = pure::shr1(W, ax, 3);
     if negative {
-        ax = c.neg(W, ax);
+        ax = pure::neg(W, ax);
     }
     c.set_reg(AX, ax);
     c.ret()

@@ -164,7 +164,6 @@ pub fn kind_6acb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, if same { 5 } else { 4 })?;
     c.set_reg8(r8::AL, job);
     if same {
-        c.cmp(B, job as u16, job as u16); // `cmp al,cl`: its flags are returned
         return c.ret();
     }
     super::troops::set_job_at_6ad4(&mut c)
@@ -1782,12 +1781,11 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AH, ph);
     c.set_byte(0xfe, ph);
     c.set_reg8(r8::AL, last);
-    c.cmp(B, last as u16, ph as u16);
     if ph != last {
         c.set_byte(0xff, 0);
     }
     let v = c.byte(0xff);
-    let v = c.inc(B, v as u16);
+    let v = pure::inc(B, v as u16);
     c.set_byte(0xff, v as u8);
     c.call(0x1d66, 0x1c5f)?;
     c.run(0x1c5f, 1)?;
@@ -1800,26 +1798,22 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (diff, loss) = ae.overflowing_sub(stock);
     c.run(0x1c62, 4 + (d >= 2) as u32 + 7 + borrow as u32 + 5 + if loss { 2 } else { 0 } + 3)?;
     c.set_reg8(r8::AL, d.wrapping_sub(1));
-    let a = c.inc(B, d.wrapping_sub(1) as u16);
+    let a = pure::inc(B, d.wrapping_sub(1) as u16);
     c.set_reg8(r8::AL, a as u8);
-    c.cmp(B, a, 2);
     if d >= 2 {
         c.set_byte(0xd5, d);
     }
-    let ax = c.reg(AX);
-    c.xor(W, ax, ax);
     c.set_word(0x1172, 0);
     c.set_reg(BX, a0);
-    let v = c.add(W, harvest, a0);
+    let v = pure::add(W, harvest, a0);
     c.set_word(0x1170, a0);
-    let v = c.sub(W, v, sold);
-    let v = if borrow { c.xor(W, v, v) } else { v };
+    let v = pure::sub(W, v, sold);
+    let v = if borrow { pure::xor(W, v, v) } else { v };
     c.set_word(0xa6, v);
     c.set_word(0xae, v);
-    c.xor(W, 0, 0);
-    let r = c.sub(W, ae, v);
+    let r = pure::sub(W, ae, v);
     let (gain, lost) = if loss {
-        let n = c.neg(W, r);
+        let n = pure::neg(W, r);
         (0u16, n)
     } else {
         (r, 0)
@@ -1844,7 +1838,6 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         let f = c.byte(si.wrapping_add(2));
         c.run(0x1cae, 2)?;
-        c.test(B, f as u16, 8);
         if f & 8 != 0 {
             c.run(0x1cb4, 1)?;
             c.set_reg(BP, 4);
@@ -1855,31 +1848,26 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let fill = v == 0 && w & 0x80 != 0;
                 let n = 2 + if v == 0 { 2 } else { 0 } + if fill { 5 } else { 0 } + 2;
                 c.run(0x1cb7, n)?;
-                c.cmp(B, v as u16, 0);
-                if v == 0 {
-                    c.cmp(B, w as u16, 0);
-                }
                 if fill {
-                    bx = c.rol1(W, bx);
-                    bx = c.rol1(W, bx);
+                    bx = pure::rol1(W, bx);
+                    bx = pure::rol1(W, bx);
                     c.set_reg(BX, bx);
-                    let a = c.and(B, bx & 0xff, 3);
+                    let a = pure::and(B, bx & 0xff, 3);
                     c.set_reg8(r8::AL, a as u8);
                     let p = bp.wrapping_add(si).wrapping_add(4);
                     c.m.cpu.write8(&mut c.m.hw, SS, p, a as u8);
                 }
-                bp = c.dec(W, bp);
+                bp = pure::dec(W, bp);
                 c.set_reg(BP, bp);
                 if bp & 0x8000 != 0 {
                     break;
                 }
             }
         }
-        si = c.add(W, si, 0x11);
+        si = pure::add(W, si, 0x11);
         c.set_reg(SI, si);
         let k = c.byte(si);
         c.run(0x1cd1, 3 + (k >= 0x14) as u32)?;
-        c.cmp(B, k as u16, 0x14);
         if k >= 0x14 {
             return c.ret();
         }

@@ -679,7 +679,7 @@ pub fn stat_5_digits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::FIND_LAST_NUMERIC_DIGIT, 0xbf66)?;
     c.run(0xbf66, 5)?;
     let si = c.reg(SI);
-    let si = c.dec(W, si);
+    let si = pure::dec(W, si);
     c.set_reg(SI, si);
     c.m.cpu.write8(&mut c.m.hw, pc::cpu::ES, si, 0x30);
     let ax = c.pop();
@@ -688,7 +688,7 @@ pub fn stat_5_digits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::STRING_REPLACE_5_DIGITS, 0xbf70)?;
     note_stat(&mut c, 0xbf70, 2, |c| {
         let si = c.reg(SI);
-        let si = c.inc(W, si);
+        let si = pure::inc(W, si);
         c.set_reg(SI, si);
     })
 }

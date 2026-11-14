@@ -346,6 +346,7 @@ pub fn gfx_call_30_unless_redrawing(m: &mut Machine, start: u16) -> Result<(), B
     let redrawing = c.byte(REDRAWING);
     c.run(start, 3)?;
     if redrawing != 0 {
+        c.cmp(B, redrawing as u16, 0);
         return c.ret();
     }
     super::gfx::gfx_call_30(c.m, 0xc0e8)
@@ -1888,6 +1889,7 @@ fn skill_needs_at(c: &mut Ctx) -> Result<(), Bail> {
     loop {
         if id == 0 {
             c.run(0x7f3a, 4)?;
+            c.or(B, 0, 0); // `or al,al` on the chain's 0: its flags are returned
             c.restore(&[DI]);
             return c.ret();
         }
@@ -2170,6 +2172,7 @@ pub fn redraw_panel_18df(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 5)?;
         c.set_reg(AX, 0);
         // `or ax,ax`: its flags pass through to the callers, who read them.
+        c.or(W, 0, 0);
         return super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c);
     }
     c.run(start, 7)?;
@@ -4845,7 +4848,6 @@ pub fn troop_8403(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let state = Troop(c.reg(SI)).state(&mut c);
     if state & troop_state::STARTED != 0 {
         c.run(start, 3)?;
-        c.test(B, state as u16, 0x20);
         return c.ret();
     }
     let job = state & 0x0f;
@@ -4858,7 +4860,6 @@ pub fn troop_8403(m: &mut Machine, start: u16) -> Result<(), Bail> {
     match job {
         1 => c.jump(0x7085),
         6 => {
-            c.cmp(B, 6, 6);
             c.ret()
         }
         _ => {

@@ -61,7 +61,6 @@ pub fn wait_a_bit(m: &mut Machine, start: u16) -> Result<(), Bail> {
         loop {
             c.run(0xe393, 2)?;
             let t = c.word_in(SS, TIMER);
-            c.cmp(W, t0, t);
             if t != t0 {
                 break;
             }

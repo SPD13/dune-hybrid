@@ -15,7 +15,8 @@ those flags:
   `rcl` / `rcr`);
 - it calls or jumps to a routine that reads flags on entry, or to one the
   analysis does not know (`flags_used.py --in`), or through a register;
-- it hands its context to a helper (which might read them);
+- it hands its context to a helper that could (the same rules, followed
+  through the helpers it hands it on to; the helpers stay as they are);
 - it has an INT or far call run (`c.interp`): an INT pushes the flags and
   its service sees them;
 - a flag helper spans lines (the script works line by line).
@@ -49,6 +50,50 @@ def reads_on_entry(addr):
     return entry_reads.get(addr, True)
 
 
+HELPERS = {}
+for f in os.listdir(os.path.join(REPO, 'crates/dune-rec/src/hand')):
+    if f.endswith('.rs'):
+        t = open(os.path.join(REPO, 'crates/dune-rec/src/hand', f), encoding='utf-8').read()
+        for m in re.finditer(r'^(?:pub(?:\(super\))? )?fn (\w+)\(c: &mut Ctx[^\n]*\n(.*?)^\}', t, re.M | re.S):
+            HELPERS.setdefault(m.group(1), []).append(m.group(0))
+
+
+def blocker(text, consts, seen):
+    """Why the flags a port leaves could be seen in `text` (its body, or a
+    helper's it runs on into), or None."""
+    if re.search(r'c\.flag\(|flags\(\)|set_flags|c\.adc\(|c\.sbb\(|c\.rc[lr]', text):
+        return 'reads flags'
+    if 'c.interp(' in text:
+        # An INT pushes the flags and its service sees them; a far call's
+        # code isn't followed by the analysis.
+        return 'an INT or far call sees the flags'
+    for kind, target in re.findall(r'c\.(call|jump)\(([^,)]+)', text):
+        t = target.strip()
+        if re.fullmatch(r'0x[0-9a-fA-F]+', t):
+            addr = int(t, 16)
+        elif t.startswith('code::') and t[6:] in consts:
+            addr = consts[t[6:]]
+        else:
+            return f'{kind} through {t}'
+        if reads_on_entry(addr):
+            return f'{kind} {addr:04x} reads flags'
+    for addr in re.findall(r'\(c\.m, 0x([0-9a-f]+)\)', text):
+        if reads_on_entry(int(addr, 16)):
+            return f'tail {addr} reads flags'
+    for h in re.findall(r'(\w+)\((?:&mut c|c[,)])', text.replace('Ctx::new(m)', '')):
+        if h in seen:
+            continue
+        seen.add(h)
+        bodies = HELPERS.get(h)
+        if not bodies:
+            return f'hands c to {h}'
+        for b in bodies:
+            why = blocker(b, consts, seen)
+            if why:
+                return f'{h}: {why}'
+    return None
+
+
 def convert(path):
     src = open(path, encoding='utf-8').read()
     consts = {n: int(v, 16) for n, v in re.findall(r'pub const (\w+): u16 = 0x([0-9a-fA-F]+);', src)}
@@ -72,36 +117,11 @@ def convert(path):
             why = 'no entry'
         elif masks.get(int(e.group(1), 16), 0x8d5) != 0:
             why = 'callers read flags'
-        elif re.search(r'c\.flag\(|flags\(\)|set_flags|c\.adc\(|c\.sbb\(|c\.rc[lr]', text):
-            why = 'reads flags'
-        elif 'c.interp(' in text:
-            # An INT pushes the flags and its service sees them; a far
-            # call's code isn't followed by the analysis.
-            why = 'an INT or far call sees the flags'
         elif not re.search(rf'c\.({OPS}|cmp|test)\(', text):
-            why = None  # nothing to do
             i = j + 1
             continue
         else:
-            for kind, target in re.findall(r'c\.(call|jump)\(([^,)]+)', text):
-                t = target.strip()
-                if re.fullmatch(r'0x[0-9a-fA-F]+', t):
-                    addr = int(t, 16)
-                elif t.startswith('code::') and t[6:] in consts:
-                    addr = consts[t[6:]]
-                else:
-                    why = f'{kind} through {t}'
-                    break
-                if reads_on_entry(addr):
-                    why = f'{kind} {addr:04x} reads flags'
-                    break
-            if not why:
-                for addr in re.findall(r'\(c\.m, 0x([0-9a-f]+)\)', text):
-                    if reads_on_entry(int(addr, 16)):
-                        why = f'tail {addr} reads flags'
-                        break
-            if not why and re.search(r'\b\w+\(&mut c\b|\b\w+\(c[,)]', text.replace('Ctx::new(m)', '')):
-                why = 'hands c to a helper'
+            why = blocker(text, consts, set())
         if why:
             left.append((name, why))
             i = j + 1
