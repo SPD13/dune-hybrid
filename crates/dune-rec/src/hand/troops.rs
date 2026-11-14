@@ -55,36 +55,35 @@ pub fn troop_activity(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_066b1`: `loc_0858c`; the particle of the troop (`loc_06917`, ZF)
-/// removed; then the troop at SI reset (word 4 = 0FBCh, byte 3 = A0h,
-/// byte 1Ah = 0).
+/// `loc_066b1`: the troop SI taken out of its location's chain
+/// (`unlink_troop`), its particle removed if it has one
+/// (`troop_particle`, ZF), then reset: at [`NOWHERE`], byte 3 A0h (not a
+/// troop, started), size 0. SI, DI kept.
 pub fn reset_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x66b1)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(0x858c, 0x66b4)?;
     c.run(0x66b4, 3)?;
-    let (si, di) = (c.reg(SI), c.reg(DI));
-    c.push(si);
-    c.push(di);
+    c.save(&[SI, DI]);
     c.call(0x6917, 0x66b9)?;
-    let zf = c.flag(ZF);
-    if zf {
+    if c.flag(ZF) {
         c.run(0x66b9, 2)?;
         c.call(code::PARTICLES_REMOVE_PARTICLE, 0x66be)?;
         c.run(0x66be, 6)?;
     } else {
         c.run(0x66b9, 7)?;
     }
-    let di = c.pop();
-    c.set_reg(DI, di);
-    let si = c.pop();
-    c.set_reg(SI, si);
-    c.set_word(si.wrapping_add(4), 0x0fbc);
-    c.set_byte(si.wrapping_add(3), 0xa0);
-    c.set_byte(si.wrapping_add(0x1a), 0);
+    c.restore(&[SI, DI]);
+    let troop = Troop(c.reg(SI));
+    troop.set_location(&mut c, NOWHERE);
+    troop.set_state(&mut c, troop_state::NOT_A_TROOP | troop_state::STARTED);
+    troop.set_size(&mut c, 0);
     c.ret()
 }
+
+/// The location of a reset troop (`reset_troop`): just past the troops.
+const NOWHERE: u16 = 0x0fbc;
 
 /// `loc_06757`: troop AX (`troop_ptr`); unless `loc_0686e` sets CF,
 /// `loc_06770`, and with BP 1 or more `loc_0c5cf` (SI kept), CF clear.
@@ -119,27 +118,26 @@ pub fn troop_6757(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_069a3`: the particle at [4752h] (if any) removed and forgotten (DI
-/// kept).
+/// `loc_069a3`: the particle at [`PARTICLE_4752`] (if any) removed and
+/// forgotten. DI kept.
 pub fn remove_particle_4752(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x69a3)?;
     let mut c = Ctx::new(m);
-    let p = c.word(0x4752);
-    c.run(start, if p == 0 { 7 } else { 6 })?;
-    let di = c.reg(DI);
-    c.push(di);
-    c.xor(W, di, di);
-    c.set_word(0x4752, 0);
-    c.set_reg(DI, p);
-    c.or(W, p, p);
-    if p != 0 {
+    let particle = c.word(PARTICLE_4752);
+    c.run(start, if particle == 0 { 7 } else { 6 })?;
+    c.save(&[DI]);
+    c.set_word(PARTICLE_4752, 0);
+    c.set_reg(DI, particle);
+    if particle != 0 {
         c.call(code::PARTICLES_REMOVE_PARTICLE, 0x69b1)?;
         c.run(0x69b1, 2)?;
     }
-    let di = c.pop();
-    c.set_reg(DI, di);
+    c.restore(&[DI]);
     c.ret()
 }
+
+/// A particle remembered at [4752h] (`remove_particle_4752`).
+const PARTICLE_4752: u16 = 0x4752;
 
 /// `loc_06b25`: the record at SI stamped with the game time (AX 0).
 pub fn stamp_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -152,46 +150,38 @@ pub fn stamp_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_06e02`: `loc_06603` with BP = 764Dh (CX = 0) again while it leaves
-/// CX set.
+/// `loc_06e02`: `lose_troop_764d` for each troop (`for_each_troop`, CX 0),
+/// again while that leaves CX set (some troop was lost).
 pub fn repeat_764d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6e02)?;
     let mut c = Ctx::new(m);
-    let (mut at, mut extra) = (start, 0);
+    let (mut at, mut cost) = (start, 3);
     loop {
-        c.run(at, extra + 3)?;
-        let cx = c.reg(CX);
-        c.xor(W, cx, cx);
+        c.run(at, cost)?;
         c.set_reg(CX, 0);
         c.set_reg(BP, 0x764d);
         c.call(code::FOR_EACH_TROOP, 0x6e0a)?;
-        let cx = c.reg(CX);
-        if cx == 0 {
+        if c.reg(CX) == 0 {
             c.run(0x6e0a, 3)?;
-            c.or(W, cx, cx);
             return c.ret();
         }
-        c.or(W, cx, cx);
-        (at, extra) = (0x6e0a, 2);
+        (at, cost) = (0x6e0a, 5);
     }
 }
 
-/// `loc_06ebf`: `loc_0661d` with BP = 6ECBh on the record at the troop's
-/// word 4 (DI kept).
+/// `loc_06ebf`: `redo_job_6ecb` for each troop of the troop SI's location
+/// (`for_each_troop_below_80` with DI that location). DI kept.
 pub fn for_troop_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6ebf)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
-    let di = c.reg(DI);
-    c.push(di);
-    let si = c.reg(SI);
-    let loc = c.word(si.wrapping_add(4));
-    c.set_reg(DI, loc);
+    c.save(&[DI]);
+    let place = Troop(c.reg(SI)).location(&mut c);
+    c.set_reg(DI, place);
     c.set_reg(BP, 0x6ecb);
     c.call(code::FOR_RECORD, 0x6ec9)?;
     c.run(0x6ec9, 2)?;
-    let di = c.pop();
-    c.set_reg(DI, di);
+    c.restore(&[DI]);
     c.ret()
 }
 
@@ -239,15 +229,10 @@ pub fn call_29f0_f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
     c.set_reg8(r8::AH, 0x0f);
-    let (si, di) = (c.reg(SI), c.reg(DI));
-    c.push(si);
-    c.push(di);
+    c.save(&[SI, DI]);
     c.call(0x29f0, 0x71b9)?;
     c.run(0x71b9, 3)?;
-    let di = c.pop();
-    c.set_reg(DI, di);
-    let si = c.pop();
-    c.set_reg(SI, si);
+    c.restore(&[SI, DI]);
     c.ret()
 }
 
@@ -284,129 +269,68 @@ pub fn add_location_sum(m: &mut Machine, start: u16) -> Result<(), Bail> {
 const SPREAD_BITS: u16 = 0x4705;
 const SPREAD_BITS_END: u16 = 0x470c;
 
-/// `loc_07efb`: the location's byte 19h spread over [`SPREAD_BITS`] (DI
-/// kept).
+/// `loc_07efb`: bits 7 to 1 of the record SI's byte 19h, one per byte at
+/// [`SPREAD_BITS`] (ES = DS; AX as its last rotate left it). DI kept.
 pub fn spread_location_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7efb)?;
     let mut c = Ctx::new(m);
     if c.flag(DF) {
         return Err(Bail);
     }
-    let n = (SPREAD_BITS_END - SPREAD_BITS) as u32;
-    c.run(start, 5 + 5 * n + 2)?;
-    let di = c.reg(DI);
-    c.push(di);
+    let n = SPREAD_BITS_END - SPREAD_BITS;
+    c.run(start, 5 + 5 * n as u32 + 2)?;
+    c.save(&[DI]);
     let ds = c.sreg(DS);
     c.push(ds);
     let es = c.pop();
     c.set_sreg(ES, es);
-    c.set_reg(DI, SPREAD_BITS);
-    let si = c.reg(SI);
-    let b = c.byte(si.wrapping_add(0x19));
-    let mut ax = (b as u16) << 8 | c.reg(AX) & 0xff;
-    loop {
-        ax &= 0xff00;
-        c.xor(B, 0, 0);
-        ax = c.rol1(W, ax);
-        c.set_reg(AX, ax);
-        c.stos(B);
-        let di = c.reg(DI);
-        c.cmp(W, di, SPREAD_BITS_END);
-        if di >= SPREAD_BITS_END {
-            break;
-        }
+    let bits = c.byte(c.reg(SI).wrapping_add(0x19));
+    for i in 0..n {
+        c.set_byte(SPREAD_BITS + i, bits >> (7 - i) & 1);
     }
-    let di = c.pop();
-    c.set_reg(DI, di);
+    c.set_reg(AX, ((bits << n) as u16) << 8 | (bits >> (8 - n) & 1) as u16);
+    c.restore(&[DI]);
     c.ret()
 }
 
-/// `loc_07f11`: [`SPREAD_BITS`] packed back into the location's byte 19h.
+/// `loc_07f11`: [`SPREAD_BITS`] packed back into the record SI's byte 19h
+/// (bits 7 to 1; bit 0 from what the rotates leave). SI kept.
 pub fn pack_location_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7f11)?;
     let mut c = Ctx::new(m);
     let n = (SPREAD_BITS_END - SPREAD_BITS) as u32;
     c.run(start, 4 + 4 * n + 4)?;
-    let si = c.reg(SI);
-    c.push(si);
-    c.set_reg(SI, SPREAD_BITS_END - 1);
-    c.set_flag(DF, true);
-    let ax = c.reg(AX);
-    c.xor(W, ax, ax);
-    c.set_reg(AX, 0);
-    loop {
-        c.lods(B, DS);
-        let ax = c.reg(AX);
-        let ax = c.ror1(W, ax);
-        c.set_reg(AX, ax);
-        let s = c.reg(SI);
-        c.cmp(W, s, SPREAD_BITS);
-        if s < SPREAD_BITS {
-            break;
-        }
+    c.save(&[SI]);
+    // lodsb backwards, each byte's bit 0 rotated into the top of AX.
+    let mut ax = 0u16;
+    for at in (SPREAD_BITS..SPREAD_BITS_END).rev() {
+        ax = (ax & 0xff00 | c.byte(at) as u16).rotate_right(1);
     }
-    let si = c.pop();
-    c.set_reg(SI, si);
+    c.set_reg(AX, ax);
+    c.restore(&[SI]);
     c.set_flag(DF, false);
-    let ah = c.reg8(r8::AH);
-    c.set_byte(si.wrapping_add(0x19), ah);
+    let si = c.reg(SI);
+    c.set_byte(si.wrapping_add(0x19), (ax >> 8) as u8);
     c.ret()
 }
 
-/// `loc_07f5f`: for each set bit of the location's byte 19h (bit 7
-/// first), one more at the matching byte from DI + 14h. DI kept.
+/// `loc_07f5f`: for each set bit of the record SI's byte 19h (bit 7
+/// first), one more in the matching need of the location DI. DI kept, AL
+/// 0.
 pub fn count_location_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7f5f)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let bits = c.byte(si.wrapping_add(0x19));
-    // The path: 7F66 shl; jae; then from 7F6A/7F6C as the bits go.
-    let mut n = 3 + 2;
-    let mut al = bits;
-    let mut cf = al & 0x80 != 0;
-    al <<= 1;
-    loop {
-        if cf {
-            n += 1; // inc byte [di]
-        }
-        n += 3; // inc di; shl al, 1; jb
-        cf = al & 0x80 != 0;
-        al <<= 1;
-        if cf {
-            continue;
-        }
-        n += 1; // jne
-        if al == 0 {
-            break;
-        }
+    let bits = c.byte(c.reg(SI).wrapping_add(0x19));
+    let place = Location(c.reg(DI));
+    let walk = BitWalk::of(bits);
+    c.run(start, 5 + walk.cost + walk.set.len() as u32 + 2)?;
+    c.save(&[DI]);
+    for &k in &walk.set {
+        let v = place.need(&mut c, k).wrapping_add(1);
+        place.set_need(&mut c, k, v);
     }
-    n += 2;
-    c.run(start, n)?;
-    c.set_reg8(r8::AL, bits);
-    let di = c.reg(DI);
-    c.push(di);
-    let mut d = c.add(W, di, 0x14);
-    let mut al = c.shl1(B, bits as u16, 1);
-    let mut cf = c.flag(CF);
-    loop {
-        if cf {
-            let v = c.byte(d);
-            let v = c.inc(B, v as u16);
-            c.set_byte(d, v as u8);
-        }
-        d = c.inc(W, d);
-        al = c.shl1(B, al, 1);
-        cf = c.flag(CF);
-        if cf {
-            continue;
-        }
-        if al == 0 {
-            break;
-        }
-    }
-    c.set_reg8(r8::AL, al as u8);
-    let di = c.pop();
-    c.set_reg(DI, di);
+    c.set_reg8(r8::AL, 0);
+    c.restore(&[DI]);
     c.ret()
 }
 
@@ -1200,39 +1124,33 @@ pub fn particle_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// `loc_06cfc`: one more at the location DI's byte 0Bh (a place below
-/// kind 20h, under 0Ch, without bit 1 of byte 0Ah), and `loc_0644e`. SI,
-/// DI kept.
+/// `loc_06cfc`: the location DI's byte 0Bh one more, up to 0Ch, for a
+/// location with byte 8 below 20h and without bit 1 of byte 0Ah; then
+/// `loc_0644e`. SI, DI kept.
 pub fn grow_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6cfc)?;
     let mut c = Ctx::new(m);
-    let di = c.reg(DI);
-    let (kind, b, f) = (c.byte(di.wrapping_add(8)), c.byte(di.wrapping_add(0x0b)), c.byte(di.wrapping_add(0x0a)));
-    let n = if kind >= 0x20 { 3 } else if b >= 0x0c { 5 } else if f & 1 != 0 { 7 } else { 10 };
-    c.run(start, n)?;
-    c.cmp(B, kind as u16, 0x20);
-    if kind >= 0x20 {
+    let place = Location(c.reg(DI));
+    let stage = place.byte_0b(&mut c);
+    let cost = if place.byte_08(&mut c) >= 0x20 {
+        3
+    } else if stage >= 0x0c {
+        5
+    } else if place.byte_0a(&mut c) & 1 != 0 {
+        7
+    } else {
+        10
+    };
+    c.run(start, cost)?;
+    let grows = cost == 10;
+    if !grows {
         return c.ret();
     }
-    c.cmp(B, b as u16, 0x0c);
-    if b >= 0x0c {
-        return c.ret();
-    }
-    c.test(B, f as u16, 1);
-    if f & 1 != 0 {
-        return c.ret();
-    }
-    let v = c.inc(B, b as u16);
-    c.set_byte(di.wrapping_add(0x0b), v as u8);
-    let si = c.reg(SI);
-    c.push(si);
-    c.push(di);
+    place.set_byte_0b(&mut c, stage + 1);
+    c.save(&[SI, DI]);
     c.call(0x644e, 0x6d16)?;
     c.run(0x6d16, 3)?;
-    let di = c.pop();
-    c.set_reg(DI, di);
-    let si = c.pop();
-    c.set_reg(SI, si);
+    c.restore(&[SI, DI]);
     c.ret()
 }
 
@@ -1510,10 +1428,11 @@ pub fn troop_bit_10_by_state(m: &mut Machine, start: u16) -> Result<(), Bail> {
     set_troop_bit_10(&mut c)
 }
 
-/// `loc_0697c`: for the troop SI with its particle (`loc_06917`, ZF), at
-/// its own location (bit 40h of byte 3) or one `loc_05ed0` accepts: unless
-/// `loc_0686e` sets CF, `loc_0c5cf` with BP 18FDh, then the location DI
-/// gets bit 40h of byte 0Ch and becomes [4752h].
+/// `loc_0697c`: for the troop SI with a particle (`troop_particle`, ZF),
+/// at its own location or at one `loc_05ed0` accepts (ZF; DI the troop's
+/// location): unless `troop_screen_place` sets CF, a particle made
+/// (`loc_0c5cf` with BP 18FDh), given bit 40h of its byte 0Ch and
+/// remembered at [`PARTICLE_4752`].
 pub fn mark_troop_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x697c)?;
     let mut c = Ctx::new(m);
@@ -1523,20 +1442,17 @@ pub fn mark_troop_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x697f, 2)?;
         return c.ret();
     }
-    let si = c.reg(SI);
-    let b3 = c.byte(si.wrapping_add(3));
-    if b3 & 0x40 != 0 {
+    let troop = Troop(c.reg(SI));
+    if troop.state(&mut c) & troop_state::OWN_LOCATION != 0 {
         c.run(0x697f, 4)?;
-        c.test(B, b3 as u16, 0x40);
     } else {
         c.run(0x697f, 5)?;
-        c.test(B, b3 as u16, 0x40);
-        let loc = c.word(si.wrapping_add(4));
-        c.set_reg(DI, loc);
+        let place = troop.location(&mut c);
+        c.set_reg(DI, place);
         c.call(0x5ed0, 0x698d)?;
-        let zf = c.flag(ZF);
+        let accepted = c.flag(ZF);
         c.run(0x698d, 2)?;
-        if !zf {
+        if !accepted {
             return c.ret();
         }
     }
@@ -1549,47 +1465,30 @@ pub fn mark_troop_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, 0x18fd);
     c.call(0xc5cf, 0x699a)?;
     c.run(0x699a, 3)?;
-    let di = c.reg(DI);
-    let v = c.byte(di.wrapping_add(0x0c));
-    let v = c.or(B, v as u16, 0x40);
-    c.set_byte(di.wrapping_add(0x0c), v as u8);
-    c.set_word(0x4752, di);
+    let particle = c.reg(DI);
+    let b = c.byte(particle.wrapping_add(0x0c));
+    c.set_byte(particle.wrapping_add(0x0c), b | 0x40);
+    c.set_word(PARTICLE_4752, particle);
     c.ret()
 }
 
-/// `loc_0758d`: AL (AH 0) = DX scaled by 255 - 2·byte 17h of the troop SI
-/// (/256, 255 on overflow), at most its byte 1Ah. DX kept.
+/// `loc_0758d`: AL (AH 0) = DX × (255 - 2 × the troop SI's skill 1) / 256
+/// (255 on overflow), at most its size. DX kept.
 pub fn scaled_by_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x758d)?;
     let mut c = Ctx::new(m);
-    let (si, dx) = (c.reg(SI), c.reg(DX));
-    let s = c.byte(si.wrapping_add(0x17));
-    let cap = c.byte(si.wrapping_add(0x1a));
-    let f = 0xffu8.wrapping_sub(s).wrapping_sub(s);
-    let prod = dx as u32 * f as u32;
-    let over = prod >> 16 != 0;
-    let al = if over { 0xff } else { (prod >> 8) as u8 };
-    c.run(start, 10 + over as u32 + 3 + (al > cap) as u32 + 1)?;
-    c.push(dx);
-    c.set_reg(AX, dx);
-    let dl = c.sub(B, 0xff, s as u16);
-    let dl = c.sub(B, dl, s as u16);
-    c.set_reg(DX, dl);
-    c.mul16(dl);
-    let (ax, hi) = (c.reg(AX), c.reg(DX));
-    let mut a = ax >> 8;
-    c.xor(B, ax >> 8, ax >> 8);
-    c.or(W, hi, hi);
-    if hi != 0 {
-        a = 0xff;
-    }
-    let d = c.pop();
-    c.set_reg(DX, d);
-    c.cmp(B, a, cap as u16);
-    if a > cap as u16 {
-        a = cap as u16;
-    }
-    c.set_reg(AX, a);
+    let troop = Troop(c.reg(SI));
+    let amount = c.reg(DX);
+    let skill = troop.skill(&mut c, 1);
+    let cap = troop.size(&mut c);
+    let factor = 0xffu8.wrapping_sub(skill).wrapping_sub(skill);
+    let product = amount as u32 * factor as u32;
+    let over = product >> 16 != 0;
+    let scaled = if over { 0xff } else { (product >> 8) as u8 };
+    c.run(start, 14 + over as u32 + (scaled > cap) as u32)?;
+    c.save(&[DX]);
+    c.restore(&[DX]);
+    c.set_reg(AX, scaled.min(cap) as u16);
     c.ret()
 }
 
@@ -1657,70 +1556,65 @@ pub fn find_range(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// `loc_07f75`: for each bit of byte 19h of the troop SI, from the top,
-/// the byte from DI + 14h on one down (not below 0). DI kept, AL 0.
+/// `loc_07f75`: for each bit of the troop SI's byte 19h, from the top,
+/// the need of the location DI it stands for one lower (not below 0).
+/// DI kept, AL 0.
 pub fn lower_by_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7f75)?;
     let mut c = Ctx::new(m);
-    let (si, di0) = (c.reg(SI), c.reg(DI));
-    let al0 = c.byte(si.wrapping_add(0x19));
-    let mut n = 5;
-    let mut a = al0;
-    let mut p = di0.wrapping_add(0x14);
-    let mut at80 = a & 0x80 != 0;
-    a <<= 1;
-    loop {
-        if at80 {
-            n += 2 + (c.byte(p) == 0) as u32;
+    let bits = Troop(c.reg(SI)).byte_19(&mut c);
+    let place = Location(c.reg(DI));
+    let walk = BitWalk::of(bits);
+    let mut cost = 5 + walk.cost + 2;
+    let mut lowered = Vec::new();
+    for &k in &walk.set {
+        let v = place.need(&mut c, k);
+        cost += 2 + (v == 0) as u32;
+        if v != 0 {
+            lowered.push((k, v - 1));
         }
-        p = p.wrapping_add(1);
-        let cf = a & 0x80 != 0;
-        a <<= 1;
-        n += 3;
-        if cf {
-            at80 = true;
-            continue;
-        }
-        n += 1;
-        if a != 0 {
-            at80 = false;
-            continue;
-        }
-        n += 2;
-        break;
     }
-    c.run(start, n)?;
-    c.set_reg8(r8::AL, al0);
-    c.push(di0);
-    let mut p = c.add(W, di0, 0x14);
-    let mut al = c.shl1(B, al0 as u16, 1);
-    let mut at80 = c.flag(CF);
-    loop {
-        if at80 {
-            let v = c.byte(p);
-            let r = c.sub(B, v as u16, 1);
-            c.set_byte(p, r as u8);
-            if c.flag(CF) {
-                let r = c.inc(B, r);
-                c.set_byte(p, r as u8);
-            }
-        }
-        p = c.inc(W, p);
-        al = c.shl1(B, al, 1);
-        if c.flag(CF) {
-            at80 = true;
-            continue;
-        }
-        if al != 0 {
-            at80 = false;
-            continue;
-        }
-        break;
+    c.run(start, cost)?;
+    c.save(&[DI]);
+    for (k, v) in lowered {
+        place.set_need(&mut c, k, v);
     }
-    c.set_reg8(r8::AL, al as u8);
-    let d = c.pop();
-    c.set_reg(DI, d);
+    c.set_reg8(r8::AL, 0);
+    c.restore(&[DI]);
     c.ret()
+}
+
+/// The walk `lower_by_bits`, `count_location_bits` and `skill_needs` make
+/// over a byte of bits, one byte of needs per bit from the top, while set
+/// bits are left (`shl al,1; jb; jnz` per step).
+struct BitWalk {
+    /// The needs (0 for bit 7) whose bit is set.
+    set: Vec<u16>,
+    /// The needs stepped over.
+    steps: u16,
+    /// Its instructions, but those for the set bits.
+    cost: u32,
+}
+
+impl BitWalk {
+    fn of(bits: u8) -> BitWalk {
+        let has = |k: u16| k < 8 && bits & (0x80 >> k) != 0;
+        let any_from = |k: u16| k < 8 && bits & (0xff >> k) != 0;
+        let (mut set, mut cost, mut k) = (Vec::new(), 0, 0);
+        loop {
+            if has(k) {
+                set.push(k);
+            }
+            cost += 3;
+            if !has(k + 1) {
+                cost += 1;
+                if !any_from(k + 2) {
+                    return BitWalk { set, steps: k + 1, cost };
+                }
+            }
+            k += 1;
+        }
+    }
 }
 
 /// `loc_0846c`: DI = the location of the troop SI (byte 3 bit 40h: its
@@ -1773,30 +1667,28 @@ pub fn troop_location_dirty(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0727d`: bit 4 of byte 0Ah of the location DI cleared; `loc_07289`
-/// for each of its troops (`loc_0661d`), CX 0.
+/// `loc_0727d`: bit 4 of the location DI's byte 0Ah cleared; then
+/// `clear_bit_7289` for each of its troops (`for_each_troop_below_80`),
+/// CX 0.
 pub fn clear_location_4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x727d)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
-    let di = c.reg(DI);
-    let v = c.byte(di.wrapping_add(0x0a));
-    let v = c.and(B, v as u16, 0xfb);
-    c.set_byte(di.wrapping_add(0x0a), v as u8);
+    let place = Location(c.reg(DI));
+    let b = place.byte_0a(&mut c);
+    place.set_byte_0a(&mut c, b & !4);
     c.set_reg(BP, 0x7289);
-    let cx = c.reg(CX);
-    c.xor(W, cx, cx);
     c.set_reg(CX, 0);
     for_each_troop_below_80(c.m, 0x661d)
 }
 
-/// `loc_07298`: `loc_072a2` for each troop of the location DI, CX, DX 0.
+/// `loc_07298`: `tally_72a2` for each troop of the location DI
+/// (`for_each_troop_below_80`), CX, DX 0.
 pub fn for_location_troops_72a2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7298)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
     c.set_reg(BP, 0x72a2);
-    c.xor(W, 0, 0);
     c.set_reg(CX, 0);
     c.set_reg(DX, 0);
     for_each_troop_below_80(c.m, 0x661d)
@@ -1988,53 +1880,42 @@ pub fn update_troop_83bc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_071bc`: past phase 35h, for a troop with bit 40h of word 12h, one
-/// time in 8 (the seed at [0] rotated 3): `loc_0719c`, bit 8000h of word
-/// 10h, bit 4 of byte 0Ah of the location DI, and `loc_071b2` with AL 3.
+/// `loc_071bc`: from phase 35h on, for a troop SI with bit 40h of word
+/// 12h, one time in 8 (the seed at [`SEED_0`] rotated left 3, its low
+/// three bits zero): `mark_troop_200_10`, bit 8000h of word 10h, bit 4 of
+/// the location DI's byte 0Ah, and the message pair 0F03h
+/// (`call_29f0_f`).
 pub fn maybe_mark_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x71bc)?;
     let mut c = Ctx::new(m);
-    let ph = c.byte(0x2a);
-    if ph < 0x35 {
+    if c.byte(g::GAME_PHASE) < 0x35 {
         c.run(start, 3)?;
-        c.cmp(B, ph as u16, 0x35);
         return c.ret();
     }
-    let si = c.reg(SI);
-    let w = c.word(si.wrapping_add(0x12));
-    if w & 0x40 == 0 {
+    if Troop(c.reg(SI)).word_12(&mut c) & 0x40 == 0 {
         c.run(start, 5)?;
-        c.cmp(B, ph as u16, 0x35);
-        c.test(W, w, 0x40);
         return c.ret();
     }
-    let s0 = c.word(0);
-    let hit = s0.rotate_left(3) & 7 == 0;
-    c.run(start, if hit { 10 } else { 10 })?;
-    c.cmp(B, ph as u16, 0x35);
-    c.test(W, w, 0x40);
-    let mut s = s0;
-    for _ in 0..3 {
-        s = c.rol1(W, s);
-        c.set_word(0, s);
-    }
-    c.test(W, s, 7);
-    if !hit {
+    let seed = c.word(SEED_0).rotate_left(3);
+    c.run(start, 10)?;
+    c.set_word(SEED_0, seed);
+    if seed & 7 != 0 {
         return c.ret();
     }
     c.call(0x719c, 0x71e1)?;
     c.run(0x71e1, 4)?;
-    let si = c.reg(SI);
-    let v = c.word(si.wrapping_add(0x10));
-    let v = c.or(W, v, 0x8000);
-    c.set_word(si.wrapping_add(0x10), v);
-    let di = c.reg(DI);
-    let v = c.byte(di.wrapping_add(0x0a));
-    let v = c.or(B, v as u16, 4);
-    c.set_byte(di.wrapping_add(0x0a), v as u8);
+    let troop = Troop(c.reg(SI));
+    let w = troop.word_10(&mut c);
+    troop.set_word_10(&mut c, w | 0x8000);
+    let place = Location(c.reg(DI));
+    let b = place.byte_0a(&mut c);
+    place.set_byte_0a(&mut c, b | 4);
     c.set_reg8(r8::AL, 3);
     call_29f0_f(c.m, 0x71b2)
 }
+
+/// A seed `maybe_mark_troop` rotates ([0]).
+const SEED_0: u16 = 0;
 
 /// `loc_066ce`: a person SI not yours (byte 3 bit 80h) and without bit 80h
 /// of word 10h joins you: one more joined ([28h]; reaching [1178h],
@@ -2158,86 +2039,55 @@ pub fn skill_needs(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 fn skill_needs_at(c: &mut Ctx) -> Result<(), Bail> {
-    c.run(0x7f2a, 8)?;
-    let (di, bx) = (c.reg(DI), c.reg(BX));
-    c.push(di);
+    if c.flag(DF) {
+        return Err(Bail);
+    }
+    // 8 instructions, `rep movsb` counted once per byte as well.
+    c.run(0x7f2a, 8 + 7)?;
+    let place = Location(c.reg(DI));
+    let out = c.reg(BX);
+    c.save(&[DI]);
     let ds = c.sreg(DS);
     c.push(ds);
     let es = c.pop();
     c.set_sreg(ES, es);
-    let mut al = c.byte(di.wrapping_add(9));
-    c.set_reg8(r8::AL, al);
-    c.set_reg(SI, di.wrapping_add(0x14));
-    c.set_reg(DI, bx);
-    c.set_reg(CX, 7);
-    c.rep(0xa4);
+    // rep movsb of the 7 needs.
+    for k in 0..7 {
+        let v = place.need(c, k);
+        c.set_byte(out + k, v);
+    }
+    c.set_reg(SI, place.offset() + 0x14 + 7);
+    c.set_reg(DI, out + 7);
+    c.set_reg(CX, 0);
+    let mut id = place.first_troop(c);
+    c.set_reg8(r8::AL, id);
+    // Each troop of the chain lowers the needs its bits cover.
     loop {
-        if al == 0 {
+        if id == 0 {
             c.run(0x7f3a, 4)?;
-            c.or(B, 0, 0);
-            let d = c.pop();
-            c.set_reg(DI, d);
+            c.restore(&[DI]);
             return c.ret();
         }
         c.run(0x7f3a, 3)?;
-        c.or(B, al as u16, al as u16);
         c.call(0x6906, 0x7f41)?;
-        let (si, bx) = (c.reg(SI), c.reg(BX));
-        let a0 = c.byte(si.wrapping_add(0x19));
-        let mut n = 4;
-        let mut a = a0;
-        let mut p = bx;
-        let mut at80 = a & 0x80 != 0;
-        a <<= 1;
-        loop {
-            if at80 {
-                n += 2 + (c.byte(p) == 0) as u32;
-            }
-            p = p.wrapping_add(1);
-            let cf = a & 0x80 != 0;
-            a <<= 1;
-            n += 3;
-            if cf {
-                at80 = true;
-                continue;
-            }
-            n += 1;
-            if a != 0 {
-                at80 = false;
-                continue;
-            }
-            break;
-        }
-        c.run(0x7f41, n + 2)?;
-        c.set_reg8(r8::AL, a0);
-        let mut p = bx;
-        let mut v = c.shl1(B, a0 as u16, 1);
-        let mut at80 = c.flag(CF);
-        loop {
-            if at80 {
-                let b = c.byte(p);
-                let r = c.sub(B, b as u16, 1);
-                c.set_byte(p, r as u8);
-                if c.flag(CF) {
-                    let r = c.inc(B, r);
-                    c.set_byte(p, r as u8);
-                }
-            }
-            p = c.inc(W, p);
-            v = c.shl1(B, v, 1);
-            if c.flag(CF) {
-                at80 = true;
-                continue;
-            }
+        let troop = Troop(c.reg(SI));
+        let walk = BitWalk::of(troop.byte_19(c));
+        let mut cost = 4 + walk.cost + 2;
+        let mut lowered = Vec::new();
+        for &k in &walk.set {
+            let v = c.byte(out.wrapping_add(k));
+            cost += 2 + (v == 0) as u32;
             if v != 0 {
-                at80 = false;
-                continue;
+                lowered.push((k, v - 1));
             }
-            break;
         }
-        c.set_reg(DI, p);
-        al = c.byte(si.wrapping_add(1));
-        c.set_reg8(r8::AL, al);
+        c.run(0x7f41, cost)?;
+        for (k, v) in lowered {
+            c.set_byte(out.wrapping_add(k), v);
+        }
+        c.set_reg(DI, out.wrapping_add(walk.steps));
+        id = troop.next(c);
+        c.set_reg8(r8::AL, id);
     }
 }
 
@@ -2329,55 +2179,36 @@ pub fn record_map_distance(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// The distance of `loc_07c63` / `loc_07c8f` (same code) for the place in
-/// words `off`, `off` + 2 of SI.
+/// words `off`, `off` + 2 of SI: `get_map_position` (DX, BX; SI kept),
+/// then BP the scale at SS:[4880h + |2·BX|], AX the larger of |word off -
+/// DX| / BP (DX the remainder) and BX = |BX - word off+2|.
 fn map_distance(m: &mut Machine, start: u16, off: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let back = start.wrapping_add(4);
     c.run(start, 2)?;
-    let si = c.reg(SI);
-    c.push(si);
+    c.save(&[SI]);
     c.call(0x407e, back)?;
-    let (bx, dx) = (c.reg(BX), c.reg(DX));
-    let si = c.word_in(SS, c.reg(SP));
-    let b2 = bx.wrapping_shl(1);
-    let neg_b = b2 & 0x8000 != 0;
-    let idx = if neg_b { b2.wrapping_neg() } else { b2 };
-    let bp = c.word_in(SS, idx.wrapping_add(0x4880));
-    if bp == 0 {
+    let (x, y) = (c.reg(DX), c.reg(BX));
+    let record = c.word_in(SS, c.reg(SP));
+    let abs = |v: u16| if v & 0x8000 != 0 { v.wrapping_neg() } else { v };
+    let row = y.wrapping_shl(1);
+    let scale = c.word_in(SS, abs(row).wrapping_add(0x4880));
+    if scale == 0 {
+        // The original's `div` faults: the interpreter takes it from here.
         c.m.cpu.ip = back;
         return Err(Bail);
     }
-    let w6 = c.word(si.wrapping_add(off));
-    let d = w6.wrapping_sub(dx);
-    let neg_d = d & 0x8000 != 0;
-    let num = if neg_d { d.wrapping_neg() } else { d };
-    let q = num / bp;
-    let w8 = c.word(si.wrapping_add(off + 2));
-    let e = bx.wrapping_sub(w8);
-    let neg_e = e & 0x8000 != 0;
-    let ab = if neg_e { e.wrapping_neg() } else { e };
-    let n = 4 + neg_b as u32 + 1 + 3 + neg_d as u32 + 2 + 2 + neg_e as u32 + 2 + (q < ab) as u32 + 1;
-    c.run(back, n)?;
-    let si = c.pop();
-    c.set_reg(SI, si);
-    let p = c.shl1(W, bx, 1);
-    let p = if neg_b { c.neg(W, p) } else { p };
-    c.set_reg(BP, bp);
-    let _ = p;
-    let a = c.sub(W, w6, dx);
-    let a = if neg_d { c.neg(W, a) } else { a };
-    c.set_reg(AX, a);
-    c.xor(W, dx, dx);
-    c.set_reg(DX, 0);
-    c.m.cpu.mul_div(&mut c.m.hw, W, 6, bp as u32);
-    let b = c.sub(W, bx, w8);
-    let b = if neg_e { c.neg(W, b) } else { b };
-    c.set_reg(BX, b);
-    let ax = c.reg(AX);
-    c.cmp(W, ax, b);
-    if ax < b {
-        c.set_reg(AX, b);
-    }
+    let across = c.word(record.wrapping_add(off)).wrapping_sub(x);
+    let down = y.wrapping_sub(c.word(record.wrapping_add(off + 2)));
+    let (q, r) = (abs(across) / scale, abs(across) % scale);
+    let dy = abs(down);
+    let negs = (row & 0x8000 != 0) as u32 + (across & 0x8000 != 0) as u32 + (down & 0x8000 != 0) as u32;
+    c.run(back, 15 + negs + (q < dy) as u32)?;
+    c.restore(&[SI]);
+    c.set_reg(BP, scale);
+    c.set_reg(DX, r);
+    c.set_reg(BX, dy);
+    c.set_reg(AX, q.max(dy));
     c.ret()
 }
 
@@ -2802,78 +2633,48 @@ pub fn troop_rate(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_06827`: BP = the sprite for the troop SI facing its location (the
-/// direction of the larger of the two map deltas, by `loc_0693b`'s
-/// group, from the table at SS:18BFh). BX, DX, DI kept.
+/// `loc_06827`: BP = the sprite of the troop SI facing its location: the
+/// direction (0 to 3) of the larger of the two deltas to it (the x delta
+/// by its high byte), by its activity (`troop_activity`), from the table
+/// at SS:[`FACING_SPRITES`]. BX, DX, DI kept.
 pub fn troop_facing_sprite(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6827)?;
     let mut c = Ctx::new(m);
-    let (si, bx0, dx0, di0) = (c.reg(SI), c.reg(BX), c.reg(DX), c.reg(DI));
-    let loc = c.word(si.wrapping_add(4));
-    let (lx, ly) = (c.word(loc.wrapping_add(2)), c.word(loc.wrapping_add(4)));
-    let (tx, ty) = (c.word(si.wrapping_add(6)), c.word(si.wrapping_add(8)));
-    let dxv = lx.wrapping_sub(tx);
-    let s1 = dxv & 0x8000 != 0;
-    let dx = (dxv >> 8) as u8 as i8 as i16 as u16;
-    let ady = if s1 { dx.wrapping_neg() } else { dx };
-    let by = ly.wrapping_sub(ty);
-    let s2 = by & 0x8000 != 0;
-    let acx = if s2 { by.wrapping_neg() } else { by };
-    let below = ady < acx;
-    let (bx, _) = if below { (by, dx) } else { (dx, by) };
-    let s3 = bx & 0x8000 != 0;
-    c.run(start, 12 + s1 as u32 + 3 + s2 as u32 + 3 + if below { 0 } else { 2 } + 2 + s3 as u32 + 1)?;
-    c.push(bx0);
-    c.push(dx0);
-    c.push(di0);
-    c.set_reg(DI, loc);
-    let a = c.sub(W, lx, tx);
-    c.set_reg(AX, dx);
-    let _ = a;
-    c.set_reg(DX, dx);
-    let mut di = dx;
-    if s1 {
-        di = c.neg(W, di);
-    }
-    c.set_reg(DI, di);
-    let b = c.sub(W, ly, ty);
-    let mut cx = b;
-    if s2 {
-        cx = c.neg(W, cx);
-    }
-    c.set_reg(CX, cx);
-    let mut bp = 2u16;
-    c.cmp(W, di, cx);
-    let (mut bxr, mut dxr) = (b, dx);
-    if !below {
-        bp = c.dec(W, bp);
-        std::mem::swap(&mut bxr, &mut dxr);
-    }
-    c.set_reg(BX, bxr);
-    c.set_reg(DX, dxr);
-    c.or(W, bxr, bxr);
-    if s3 {
-        bp = c.xor(W, bp, 2);
-    }
-    c.set_reg(BP, bp);
+    let troop = Troop(c.reg(SI));
+    let place = troop.location(&mut c);
+    let abs = |v: u16| if v & 0x8000 != 0 { v.wrapping_neg() } else { v };
+    let (lx, ly) = (c.word(place.wrapping_add(2)), c.word(place.wrapping_add(4)));
+    let (tx, ty) = (c.word(troop.offset().wrapping_add(6)), c.word(troop.offset().wrapping_add(8)));
+    // `cbw` of the x delta's high byte.
+    let across = (lx.wrapping_sub(tx) >> 8) as u8 as i8 as u16;
+    let down = ly.wrapping_sub(ty);
+    let vertical = abs(across) < abs(down);
+    let (main, other) = if vertical { (down, across) } else { (across, down) };
+    let backwards = main & 0x8000 != 0;
+    let direction: u16 = (if vertical { 2 } else { 1 }) ^ (if backwards { 2 } else { 0 });
+    let negs = (across & 0x8000 != 0) as u32 + (down & 0x8000 != 0) as u32 + backwards as u32;
+    c.run(start, 21 + negs + if vertical { 0 } else { 2 })?;
+    c.save(&[BX, DX, DI]);
+    c.set_reg(AX, across);
+    c.set_reg(DI, abs(across));
+    c.set_reg(CX, abs(down));
+    c.set_reg(BX, main);
+    c.set_reg(DX, other);
+    c.set_reg(BP, direction);
     c.call(0x693b, 0x685e)?;
     c.run(0x685e, 9)?;
-    let ax = c.reg(AX);
-    let ax = c.shl1(W, ax, 2);
-    c.set_reg(AX, ax);
-    let bp = c.reg(BP);
-    let bp = c.add(W, bp, ax);
-    let bp = c.shl1(W, bp, 1);
-    let v = c.word_in(SS, bp.wrapping_add(0x18bf));
-    c.set_reg(BP, v);
-    let d = c.pop();
-    c.set_reg(DI, d);
-    let d = c.pop();
-    c.set_reg(DX, d);
-    let b = c.pop();
-    c.set_reg(BX, b);
+    let activity = c.reg(AX);
+    c.set_reg(AX, activity << 2);
+    let index = c.reg(BP).wrapping_add(activity << 2) << 1;
+    let sprite = c.word_in(SS, index.wrapping_add(FACING_SPRITES));
+    c.set_reg(BP, sprite);
+    c.restore(&[BX, DX, DI]);
     c.ret()
 }
+
+/// The sprites by activity and direction, words in the stack segment
+/// (`troop_facing_sprite`).
+const FACING_SPRITES: u16 = 0x18bf;
 
 /// `loc_06639`: BP for each troop of the location DI (`each_troop`),
 /// then for each troop from 8AAh with bit 40h of byte 3 at DI (its word
@@ -2944,80 +2745,68 @@ pub fn for_troops_at_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// `loc_0858c`: the troop SI taken out of its location's troop chain (the
-/// location's byte 9 or the previous troop's byte 1 skips it); its byte 1
-/// cleared. BP = SI; DI kept.
+/// `loc_0858c`: the troop SI taken out of its location's chain (unless at
+/// its own location): the location's first troop or the troop before it
+/// then points past it; its next cleared. BP = SI; DI kept.
 pub fn unlink_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x858c)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let al = c.byte(si);
-    let di = c.word(si.wrapping_add(4));
-    let b3 = c.byte(si.wrapping_add(3));
+    let troop = Troop(c.reg(SI));
+    let id = troop.id(&mut c);
+    let place = troop.location(&mut c);
+    let state = troop.state(&mut c);
     c.run(start, 6)?;
-    c.set_reg(BP, si);
-    c.set_reg8(r8::AL, al);
-    c.set_reg(DI, di);
-    c.push(di);
-    c.test(B, b3 as u16, 0x40);
-    let tail = |c: &mut Ctx, n: u32| -> Result<(), Bail> {
-        c.run(0x85ba, n)?;
-        let bp = c.reg(BP);
-        c.set_reg(SI, bp);
-        c.set_byte(bp.wrapping_add(1), 0);
-        let d = c.pop();
-        c.set_reg(DI, d);
+    c.set_reg(BP, troop.offset());
+    c.set_reg8(r8::AL, id);
+    c.set_reg(DI, place);
+    c.save(&[DI]);
+    // The end: SI back from BP, its next cleared.
+    let finish = |c: &mut Ctx| -> Result<(), Bail> {
+        c.run(0x85ba, 4)?;
+        let troop = Troop(c.reg(BP));
+        c.set_reg(SI, troop.offset());
+        c.set_byte(troop.offset().wrapping_add(1), 0);
+        c.restore(&[DI]);
         c.ret()
     };
-    if b3 & 0x40 != 0 {
-        return tail(&mut c, 4);
+    if state & troop_state::OWN_LOCATION != 0 {
+        return finish(&mut c);
     }
-    let first = c.byte(di.wrapping_add(9));
-    if first == al {
+    let first = Location(place).first_troop(&mut c);
+    if first == id {
         c.run(0x859a, 7)?;
-        c.cmp(B, al as u16, first as u16);
-        c.xor(B, 0, 0);
-        let next = c.byte(si.wrapping_add(1));
-        c.set_byte(si.wrapping_add(1), 0);
+        let next = troop.next(&mut c);
+        c.set_byte(troop.offset().wrapping_add(1), 0);
         c.set_reg8(r8::AH, next);
-        let d = c.pop();
-        c.set_reg(DI, d);
-        c.set_byte(d.wrapping_add(9), next);
+        c.restore(&[DI]);
+        let place = Location(c.reg(DI));
+        c.set_byte(place.offset().wrapping_add(9), next);
         return c.ret();
     }
     c.run(0x859a, 5)?;
-    c.cmp(B, al as u16, first as u16);
-    c.set_reg8(r8::CL, al);
+    c.set_reg8(r8::CL, id);
     c.set_reg8(r8::AL, first);
+    // Along the chain (`troop_ptr` of AL) to the troop before it.
     loop {
         c.call(0x6906, 0x85a7)?;
-        let s = c.reg(SI);
-        let nx = c.byte(s.wrapping_add(1));
-        if nx == 0 {
+        let before = Troop(c.reg(SI));
+        let next = before.next(&mut c);
+        if next == 0 {
             c.run(0x85a7, 4)?;
             c.set_reg8(r8::AL, 0);
-            c.set_reg(DI, s);
-            c.or(B, 0, 0);
-            return tail(&mut c, 4);
+            c.set_reg(DI, before.offset());
+            return finish(&mut c);
         }
-        if nx != al {
-            c.run(0x85a7, 7)?;
-            c.set_reg8(r8::AL, nx);
-            c.set_reg(DI, s);
-            c.or(B, nx as u16, nx as u16);
-            c.cmp(B, nx as u16, al as u16);
-            continue;
+        c.run(0x85a7, if next == id { 8 } else { 7 })?;
+        c.set_reg8(r8::AL, next);
+        c.set_reg(DI, before.offset());
+        if next == id {
+            // `mov ah,[bp+1]`: BP addresses the stack segment.
+            let past = c.byte_in(SS, c.reg(BP).wrapping_add(1));
+            c.set_reg8(r8::AH, past);
+            c.set_byte(before.offset().wrapping_add(1), past);
+            return finish(&mut c);
         }
-        c.run(0x85a7, 8)?;
-        c.set_reg8(r8::AL, nx);
-        c.set_reg(DI, s);
-        c.or(B, nx as u16, nx as u16);
-        c.cmp(B, nx as u16, al as u16);
-        let bp = c.reg(BP);
-        let ah = c.byte_in(SS, bp.wrapping_add(1));
-        c.set_reg8(r8::AH, ah);
-        c.set_byte(s.wrapping_add(1), ah);
-        return tail(&mut c, 4);
     }
 }
 
@@ -3348,455 +3137,278 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     call_29f0_f(c.m, 0x71b2)
 }
 
-/// `loc_06e20`: with [46DEh] set, for the troop SI at the location DI:
-/// a location with bit 8 of byte 0Ah whose time (byte 0Bh) has come
-/// (day - it below FEh) is freed (bit 8 off, byte 8 to its low 3 bits,
-/// [27h] counted, `loc_06dbb`, byte 0Bh 5); then `loc_06cfc`, after 8
-/// days (byte 14h) `loc_06f93` with AL 1; for the location's first troop
-/// with 3 counted by `loc_06e82`, `loc_06ea8` for all and pair 302h.
+/// `loc_06e20`: with [`DAY_UPDATE`] set, for the troop SI at the location
+/// DI: a taken location (bit 8 of byte 0Ah) whose day (byte 0Bh) is past
+/// (today minus it below FEh) is freed: the bit cleared, byte 8 kept to
+/// its low three bits, [`FREED`] counted, `loc_06dbb`, byte 0Bh 5. Then
+/// `grow_location`; after 8 days with its job (byte 14h) a motivation
+/// loss (`loc_06f93`, AL 1); and for the location's first troop, when
+/// `loc_06e82` counts 3 of its troops, `loc_06ea8` for each and the
+/// message pair 302h (`loc_029f0`; SI, DI kept).
 pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6e20)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0x46de);
-    if k == 0 {
+    if c.byte(DAY_UPDATE) == 0 {
         c.run(start, 3)?;
-        c.cmp(B, 0, 0);
         return c.ret();
     }
-    let di = c.reg(DI);
-    let f = c.byte(di.wrapping_add(0x0a));
-    if f & 8 != 0 {
-        c.run(start, 5)?;
-        c.cmp(B, k as u16, 0);
-        c.test(B, f as u16, 8);
+    let taken = Location(c.reg(DI)).byte_0a(&mut c) & 8 != 0;
+    c.run(start, 5)?;
+    if taken {
         c.call(0x1ac5, 0x6e31)?;
-        let di = c.reg(DI);
-        let al = c.reg8(r8::AL);
-        let b = c.byte(di.wrapping_add(0x0b));
-        let d = al.wrapping_sub(b);
-        if d >= 0xfe {
+        let place = Location(c.reg(DI));
+        let since = c.reg8(r8::AL).wrapping_sub(place.byte_0b(&mut c));
+        c.set_reg8(r8::AL, since);
+        if since >= 0xfe {
             c.run(0x6e31, 4)?;
-            let d = c.sub(B, al as u16, b as u16);
-            c.set_reg8(r8::AL, d as u8);
-            c.cmp(B, d, 0xfe);
             return c.ret();
         }
         c.run(0x6e31, 7)?;
-        let d = c.sub(B, al as u16, b as u16);
-        c.set_reg8(r8::AL, d as u8);
-        c.cmp(B, d, 0xfe);
-        let v = c.byte(di.wrapping_add(0x0a));
-        let v = c.and(B, v as u16, 0xf7);
-        c.set_byte(di.wrapping_add(0x0a), v as u8);
-        let v = c.byte(di.wrapping_add(8));
-        let v = c.and(B, v as u16, 7);
-        c.set_byte(di.wrapping_add(8), v as u8);
-        let v = c.byte(0x27);
-        let v = c.inc(B, v as u16);
-        c.set_byte(0x27, v as u8);
+        let b = place.byte_0a(&mut c);
+        place.set_byte_0a(&mut c, b & !8);
+        let b = place.byte_08(&mut c);
+        place.set_byte_08(&mut c, b & 7);
+        bump(&mut c, FREED);
         c.call(0x6dbb, 0x6e47)?;
         c.run(0x6e47, 2)?;
-        let di = c.reg(DI);
-        c.set_byte(di.wrapping_add(0x0b), 5);
-    } else {
-        c.run(start, 5)?;
-        c.cmp(B, k as u16, 0);
-        c.test(B, f as u16, 8);
+        Location(c.reg(DI)).set_byte_0b(&mut c, 5);
     }
     c.call(0x6cfc, 0x6e4e)?;
     c.run(0x6e4e, 1)?;
     c.call(0x1ac5, 0x6e51)?;
-    let si = c.reg(SI);
-    let al = c.reg8(r8::AL);
-    let b = c.byte(si.wrapping_add(0x14));
-    let d = al.wrapping_sub(b);
-    if d > 8 {
+    let days = c.reg8(r8::AL).wrapping_sub(Troop(c.reg(SI)).day(&mut c));
+    c.set_reg8(r8::AL, days);
+    if days > 8 {
         c.run(0x6e51, 5)?;
-        let d = c.sub(B, al as u16, b as u16);
-        c.set_reg8(r8::AL, d as u8);
-        c.cmp(B, d, 8);
         c.set_reg8(r8::AL, 1);
         c.call(0x6f93, 0x6e5d)?;
     } else {
         c.run(0x6e51, 3)?;
-        let d = c.sub(B, al as u16, b as u16);
-        c.set_reg8(r8::AL, d as u8);
-        c.cmp(B, d, 8);
     }
-    let (si, di) = (c.reg(SI), c.reg(DI));
-    let id = c.byte(si);
-    let first = c.byte(di.wrapping_add(9));
-    if id != first {
-        c.run(0x6e5d, 4)?;
-        c.set_reg8(r8::AL, id);
-        c.cmp(B, id as u16, first as u16);
+    let id = Troop(c.reg(SI)).id(&mut c);
+    let first = Location(c.reg(DI)).first_troop(&mut c) == id;
+    c.run(0x6e5d, if first { 6 } else { 4 })?;
+    c.set_reg8(r8::AL, id);
+    if !first {
         return c.ret();
     }
-    c.run(0x6e5d, 6)?;
-    c.set_reg8(r8::AL, id);
-    c.cmp(B, id as u16, first as u16);
-    c.xor(W, 0, 0);
     c.set_reg(DX, 0);
     c.set_reg(BP, 0x6e82);
     c.call(0x661d, 0x6e6c)?;
-    let dl = c.reg8(r8::DL);
-    if dl != 3 {
+    if c.reg8(r8::DL) != 3 {
         c.run(0x6e6c, 3)?;
-        c.cmp(B, dl as u16, 3);
         return c.ret();
     }
     c.run(0x6e6c, 4)?;
-    c.cmp(B, 3, 3);
     c.set_reg(BP, 0x6ea8);
     c.call(0x661d, 0x6e77)?;
     c.run(0x6e77, 4)?;
     c.set_reg(AX, 0x302);
-    let (si, di) = (c.reg(SI), c.reg(DI));
-    c.push(si);
-    c.push(di);
+    c.save(&[SI, DI]);
     c.call(0x29f0, 0x6e7f)?;
     c.run(0x6e7f, 3)?;
-    let d = c.pop();
-    c.set_reg(DI, d);
-    let s = c.pop();
-    c.set_reg(SI, s);
+    c.restore(&[SI, DI]);
     c.ret()
 }
 
+/// Set while the day's updates run ([46DEh], `troop_day_update`).
+const DAY_UPDATE: u16 = 0x46de;
+/// The count of locations freed (`troop_day_update`, [27h]).
+const FREED: u16 = 0x27;
+
 /// `loc_0329d`: for a troop SI with byte 3 set, bits Ch of word 10h
-/// cleared (AX 0); else [4Ah] = its word 0Eh over the age [42h]
-/// (rounded; the word itself for age 0) and [`troop_rate`].
+/// cleared (AX 0); else [`RATE_BY_AGE`] = its word 0Eh over the age
+/// [`AGE`] (rounded to nearest; the age itself when 0), and on into
+/// [`troop_rate`].
 pub fn troop_rate_by_age(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x329d)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let b3 = c.byte(si.wrapping_add(3));
-    if b3 != 0 {
+    let troop = Troop(c.reg(SI));
+    if troop.state(&mut c) != 0 {
         c.run(start, 5)?;
-        c.cmp(B, b3 as u16, 0);
-        c.xor(W, 0, 0);
         c.set_reg(AX, 0);
-        let w = c.word(si.wrapping_add(0x10));
-        let w = c.and(W, w, 0xfff3);
-        c.set_word(si.wrapping_add(0x10), w);
+        let w = troop.word_10(&mut c);
+        troop.set_word_10(&mut c, w & !0x0c);
         return c.ret();
     }
-    let age = c.word(0x42);
-    c.run(start, 2 + 3 + if age != 0 { 7 } else { 0 } + 2)?;
-    c.cmp(B, 0, 0);
-    c.set_reg(AX, age);
-    c.or(W, age, age);
-    let mut ax = age;
+    let age = c.word(AGE);
+    c.run(start, if age != 0 { 14 } else { 7 })?;
+    let mut rate = age;
     if age != 0 {
+        let w = troop.word_0e(&mut c);
+        let (q, r) = (w / age, w % age);
+        let twice = r << 1;
+        rate = q + (age < twice) as u16;
         c.set_reg(CX, age);
-        let w = c.word(si.wrapping_add(0x0e));
-        c.set_reg(AX, w);
-        c.xor(W, 0, 0);
-        c.set_reg(DX, 0);
-        c.m.cpu.mul_div(&mut c.m.hw, W, 6, age as u32);
-        let r = c.reg(DX);
-        let r = c.shl1(W, r, 1);
-        c.set_reg(DX, r);
-        c.cmp(W, age, r);
-        let q = c.reg(AX);
-        ax = c.adc(W, q, 0);
-        c.set_reg(AX, ax);
+        c.set_reg(DX, twice);
     }
-    c.set_word(0x4a, ax);
+    c.set_reg(AX, rate);
+    c.set_word(RATE_BY_AGE, rate);
     troop_rate(c.m, 0x708a)
 }
 
-/// `loc_0714c`: with bit 1 of [0Ah], for a troop SI with bit 80h of byte
-/// 19h on its tick (low nibble of [2] = its id's): `maybe_mark_troop`,
-/// then a random AH (`rand`) against the table 1141h by the location
-/// DI's byte 0: when it passes, bit 4000h of word 10h, and unless bit
-/// 40h of byte 19h, by AH & 3: 1 size down 2 (bit 2000h), 2 bit 200h
-/// and `mark_troop_10`, 3 bit 1000h, skill bit 80h off, the location's
-/// byte 14h down and pair 0F06h.
+/// Read by `troop_rate_by_age` ([42h]).
+const AGE: u16 = 0x42;
+/// Written by `troop_rate_by_age` ([4Ah]).
+const RATE_BY_AGE: u16 = 0x4a;
+
+/// `loc_0714c`: with bit 1 of [`EVENT_FLAGS`], for a troop SI with bit 80h
+/// of byte 19h on its tick (the game time's low nibble = its number's):
+/// `maybe_mark_troop`, then a random AH (`rand`) against the chance at
+/// [`CHANCES`] by the location DI's byte 0. When it passes: bit 4000h of
+/// word 10h, and unless bit 40h of byte 19h, by AH & 3: 1 its size 2
+/// lower when above 2 (bit 2000h); 2 bit 200h and `mark_troop_10`; 3 bit
+/// 1000h, bit 80h of byte 19h off, the location's need 0 one lower and
+/// the message pair 0F06h (`call_29f0_f`).
 pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x714c)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0x0a);
-    let si = c.reg(SI);
-    let b19 = c.byte(si.wrapping_add(0x19));
-    let t = c.word(2);
-    let id = c.byte(si);
-    let ax = ((id as u16) << 8 | t & 0xff) & 0x0f0f;
-    if f & 1 == 0 {
+    if c.byte(EVENT_FLAGS) & 1 == 0 {
         c.run(start, 3)?;
-        c.test(B, f as u16, 1);
         return c.ret();
     }
-    if b19 & 0x80 == 0 {
+    let troop = Troop(c.reg(SI));
+    let bits = troop.byte_19(&mut c);
+    if bits & 0x80 == 0 {
         c.run(start, 5)?;
-        c.test(B, f as u16, 1);
-        c.test(B, b19 as u16, 0x80);
         return c.ret();
     }
-    let hit = ax & 0xff == ax >> 8;
-    c.run(start, 9 + if hit { 1 } else { 1 })?;
-    c.test(B, f as u16, 1);
-    c.test(B, b19 as u16, 0x80);
-    let a = c.and(W, (id as u16) << 8 | t & 0xff, 0x0f0f);
-    c.set_reg(AX, a);
-    c.cmp(B, a & 0xff, a >> 8);
-    if !hit {
+    let tick = game::game_time(&mut c) as u8 & 0x0f;
+    let id = troop.id(&mut c) & 0x0f;
+    c.run(start, 10)?;
+    c.set_reg(AX, (id as u16) << 8 | tick as u16);
+    if tick != id {
         return c.ret();
     }
     c.call(0x71bc, 0x7168)?;
     c.run(0x7168, 1)?;
     c.call(0xe3cc, 0x716b)?;
-    let (si, di) = (c.reg(SI), c.reg(DI));
-    let ah = c.reg8(r8::AH);
-    let b0 = c.byte(di);
-    let lim = c.byte(0x1141u16.wrapping_add(b0 as u16));
-    if lim < ah {
+    let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
+    let roll = c.reg8(r8::AH);
+    let k = place.byte_00(&mut c);
+    let chance = c.byte(CHANCES.wrapping_add(k as u16));
+    if chance < roll {
         c.run(0x716b, 6)?;
-        c.set_reg8(r8::AL, lim);
-        c.set_reg(BX, 0x1141);
-        c.cmp(B, lim as u16, ah as u16);
+        c.set_reg8(r8::AL, chance);
+        c.set_reg(BX, CHANCES);
         return c.ret();
     }
-    let b19 = c.byte(si.wrapping_add(0x19));
-    let kind = ah & 3;
-    let n = 5 + 3 + if b19 & 0x40 != 0 { 1 } else { 2 + if kind == 0 { 1 } else { 2 + (kind <= 2) as u32 } };
-    let size = c.byte(si.wrapping_add(0x1a));
-    let tail = if b19 & 0x40 != 0 || kind == 0 {
-        0
-    } else if kind == 1 {
-        3 + if size > 2 { 1 } else { 2 }
-    } else if kind == 2 {
-        2
-    } else {
-        4
+    let bits = troop.byte_19(&mut c);
+    let size = troop.size(&mut c);
+    let kind = roll & 3;
+    let immune = bits & 0x40 != 0;
+    let cost = 8 + match (immune, kind) {
+        (true, _) => 1,
+        (false, 0) => 3,
+        (false, 1) => 5 + if size > 2 { 4 } else { 5 },
+        (false, 2) => 5 + 2,
+        _ => 4 + 4,
     };
-    c.run(0x716b, n + tail)?;
-    c.set_reg8(r8::AL, lim);
-    c.set_reg(BX, 0x1141);
-    c.cmp(B, lim as u16, ah as u16);
-    let w = c.word(si.wrapping_add(0x10));
-    let w = c.or(W, w, 0x4000);
-    c.set_word(si.wrapping_add(0x10), w);
-    c.test(B, b19 as u16, 0x40);
-    if b19 & 0x40 != 0 {
+    c.run(0x716b, cost)?;
+    c.set_reg8(r8::AL, chance);
+    c.set_reg(BX, CHANCES);
+    let w = troop.word_10(&mut c) | 0x4000;
+    troop.set_word_10(&mut c, w);
+    if immune {
         return c.ret();
     }
-    let k = c.and(B, ah as u16, 3);
-    c.set_reg8(r8::AH, k as u8);
-    if k == 0 {
-        return c.ret();
-    }
-    c.cmp(B, k, 2);
-    match k {
+    c.set_reg8(r8::AH, kind);
+    match kind {
+        0 => c.ret(),
         1 => {
-            let w = c.or(W, w, 0x2000);
-            c.set_word(si.wrapping_add(0x10), w);
-            let v = c.sub(B, size as u16, 2);
-            c.set_byte(si.wrapping_add(0x1a), v as u8);
+            troop.set_word_10(&mut c, w | 0x2000);
             if size > 2 {
-                return c.ret();
+                troop.set_size(&mut c, size - 2);
             }
-            let v = c.add(B, v, 2);
-            c.set_byte(si.wrapping_add(0x1a), v as u8);
             c.ret()
         }
         2 => {
-            let w = c.or(W, w, 0x200);
-            c.set_word(si.wrapping_add(0x10), w);
+            troop.set_word_10(&mut c, w | 0x200);
             mark_troop_10(c.m, 0x7085)
         }
         _ => {
-            let w = c.or(W, w, 0x1000);
-            c.set_word(si.wrapping_add(0x10), w);
-            let v = c.and(B, b19 as u16, 0x7f);
-            c.set_byte(si.wrapping_add(0x19), v as u8);
-            let d = c.byte(di.wrapping_add(0x14));
-            let d = c.dec(B, d as u16);
-            c.set_byte(di.wrapping_add(0x14), d as u8);
+            troop.set_word_10(&mut c, w | 0x1000);
+            troop.set_byte_19(&mut c, bits & !0x80);
+            let need = place.need(&mut c, 0).wrapping_sub(1);
+            place.set_need(&mut c, 0, need);
             c.set_reg8(r8::AL, 6);
             call_29f0_f(c.m, 0x71b2)
         }
     }
 }
 
-/// `loc_0342d`: AX = the troop SI's yield: (2·motivation + byte 17h,
-/// at most FFh) × its size / 16, plus that ×2, ×4, ×8, ×16 for bits 5,
-/// 4, 3, 2 of byte 19h (FFFFh on overflow), /256; 1 instead of 0 for a
-/// troop of size 1 or more.
+/// Bit 1: the troops' random events on (`troop_event_roll`, [0Ah]).
+const EVENT_FLAGS: u16 = 0x0a;
+/// The chance of an event, by the location's byte 0 (`troop_event_roll`).
+const CHANCES: u16 = 0x1141;
+
+/// `loc_0342d`: AX = the troop SI's yield. Its effective motivation
+/// (`troop_motivation`) doubled plus skill 1 (at most FFh), times its
+/// size, /16; plus that ×2, ×4, ×8, ×16 for bits 5, 4, 3, 2 of byte 19h
+/// (FFFFh on overflow); /256. A troop of size 1 or more yields at least
+/// 1. DX = the last multiple looked at, BL byte 19h shifted past it.
 pub fn troop_yield(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x342d)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(0x6efd, 0x3430)?;
-    let si = c.reg(SI);
-    let al0 = c.reg8(r8::AL);
-    let b17 = c.byte(si.wrapping_add(0x17));
-    let size = c.byte(si.wrapping_add(0x1a));
-    let b19 = c.byte(si.wrapping_add(0x19));
-    let a2 = al0.wrapping_add(al0);
-    let (s, cf) = a2.overflowing_add(b17);
-    let a = if cf { 0xff } else { s };
-    let base = (a as u16 * size as u16) >> 4;
-    let mut n = 4 + cf as u32 + 12;
-    let mut ax = base;
-    let mut dx = base.wrapping_shl(1);
-    let mut sat = false;
+    let troop = Troop(c.reg(SI));
+    let motivation = c.reg8(r8::AL);
+    let size = troop.size(&mut c);
+    let bits = troop.byte_19(&mut c);
+    let (sum, over) = motivation.wrapping_add(motivation).overflowing_add(troop.skill(&mut c, 1));
+    let base = (if over { 0xff } else { sum } as u16 * size as u16) >> 4;
+    let mut cost = 16 + over as u32;
+    let mut total = base;
+    let mut step = base << 1;
+    let mut looked = 0;
+    let mut capped = false;
     for k in 0..4 {
         if k > 0 {
-            dx = dx.wrapping_shl(1);
-            n += 3;
+            step <<= 1;
+            cost += 3;
         }
-        if b19 & (0x20 >> k) != 0 {
-            let (v, carry) = ax.overflowing_add(dx);
-            ax = v;
-            n += 2;
-            if carry {
-                sat = true;
-                break;
+        looked += 1;
+        if bits & (0x20 >> k) != 0 {
+            cost += 2;
+            match total.checked_add(step) {
+                Some(v) => total = v,
+                None => {
+                    capped = true;
+                    break;
+                }
             }
         }
     }
-    if sat {
-        ax = 0xffff;
-        n += 1;
+    if capped {
+        total = 0xffff;
+        cost += 1;
     }
-    let hi = ax >> 8;
-    n += 4 + if hi != 0 { 1 } else { 4 };
-    c.run(0x3430, n)?;
-    c.xor(B, 0, 0);
-    let x = c.add(B, al0 as u16, al0 as u16);
-    let x = c.add(B, x, b17 as u16);
-    c.set_reg(AX, if cf { 0xff } else { x });
-    c.mul8(size);
-    let v = c.reg(AX);
-    let v = c.shr1(W, v, 4);
-    let mut ax = v;
-    let mut dx = v;
-    let mut bl = b19 as u16;
-    bl = c.shl1(B, bl, 2);
-    dx = c.shl1(W, dx, 1);
-    for k in 0..4 {
-        if k > 0 {
-            dx = c.shl1(W, dx, 1);
-        }
-        bl = c.shl1(B, bl, 1);
-        if c.flag(CF) {
-            ax = c.add(W, ax, dx);
-            if c.flag(CF) {
-                ax = 0xffff;
-                break;
-            }
-        }
-    }
-    c.set_reg(DX, dx);
-    c.set_reg8(r8::BL, bl as u8);
-    let a = ax >> 8;
-    c.xor(B, 0, 0);
-    c.set_reg(AX, a);
-    c.or(W, a, a);
-    if a != 0 {
-        return c.ret();
-    }
-    c.cmp(B, size as u16, 1);
-    let cf = c.flag(CF);
-    c.set_flag(CF, !cf);
-    let al = c.adc(B, 0, 0);
-    c.set_reg(AX, al);
+    let result = total >> 8;
+    cost += 4 + if result != 0 { 1 } else { 4 };
+    c.run(0x3430, cost)?;
+    c.set_reg(DX, step);
+    c.set_reg8(r8::BL, bits << (2 + looked));
+    c.set_reg(AX, if result != 0 { result } else { (size >= 1) as u16 });
     c.ret()
 }
 
-/// `loc_06ac5`: the troop SI's activity set from its order (byte 3's top
-/// bits; order 8 at an empty 7C8h becomes 0Ah) when they differ: bits 30h
-/// of byte 12h and 100h of word 10h cleared (the latter back unless
-/// `loc_06c15` sets CF), `drop_troop_particle`, `stamp_record`, its
-/// skill bit (2000h << `loc_0693b`) for activities other than 2, and
-/// `troop_orders_menu` for the troop shown ([1954h]).
+/// `loc_06ac5`: the troop SI's byte 3 with its low two bits cleared as its
+/// new job ([`set_job_6ad4`], CL), unless that is its job already (no bits
+/// above the job and the low two clear). AL its job.
 pub fn set_troop_activity(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6ac5)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let b3 = c.byte(si.wrapping_add(3));
-    let (cl, al) = (b3 & 0xfc, b3 & 0x0f);
-    if al == cl {
-        c.run(start, 7)?;
-        c.set_reg8(r8::CL, cl);
-        c.and(B, b3 as u16, 0xfc);
-        let a = c.and(B, b3 as u16, 0x0f);
-        c.set_reg8(r8::AL, a as u8);
-        c.cmp(B, a, cl as u16);
+    let state = Troop(c.reg(SI)).state(&mut c);
+    let (new, job) = (state & 0xfc, state & 0x0f);
+    let same = job == new;
+    c.run(start, if same { 7 } else { 6 })?;
+    c.set_reg8(r8::CL, new);
+    c.set_reg8(r8::AL, job);
+    if same {
         return c.ret();
     }
-    let di = c.word(si.wrapping_add(4));
-    let e = c.byte(di.wrapping_add(0x1a));
-    let n8 = if cl != 8 { 0 } else if di != 0x7c8 { 2 } else if e != 0 { 4 } else { 5 };
-    c.run(start, 6 + 3 + n8 + 4)?;
-    c.and(B, b3 as u16, 0xfc);
-    let a = c.and(B, b3 as u16, 0x0f);
-    c.set_reg8(r8::AL, a as u8);
-    c.cmp(B, a, cl as u16);
-    c.set_reg(DI, di);
-    c.cmp(B, cl as u16, 8);
-    let mut v = cl;
-    if cl == 8 {
-        c.cmp(W, di, 0x7c8);
-        if di == 0x7c8 {
-            c.cmp(B, e as u16, 0);
-            if e == 0 {
-                v = 0x0a;
-            }
-        }
-    }
-    c.set_reg8(r8::CL, v);
-    c.set_byte(si.wrapping_add(3), v);
-    let b = c.byte(si.wrapping_add(0x12));
-    let b = c.and(B, b as u16, 0xcf);
-    c.set_byte(si.wrapping_add(0x12), b as u8);
-    let w = c.word(si.wrapping_add(0x10));
-    let w = c.and(W, w, 0xfeff);
-    c.set_word(si.wrapping_add(0x10), w);
-    c.call(0x6c15, 0x6af9)?;
-    let cf = c.flag(CF);
-    c.run(0x6af9, 2 + (!cf) as u32)?;
-    if !cf {
-        let si = c.reg(SI);
-        let w = c.word(si.wrapping_add(0x10));
-        let w = c.or(W, w, 0x100);
-        c.set_word(si.wrapping_add(0x10), w);
-    }
-    c.call(0x8461, 0x6b03)?;
-    c.run(0x6b03, 1)?;
-    c.call(0x6b25, 0x6b06)?;
-    let si = c.reg(SI);
-    let b3 = c.byte(si.wrapping_add(3));
-    if b3 != 2 {
-        c.run(0x6b06, 3)?;
-        c.cmp(B, b3 as u16, 2);
-        c.call(0x693b, 0x6b0f)?;
-        c.run(0x6b0f, 4)?;
-        let al = c.reg8(r8::AL);
-        c.set_reg8(r8::CL, al);
-        let bit = c.shl(W, 0x2000, al);
-        c.set_reg(AX, bit);
-        let si = c.reg(SI);
-        let w = c.word(si.wrapping_add(0x12));
-        let w = c.or(W, w, bit);
-        c.set_word(si.wrapping_add(0x12), w);
-    } else {
-        c.run(0x6b06, 2)?;
-        c.cmp(B, 2, 2);
-    }
-    let si = c.reg(SI);
-    let id = c.byte(si);
-    let shown = c.byte(0x1954);
-    c.run(0x6b19, 3 + if id == shown { 1 } else { 1 })?;
-    c.set_reg8(r8::AL, id);
-    c.cmp(B, id as u16, shown as u16);
-    if id != shown {
-        return c.ret();
-    }
-    c.call(0x7847, 0x6b24)?;
-    c.run(0x6b24, 1)?;
-    c.ret()
+    set_job_at_6ad4(&mut c)
 }
 
 /// `loc_07f90`: for the troop SI, the nearest other location from 138h
@@ -3943,105 +3555,82 @@ pub fn nearest_needing_location(m: &mut Machine, start: u16) -> Result<(), Bail>
 }
 
 /// `loc_0851f`: the troop SI linked into the location DI's chain (first,
-/// or after the last) and given the first free slot (byte 2, from 1; from
-/// 9 for those with bit 80h of word 10h), by a table of the slots taken
-/// built on the stack. CX the slot.
+/// or after the last) and given the first free slot (byte 2): from 1, or
+/// from 9 for a troop with bit 80h of word 10h. The slots taken are marked
+/// in a table of 1Eh bytes on the stack, then searched (`repne scasb`).
+/// CX the slot.
 pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x851f)?;
     let mut c = Ctx::new(m);
-    let (si, di) = (c.reg(SI), c.reg(DI));
-    let id = c.byte(si);
-    let first = c.byte(di.wrapping_add(9));
-    let w10 = c.word(si.wrapping_add(0x10));
-    let hi = w10 & 0x80 != 0;
+    let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
+    let id = troop.id(&mut c);
+    let first = place.first_troop(&mut c);
+    let apart = troop.word_10(&mut c) & 0x80 != 0;
+    let lowest: u8 = if apart { 9 } else { 1 };
     if first == 0 {
-        c.run(start, 4 + 5 + if hi { 2 } else { 0 } + 1)?;
+        c.run(start, 10 + if apart { 2 } else { 0 })?;
         c.set_reg(AX, (id as u16) << 8);
-        c.or(B, 0, 0);
-        c.set_byte(di.wrapping_add(9), id);
-        c.set_reg(CX, 1);
-        c.set_byte(si.wrapping_add(2), 1);
-        c.test(W, w10, 0x80);
-        if hi {
-            let v = c.add(B, 1, 8);
-            c.set_byte(si.wrapping_add(2), v as u8);
-            let cl = c.add(B, 1, 8);
-            c.set_reg(CX, cl);
-        }
+        c.set_byte(place.offset().wrapping_add(9), id);
+        c.set_byte(troop.offset().wrapping_add(2), lowest);
+        c.set_reg(CX, lowest as u16);
         return c.ret();
     }
-    c.run(start, 4 + 9)?;
+    const TABLE: u16 = 0x1e;
+    c.run(start, 13)?;
     let ax = (id as u16) << 8 | first as u16;
-    c.set_reg(AX, ax);
-    c.or(B, first as u16, first as u16);
-    c.push(di);
+    c.save(&[DI]);
     let ds = c.sreg(DS);
     c.push(ds);
     let es = c.pop();
     c.set_sreg(ES, es);
-    let sp = c.reg(SP);
-    let sp = c.sub(W, sp, 0x1e);
-    c.set_reg(SP, sp);
-    c.set_reg(DI, sp);
-    c.set_reg(CX, 0x1e);
-    c.push(ax);
-    c.xor(B, 0, 0);
-    c.set_reg(AX, ax & 0xff00);
-    c.rep(0xaa);
-    c.run(0x8550, 5)?;
-    let ax = c.pop();
+    let table = c.reg(SP).wrapping_sub(TABLE);
+    c.set_reg(SP, table);
     c.set_reg(AX, ax);
-    let buf = c.reg(SP);
-    c.set_reg(DI, buf);
-    c.push(si);
-    c.xor(W, 0, 0);
+    c.save(&[AX]);
+    c.set_reg(AX, ax & 0xff00);
+    c.set_reg(DI, table);
+    c.set_reg(CX, TABLE);
+    c.rep(0xaa); // rep stosb: the table cleared
+    c.run(0x8550, 5)?;
+    c.restore(&[AX]);
+    c.set_reg(DI, table);
+    c.save(&[SI]);
     c.set_reg(BX, 0);
-    loop {
+    // Along the chain (`troop_ptr` of AL), each troop's slot marked FFh.
+    let last = loop {
         c.call(0x6906, 0x8559)?;
-        let s = c.reg(SI);
-        let slot = c.byte(s.wrapping_add(2));
-        let next = c.byte(s.wrapping_add(1));
-        c.run(0x8559, 5 + if next == 0 { 5 } else { 1 })?;
+        let other = Troop(c.reg(SI));
+        let slot = c.byte(other.offset().wrapping_add(2));
+        let next = other.next(&mut c);
+        c.run(0x8559, if next == 0 { 10 } else { 6 })?;
         c.set_reg(BX, slot as u16);
-        let di = c.reg(DI);
-        c.set_byte((slot as u16).wrapping_add(di).wrapping_sub(1), 0xff);
+        c.set_byte((slot as u16).wrapping_add(table).wrapping_sub(1), 0xff);
         c.set_reg8(r8::AL, next);
-        c.or(B, next as u16, next as u16);
-        if next != 0 {
-            continue;
+        if next == 0 {
+            break other;
         }
-        let ah = c.reg8(r8::AH);
-        c.set_byte(s.wrapping_add(1), ah);
-        c.set_reg(CX, 0x1e);
-        let si = c.pop();
-        c.set_reg(SI, si);
-        let w = c.word(si.wrapping_add(0x10));
-        c.test(W, w, 0x80);
-        if w & 0x80 != 0 {
-            c.run(0x8575, 2)?;
-            let cx = c.sub(W, 0x1e, 8);
-            c.set_reg(CX, cx);
-            let d = c.add(W, di, 8);
-            c.set_reg(DI, d);
-        }
-        break;
+    };
+    c.set_byte(last.offset().wrapping_add(1), id);
+    c.restore(&[SI]);
+    c.set_reg(CX, TABLE);
+    // Tested again: the marks can land anywhere (a slot past 1Eh writes
+    // beyond the table), the troop's own record included.
+    let apart = Troop(c.reg(SI)).word_10(&mut c) & 0x80 != 0;
+    if apart {
+        c.run(0x8575, 2)?;
+        c.set_reg(CX, TABLE - 8);
+        c.set_reg(DI, table + 8);
     }
     c.run(0x857b, 2)?;
-    c.xor(B, 0, 0);
     c.set_reg8(r8::AL, 0);
-    c.m.cpu.string_op(&mut c.m.hw, 0xae, None, 0xf2); // repne scasb
+    c.m.cpu.string_op(&mut c.m.hw, 0xae, None, 0xf2); // repne scasb: the first free
     c.run(0x857f, 6)?;
-    let cx = c.reg(CX);
-    let cx = c.sub(W, cx, 0x1e);
-    let cx = c.neg(W, cx);
-    c.set_reg(CX, cx);
-    let sp = c.reg(SP);
-    let sp = c.add(W, sp, 0x1e);
-    c.set_reg(SP, sp);
-    let d = c.pop();
-    c.set_reg(DI, d);
-    let si = c.reg(SI);
-    c.set_byte(si.wrapping_add(2), cx as u8);
+    let slot = TABLE - c.reg(CX);
+    c.set_reg(CX, slot);
+    c.set_reg(SP, table.wrapping_add(TABLE));
+    c.restore(&[DI]);
+    let troop = Troop(c.reg(SI));
+    c.set_byte(troop.offset().wrapping_add(2), slot as u8);
     c.ret()
 }
 
@@ -5507,99 +5096,91 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
     steps_8313(&mut c)
 }
 
-/// `loc_03406` (BP of `loc_033be`, for each troop SI): unless bit 20h of
-/// byte 3, its yield (`loc_0342d`, AX) goes to [94h] for a troop with bit
-/// 80h of byte 10h; else to [96h], with its words 10h and 12h ORed into
-/// [5Ch] and [5Eh].
+/// `loc_03406` (BP of `loc_033be`, for each troop SI): unless started,
+/// its yield (`troop_yield`, 342Dh, AX) is added to [`YIELD_APART`] for a
+/// troop with bit 80h of byte 10h; else to [`YIELD`], with its words 10h
+/// and 12h ORed into [`BITS_10`] and [`BITS_12`] (AX the last of them).
 pub fn tally_yield(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3406)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let b3 = c.byte(si.wrapping_add(3));
-    c.run(0x3406, 3)?;
-    c.test(B, b3 as u16, 0x20);
-    if b3 & 0x20 != 0 {
+    let troop = Troop(c.reg(SI));
+    c.run(start, 3)?;
+    if troop.state(&mut c) & troop_state::STARTED != 0 {
         return c.ret();
     }
     c.call(0x342d, 0x340f)?;
-    let si = c.reg(SI);
-    let b10 = c.byte(si.wrapping_add(0x10));
-    let ax = c.reg(AX);
-    if b10 & 0x80 != 0 {
-        c.run(0x340f, 4)?;
-        c.test(B, b10 as u16, 0x80);
-        let v = c.word(0x94);
-        let v = c.add(W, v, ax);
-        c.set_word(0x94, v);
+    let troop = Troop(c.reg(SI));
+    let amount = c.reg(AX);
+    let apart = troop.byte_10(&mut c) & 0x80 != 0;
+    c.run(0x340f, if apart { 4 } else { 8 })?;
+    let total = if apart { YIELD_APART } else { YIELD };
+    let v = c.word(total).wrapping_add(amount);
+    c.set_word(total, v);
+    if apart {
         return c.ret();
     }
-    c.run(0x340f, 8)?;
-    c.test(B, b10 as u16, 0x80);
-    let v = c.word(0x96);
-    let v = c.add(W, v, ax);
-    c.set_word(0x96, v);
-    for (field, total) in [(0x10u16, 0x5cu16), (0x12, 0x5e)] {
-        let w = c.word(si.wrapping_add(field));
-        c.set_reg(AX, w);
-        let t = c.word(total);
-        let t = c.or(W, t, w);
-        c.set_word(total, t);
-    }
+    let w10 = troop.word_10(&mut c);
+    let w = c.word(BITS_10) | w10;
+    c.set_word(BITS_10, w);
+    let w12 = troop.word_12(&mut c);
+    let w = c.word(BITS_12) | w12;
+    c.set_word(BITS_12, w);
+    c.set_reg(AX, w12);
     c.ret()
 }
 
+/// The yield of the troops with bit 80h of byte 10h (`tally_yield`).
+const YIELD_APART: u16 = 0x94;
+/// The yield of the other troops (`tally_yield`).
+const YIELD: u16 = 0x96;
+/// Their words 10h ORed together (`tally_yield`).
+const BITS_10: u16 = 0x5c;
+/// Their words 12h ORed together (`tally_yield`).
+const BITS_12: u16 = 0x5e;
+
 /// `loc_05728` (BP of `loc_06639`, for each troop SI, CF for byte 3 below
-/// 80h): by the job in the low nibble of byte 3 (not 2): BL + 1 for jobs
-/// 0-3, CH + 1 for 4-7, CL + 1 for 8-15. AL the job / 4.
+/// 80h): by its job (not 2), one more in BL for jobs 0-3, CH for 4-7, CL
+/// for 8-15. AL = the job / 4 (the job itself when 2).
 pub fn count_by_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5728)?;
     let mut c = Ctx::new(m);
     if !c.flag(CF) {
-        c.run(0x5728, 2)?;
+        c.run(start, 2)?;
         return c.ret();
     }
-    let si = c.reg(SI);
-    let b3 = c.byte(si.wrapping_add(3));
-    let job = b3 & 0x0f;
-    c.run(0x5728, if job == 2 { 6 } else if job >> 2 == 0 { 10 } else { 12 })?;
-    let al = c.and(B, b3 as u16, 0x0f);
-    c.set_reg8(r8::AL, al as u8);
-    c.cmp(B, al, 2);
+    let job = Troop(c.reg(SI)).job(&mut c);
+    let group = job >> 2;
+    c.run(start, if job == 2 { 6 } else if group == 0 { 10 } else { 12 })?;
     if job == 2 {
+        c.set_reg8(r8::AL, job);
         return c.ret();
     }
-    let al = c.shr1(B, al, 2);
-    c.set_reg8(r8::AL, al as u8);
-    let reg = if al == 0 {
-        r8::BL
-    } else {
-        c.cmp(B, al, 1);
-        if al == 1 { r8::CH } else { r8::CL }
+    c.set_reg8(r8::AL, group);
+    let counter = match group {
+        0 => r8::BL,
+        1 => r8::CH,
+        _ => r8::CL,
     };
-    let v = c.reg8(reg);
-    let v = c.inc(B, v as u16);
-    c.set_reg8(reg, v as u8);
+    let n = c.reg8(counter).wrapping_add(1);
+    c.set_reg8(counter, n);
     c.ret()
 }
 
-/// `loc_04e04` (BP of `loc_04ded`, for each troop SI): CX + 1 for a troop
-/// with byte 3 zero and bit 80h of byte 19h.
+/// `loc_04e04` (BP of `loc_04ded`, for each troop SI): one more in CX for
+/// a troop with byte 3 zero and bit 80h of byte 19h.
 pub fn count_4e04(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4e04)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let b3 = c.byte(si.wrapping_add(3));
-    let b19 = c.byte(si.wrapping_add(0x19));
-    let counted = b3 == 0 && b19 & 0x80 != 0;
-    c.run(0x4e04, if b3 != 0 { 3 } else if counted { 6 } else { 5 })?;
-    c.cmp(B, b3 as u16, 0);
-    if b3 == 0 {
-        c.test(B, b19 as u16, 0x80);
-        if counted {
-            let cx = c.reg(CX);
-            let cx = c.inc(W, cx);
-            c.set_reg(CX, cx);
-        }
+    let troop = Troop(c.reg(SI));
+    if troop.state(&mut c) != 0 {
+        c.run(start, 3)?;
+        return c.ret();
+    }
+    let counted = troop.byte_19(&mut c) & 0x80 != 0;
+    c.run(start, if counted { 6 } else { 5 })?;
+    if counted {
+        let n = c.reg(CX).wrapping_add(1);
+        c.set_reg(CX, n);
     }
     c.ret()
 }
@@ -5609,72 +5190,59 @@ pub fn count_4e04(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn clear_bit_7289(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7289)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let w = c.word(si.wrapping_add(0x12));
+    let troop = Troop(c.reg(SI));
+    let w = troop.word_12(&mut c);
     let set = w & 0x40 != 0;
-    c.run(0x7289, if set { 5 } else { 3 })?;
-    c.test(W, w, 0x40);
+    c.run(start, if set { 5 } else { 3 })?;
     if set {
-        let w = c.and(W, w, 0xffbf);
-        c.set_word(si.wrapping_add(0x12), w);
+        troop.set_word_12(&mut c, w & !0x40);
         c.set_reg(CX, 0x100);
     }
     c.ret()
 }
 
-/// `loc_07655`, the end of `loc_0762a` and `loc_0764d`: `loc_066b1` (CX,
-/// DX kept), CX + 1.
+/// `loc_07655`, the end of `loc_0762a` and `loc_0764d`: the troop SI reset
+/// (`reset_troop`, 66B1h; CX, DX kept), one more in CX.
 fn troop_lost_7655(c: &mut Ctx) -> Result<(), Bail> {
-    let (cx, dx) = (c.reg(CX), c.reg(DX));
-    c.push(cx);
-    c.push(dx);
+    c.save(&[CX, DX]);
     c.call(0x66b1, 0x765a)?;
     c.run(0x765a, 4)?;
-    let dx = c.pop();
-    c.set_reg(DX, dx);
-    let cx = c.pop();
-    let cx = c.inc(W, cx);
-    c.set_reg(CX, cx);
+    c.restore(&[CX, DX]);
+    let n = c.reg(CX).wrapping_add(1);
+    c.set_reg(CX, n);
     c.ret()
 }
 
 /// `loc_0762a` (BP of `loc_07443`, for each troop SI of a raided
 /// location, CF for byte 3 below 80h): a troop with bit 80h of byte 10h
-/// and CX below DX is captured (byte 3 ACh, bit 10h of byte 10h, bytes
-/// 1Ah and 19h and word 0Ch zero); at CX = DX or above it is lost
-/// ([`troop_lost_7655`]). CX + 1 either way.
+/// is captured while CX is below DX (byte 3 ACh, bit 10h of byte 10h, its
+/// size, rate and byte 19h zero), lost from then on ([`troop_lost_7655`]).
+/// One more in CX either way.
 pub fn raid_troop_762a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x762a)?;
     let mut c = Ctx::new(m);
     if c.flag(CF) {
-        c.run(0x762a, 2)?;
+        c.run(start, 2)?;
         return c.ret();
     }
-    let si = c.reg(SI);
-    let b10 = c.byte(si.wrapping_add(0x10));
+    let troop = Troop(c.reg(SI));
+    let b10 = troop.byte_10(&mut c);
     if b10 & 0x80 == 0 {
-        c.run(0x762a, 4)?;
-        c.test(B, b10 as u16, 0x80);
+        c.run(start, 4)?;
         return c.ret();
     }
-    let (cx, dx) = (c.reg(CX), c.reg(DX));
-    if cx >= dx {
-        c.run(0x762a, 8)?;
-        c.test(B, b10 as u16, 0x80);
-        c.cmp(W, cx, dx);
+    let (count, limit) = (c.reg(CX), c.reg(DX));
+    if count >= limit {
+        c.run(start, 8)?;
         return troop_lost_7655(&mut c);
     }
-    c.run(0x762a, 12)?;
-    c.test(B, b10 as u16, 0x80);
-    c.cmp(W, cx, dx);
-    c.set_byte(si.wrapping_add(3), 0xac);
-    let v = c.or(B, b10 as u16, 0x10);
-    c.set_byte(si.wrapping_add(0x10), v as u8);
-    c.set_byte(si.wrapping_add(0x1a), 0);
-    c.set_word(si.wrapping_add(0x0c), 0);
-    c.set_byte(si.wrapping_add(0x19), 0);
-    let cx = c.inc(W, cx);
-    c.set_reg(CX, cx);
+    c.run(start, 12)?;
+    troop.set_state(&mut c, 0xac);
+    troop.set_byte_10(&mut c, b10 | 0x10);
+    troop.set_size(&mut c, 0);
+    troop.set_rate(&mut c, 0);
+    troop.set_byte_19(&mut c, 0);
+    c.set_reg(CX, count.wrapping_add(1));
     c.ret()
 }
 
@@ -5684,54 +5252,44 @@ pub fn lose_troop_764d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x764d)?;
     let mut c = Ctx::new(m);
     if c.flag(CF) {
-        c.run(0x764d, 2)?;
+        c.run(start, 2)?;
         return c.ret();
     }
-    let si = c.reg(SI);
-    let b10 = c.byte(si.wrapping_add(0x10));
-    if b10 & 0x80 == 0 {
-        c.run(0x764d, 4)?;
-        c.test(B, b10 as u16, 0x80);
+    if Troop(c.reg(SI)).byte_10(&mut c) & 0x80 == 0 {
+        c.run(start, 4)?;
         return c.ret();
     }
-    c.run(0x764d, 6)?;
-    c.test(B, b10 as u16, 0x80);
+    c.run(start, 6)?;
     troop_lost_7655(&mut c)
 }
 
-/// `loc_068da` (for each troop SI): with bit 10h of byte 10h, the bit
-/// cleared, CX + 1 and `loc_0846c` (CX kept).
+/// `loc_068da` (for each troop SI): with bit 10h of byte 10h,
+/// [`troop_at_68e0`].
 pub fn troop_68da(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x68da)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let b = c.byte(si.wrapping_add(0x10));
-    if b & 0x10 == 0 {
-        c.run(0x68da, 3)?;
-        c.test(B, b as u16, 0x10);
+    if Troop(c.reg(SI)).byte_10(&mut c) & 0x10 == 0 {
+        c.run(start, 3)?;
         return c.ret();
     }
-    c.run(0x68da, 2)?;
-    c.test(B, b as u16, 0x10);
+    c.run(start, 2)?;
     troop_at_68e0(&mut c)
 }
 
 /// `loc_068e0`, the end of `loc_068da` and `loc_075ea`: bit 10h of byte
-/// 10h of the troop SI cleared, CX + 1, `loc_0846c` (CX kept).
+/// 10h of the troop SI cleared, one more in CX, `troop_location_dirty`
+/// (846Ch; CX kept).
 fn troop_at_68e0(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x68e0, 4)?;
-    let si = c.reg(SI);
-    let b = c.byte(si.wrapping_add(0x10));
-    let b = c.and(B, b as u16, 0xef);
-    c.set_byte(si.wrapping_add(0x10), b as u8);
-    let cx = c.reg(CX);
-    let cx = c.inc(W, cx);
-    c.set_reg(CX, cx);
-    c.push(cx);
+    let troop = Troop(c.reg(SI));
+    let b = troop.byte_10(c);
+    troop.set_byte_10(c, b & !0x10);
+    let n = c.reg(CX).wrapping_add(1);
+    c.set_reg(CX, n);
+    c.save(&[CX]);
     c.call(0x846c, 0x68e9)?;
     c.run(0x68e9, 2)?;
-    let cx = c.pop();
-    c.set_reg(CX, cx);
+    c.restore(&[CX]);
     c.ret()
 }
 
@@ -5740,126 +5298,100 @@ fn troop_at_68e0(c: &mut Ctx) -> Result<(), Bail> {
 pub fn troop_6e0f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6e0f)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let w = c.word(si.wrapping_add(0x10));
+    let troop = Troop(c.reg(SI));
+    let w = troop.word_10(&mut c);
     let set = w & 0x20 != 0;
-    c.run(0x6e0f, if set { 5 } else { 3 })?;
-    c.test(W, w, 0x20);
+    c.run(start, if set { 5 } else { 3 })?;
     if set {
-        let w = c.and(W, w, 0xffdf);
-        c.set_word(si.wrapping_add(0x10), w);
-        let v = c.word(si.wrapping_add(0x12));
-        let v = c.or(W, v, 0x1000);
-        c.set_word(si.wrapping_add(0x12), v);
+        troop.set_word_10(&mut c, w & !0x20);
+        let w12 = troop.word_12(&mut c);
+        troop.set_word_12(&mut c, w12 | 0x1000);
     }
     c.ret()
 }
 
 /// `loc_075ea` (BP of `loc_07443`, for each troop SI of a raided
 /// location, CF for byte 3 below 80h): a troop with bit 80h of byte 10h
-/// leaves (`loc_0858c`, the bit cleared, `loc_0851f`); with CL 8 or more
-/// it is lost ([`troop_lost_7655`]), else it starts over: byte 3 A0h,
-/// bytes 1Ah and 15h random from 1464h (mask F7Fh), bytes 16h and 17h
-/// from 0A0Ah (mask 1F1Fh), byte 19h 0, then `loc_068e0`.
+/// leaves (`unlink_troop`, the bit cleared, `link_troop`); with CL 8 or
+/// more it is lost ([`troop_lost_7655`]), else it starts over: byte 3
+/// A0h, its size and motivation random from 1464h (mask F7Fh), skills 0
+/// and 1 from 0A0Ah (mask 1F1Fh), byte 19h 0, then [`troop_at_68e0`].
 pub fn raid_troop_75ea(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x75ea)?;
     let mut c = Ctx::new(m);
     if c.flag(CF) {
-        c.run(0x75ea, 2)?;
+        c.run(start, 2)?;
         return c.ret();
     }
-    let si = c.reg(SI);
-    let b10 = c.byte(si.wrapping_add(0x10));
-    if b10 & 0x80 == 0 {
-        c.run(0x75ea, 4)?;
-        c.test(B, b10 as u16, 0x80);
+    if Troop(c.reg(SI)).byte_10(&mut c) & 0x80 == 0 {
+        c.run(start, 4)?;
         return c.ret();
     }
-    c.run(0x75ea, 4)?;
-    c.test(B, b10 as u16, 0x80);
+    c.run(start, 4)?;
     c.call(0x858c, 0x75f5)?;
     c.run(0x75f5, 2)?;
-    let si = c.reg(SI);
-    let b = c.byte(si.wrapping_add(0x10));
-    let b = c.and(B, b as u16, 0x7f);
-    c.set_byte(si.wrapping_add(0x10), b as u8);
+    let troop = Troop(c.reg(SI));
+    let b = troop.byte_10(&mut c);
+    troop.set_byte_10(&mut c, b & !0x80);
     c.call(0x851f, 0x75fc)?;
-    let cl = c.reg8(r8::CL);
-    if cl >= 8 {
-        c.run(0x75fc, 5)?;
-        c.cmp(B, cl as u16, 8);
+    let lost = c.reg8(r8::CL) >= 8;
+    c.run(0x75fc, 5)?;
+    if lost {
         return troop_lost_7655(&mut c);
     }
-    c.run(0x75fc, 5)?;
-    c.cmp(B, cl as u16, 8);
-    let si = c.reg(SI);
-    c.set_byte(si.wrapping_add(3), 0xa0);
-    c.set_reg(BX, 0x0f7f);
-    c.call(0xe3b7, 0x760b)?;
-    c.run(0x760b, 5)?;
-    let si = c.reg(SI);
-    let ax = c.reg(AX);
-    let ax = c.add(W, ax, 0x1464);
-    c.set_reg(AX, ax);
-    c.set_byte(si.wrapping_add(0x1a), ax as u8);
-    c.set_byte(si.wrapping_add(0x15), (ax >> 8) as u8);
-    c.set_reg(BX, 0x1f1f);
-    c.call(0xe3b7, 0x761a)?;
-    c.run(0x761a, 5)?;
-    let si = c.reg(SI);
-    let ax = c.reg(AX);
-    let ax = c.add(W, ax, 0x0a0a);
-    c.set_reg(AX, ax);
-    c.set_byte(si.wrapping_add(0x16), ax as u8);
-    c.set_byte(si.wrapping_add(0x17), (ax >> 8) as u8);
-    c.set_byte(si.wrapping_add(0x19), 0);
+    Troop(c.reg(SI)).set_state(&mut c, 0xa0);
+    let v = random_from(&mut c, 0x0f7f, 0x1464, 0x760b)?;
+    let troop = Troop(c.reg(SI));
+    troop.set_size(&mut c, v as u8);
+    troop.set_motivation(&mut c, (v >> 8) as u8);
+    let v = random_from(&mut c, 0x1f1f, 0x0a0a, 0x761a)?;
+    let troop = Troop(c.reg(SI));
+    troop.set_skill(&mut c, 0, v as u8);
+    troop.set_skill(&mut c, 1, (v >> 8) as u8);
+    troop.set_byte_19(&mut c, 0);
     troop_at_68e0(&mut c)
 }
 
+/// In `raid_troop_75ea`: AX = `base` + a random number masked by `mask`
+/// (`loc_0e3b7` with BX the mask), the call returning to `back`.
+fn random_from(c: &mut Ctx, mask: u16, base: u16, back: u16) -> Result<u16, Bail> {
+    c.set_reg(BX, mask);
+    c.call(0xe3b7, back)?;
+    c.run(back, 5)?;
+    let v = c.reg(AX).wrapping_add(base);
+    c.set_reg(AX, v);
+    Ok(v)
+}
+
 /// `loc_075af` (BP of `loc_07443`, for each troop SI of a raided
-/// location DI, CF for byte 3 below 80h): troop 8E0h gets bit 20h of
-/// byte 3 cleared and goes on into `loc_06b8a`; a troop with bit 20h of
-/// byte 3 gets byte 3 22h; any other gets bit 400h of word 10h (and 20h
-/// for a location with byte 8 28h or more), `loc_06f48` with AL 4,
-/// `loc_06edd` with BX 1, AL 3, and goes on into `loc_06acb` with CL 4.
+/// location DI, CF for byte 3 below 80h): troop 3 is no longer started
+/// and goes on into `troop_bit_10_by_location` (6B8Ah); a started troop
+/// gets byte 3 22h; any other gets bit 400h of word 10h (and 20h for a
+/// location with byte 8 28h or more), 4 motivation (`add_motivation`), 3
+/// of skill 1 (`add_skill`), and goes on into `loc_06acb` with CL 4.
 pub fn raid_troop_75af(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x75af)?;
     let mut c = Ctx::new(m);
     if !c.flag(CF) {
-        c.run(0x75af, 2)?;
+        c.run(start, 2)?;
         return c.ret();
     }
-    let si = c.reg(SI);
-    if si == 0x08e0 {
-        c.run(0x75af, 5)?;
-        c.cmp(W, si, 0x08e0);
-        let b = c.byte(si.wrapping_add(3));
-        let b = c.and(B, b as u16, 0xdf);
-        c.set_byte(si.wrapping_add(3), b as u8);
+    let troop = Troop(c.reg(SI));
+    let state = troop.state(&mut c);
+    if troop == Troop::number(3) {
+        c.run(start, 5)?;
+        troop.set_state(&mut c, state & !troop_state::STARTED);
         return c.jump(0x6b8a);
     }
-    let b3 = c.byte(si.wrapping_add(3));
-    if b3 & 0x20 != 0 {
-        c.run(0x75af, 7)?;
-        c.cmp(W, si, 0x08e0);
-        c.test(B, b3 as u16, 0x20);
-        c.set_byte(si.wrapping_add(3), 0x22);
+    if state & troop_state::STARTED != 0 {
+        c.run(start, 7)?;
+        troop.set_state(&mut c, 0x22);
         return c.ret();
     }
-    let di = c.reg(DI);
-    let kind = c.byte(di.wrapping_add(8));
-    let far = kind >= 0x28;
-    c.run(0x75af, if far { 11 } else { 10 })?;
-    c.cmp(W, si, 0x08e0);
-    c.test(B, b3 as u16, 0x20);
-    let w = c.word(si.wrapping_add(0x10));
-    let w = c.or(W, w, 0x0400);
-    c.set_word(si.wrapping_add(0x10), w);
-    c.cmp(B, kind as u16, 0x28);
-    if far {
-        let w = c.or(W, w, 0x0020);
-        c.set_word(si.wrapping_add(0x10), w);
-    }
+    let far = Location(c.reg(DI)).byte_08(&mut c) >= 0x28;
+    c.run(start, if far { 11 } else { 10 })?;
+    let w = troop.word_10(&mut c) | 0x400 | if far { 0x20 } else { 0 };
+    troop.set_word_10(&mut c, w);
     c.set_reg8(r8::AL, 4);
     c.call(0x6f48, 0x75d1)?;
     c.run(0x75d1, 3)?;
@@ -5871,96 +5403,63 @@ pub fn raid_troop_75af(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(0x6acb)
 }
 
-/// `loc_034d0` (for each troop SI, unless bit 20h of byte 3): with its
-/// byte 3 in AL, the base DX is 7Fh for bit 40h, else 61h. The count at
-/// DX (DX - 1 for a troop without bit 80h of byte 10h) + 1, except that
-/// such a troop with byte 3 80h counts at [90h] instead and stops there;
-/// then the count at DX + 1 + its job (the low nibble, its two low bits
-/// dropped when both are set) + 1, and when that is below 7Fh also the
-/// count at 71h + the low nibble of word 12h.
+/// `loc_034d0` (for each troop SI, unless started): counts bytes from a
+/// base DX of 7Fh (a troop at its own location) or 61h. One more at the
+/// base (the byte before it for a troop without bit 80h of byte 10h);
+/// such a troop with byte 3 exactly 80h is counted at [`NOT_TROOPS`]
+/// instead and stops there. Then one more at base + 1 + its job (the
+/// low two bits dropped when both are set), and when base + that job is
+/// below 7Fh also one more at 71h + the low nibble of word 12h. AL byte
+/// 3, AX the last index, BX the last count's offset.
 pub fn census_34d0(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x34d0)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let al = c.byte(si.wrapping_add(3));
-    if al & 0x20 != 0 {
-        c.run(0x34d0, 3)?;
-        c.test(B, al as u16, 0x20);
+    let troop = Troop(c.reg(SI));
+    let state = troop.state(&mut c);
+    if state & troop_state::STARTED != 0 {
+        c.run(start, 3)?;
         return c.ret();
     }
-    let b10 = c.byte(si.wrapping_add(0x10));
-    let dx: u16 = if al & 0x40 != 0 { 0x7f } else { 0x61 };
-    let mut n = 9 + (al & 0x40 != 0) as u32;
-    let own = b10 & 0x80 != 0;
-    if !own {
-        n += 3;
-        if al == 0x80 {
-            c.run(0x34d0, n + 2)?;
-            census_head(&mut c, al, dx, b10);
-            let bx = c.reg(BX);
-            let bx = c.dec(W, bx);
-            c.set_reg(BX, bx);
-            c.cmp(B, al as u16, 0x80);
-            let v = c.byte(0x90);
-            let v = c.inc(B, v as u16);
-            c.set_byte(0x90, v as u8);
-            return c.ret();
-        }
+    let own_place = state & troop_state::OWN_LOCATION != 0;
+    let base: u16 = if own_place { 0x7f } else { 0x61 };
+    let apart = troop.byte_10(&mut c) & 0x80 != 0;
+    let mut cost = 9 + own_place as u32 + if apart { 0 } else { 3 };
+    if !apart && state == troop_state::NOT_A_TROOP {
+        c.run(start, cost + 2)?;
+        c.set_reg(DX, base);
+        c.set_reg8(r8::AL, state);
+        c.set_reg(BX, base - 1);
+        bump(&mut c, NOT_TROOPS);
+        return c.ret();
     }
-    // 34F0: AX = AL with AH = AL, AND 30Fh; job bits dropped for AH 3.
-    let ax = (((al as u16) << 8) | al as u16) & 0x030f;
-    let ah = ax >> 8;
-    let lo = if ah == 3 { (ax as u8) & 0xfc } else { ax as u8 };
-    let bx = dx.wrapping_add(lo as u16);
-    n += 1 + 4 + (ah == 3) as u32 + 6;
-    let more = bx < 0x7f;
-    n += if more { 6 } else { 1 };
-    c.run(0x34d0, n)?;
-    census_head(&mut c, al, dx, b10);
-    let mut bx = dx;
-    if !own {
-        bx = c.dec(W, bx);
-        c.set_reg(BX, bx);
-        c.cmp(B, al as u16, 0x80);
-    }
-    let v = c.byte(bx);
-    let v = c.inc(B, v as u16);
-    c.set_byte(bx, v as u8);
-    let ax = ((al as u16) << 8) | al as u16;
-    let ax = c.and(W, ax, 0x030f);
-    c.cmp(B, ax >> 8, 3);
-    let ax = if ax >> 8 == 3 { (ax & 0xff00) | c.and(B, ax & 0xff, 0xfc) } else { ax };
-    let ax = c.xor(B, ax >> 8, ax >> 8) << 8 | (ax & 0xff);
-    c.set_reg(AX, ax);
-    let bx = c.add(W, dx, ax);
-    c.set_reg(BX, bx);
-    let v = c.byte(bx.wrapping_add(1));
-    let v = c.inc(B, v as u16);
-    c.set_byte(bx.wrapping_add(1), v as u8);
-    c.cmp(W, bx, 0x7f);
+    let job = state & 0x0f;
+    let job = if state & 3 == 3 { job & !3 } else { job };
+    let at = base + job as u16;
+    let more = at < 0x7f;
+    cost += 11 + (state & 3 == 3) as u32 + if more { 6 } else { 1 };
+    c.run(start, cost)?;
+    c.set_reg(DX, base);
+    bump(&mut c, if apart { base } else { base - 1 });
+    bump(&mut c, at + 1);
+    c.set_reg(AX, job as u16);
+    c.set_reg(BX, at);
     if more {
-        let w = c.word(si.wrapping_add(0x12));
-        let ax = c.and(W, w, 0x0f);
-        c.set_reg(AX, ax);
-        let bx = c.add(W, 0x71, ax);
-        c.set_reg(BX, bx);
-        let v = c.byte(bx);
-        let v = c.inc(B, v as u16);
-        c.set_byte(bx, v as u8);
+        let kind = troop.word_12(&mut c) & 0x0f;
+        c.set_reg(AX, kind);
+        c.set_reg(BX, 0x71 + kind);
+        bump(&mut c, 0x71 + kind);
     }
     c.ret()
 }
 
-/// `loc_034d0` up to 34E9h: the flags and registers of its tests (AL the
-/// troop's byte 3, DX and BX the base).
-fn census_head(c: &mut Ctx, al: u8, dx: u16, b10: u8) {
-    c.test(B, al as u16, 0x20);
-    c.set_reg8(r8::AL, al);
-    c.test(B, al as u16, 0x40);
-    c.set_reg(DX, dx);
-    c.set_reg(BX, dx);
-    c.test(B, b10 as u16, 0x80);
+/// One more in the count byte at `at`.
+fn bump(c: &mut Ctx, at: u16) {
+    let v = c.byte(at).wrapping_add(1);
+    c.set_byte(at, v);
 }
+
+/// The count of records not troops of yours (`census_34d0`, [90h]).
+const NOT_TROOPS: u16 = 0x90;
 
 /// `loc_06ad4`: the troop SI takes the job CL (0Ah instead of 8 at the
 /// location 7C8h while its byte 1Ah is zero), with DI its location (word
@@ -5973,14 +5472,16 @@ pub fn set_job_6ad4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     set_job_at_6ad4(&mut Ctx::new(m))
 }
 
-fn set_job_at_6ad4(c: &mut Ctx) -> Result<(), Bail> {
-    let si = c.reg(SI);
-    let di = c.word(si.wrapping_add(4));
-    let cl = c.reg8(r8::CL);
-    let quiet = cl == 8 && di == 0x07c8 && c.byte(di.wrapping_add(0x1a)) == 0;
-    let n = if cl != 8 {
+pub(super) fn set_job_at_6ad4(c: &mut Ctx) -> Result<(), Bail> {
+    let troop = Troop(c.reg(SI));
+    let place = troop.location(c);
+    let job = c.reg8(r8::CL);
+    // Job 8 at the location 7C8h becomes 0Ah while its byte 1Ah is zero.
+    let special = job == 8 && place == SPECIAL_PLACE;
+    let quiet = special && Location(place).byte_1a(c) == 0;
+    let n = if job != 8 {
         3
-    } else if di != 0x07c8 {
+    } else if !special {
         5
     } else if quiet {
         8
@@ -5988,210 +5489,167 @@ fn set_job_at_6ad4(c: &mut Ctx) -> Result<(), Bail> {
         7
     };
     c.run(0x6ad4, n + 4)?;
-    c.set_reg(DI, di);
-    c.cmp(B, cl as u16, 8);
-    if cl == 8 {
-        c.cmp(W, di, 0x07c8);
-        if di == 0x07c8 {
-            let v = c.byte(di.wrapping_add(0x1a));
-            c.cmp(B, v as u16, 0);
-        }
-    }
-    let job = if quiet { 0x0a } else { cl };
+    c.set_reg(DI, place);
+    let job = if quiet { 0x0a } else { job };
     c.set_reg8(r8::CL, job);
-    c.set_byte(si.wrapping_add(3), job);
-    let v = c.byte(si.wrapping_add(0x12));
-    let v = c.and(B, v as u16, 0xcf);
-    c.set_byte(si.wrapping_add(0x12), v as u8);
-    let v = c.word(si.wrapping_add(0x10));
-    let v = c.and(W, v, 0xfeff);
-    c.set_word(si.wrapping_add(0x10), v);
+    troop.set_state(c, job);
+    let b = troop.byte_12(c);
+    troop.set_byte_12(c, b & !0x30);
+    let w = troop.word_10(c);
+    troop.set_word_10(c, w & !0x100);
     c.call(0x6c15, 0x6af9)?;
-    let si = c.reg(SI);
+    let troop = Troop(c.reg(SI));
     if c.flag(CF) {
         c.run(0x6af9, 2)?;
     } else {
         c.run(0x6af9, 3)?;
-        let v = c.word(si.wrapping_add(0x10));
-        let v = c.or(W, v, 0x0100);
-        c.set_word(si.wrapping_add(0x10), v);
+        let w = troop.word_10(c);
+        troop.set_word_10(c, w | 0x100);
     }
     c.call(0x8461, 0x6b03)?;
     c.run(0x6b03, 1)?;
     c.call(0x6b25, 0x6b06)?;
-    let si = c.reg(SI);
-    let job = c.byte(si.wrapping_add(3));
-    if job == 2 {
+    let troop = Troop(c.reg(SI));
+    if troop.state(c) == 2 {
         c.run(0x6b06, 2)?;
-        c.cmp(B, job as u16, 2);
     } else {
         c.run(0x6b06, 3)?;
-        c.cmp(B, job as u16, 2);
         c.call(0x693b, 0x6b0f)?;
         c.run(0x6b0f, 4)?;
-        let si = c.reg(SI);
-        let al = c.reg8(r8::AL);
-        c.set_reg8(r8::CL, al);
-        let ax = c.shl(W, 0x2000, al);
-        c.set_reg(AX, ax);
-        let v = c.word(si.wrapping_add(0x12));
-        let v = c.or(W, v, ax);
-        c.set_word(si.wrapping_add(0x12), v);
+        let troop = Troop(c.reg(SI));
+        let activity = c.reg8(r8::AL);
+        c.set_reg8(r8::CL, activity);
+        let bit = (0x2000u32 << (activity & 0x1f)) as u16;
+        c.set_reg(AX, bit);
+        let w = troop.word_12(c);
+        troop.set_word_12(c, w | bit);
     }
-    let si = c.reg(SI);
-    let id = c.byte(si);
-    let shown = c.byte(0x1954);
-    if id != shown {
-        c.run(0x6b19, 4)?;
-        c.set_reg8(r8::AL, id);
-        c.cmp(B, id as u16, shown as u16);
-        return c.ret();
-    }
+    let troop = Troop(c.reg(SI));
+    let id = troop.id(c);
     c.run(0x6b19, 4)?;
     c.set_reg8(r8::AL, id);
-    c.cmp(B, id as u16, shown as u16);
+    if id != c.byte(SHOWN_TROOP) {
+        return c.ret();
+    }
     c.call(0x7847, 0x6b24)?;
     c.run(0x6b24, 1)?;
     c.ret()
 }
 
+/// The location where job 8 can become 0Ah (`set_job_6ad4`).
+const SPECIAL_PLACE: u16 = 0x07c8;
+/// The number of the troop the panel shows ([1954h]).
+const SHOWN_TROOP: u16 = 0x1954;
+
 /// `loc_06ecb` (for each troop SI): with bit 10h of byte 12h, its job
-/// set again ([`set_job_6ad4`] with CL its byte 3's low nibble).
+/// set again ([`set_job_6ad4`] with CL its job).
 pub fn redo_job_6ecb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6ecb)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let b = c.byte(si.wrapping_add(0x12));
-    if b & 0x10 == 0 {
-        c.run(0x6ecb, 3)?;
-        c.test(B, b as u16, 0x10);
+    let troop = Troop(c.reg(SI));
+    if troop.byte_12(&mut c) & 0x10 == 0 {
+        c.run(start, 3)?;
         return c.ret();
     }
-    c.run(0x6ecb, 5)?;
-    c.test(B, b as u16, 0x10);
-    let v = c.byte(si.wrapping_add(3));
-    let cl = c.and(B, v as u16, 0x0f);
-    c.set_reg8(r8::CL, cl as u8);
+    c.run(start, 5)?;
+    let job = troop.job(&mut c);
+    c.set_reg8(r8::CL, job);
     set_job_at_6ad4(&mut c)
 }
 
 /// `loc_07506` (for each troop SI): bit 10h of byte 10h for a troop with
-/// bit 80h there, else bit 20h of byte 3.
+/// bit 80h there, else started.
 pub fn mark_troop_7506(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7506)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let b10 = c.byte(si.wrapping_add(0x10));
-    c.run(0x7506, 4)?;
-    c.test(B, b10 as u16, 0x80);
-    let (at, bit) = if b10 & 0x80 != 0 { (0x10u16, 0x10u16) } else { (3, 0x20) };
-    let v = c.byte(si.wrapping_add(at));
-    let v = c.or(B, v as u16, bit);
-    c.set_byte(si.wrapping_add(at), v as u8);
+    let troop = Troop(c.reg(SI));
+    c.run(start, 4)?;
+    let b10 = troop.byte_10(&mut c);
+    if b10 & 0x80 != 0 {
+        troop.set_byte_10(&mut c, b10 | 0x10);
+    } else {
+        let s = troop.state(&mut c);
+        troop.set_state(&mut c, s | troop_state::STARTED);
+    }
     c.ret()
 }
 
-/// `loc_06155` (for each troop SI): AX its byte 1Ah; a troop with bit 80h
-/// of byte 10h adds it to [0D81Ch]; one of job 6 adds its words 0Ch and
-/// 0Eh to CX and BX, and AX to DX too unless bit 20h of byte 3.
+/// `loc_06155` (for each troop SI): AX its size; a troop with bit 80h of
+/// byte 10h adds it to [`SIZE_APART`]; one with byte 3 exactly 6 (job 6,
+/// not started) adds it to DX, its rate to CX and its word 0Eh to BX.
 pub fn sum_troop_6155(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6155)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let b10 = c.byte(si.wrapping_add(0x10));
-    let b3 = c.byte(si.wrapping_add(3));
-    let n = if b10 & 0x80 != 0 {
-        6
-    } else if b3 != 6 {
-        7
-    } else if b3 & 0x20 != 0 {
-        11
-    } else {
-        12
-    };
-    c.run(0x6155, n)?;
-    c.xor(W, 0, 0);
-    let ax = c.byte(si.wrapping_add(0x1a)) as u16;
-    c.set_reg(AX, ax);
-    c.test(B, b10 as u16, 0x80);
-    if b10 & 0x80 != 0 {
-        let v = c.word(0xd81c);
-        let v = c.add(W, v, ax);
-        c.set_word(0xd81c, v);
+    let troop = Troop(c.reg(SI));
+    let apart = troop.byte_10(&mut c) & 0x80 != 0;
+    let job6 = !apart && troop.state(&mut c) == 6;
+    c.run(start, if apart { 6 } else if !job6 { 7 } else { 12 })?;
+    let size = troop.size(&mut c) as u16;
+    c.set_reg(AX, size);
+    if apart {
+        let v = c.word(SIZE_APART).wrapping_add(size);
+        c.set_word(SIZE_APART, v);
         return c.ret();
     }
-    c.cmp(B, b3 as u16, 6);
-    if b3 != 6 {
+    if !job6 {
         return c.ret();
     }
-    c.test(B, b3 as u16, 0x20);
-    if b3 & 0x20 == 0 {
-        let dx = c.reg(DX);
-        let dx = c.add(W, dx, ax);
-        c.set_reg(DX, dx);
-    }
-    let w = c.word(si.wrapping_add(0x0c));
-    let cx = c.reg(CX);
-    let cx = c.add(W, cx, w);
+    // (Its test of bit 20h of byte 3 always finds it clear here.)
+    let dx = c.reg(DX).wrapping_add(size);
+    c.set_reg(DX, dx);
+    let cx = c.reg(CX).wrapping_add(troop.rate(&mut c));
     c.set_reg(CX, cx);
-    let w = c.word(si.wrapping_add(0x0e));
-    let bx = c.reg(BX);
-    let bx = c.add(W, bx, w);
+    let bx = c.reg(BX).wrapping_add(troop.word_0e(&mut c));
     c.set_reg(BX, bx);
     c.ret()
 }
 
-/// `loc_08403`: for the troop SI unless bit 20h of its byte 3: activity
-/// (byte 3, low 4 bits) 1 goes on into `loc_07085`; any other but 6
-/// gets `loc_06acb` with CL 6.
+/// The sizes of the troops with bit 80h of byte 10h (`sum_troop_6155`).
+const SIZE_APART: u16 = 0xd81c;
+
+/// `loc_08403`: for the troop SI unless started: job 1 goes on into
+/// `mark_troop_10` (7085h); any other but 6 gets `loc_06acb` with CL 6.
+/// AL the job.
 pub fn troop_8403(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8403)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let b = c.byte(si.wrapping_add(3));
-    if b & 0x20 != 0 {
-        c.run(0x8403, 3)?;
-        c.test(B, b as u16, 0x20);
+    let state = Troop(c.reg(SI)).state(&mut c);
+    if state & troop_state::STARTED != 0 {
+        c.run(start, 3)?;
         return c.ret();
     }
-    let al = b & 0x0f;
-    c.run(0x8403, 6 + if al == 1 { 1 } else if al == 6 { 3 } else { 4 })?;
-    c.test(B, b as u16, 0x20);
-    c.set_reg8(r8::AL, b);
-    let al = c.and(B, b as u16, 0x0f);
-    c.set_reg8(r8::AL, al as u8);
-    c.cmp(B, al, 1);
-    if al == 1 {
-        return c.jump(0x7085);
+    let job = state & 0x0f;
+    c.run(start, 6 + match job {
+        1 => 1,
+        6 => 3,
+        _ => 4,
+    })?;
+    c.set_reg8(r8::AL, job);
+    match job {
+        1 => c.jump(0x7085),
+        6 => c.ret(),
+        _ => {
+            c.set_reg8(r8::CL, 6);
+            c.call(0x6acb, 0x841b)?;
+            c.run(0x841b, 1)?;
+            c.ret()
+        }
     }
-    c.cmp(B, al, 6);
-    if al == 6 {
-        return c.ret();
-    }
-    c.set_reg8(r8::CL, 6);
-    c.call(0x6acb, 0x841b)?;
-    c.run(0x841b, 1)?;
-    c.ret()
 }
 
-/// `loc_072a2` (a troop callback): for a troop SI whose activity byte 3
-/// is 4, CX up by one and DX up by its byte 17h.
+/// `loc_072a2` (a troop callback): for a troop SI with byte 3 exactly 4,
+/// one more in CX and its skill 1 added to DX.
 pub fn tally_72a2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x72a2)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI);
-    let b = c.byte(si.wrapping_add(3));
-    c.run(0x72a2, if b == 4 { 6 } else { 3 })?;
-    c.cmp(B, b as u16, 4);
-    if b == 4 {
-        let cx = c.reg(CX);
-        let cx = c.inc(W, cx);
+    let troop = Troop(c.reg(SI));
+    let counted = troop.state(&mut c) == 4;
+    c.run(start, if counted { 6 } else { 3 })?;
+    if counted {
+        let cx = c.reg(CX).wrapping_add(1);
         c.set_reg(CX, cx);
-        let dx = c.reg(DX);
-        let v = c.byte(si.wrapping_add(0x17));
-        let dl = c.add(B, dx & 0xff, v as u16);
-        let dh = c.adc(B, dx >> 8, 0);
-        c.set_reg(DX, (dh << 8) | dl);
+        let dx = c.reg(DX).wrapping_add(troop.skill(&mut c, 1) as u16);
+        c.set_reg(DX, dx);
     }
     c.ret()
 }

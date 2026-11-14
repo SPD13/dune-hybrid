@@ -262,6 +262,13 @@ while changed:
 
 names = dict((int(e, 16), n) for e, n in re.findall(r'\(0x([0-9a-f]+), "([^"]+)"\)', src))
 show_all = '--all' in sys.argv
+if '--in' in sys.argv:
+    # What each routine reads of the flags it is called or jumped to with:
+    # a port must set these before `c.call`/`c.jump` to it.
+    for e in entries:
+        fl = ''.join(f for f in 'CZSOPA' if f in IN.get(e, ALL))
+        print(f'{e:04x} {fl or "-"}')
+    sys.exit(0)
 used = 0
 for e in entries:
     sites = calls.get(e, [])

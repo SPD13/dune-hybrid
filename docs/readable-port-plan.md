@@ -77,12 +77,32 @@ reached in real play). For each:
 
 Started with the troops (`hand/troops.rs`) and the views in
 `hand/game.rs` (`Troop`, `Location`, the troop state bits, the game
-time, charisma, the location the player is at). Rewritten so far, each
-checked equal call by call in the saves and the harness:
-`troop_activity`, `stamp_record`, `add_motivation` (6F48h),
-`add_motivation_to_all` (6F56h), `mark_troop` and its two entries,
-`add_skill`, `troop_motivation`, `add_location_sum`, `start_troop`,
-`lose_charisma`, `troop_joins`, `troop_skills_decay`.
+time, charisma, the location the player is at, a location's needs and
+troop chain). Rewritten so far (about 60 routines), each checked equal
+call by call in the saves and the harness:
+
+- motivation, skills and charisma: `troop_activity`, `stamp_record`,
+  `add_motivation`, `add_motivation_to_all`, `mark_troop` and its two
+  entries, `add_skill`, `troop_motivation`, `start_troop`,
+  `lose_charisma`, `troop_joins`, `troop_skills_decay`;
+- the troop callbacks of the loops: `tally_yield`, `count_by_job`,
+  `count_4e04`, `clear_bit_7289`, `troop_68da`, `troop_6e0f`,
+  `mark_troop_7506`, `sum_troop_6155`, `troop_8403`, `tally_72a2`,
+  `census_34d0`, the raid callbacks (`raid_troop_762a`, `_75ea`,
+  `_75af`, `lose_troop_764d`) and `repeat_764d`;
+- jobs: `set_job_6ad4` (and `kind_6acb` in `tails.rs`),
+  `set_troop_activity`, `redo_job_6ecb`, `for_troop_location`;
+- yields and rates: `troop_yield`, `troop_rate_by_age`,
+  `scaled_by_troop`;
+- the day: `troop_day_update`, `troop_event_roll`, `maybe_mark_troop`,
+  `grow_location`;
+- a location's needs and bits: `add_location_sum`, `lower_by_bits`,
+  `count_location_bits`, `skill_needs` (the three share `BitWalk`),
+  `spread_location_bits`, `pack_location_bits`, `clear_location_4`;
+- the chain and the map: `reset_troop`, `unlink_troop`, `link_troop`,
+  `remove_particle_4752`, `mark_troop_location`, `troop_facing_sprite`,
+  `map_distance` (7C63h, 7C8Fh), `call_29f0_f`,
+  `for_location_troops_72a2`.
 
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust
@@ -93,6 +113,27 @@ port still stops there (`c.call`), as that is where an interrupt or the
 callee's own bail can come. Registers the original leaves are still set
 (callers read them); `c.save` / `c.restore` keep its pushes and pops,
 which leave their words in the stack's memory.
+
+Things that bit:
+
+- **Flags on entry.** A port that drops flags must still set those the
+  routine it calls or jumps to reads on entry: `flags_used.py --in` lists
+  them (55 routines read any; CF for the troop callbacks, given by the
+  loops).
+- **Writes after the `run`.** Nothing may change before `c.run` (or
+  `c.call`): a bail resumes the original at that address with the state
+  as it is.
+- **`rep` counts per iteration.** The emulator counts each iteration of a
+  `rep` string instruction as an instruction. A port that does the copy
+  itself adds them to its `run` (`skill_needs`: 8 + 7). Ports that call
+  `c.rep` get them counted by it, but their `run` doesn't cover them, so
+  an interrupt due inside the iterations is taken after the port's
+  stretch, a few instructions late. About 60 older call sites do this; the
+  suite shows no drift from it yet, but they should move their
+  iterations into the `run`'s check (a follow-up).
+- The shadow replay runs on to the original's instruction count: a port
+  that counts too few shows as a difference in whatever the caller does
+  next (here AX set by the caller), not as a count.
 
 To check a batch: `REC_ONLY=<entries> REC_SAMPLES=200` with
 `--rec shadow` in the saves (Day 10, 13, 23: the troops run there, not in

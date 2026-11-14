@@ -120,6 +120,58 @@ impl Troop {
 }
 
 impl Troop {
+    /// Byte 10h (word 10h's low byte): bit 80h sets it apart in the
+    /// tallies (`tally_yield`, `sum_troop_6155`) and raids; bit 10h marks
+    /// it for `troop_68da`.
+    pub fn byte_10(self, c: &mut Ctx) -> u8 {
+        c.byte(self.at(0x10))
+    }
+    pub fn set_byte_10(self, c: &mut Ctx, v: u8) {
+        c.set_byte(self.at(0x10), v)
+    }
+
+    pub fn set_word_12(self, c: &mut Ctx, v: u16) {
+        c.set_word(self.at(0x12), v)
+    }
+    /// Byte 12h (word 12h's low byte).
+    pub fn byte_12(self, c: &mut Ctx) -> u8 {
+        c.byte(self.at(0x12))
+    }
+    pub fn set_byte_12(self, c: &mut Ctx, v: u8) {
+        c.set_byte(self.at(0x12), v)
+    }
+
+    /// Byte 0: its number (as [`Troop::number`] takes it).
+    pub fn id(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0)
+    }
+    /// Byte 1: the number of the next troop in its location's chain (0
+    /// for the last; [`Location::first_troop`] starts it).
+    pub fn next(self, c: &mut Ctx) -> u8 {
+        c.byte(self.at(1))
+    }
+
+    /// Word 0Ch: its production rate (`troop_rate`, 708Ah).
+    pub fn rate(self, c: &mut Ctx) -> u16 {
+        c.word(self.at(0x0c))
+    }
+    pub fn set_rate(self, c: &mut Ctx, v: u16) {
+        c.set_word(self.at(0x0c), v)
+    }
+    /// Word 0Eh: cleared with the rate when stamped; summed by
+    /// `sum_troop_6155`.
+    pub fn word_0e(self, c: &mut Ctx) -> u16 {
+        c.word(self.at(0x0e))
+    }
+
+    /// Byte 1Ah: its size (how many; the rate grows with it).
+    pub fn size(self, c: &mut Ctx) -> u8 {
+        c.byte(self.at(0x1a))
+    }
+    pub fn set_size(self, c: &mut Ctx, v: u8) {
+        c.set_byte(self.at(0x1a), v)
+    }
+
     /// Byte 19h: bits, one per need of its location it covers.
     pub fn byte_19(self, c: &mut Ctx) -> u8 {
         c.byte(self.at(0x19))
@@ -189,6 +241,47 @@ impl Location {
     }
     pub fn set_byte_19(self, c: &mut Ctx, v: u8) {
         c.set_byte(self.0.wrapping_add(0x19), v)
+    }
+
+    /// Byte 0: indexes the table at 1141h in `troop_event_roll`.
+    pub fn byte_00(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0)
+    }
+
+    /// Byte 8: compared with 28h by `raid_troop_75af`; kept to its low
+    /// three bits when the location is freed (`troop_day_update`).
+    pub fn byte_08(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0.wrapping_add(8))
+    }
+    pub fn set_byte_08(self, c: &mut Ctx, v: u8) {
+        c.set_byte(self.0.wrapping_add(8), v)
+    }
+
+    /// Byte 9: the number of the first troop of its chain (`link_troop`).
+    pub fn first_troop(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0.wrapping_add(9))
+    }
+
+    /// Byte 0Ah: bits (8: taken, freed by `troop_day_update`; 4 cleared by
+    /// `clear_location_4`).
+    pub fn byte_0a(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0.wrapping_add(0x0a))
+    }
+    pub fn set_byte_0a(self, c: &mut Ctx, v: u8) {
+        c.set_byte(self.0.wrapping_add(0x0a), v)
+    }
+
+    /// Bytes 14h + `k` (`k` 0 to 6): its skill needs (`skill_needs`).
+    pub fn need(self, c: &mut Ctx, k: u16) -> u8 {
+        c.byte(self.0.wrapping_add(0x14 + k))
+    }
+    pub fn set_need(self, c: &mut Ctx, k: u16, v: u8) {
+        c.set_byte(self.0.wrapping_add(0x14 + k), v)
+    }
+
+    /// Byte 1Ah: tested by `set_job_6ad4` at [`Location`] 7C8h.
+    pub fn byte_1a(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0.wrapping_add(0x1a))
     }
 
     /// Byte 0Bh: 2 once a troop of yours has joined there (`troop_joins`).

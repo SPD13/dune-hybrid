@@ -156,20 +156,19 @@ pub fn frieze_1860(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(0x186b)
 }
 
-/// `loc_06acb`: the record at SI of kind CL ([si+3] low nibble): on at
-/// 6B24h, else at 6AD4h.
+/// `loc_06acb`: the troop SI takes the job CL (`set_job_6ad4`) unless it
+/// has it already. AL its job.
 pub fn kind_6acb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6acb)?;
     let mut c = Ctx::new(m);
-    c.run(0x6acb, 4)?;
-    let si = c.reg(SI);
-    let k = c.byte(si.wrapping_add(3));
-    c.set_reg8(r8::AL, k);
-    let a = c.and(B, k as u16, 0xf);
-    c.set_reg8(r8::AL, a as u8);
-    let cl = c.reg8(r8::CL);
-    c.cmp(B, a, cl as u16);
-    c.jump(if a == cl as u16 { 0x6b24 } else { 0x6ad4 })
+    let job = super::game::Troop(c.reg(SI)).job(&mut c);
+    let same = job == c.reg8(r8::CL);
+    c.run(start, if same { 5 } else { 4 })?;
+    c.set_reg8(r8::AL, job);
+    if same {
+        return c.ret();
+    }
+    super::troops::set_job_at_6ad4(&mut c)
 }
 
 /// `loc_06c15`: by the kind of the record at SI ([si+3] low nibble), DI
