@@ -1368,7 +1368,18 @@ impl Machine {
             let n = self.cpu.instructions;
             ok = self.step_raw().is_ok() && self.hw.io_log.mismatch.is_none() && self.cpu.instructions > n;
         }
-        let pure = if ok { compare(&self.cpu, &self.hw.mem, &r_cpu, &r_mem) } else { None };
+        // The result flags don't count here: past the stretch the port goes
+        // on from the original's state (flags included), and flags a callee
+        // or the port reads would differ in the calls without an interrupt,
+        // which the end compare checks. (Readable ports leave flags no one
+        // reads unset.)
+        let pure = if ok {
+            let mut stretch = self.cpu.clone();
+            stretch.set_flags(stretch.flags() & !FLAG_BITS | r_cpu.flags() & FLAG_BITS);
+            compare(&stretch, &self.hw.mem, &r_cpu, &r_mem)
+        } else {
+            None
+        };
         let pure_log = self.hw.io_log.replay;
         let p_cpu = self.cpu.clone();
         self.hw.io_log.mismatch = None;

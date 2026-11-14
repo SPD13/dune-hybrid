@@ -78,7 +78,7 @@ reached in real play). For each:
 Started with the troops (`hand/troops.rs`) and the views in
 `hand/game.rs` (`Troop`, `Location`, the troop state bits, the game
 time, charisma, the location the player is at, a location's needs and
-troop chain). Rewritten so far (about 60 routines), each checked equal
+troop chain). Rewritten so far (about 70 routines), each checked equal
 call by call in the saves and the harness:
 
 - motivation, skills and charisma: `troop_activity`, `stamp_record`,
@@ -99,6 +99,9 @@ call by call in the saves and the harness:
 - a location's needs and bits: `add_location_sum`, `lower_by_bits`,
   `count_location_bits`, `skill_needs` (the three share `BitWalk`),
   `spread_location_bits`, `pack_location_bits`, `clear_location_4`;
+- the loops over a location's troops: `each_troop` (6603h, 5098h,
+  68D2h), `for_each_troop_below_80`; and `troops_1eda`, `troop_to_place`,
+  `refresh_records_fd8`, `sum_locations_a8`, `random_2_to_12`;
 - the chain and the map: `reset_troop`, `unlink_troop`, `link_troop`,
   `remove_particle_4752`, `mark_troop_location`, `troop_facing_sprite`,
   `map_distance` (7C63h, 7C8Fh), `call_29f0_f`,
@@ -131,9 +134,26 @@ Things that bit:
   stretch, a few instructions late. About 60 older call sites do this; the
   suite shows no drift from it yet, but they should move their
   iterations into the `run`'s check (a follow-up).
+- **Stretches through an interrupt.** When the replay runs a stretch
+  through an interrupt, it checks the stretch by interpreting it without
+  the interrupt and comparing with the port's state. Its result flags no
+  longer count there (`rec_settle`): the port goes on from the original's
+  state, and flags something reads would differ in the many calls without
+  an interrupt. (`sum_locations_a8` showed this: the original's `cmp`
+  before its next `call` left flags the readable port doesn't set.)
+- **Memory the original reads twice.** Read it again where the original
+  does: `link_troop` marks slots in a table on the stack, and in a
+  harness state a mark landed on the troop's own word 10h, which the
+  original tests afterwards.
 - The shadow replay runs on to the original's instruction count: a port
   that counts too few shows as a difference in whatever the caller does
   next (here AX set by the caller), not as a count.
+
+Open: in a harness run checking every routine (200 calls each),
+`globe_fill_blue_background` (B84Ah) left SP 2 lower than the original
+in 1 call of 52 (around its `c.interp` of the driver's fill). Not looked
+into yet. `hnm_render_timer_callback` differed in 8 of 204, all with the
+code segment written (a harness artifact).
 
 To check a batch: `REC_ONLY=<entries> REC_SAMPLES=200` with
 `--rec shadow` in the saves (Day 10, 13, 23: the troops run there, not in

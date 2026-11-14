@@ -233,6 +233,18 @@ impl Location {
         self.0
     }
 
+    /// Location `n` (from 1), as the original finds it (`mul` by 1Ch,
+    /// + 0E4h).
+    pub fn number(n: u8) -> Location {
+        Location((n as u16 * Self::SIZE).wrapping_add(Self::FIRST - Self::SIZE))
+    }
+
+    /// Byte 12h: its top four bits scale its troops' rate (`troop_rate`);
+    /// summed / 8 by `sum_locations_a8`.
+    pub fn byte_12(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0.wrapping_add(0x12))
+    }
+
     /// Byte 19h: eight bits, not known yet (spread one per byte by
     /// `spread_location_bits`, 7EFBh), also summed as a number over the
     /// locations (`add_location_sum`, 765Eh).
