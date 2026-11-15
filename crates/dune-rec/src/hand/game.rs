@@ -10,6 +10,7 @@
 
 #![allow(dead_code)] // views grow ahead of the ports that use them
 
+use super::record_table::{self, Which};
 use super::{Ctx, globals as g, troop_table};
 use pc::cpu::DS;
 
@@ -81,6 +82,18 @@ impl Troop {
     fn set_word(self, c: &mut Ctx, field: u16, v: u16) {
         self.set_byte(c, field, v as u8);
         self.set_byte(c, field + 1, (v >> 8) as u8);
+    }
+
+    /// The whole record (`hand/troop_table.rs`), when this is one of the
+    /// table's (with the game's data segment); else none.
+    pub fn record(self, c: &mut Ctx) -> Option<troop_table::TroopRecord> {
+        let i = self.native(c, 0, Self::SIZE)?;
+        Some(troop_table::get(c, i))
+    }
+    /// The record stored back (only its changed bytes are written).
+    pub fn store(self, c: &mut Ctx, r: troop_table::TroopRecord) {
+        let i = self.native(c, 0, Self::SIZE).expect("a troop record");
+        troop_table::set(c, i, r);
     }
 
     /// Byte 3: the job (low four bits) and [`troop_state`] bits.
@@ -268,6 +281,37 @@ impl Location {
         self.0
     }
 
+    /// The record in the Rust table (`hand/record_table.rs`) for a field of
+    /// `len` bytes; none for an offset that starts no record, a field past
+    /// it, or another data segment (then the memory, as before).
+    fn native(self, c: &mut Ctx, field: u16, len: u16) -> Option<usize> {
+        if c.sreg(DS) != g::GAME_DS || field + len > Self::SIZE {
+            return None;
+        }
+        record_table::index(Which::Locations, self.0)
+    }
+    fn byte(self, c: &mut Ctx, field: u16) -> u8 {
+        match self.native(c, field, 1) {
+            Some(i) => record_table::byte(c, Which::Locations, i, field),
+            None => c.byte(self.0.wrapping_add(field)),
+        }
+    }
+    fn set_byte(self, c: &mut Ctx, field: u16, v: u8) {
+        match self.native(c, field, 1) {
+            Some(i) => record_table::set_byte(c, Which::Locations, i, field, v),
+            None => c.set_byte(self.0.wrapping_add(field), v),
+        }
+    }
+    #[allow(dead_code)]
+    fn word(self, c: &mut Ctx, field: u16) -> u16 {
+        self.byte(c, field) as u16 | (self.byte(c, field + 1) as u16) << 8
+    }
+    #[allow(dead_code)]
+    fn set_word(self, c: &mut Ctx, field: u16, v: u16) {
+        self.set_byte(c, field, v as u8);
+        self.set_byte(c, field + 1, (v >> 8) as u8);
+    }
+
     /// Location `n` (from 1), as the original finds it (`mul` by 1Ch,
     /// + 0E4h).
     pub fn number(n: u8) -> Location {
@@ -277,65 +321,65 @@ impl Location {
     /// Byte 12h: its top four bits scale its troops' rate (`troop_rate`);
     /// summed / 8 by `sum_locations_a8`.
     pub fn byte_12(self, c: &mut Ctx) -> u8 {
-        c.byte(self.0.wrapping_add(0x12))
+        self.byte(c, 0x12)
     }
 
     /// Byte 19h: eight bits, not known yet (spread one per byte by
     /// `spread_location_bits`, 7EFBh), also summed as a number over the
     /// locations (`add_location_sum`, 765Eh).
     pub fn byte_19(self, c: &mut Ctx) -> u8 {
-        c.byte(self.0.wrapping_add(0x19))
+        self.byte(c, 0x19)
     }
     pub fn set_byte_19(self, c: &mut Ctx, v: u8) {
-        c.set_byte(self.0.wrapping_add(0x19), v)
+        self.set_byte(c, 0x19, v)
     }
 
     /// Byte 0: indexes the table at 1141h in `troop_event_roll`.
     pub fn byte_00(self, c: &mut Ctx) -> u8 {
-        c.byte(self.0)
+        self.byte(c, 0)
     }
 
     /// Byte 8: compared with 28h by `raid_troop_75af`; kept to its low
     /// three bits when the location is freed (`troop_day_update`).
     pub fn byte_08(self, c: &mut Ctx) -> u8 {
-        c.byte(self.0.wrapping_add(8))
+        self.byte(c, 8)
     }
     pub fn set_byte_08(self, c: &mut Ctx, v: u8) {
-        c.set_byte(self.0.wrapping_add(8), v)
+        self.set_byte(c, 8, v)
     }
 
     /// Byte 9: the number of the first troop of its chain (`link_troop`).
     pub fn first_troop(self, c: &mut Ctx) -> u8 {
-        c.byte(self.0.wrapping_add(9))
+        self.byte(c, 9)
     }
 
     /// Byte 0Ah: bits (8: taken, freed by `troop_day_update`; 4 cleared by
     /// `clear_location_4`).
     pub fn byte_0a(self, c: &mut Ctx) -> u8 {
-        c.byte(self.0.wrapping_add(0x0a))
+        self.byte(c, 0x0a)
     }
     pub fn set_byte_0a(self, c: &mut Ctx, v: u8) {
-        c.set_byte(self.0.wrapping_add(0x0a), v)
+        self.set_byte(c, 0x0a, v)
     }
 
     /// Bytes 14h + `k` (`k` 0 to 6): its skill needs (`skill_needs`).
     pub fn need(self, c: &mut Ctx, k: u16) -> u8 {
-        c.byte(self.0.wrapping_add(0x14 + k))
+        self.byte(c, 0x14 + k)
     }
     pub fn set_need(self, c: &mut Ctx, k: u16, v: u8) {
-        c.set_byte(self.0.wrapping_add(0x14 + k), v)
+        self.set_byte(c, 0x14 + k, v)
     }
 
     /// Byte 1Ah: tested by `set_job_6ad4` at [`Location`] 7C8h.
     pub fn byte_1a(self, c: &mut Ctx) -> u8 {
-        c.byte(self.0.wrapping_add(0x1a))
+        self.byte(c, 0x1a)
     }
 
     /// Byte 0Bh: 2 once a troop of yours has joined there (`troop_joins`).
     pub fn byte_0b(self, c: &mut Ctx) -> u8 {
-        c.byte(self.0.wrapping_add(0x0b))
+        self.byte(c, 0x0b)
     }
     pub fn set_byte_0b(self, c: &mut Ctx, v: u8) {
-        c.set_byte(self.0.wrapping_add(0x0b), v)
+        self.set_byte(c, 0x0b, v)
     }
 }

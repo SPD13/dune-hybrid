@@ -4909,10 +4909,19 @@ pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x6fe8, 3)?;
         c.call(0x6b96, 0x6ff2)?;
         if c.flag(CF) {
-            // 707Bh: held.
+            // 707Bh: held: no rate, nothing harvested.
             c.run(0x6ff2, 2 + 4)?; // jae; jmp; 707Bh: mov; mov; or; ret
-            troop.set_rate(&mut c, 0);
-            troop.set_word_0e(&mut c, 0);
+            match troop.record(&mut c) {
+                Some(mut r) => {
+                    r.rate = 0;
+                    r.word_0e = 0;
+                    troop.store(&mut c, r);
+                }
+                None => {
+                    troop.set_rate(&mut c, 0);
+                    troop.set_word_0e(&mut c, 0);
+                }
+            }
             return held_end(&mut c, troop);
         }
         c.run(0x6ff2, 2)?;

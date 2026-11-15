@@ -1,0 +1,220 @@
+//! The game's record tables as Rust state (Stage B of
+//! `docs/readable-port-plan.md`): the troops (`hand/troop_table.rs`) and
+//! the locations, kept with the machine ([`super::native`]).
+//!
+//! Each record is cached the first time it is used. The views
+//! (`hand/game.rs`'s `Troop`, `Location`) read and write through the
+//! cache; every change is written through to the memory, which stays the
+//! mirror (the suite compares it, the save image copies it, and code that
+//! doesn't use a view reads it), and every access first compares the
+//! record with its bytes there. A difference is a write the view didn't
+//! make, and the record takes the memory's bytes:
+//! - a port's writes that don't use a view yet are followed (`Ctx`'s
+//!   writes tell the table, [`follow`]), not counted;
+//! - a save loaded and the tools' own stepping are told ([`outside`]);
+//! - the generated code (the original's code in Rust, finishing a port
+//!   that gave up at a stop) is counted apart ([`after_generated`]) when
+//!   it ran since the record was last verified (`Rec::generated_runs`);
+//! - anything else is unforeseen ([`syncs`]; the suite wants none).
+//!
+//! `TROOPS_TRACE=1` prints each sync-in with the offsets that differed,
+//! and each write a port makes into a table without its view.
+
+use super::{Ctx, globals as g};
+use pc::{Machine, cpu::Bus};
+
+/// The longest record.
+const MAX: usize = 0x1c;
+
+/// The tables.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Which {
+    /// 43h troops of 1Bh bytes at 8AAh.
+    Troops,
+    /// 46h locations of 1Ch bytes at 100h (an FFh after the last).
+    Locations,
+}
+
+impl Which {
+    pub const ALL: [Which; 2] = [Which::Troops, Which::Locations];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Which::Troops => "troops",
+            Which::Locations => "locations",
+        }
+    }
+    const fn base(self) -> u16 {
+        match self {
+            Which::Troops => g::TROOPS,
+            Which::Locations => 0x100,
+        }
+    }
+    pub const fn size(self) -> u16 {
+        match self {
+            Which::Troops => 0x1b,
+            Which::Locations => 0x1c,
+        }
+    }
+    pub const fn count(self) -> usize {
+        match self {
+            Which::Troops => ((g::TROOPS_END - g::TROOPS) / 0x1b) as usize,
+            Which::Locations => 0x46,
+        }
+    }
+    fn end(self) -> u16 {
+        self.base() + self.size() * self.count() as u16
+    }
+}
+
+/// A record's bytes (the first [`Which::size`] used).
+pub type Bytes = [u8; MAX];
+
+/// One table's part of the Rust state kept with a machine.
+#[derive(Default)]
+pub struct RecordTable {
+    /// By record; none until first used (or after a boundary).
+    records: Vec<Option<Bytes>>,
+    /// By record: the count of the generated code's runs when it last
+    /// matched.
+    verified_at: Vec<u64>,
+    /// Unforeseen writes (see the module's notes).
+    syncs: u64,
+    /// Writes of the generated code.
+    after_generated: u64,
+}
+
+fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
+    let n = super::native::native(m);
+    let t = match w {
+        Which::Troops => &mut n.troops,
+        Which::Locations => &mut n.locations,
+    };
+    if t.records.is_empty() {
+        t.records = vec![None; w.count()];
+        t.verified_at = vec![0; w.count()];
+    }
+    t
+}
+
+/// How often a record of `w` took the memory's bytes, unforeseen.
+pub fn syncs(m: &mut Machine, w: Which) -> u64 {
+    table(m, w).syncs
+}
+
+/// How often a record of `w` took the memory's bytes the generated code
+/// wrote.
+pub fn after_generated(m: &mut Machine, w: Which) -> u64 {
+    table(m, w).after_generated
+}
+
+fn generated_runs(m: &Machine) -> u64 {
+    m.rec.as_ref().map_or(0, |r| r.generated_runs)
+}
+
+/// The record of `w` at `offset` in the data segment, if it starts one.
+pub fn index(w: Which, offset: u16) -> Option<usize> {
+    let k = offset.checked_sub(w.base())?;
+    (offset < w.end() && k % w.size() == 0).then_some((k / w.size()) as usize)
+}
+
+fn record_offset(w: Which, i: usize) -> u16 {
+    w.base() + i as u16 * w.size()
+}
+
+/// The record's bytes in the memory.
+fn mirror(m: &mut Machine, w: Which, i: usize) -> Bytes {
+    let mut b = [0u8; MAX];
+    for (k, v) in b.iter_mut().enumerate().take(w.size() as usize) {
+        let a = m.cpu.phys(g::GAME_DS, record_offset(w, i) + k as u16);
+        *v = m.hw.read8(a);
+    }
+    b
+}
+
+/// Record `i` of `w`, in step with the memory.
+pub(super) fn get(c: &mut Ctx, w: Which, i: usize) -> Bytes {
+    let mem = mirror(c.m, w, i);
+    let now = generated_runs(c.m);
+    let t = table(c.m, w);
+    let since = t.verified_at[i];
+    t.verified_at[i] = now;
+    match t.records[i] {
+        Some(r) if r == mem => r,
+        Some(r) => {
+            if now > since {
+                t.after_generated += 1;
+            } else {
+                t.syncs += 1;
+            }
+            t.records[i] = Some(mem);
+            if std::env::var_os("TROOPS_TRACE").is_some() {
+                let at: Vec<String> = (0..w.size() as usize).filter(|&k| r[k] != mem[k]).map(|k| format!("{k:02x}:{:02x}>{:02x}", r[k], mem[k])).collect();
+                let why = if now > since { "after the generated code ran" } else { "UNFORESEEN" };
+                eprintln!("{} sync-in ({why}), record {} at insn {} ({:04x}): {}", w.name(), i + 1, c.m.cpu.instructions, c.m.cpu.ip, at.join(" "));
+            }
+            mem
+        }
+        None => {
+            t.records[i] = Some(mem);
+            mem
+        }
+    }
+}
+
+/// Record `i` of `w` changed to `r`: kept, and its changed bytes written
+/// through.
+pub(super) fn set(c: &mut Ctx, w: Which, i: usize, r: Bytes) {
+    let old = get(c, w, i);
+    table(c.m, w).records[i] = Some(r);
+    for k in 0..w.size() as usize {
+        if r[k] != old[k] {
+            let a = c.m.cpu.phys(g::GAME_DS, record_offset(w, i) + k as u16);
+            c.m.hw.write8(a, r[k]);
+        }
+    }
+}
+
+/// Byte `field` of record `i` of `w`.
+pub(super) fn byte(c: &mut Ctx, w: Which, i: usize, field: u16) -> u8 {
+    get(c, w, i)[field as usize]
+}
+
+/// Byte `field` of record `i` of `w` set.
+pub(super) fn set_byte(c: &mut Ctx, w: Which, i: usize, field: u16, v: u8) {
+    let mut b = get(c, w, i);
+    b[field as usize] = v;
+    set(c, w, i, b);
+}
+
+/// A port wrote `len` bytes at the linear address `at` other than through
+/// a view: a table's records there that are cached take the memory's
+/// bytes (not counted). True when it hit one (for the trace).
+pub(super) fn follow(m: &mut Machine, at: u32, len: u32) -> Option<(Which, usize, u16)> {
+    let mut hit = None;
+    for w in Which::ALL {
+        let t0 = m.cpu.phys(g::GAME_DS, w.base());
+        let t1 = m.cpu.phys(g::GAME_DS, w.end());
+        if at + len > t0 && at < t1 {
+            let first = (at.max(t0) - t0) as usize / w.size() as usize;
+            let last = ((at + len - 1).min(t1 - 1) - t0) as usize / w.size() as usize;
+            for i in first..=last {
+                if table(m, w).records[i].is_some() {
+                    let mem = mirror(m, w, i);
+                    table(m, w).records[i] = Some(mem);
+                }
+            }
+            let k = (at.max(t0) - t0) as usize;
+            hit = Some((w, k / w.size() as usize, (k % w.size() as usize) as u16));
+        }
+    }
+    hit
+}
+
+/// The machine ran outside the recompiled code on purpose, or a save was
+/// loaded: every record is read from the memory again when next used.
+pub fn outside(m: &mut Machine) {
+    for w in Which::ALL {
+        table(m, w).records.iter_mut().for_each(|r| *r = None);
+    }
+}

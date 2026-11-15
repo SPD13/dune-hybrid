@@ -31,6 +31,7 @@ mod audio;
 pub mod clock;
 pub mod native;
 pub mod troop_table;
+pub mod record_table;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1422,20 +1423,16 @@ impl Ctx<'_> {
         self.m.cpu.write16(&mut self.m.hw, DS, off, v);
         self.wrote(DS, off, 2);
     }
-    /// A port wrote `len` bytes at `seg:off`: a record of the troop table
-    /// kept in Rust (`hand/troop_table.rs`) follows (the port is Rust
-    /// code, not a write from outside). `TROOPS_TRACE=1` lists such
-    /// writes, which don't go through the view yet.
+    /// A port wrote `len` bytes at `seg:off`: a record of a table kept in
+    /// Rust (`hand/record_table.rs`) there follows (the port is Rust code,
+    /// not a write from outside). `TROOPS_TRACE=1` lists such writes,
+    /// which don't go through a view yet.
     fn wrote(&mut self, seg: usize, off: u16, len: u16) {
         let at = self.m.cpu.phys(self.m.cpu.sregs[seg], off);
-        let t0 = self.m.cpu.phys(globals::GAME_DS, globals::TROOPS);
-        let t1 = self.m.cpu.phys(globals::GAME_DS, globals::TROOPS_END);
-        if at + len as u32 > t0 && at < t1 {
-            let k = (at.max(t0) - t0) as usize;
-            troop_table::follow(self.m, k / 0x1b, (at + len as u32 - 1 - t0) as usize / 0x1b);
+        if let Some((w, i, field)) = record_table::follow(self.m, at, len as u32) {
             static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
             if *ON.get_or_init(|| std::env::var_os("TROOPS_TRACE").is_some()) {
-                eprintln!("troops raw write by {:04x} (at {:04x}): troop {} field {:02x} ({len})", self.entry, self.m.cpu.ip, k / 0x1b + 1, k % 0x1b);
+                eprintln!("{} raw write by {:04x} (at {:04x}): record {} field {field:02x} ({len})", w.name(), self.entry, self.m.cpu.ip, i + 1);
             }
         }
     }

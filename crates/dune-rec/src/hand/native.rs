@@ -9,7 +9,8 @@ use pc::Machine;
 #[derive(Default)]
 pub struct Native {
     pub clock: super::clock::ClockState,
-    pub troops: super::troop_table::TroopTable,
+    pub troops: super::record_table::RecordTable,
+    pub locations: super::record_table::RecordTable,
 }
 
 /// The machine's Rust state (made on first use).
@@ -23,5 +24,5 @@ pub fn native(m: &mut Machine) -> &mut Native {
 /// sync-in).
 pub fn outside(m: &mut Machine) {
     super::clock::outside(m);
-    super::troop_table::outside(m);
+    super::record_table::outside(m);
 }

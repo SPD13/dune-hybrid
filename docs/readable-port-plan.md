@@ -357,12 +357,16 @@ save's image is built from the memory (`create_save_in_memory`), so it
 would need the clock's values, and the tick would need to finish in
 Rust across such a stop.
 
-### The troops (in Rust with a mirror, under way)
+### The troops and the locations (in Rust with a mirror)
 
-`hand/troop_table.rs`: each record of the troop table (67 of 1Bh bytes
-at 8AAh) is a `TroopRecord` kept with the machine (`hand/native.rs`
-holds the subsystems' state); the `Troop` view (`hand/game.rs`) reads
-and writes through it, with the clock's mirror and check. Writes a port
+`hand/record_table.rs`: the game's record tables, the troops (43h of
+1Bh bytes at 8AAh) and the locations (46h of 1Ch bytes at 100h), are
+kept with the machine (`hand/native.rs` holds the subsystems' state);
+the `Troop` and `Location` views (`hand/game.rs`) read and write through
+them, with the clock's mirror and check. A troop is also a typed
+`TroopRecord` (`hand/troop_table.rs`): `Troop::record` / `store` give a
+port the whole record (the harvest's held troop clears its rate and
+word 0Eh that way). Writes a port
 makes without the view (through `Ctx`) are followed, a save loaded and
 the tools' stepping are told; the generated code (the original's code
 in Rust, finishing a port that gave up at a stop) is counted apart when
@@ -370,8 +374,8 @@ it ran since the record was last verified (`Rec::generated_runs`: a
 routine taken from the generated table, or a return into the generated
 code from a call it made; a hand port's own calls are marked and don't
 count). The runner prints both (`troops: N sync-ins (M written by the
-generated code)`), and the suite wants `troops: 0 sync-ins` in every
-game, as it does for the clock. `TROOPS_TRACE=1` prints each sync-in and
+generated code)`, and the same for `locations:`), and the suite wants 0
+sync-ins for both in every game, as it does for the clock. `TROOPS_TRACE=1` prints each sync-in and
 each write a port makes into the table without the view.
 
 What the sync-ins showed: the troops' job handlers (the table at

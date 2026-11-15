@@ -793,8 +793,12 @@ fn main() -> ExitCode {
         // the memory's values, written by code outside it.
         let (n, t) = (dune_rec::hand::clock::syncs(&mut m), dune_rec::hand::clock::ticks_outside(&mut m));
         println!("clock: {n} sync-ins ({t} ticks counted by the original's code, as the clock predicts)");
-        let (n, b) = (dune_rec::hand::troop_table::syncs(&mut m), dune_rec::hand::troop_table::after_bails(&mut m));
-        println!("troops: {n} sync-ins ({b} written by the generated code)");
+        // The record tables kept in Rust (dune_rec::hand::record_table).
+        use dune_rec::hand::record_table::{self, Which};
+        for w in Which::ALL {
+            let (n, b) = (record_table::syncs(&mut m, w), record_table::after_generated(&mut m, w));
+            println!("{}: {n} sync-ins ({b} written by the generated code)", w.name());
+        }
     }
     if let Some(rec) = &m.rec {
         rec_report(rec, args.rec_report.as_deref(), m.cpu.instructions);
