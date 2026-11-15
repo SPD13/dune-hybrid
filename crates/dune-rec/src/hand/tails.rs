@@ -377,7 +377,7 @@ pub fn b18b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xb18b, 1)?;
     c.call(0xadbe, 0xb18e)?;
     c.run(0xb18e, 4)?;
-    c.set_byte(g::CLOCK_STOPPED, 0);
+    c.update_clock(|k| k.start());
     c.set_byte(0xc6, 0);
     c.set_byte(0x1c30, 0);
     c.call(0xca01, 0xb1a0)?;
@@ -411,7 +411,7 @@ pub fn room_189a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x18ae, 1)?;
     c.call(0xae04, 0x18b1)?;
     c.run(0x18b1, 3)?;
-    let t = c.word(g::TIMER);
+    let t = c.timer();
     c.set_reg(AX, t);
     c.set_word(0xdc5a, t);
     c.jump(0x17e6)
@@ -814,7 +814,7 @@ pub fn results_be1d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0xdd17, 0);
     c.set_word(0xdd19, 0);
     c.set_word(0xdd1b, 0);
-    let d = c.word(g::GAME_TIME);
+    let d = c.game_time();
     let d = pure::and(W, d, 0xfff0);
     c.set_reg(AX, d);
     c.set_word(0x115c, d);
@@ -1496,7 +1496,7 @@ pub fn results_bed7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xbed7)?;
     let mut c = Ctx::new(m);
     c.run(0xbed7, 4)?;
-    let d = c.word(g::GAME_TIME);
+    let d = c.game_time();
     c.set_reg(AX, d);
     let d = pure::and(W, d, 0xfff0);
     c.set_reg(AX, d);
@@ -1795,7 +1795,7 @@ pub fn create_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0x38af, cl as u8);
     c.call(0xb427, 0xb393)?;
     c.run(0xb393, 8)?;
-    let d = c.word(g::GAME_TIME);
+    let d = c.game_time();
     c.set_reg(AX, d);
     let ds = c.sreg(DS);
     c.push(ds);
@@ -2137,7 +2137,7 @@ pub fn time_0f95(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xb2be, 0x0f9f)?;
     c.run(0x0f9f, 3)?;
     let v = c.pop();
-    let t = c.word(g::GAME_TIME);
+    let t = c.game_time();
     let n = pure::sub(W, v, t);
     c.set_reg(CX, n);
     c.call(0x0fd9, 0x0fa7)?;
@@ -2194,7 +2194,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(to, ret)?;
     }
     c.run(0x0dbc, 2)?;
-    c.set_word(g::GAME_TIME, 0x16c5);
+    c.update_clock(|k| k.time = 0x16c5);
     c.call(0x0e66, 0x0dc5)?;
     c.run(0x0dc5, 2)?;
     c.set_byte(0x11ca, 1);

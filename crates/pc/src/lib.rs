@@ -149,6 +149,10 @@ pub struct Machine {
     pub break_at: Option<(u16, u16)>,
     /// Recompiled routines (see [`rec`]), when set.
     pub rec: Option<Box<rec::Rec>>,
+    /// State the recompiled code keeps in Rust (its subsystems moved out
+    /// of the 8086 memory, kept in step with it), made on first use. Not
+    /// in snapshots: it syncs in from the memory after one is restored.
+    pub native: Option<Box<dyn std::any::Any + Send>>,
 }
 
 /// Detects the game's busy-wait: back-to-back INT 33h/3 polls with nothing
@@ -200,6 +204,7 @@ impl Machine {
             coverage: None,
             break_at: None,
             rec: None,
+            native: None,
         };
         for _ in 0..5 {
             m.files.push(None);

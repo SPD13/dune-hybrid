@@ -245,7 +245,7 @@ pub fn frame_wait_c8c1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xc8c1, 8 + (dx < ox) as u32 + 2 + (bx < oy) as u32 + 3)?;
     c.push(bx);
     c.push(dx);
-    let t0 = c.word(g::TIMER);
+    let t0 = c.timer();
     c.push(t0);
     c.set_reg(SI, at);
     c.set_reg(DX, dx.saturating_sub(ox));
@@ -270,7 +270,7 @@ pub fn frame_wait_c8c1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, t0);
     loop {
         c.run(0xc8ed, 4)?;
-        let t = c.word(g::TIMER);
+        let t = c.timer();
         // Until [0DBE6h] ticks have passed.
         let d = t.wrapping_sub(t0);
         c.set_reg(AX, d);

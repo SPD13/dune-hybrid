@@ -4394,7 +4394,7 @@ fn toggle_map_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.run(0x18ae, 1)?;
     c.call(0xae04, 0x18b1)?;
     c.run(0x18b1, 3)?;
-    let t = c.word(g::TIMER);
+    let t = c.timer();
     c.set_reg(AX, t);
     c.set_word(0xdc5a, t);
     super::ui::ui_head_animate_up(c.m, 0x17e6)
@@ -4426,12 +4426,12 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let e0 = c.word(g::SPRITE_LIST);
     if e0 == 0x194a {
-        let (t1, t0) = (c.word(g::TIMER), c.word(0xdc5a));
+        let (t1, t0) = (c.timer(), c.word(0xdc5a));
         let t = t1.wrapping_sub(t0);
         if t >= 0x3e8 {
             c.run(start, 8)?;
             c.set_reg(DI, e0);
-            let (t1, t0) = (c.word(g::TIMER), c.word(0xdc5a));
+            let (t1, t0) = (c.timer(), c.word(0xdc5a));
             let a = pure::sub(W, t1, t0);
             c.set_reg(AX, a);
             c.call(0xdbb2, 0x5c1c)?;
@@ -4448,7 +4448,7 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, n)?;
     c.set_reg(DI, e0);
     if e0 == 0x194a {
-        let (t1, t0) = (c.word(g::TIMER), c.word(0xdc5a));
+        let (t1, t0) = (c.timer(), c.word(0xdc5a));
             let a = pure::sub(W, t1, t0);
         c.set_reg(AX, a);
     }
@@ -6488,7 +6488,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0xdbec);
     c.push(0xdbec);
     c.call(0xca60, 0x4f27)?;
-    let t = c.word(g::TIMER);
+    let t = c.timer();
     let last = c.word(0x4729);
     let d = t.wrapping_sub(last);
     c.run(0x4f27, if d < 0x300 { 5 } else { 4 })?;

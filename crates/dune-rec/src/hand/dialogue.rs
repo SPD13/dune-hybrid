@@ -1589,7 +1589,7 @@ pub fn pick_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut di = None;
     let mut pushed = false;
     if al0 >= 0x11 {
-        let t = c.word(g::GAME_TIME) << 2;
+        let t = c.game_time() << 2;
         ah = (t >> 8) as u8;
         n = 2 + 5;
         if ah >= 8 {
@@ -2029,7 +2029,7 @@ pub fn start_text_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x3811);
     c.interp(0xa770, 0xa774)?;
     c.run(0xa774, 4)?;
-    let time = c.word(g::TIMER);
+    let time = c.timer();
     c.set_reg(AX, time);
     c.set_word(0xdc2c, time);
     c.set_word(0xdc2e, 0x8000);

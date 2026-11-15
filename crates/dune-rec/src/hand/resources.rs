@@ -59,7 +59,8 @@ pub(super) fn open(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(BX, slot);
     if slot & 0x8000 == 0 {
         c.run(0xc153, 2)?;
-        let used = c.word(g::TIMER + 1);
+        // The ticks / 256 ([0CE7Bh]).
+        let used = (c.clock().ticks >> 8) as u16;
         c.set_reg(SI, used);
         c.set_word(slot.wrapping_add(RESOURCE_LAST_USE), used);
     }

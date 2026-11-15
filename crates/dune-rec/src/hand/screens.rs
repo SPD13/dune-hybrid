@@ -637,7 +637,7 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xd295, 5)?;
         let cx = c.reg(CX);
         c.push(cx);
-        let t = c.word(g::TIMER);
+        let t = c.timer();
         c.push(t);
         let si = c.word(g::FRAMEBUFFER_2);
         c.set_reg(SI, si);
@@ -651,7 +651,7 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let bx = c.reg(BX);
             c.push(bx);
             c.call(0xa7c2, 0xd2a8)?;
-            let t = c.word(g::TIMER);
+            let t = c.timer();
             let d = t.wrapping_sub(c.word_in(SS, c.reg(SP)));
             let more = d < 6;
             c.run(0xd2a8, 5)?;
@@ -765,7 +765,7 @@ pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(to, back)?;
     }
     c.run(0xbdce, 4)?;
-    let t = c.word(g::GAME_TIME);
+    let t = c.game_time();
     let t = pure::and(W, t, 0xfff0);
     c.set_reg(AX, t);
     c.set_word(0x115c, t);
@@ -845,7 +845,7 @@ pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd7b7)?;
     let mut c = Ctx::new(m);
-    let t = c.word(g::TIMER);
+    let t = c.timer();
     let ah = ((t << 2) >> 8) as u8;
     let last = c.byte(0xdcf1);
     if ah == last {

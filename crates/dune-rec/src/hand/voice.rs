@@ -527,7 +527,7 @@ pub fn shuffle_37fa(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xaccb, 5)?;
         let a = c.reg(AX);
         c.set_reg(SI, a);
-        let t = c.word(g::TIMER);
+        let t = c.timer();
         let cx = c.reg(CX);
         let t = pure::xor(W, t, cx);
         c.set_reg(AX, t);
@@ -565,7 +565,7 @@ pub fn wait_voice_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0xabac, 4)?;
-    let t0 = c.word(g::TIMER);
+    let t0 = c.timer();
     c.set_reg(BX, t0);
     loop {
         let bx = c.reg(BX);
@@ -583,7 +583,7 @@ pub fn wait_voice_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let sp = c.reg(pc::cpu::SP);
         let bx = c.word_in(SS, sp);
-        let t = c.word(g::TIMER);
+        let t = c.timer();
         let left = t.wrapping_sub(bx) < 0x3e8;
         c.run(0xabb9, 6 + if left { 2 } else { 2 })?;
         let bx = c.pop();
@@ -1005,7 +1005,7 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let t0 = c.word(g::MUSIC_DBD2);
-    let now = c.word(g::TIMER);
+    let now = c.timer();
     let base = if t0 == 0 { now } else { t0 };
     let el = now.wrapping_sub(base);
     let n = 3 + 4 + 3 + if t0 == 0 { 2 } else { 0 } + 4;
@@ -1268,7 +1268,7 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xa7d1, 3)?;
         return feed_a9b9(&mut c);
     }
-    let now = c.word(g::TIMER);
+    let now = c.timer();
     let (t_hi, t_lo) = (c.word(0xdc2c), c.word(0xdc2e));
     let (cx, si) = (c.word(0x2882), c.word(0x2884));
     let (_, carry) = t_lo.overflowing_add(si);
@@ -1375,7 +1375,7 @@ fn next_phrase_a789(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(SI, 0x3811);
     c.interp(0xa770, 0xa774)?;
     c.run(0xa774, 4)?;
-    let t = c.word(g::TIMER);
+    let t = c.timer();
     c.set_reg(AX, t);
     c.set_word(0xdc2c, t);
     c.set_word(0xdc2e, 0x8000);

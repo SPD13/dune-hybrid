@@ -201,7 +201,7 @@ pub fn stamp(c: &mut Ctx, record: u16, time: u16) {
 
 /// The game time (word [2]).
 pub fn game_time(c: &mut Ctx) -> u16 {
-    c.word(g::GAME_TIME)
+    c.game_time()
 }
 
 /// The location the player is at ([114Eh]: a [`Location`] record).

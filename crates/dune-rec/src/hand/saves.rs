@@ -166,6 +166,8 @@ pub fn restore_from_save_memory(m: &mut Machine, start: u16) -> Result<(), Bail>
         c.rep_counted(0xa4); // rep movsb
     }
     c.run(0xb4ba, 1)?;
+    // The game time came with the save: the clock takes it.
+    super::clock::loaded(&mut c);
     c.ret()
 }
 

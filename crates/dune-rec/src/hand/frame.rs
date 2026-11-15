@@ -43,7 +43,7 @@ pub fn process_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::SUB_ACE6, 0xd9d5)?;
     let count = c.word(g::FRAME_TASKS);
     c.run(0xd9d5, 9)?; // ...; jcxz; then ret, or add si, 4
-    let now = c.word(g::TIMER);
+    let now = c.timer();
     c.set_reg(AX, now);
     let last = c.word(g::FRAME_TASKS_LAST_TICK);
     c.set_word(g::FRAME_TASKS_LAST_TICK, now);
@@ -218,7 +218,7 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
     c.run(start, 3)?;
     let ax = c.reg(AX);
     c.push(ax);
-    let t0 = c.word(g::TIMER);
+    let t0 = c.timer();
     c.push(t0);
     let target = c.reg(BP);
     c.call(target, 0xe35a)?;
@@ -255,7 +255,7 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
             c.cmp(B, 0, 0);
             c.call(code::PAUSE_IF_P_KEY_PRESSED, 0xe37b)?;
         }
-        let now = c.word(g::TIMER);
+        let now = c.timer();
         let (bx, bp) = (c.reg(BX), c.reg(BP));
         let passed = now.wrapping_sub(bx);
         let more = passed < bp;
@@ -281,7 +281,7 @@ pub fn hnm_wait_for_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let sync = c.word(g::HNM_SYNC);
     if sync == 0xffff {
-        let (now, tick) = (c.word(g::TIMER), c.word(g::HNM_FRAME_TICK));
+        let (now, tick) = (c.timer(), c.word(g::HNM_FRAME_TICK));
         let passed = now.wrapping_sub(tick);
         let rate = c.byte(g::HNM_FRAME_TICKS);
         let early = passed >> 8 == 0 && (passed as u8) < rate;
@@ -289,7 +289,7 @@ pub fn hnm_wait_for_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, n)?;
         let ax = c.inc(W, sync);
         c.set_reg(AX, ax);
-        let now = c.word(g::TIMER);
+        let now = c.timer();
         let tick = c.word(g::HNM_FRAME_TICK);
         let p = c.sub(W, now, tick);
         c.set_reg(AX, p);

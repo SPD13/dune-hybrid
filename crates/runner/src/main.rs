@@ -775,6 +775,11 @@ fn main() -> ExitCode {
             println!("driver {name} at {seg:04x} -> {}", p.display());
         }
     }
+    if m.rec.is_some() {
+        // The clock kept in Rust (dune_rec::hand::clock): how often it took
+        // the memory's values, written by code outside it.
+        println!("clock: {} sync-ins", dune_rec::hand::clock::syncs(&mut m));
+    }
     if let Some(rec) = &m.rec {
         rec_report(rec, args.rec_report.as_deref(), m.cpu.instructions);
         if rec.mode == pc::rec::RecMode::On {

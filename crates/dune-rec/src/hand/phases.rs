@@ -126,7 +126,7 @@ pub fn sub_10be(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x10be)?;
     let mut c = Ctx::new(m);
     c.run(start, 10)?;
-    let time = c.word(g::GAME_TIME);
+    let time = c.game_time();
     c.set_reg(AX, time);
     c.set_word(g::WORD_1154, time);
     c.set_word(g::WORD_1018, 0x2006);

@@ -23,7 +23,8 @@ use pc::{
 pub fn pit_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xef6a)?;
     let mut c = Ctx::new(m);
-    let held = c.byte_at_seg(g::GAME_DS, 0xceea) as i8 > 0;
+    let mut clock = c.clock();
+    let held = clock.is_held();
     c.run(0xef6a, 8)?;
     let ax = c.reg(AX);
     c.push(ax);
@@ -34,46 +35,27 @@ pub fn pit_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, g::GAME_DS);
     c.set_sreg(DS, g::GAME_DS);
     c.set_flag(pc::cpu::DF, false);
-    let v = c.byte(0xceea);
-    c.cmp(B, v as u16, 0);
+    // Its CF (clear) reaches the BIOS's handler when held: the `dec`
+    // before the chain keeps CF (else the frame tasks' CF).
+    c.cmp(B, clock.held as u16, 0);
     if !held {
-        let t = c.word(g::TIMER).wrapping_add(1);
-        let wraps = t == 0;
-        let fz = c.byte(g::CLOCK_STOPPED);
-        let frozen = fz != 0;
-        let n = c.word(g::CLOCK_COUNTDOWN).wrapping_sub(1);
-        let restart = !frozen && n & 0x8000 != 0;
+        // The clock's tick ([`Clock::tick`]); the cost by the original's
+        // path through it.
+        let wraps = clock.ticks as u16 == 0xffff;
+        let frozen = clock.stopped != 0;
+        let restart = !frozen && clock.countdown.wrapping_sub(1) & 0x8000 != 0;
         c.run(0xef7a, 2 + wraps as u32 + 2 + if frozen { 0 } else { 2 + 4 * restart as u32 } + 1)?;
-        let t = c.inc(W, t.wrapping_sub(1));
-        c.set_word(g::TIMER, t);
-        if wraps {
-            let h = c.word(g::TIMER_HIGH);
-            let h = c.inc(W, h);
-            c.set_word(g::TIMER_HIGH, h);
+        if clock.tick() {
+            c.set_reg(AX, clock.period);
         }
-        c.cmp(B, fz as u16, 0);
-        if !frozen {
-            let n = c.dec(W, n.wrapping_add(1));
-            c.set_word(g::CLOCK_COUNTDOWN, n);
-            if restart {
-                let p = c.word(g::CLOCK_PERIOD);
-                c.set_reg(AX, p);
-                c.set_word(g::CLOCK_COUNTDOWN, p);
-                let time = c.word(g::GAME_TIME);
-                let time = c.inc(W, time);
-                c.set_word(g::GAME_TIME, time);
-                let d = c.byte(g::CLOCK_STEPS_PENDING);
-                let d = c.inc(B, d as u16);
-                c.set_byte(g::CLOCK_STEPS_PENDING, d as u8);
-            }
-        }
+        clock.set(&mut c);
         c.call(0xefba, 0xefa2)?;
     }
     let k = c.byte(0xce72).wrapping_sub(1);
     c.run(0xefa2, 3)?;
     let es = c.pop();
     c.set_sreg(ES, es);
-    let k = c.dec(B, k.wrapping_add(1) as u16) as u8;
+    let k = c.dec(B, k.wrapping_add(1) as u16) as u8; // the BIOS's handler sees the flags
     c.set_byte(0xce72, k);
     if k & 0x80 != 0 {
         // Chain to the BIOS's handler: the far jump's target is code the

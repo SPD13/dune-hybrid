@@ -8,7 +8,7 @@ use super::pure;
 use super::{B, Ctx, W, r8, entered};
 use pc::{
     Machine,
-    cpu::{AX, BX, CF, CX, DI, IF, SI, SS, ZF},
+    cpu::{AX, BX, CF, CX, DI, IF, SI, ZF},
     rec::Bail,
 };
 
@@ -56,11 +56,11 @@ pub fn wait_a_bit(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut n = ax;
     loop {
         c.run(0xe38f, 1)?;
-        let t0 = c.word_in(SS, g::TIMER);
+        let t0 = c.timer();
         c.set_reg(AX, t0);
         loop {
             c.run(0xe393, 2)?;
-            let t = c.word_in(SS, g::TIMER);
+            let t = c.timer();
             if t != t0 {
                 break;
             }
@@ -111,7 +111,7 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
     c.sti();
     loop {
         c.run(0xddca, 3)?;
-        let t0 = c.word(g::TIMER);
+        let t0 = c.timer();
         c.push(t0);
         let cx = c.reg(CX);
         c.push(cx);
@@ -128,7 +128,7 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
         c.set_reg(BX, t0);
         let d = loop {
             c.run(0xddd8, 3)?;
-            let t = c.word_in(SS, g::TIMER);
+            let t = c.timer();
             let d = c.sub(W, t0, t);
             c.set_reg(AX, d);
             if d != 0 {
@@ -229,7 +229,7 @@ pub fn audio_test_frequency(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x3811);
     c.interp(0xa890, 0xa894)?;
     c.run(0xa894, 2)?;
-    let t0 = c.word(g::TIMER);
+    let t0 = c.timer();
     c.push(t0);
     c.call(0xa9e7, 0xa89b)?;
     while c.flag(ZF) {
@@ -237,7 +237,7 @@ pub fn audio_test_frequency(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0xa9e7, 0xa89b)?;
     }
     c.run(0xa89b, 10)?;
-    let t = c.word(g::TIMER);
+    let t = c.timer();
     let bx = c.pop();
     c.set_reg(BX, bx);
     let d = pure::sub(W, t, bx);

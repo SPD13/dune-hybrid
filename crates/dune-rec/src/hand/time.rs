@@ -14,8 +14,7 @@ pub fn get_ingame_time_of_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1ae0)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let time = c.word(g::GAME_TIME);
-    let slot = pure::and(W, time, 0x0f);
+    let slot = c.clock().time_of_day();
     c.set_reg(AX, slot);
     c.ret()
 }
@@ -26,8 +25,7 @@ pub fn get_ingame_day_q(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1ac5)?;
     let mut c = Ctx::new(m);
     c.run(start, 6)?;
-    let time = c.word(g::GAME_TIME);
-    let day = pure::shr1(W, time, 4);
+    let day = c.clock().day_from_0();
     c.set_reg(AX, day);
     c.ret()
 }
@@ -38,9 +36,7 @@ pub fn get_ingame_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1ad1)?;
     let mut c = Ctx::new(m);
     c.run(start, 7)?;
-    let time = c.word(g::GAME_TIME);
-    let t = pure::add(W, time, 3);
-    let day = pure::shr1(W, t, 4);
+    let day = c.clock().day();
     c.set_reg(AX, day);
     c.ret()
 }
@@ -55,7 +51,7 @@ pub fn sky_palette_for_game_time(m: &mut Machine, start: u16) -> Result<(), Bail
     entered(start, 0x395c)?;
     let mut c = Ctx::new(m);
     c.run(start, 10)?;
-    let time = c.word(g::GAME_TIME);
+    let time = c.game_time();
     // mov ah, al; shr ah, 1 (twice); and ax, 1C0Fh: the flags of the `and`
     // only depend on its result.
     let ah = (time as u8 >> 2) as u16;
@@ -75,9 +71,7 @@ pub fn stop_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb2b9)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let n = c.byte(g::CLOCK_STOPPED);
-    let n = pure::inc(B, n as u16);
-    c.set_byte(g::CLOCK_STOPPED, n as u8);
+    c.update_clock(|k| k.stop());
     c.ret()
 }
 
@@ -85,12 +79,9 @@ pub fn stop_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn release_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb2b3)?;
     let mut c = Ctx::new(m);
-    let n = c.byte(g::CLOCK_STOPPED);
-    let below = n.wrapping_sub(1) & 0x80 != 0;
+    let below = c.clock().stopped.wrapping_sub(1) & 0x80 != 0;
     c.run(start, if below { 4 } else { 3 })?;
-    let n = pure::dec(B, n as u16);
-    let n = if below { pure::inc(B, n) } else { n };
-    c.set_byte(g::CLOCK_STOPPED, n as u8);
+    c.update_clock(|k| k.release());
     c.ret()
 }
 
@@ -99,7 +90,7 @@ pub fn start_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb2be)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_byte(g::CLOCK_STOPPED, 0);
+    c.update_clock(|k| k.start());
     c.ret()
 }
 
@@ -122,22 +113,19 @@ pub fn run_clock_ticks(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_byte(TICKING, 0);
             return c.ret();
         }
-        let pending = c.byte(g::CLOCK_STEPS_PENDING) != 0;
+        let pending = c.clock().steps_pending != 0;
         c.run(0x0fe1, 7 + pending as u32)?;
         c.push(cx);
-        let reset = c.word(g::CLOCK_PERIOD);
+        let reset = c.clock().period;
         c.set_reg(AX, reset);
-        c.set_word(g::CLOCK_COUNTDOWN, reset);
+        c.update_clock(|k| k.restart_countdown());
         if pending {
             c.call(0x1b23, 0x0ff6)?;
             c.run(0x0ff6, 3)?;
         } else {
             c.run(0x0ff6, 3)?;
         }
-        let t = c.word(g::GAME_TIME);
-        let t = pure::inc(W, t);
-        c.set_word(g::GAME_TIME, t);
-        c.set_byte(g::CLOCK_STEPS_PENDING, 1);
+        c.update_clock(|k| k.advance());
         c.call(0x1b23, 0x1002)?;
         let sp = c.reg(pc::cpu::SP);
         let cx = c.word_in(pc::cpu::SS, sp).wrapping_sub(1);

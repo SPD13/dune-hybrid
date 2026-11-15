@@ -212,7 +212,7 @@ pub fn sub_1ae7(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x1aea, 3)?;
         return c.ret();
     }
-    let now = c.word(g::TIMER);
+    let now = c.timer();
     let seen = c.word(g::HEAD_ZOOM_SEEN);
     if now == seen {
         c.run(0x1aea, 6)?;

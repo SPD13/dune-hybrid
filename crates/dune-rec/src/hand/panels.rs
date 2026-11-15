@@ -93,7 +93,7 @@ pub fn ui_draw_date_and_time_indicator(m: &mut Machine, start: u16) -> Result<()
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x1a42)?;
     c.run(0x1a42, 9)?;
     // The sun and the moon for the time of day (8 bytes a slot).
-    let slot = c.word(g::GAME_TIME) & 0x0f;
+    let slot = c.game_time() & 0x0f;
     let si = (slot << 3) + g::SUN_MOON_POSITIONS;
     c.set_reg(SI, si);
     c.set_reg(AX, 0x4a);
@@ -953,7 +953,7 @@ pub fn sub_c85b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc85b)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
-    let now = c.word(g::TIMER);
+    let now = c.timer();
     c.set_reg(AX, now);
     c.set_word(g::HEAD_ZOOM_START, now);
     c.set_word(g::TIME_BETWEEN_FACE_ZOOMS, 0x1770);

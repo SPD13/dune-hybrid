@@ -93,11 +93,11 @@ pub fn wait_processing_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Ba
     c.set_reg(CX, ticks);
     loop {
         c.run(0xe3a2, 1)?;
-        let seen = c.word(g::TIMER);
+        let seen = c.timer();
         c.set_reg(AX, seen);
         loop {
             // The timer moves on in its interrupt: the stretch bails then.
-            let now = c.word(g::TIMER);
+            let now = c.timer();
             if now != seen {
                 break;
             }
@@ -1131,7 +1131,7 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xf13f, 7)?;
     let cx = c.reg(CX);
     c.push(cx);
-    let bp = c.word(g::GAME_TIME);
+    let bp = c.game_time();
     c.set_reg(BP, bp);
     c.set_reg(SI, 0xd844);
     c.set_reg(DI, 0xda8c);

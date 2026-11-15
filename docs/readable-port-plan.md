@@ -206,7 +206,10 @@ Things that bit:
   the BIOS's INT 08h service, which the shadow check compares with the
   flags it is given; so every stop of the code run before that keeps
   its flags exact (`initialize_system` up to E632h, `open_dune_dat`,
-  the start of `get_res_index_by_name`).
+  the start of `get_res_index_by_name`). After that the game's own handler
+  still chains to the BIOS's every tenth tick or so, with its flags: a
+  `dec` before the chain keeps CF, which then comes from the handler's
+  `cmp` of the clock's hold (or the frame tasks' return).
 - **A shift by CL keeps the flags when CL is 0.** The flags a later
   reader sees may then be those of an earlier instruction: keep that
   one too (`move_cursor_by`: INT 33h after two `shl` by counts that can
@@ -286,7 +289,7 @@ out of the 8086 memory into Rust structs, kept in step with the memory at
 the subsystem's boundary. Candidates, smallest boundary first:
 
 - the game clock and the time of day (a few words: [2], [46DBh], the
-  timer);
+  timer): done, with a mirror (below);
 - troops and their jobs (the troop table, the callbacks);
 - the dialogue state machine;
 - the map's projection and drawing (the HD renderer already models it).
@@ -307,6 +310,39 @@ replace it:
   (`create_save_cl`, B389h, as the mirror menu does), and `suite.sh`
   has each of its seven games save 5 s before the end and compares the
   save's bytes with the reference's (all equal with `--rec on`).
+
+### The clock (first subsystem, in Rust with a mirror)
+
+`hand/clock.rs`: the game clock is a `Clock` kept with the machine
+(`Machine::native`, a slot for the recompiled code's own state): the
+timer's ticks (CE7Ah, CE7Ch), the hold (CEEAh), the stop count (2788h),
+the countdown and its period (46DBh, 146Eh), the steps pending (46DDh)
+and the game time ([2]). Its logic is its methods: the timer
+interrupt's `tick`, `stop` / `release` / `start`, the step that
+`run_clock_ticks` runs (`restart_countdown`, `advance`), the day and the
+time of day. Every port that counts, stops or reads the clock goes
+through it (`c.clock()`, `c.update_clock(..)`, `c.game_time()`,
+`c.timer()`); no port touches those words directly.
+
+The memory is a mirror: each change is written through (the suite
+compares the memory, and the game's save routine copies those words),
+and each access first compares the struct with it. A difference means
+code outside the clock wrote them, and the struct takes the memory's
+values: a sync-in. This is where the clock and the rest are kept in
+step, and why it can't simply own the words yet: any port can give up
+partway to the interpreter (at a run deadline, an interrupt due), and
+then the original's code goes on writing the memory itself; so do a
+loaded save and the shadow check putting the original's memory back.
+The runner prints the count (`clock: N sync-ins`); `CLOCK_TRACE=1`
+prints each with the fields that differed. In 300 s of play from a save
+there are two: the ticks the interpreter counted while the runner
+stepped to the main loop's top for the load, and the loaded game time
+(the load's copy gave up partway, so its port's explicit sync,
+`clock::loaded`, wasn't reached).
+
+To drop the mirror later, every remaining writer must go through the
+clock: the save's load and write (the save image has the game time),
+and no interpreter fallback in its code (the interrupt included).
 
 ## Tools in place
 

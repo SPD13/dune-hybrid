@@ -224,7 +224,7 @@ pub(super) fn load_first_frame(c: &mut Ctx) -> Result<(), Bail> {
             }
         }
     }
-    let now = c.word(g::TIMER);
+    let now = c.timer();
     c.set_reg(AX, now);
     c.set_word(g::HNM_FRAME_TICK, now);
     c.ret()

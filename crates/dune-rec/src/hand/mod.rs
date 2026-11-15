@@ -28,6 +28,7 @@ use pc::{
 };
 
 mod audio;
+pub mod clock;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1423,6 +1424,35 @@ impl Ctx<'_> {
         let a = self.m.cpu.phys(segment, off);
         self.m.hw.read8(a)
     }
+    fn set_word_at(&mut self, segment: u16, off: u16, v: u16) {
+        let lo = self.m.cpu.phys(segment, off);
+        let hi = self.m.cpu.phys(segment, off.wrapping_add(1));
+        self.m.hw.write8(lo, v as u8);
+        self.m.hw.write8(hi, (v >> 8) as u8);
+    }
+    fn set_byte_at_seg(&mut self, segment: u16, off: u16, v: u8) {
+        let a = self.m.cpu.phys(segment, off);
+        self.m.hw.write8(a, v);
+    }
+    // --- The game clock (Rust state, see [`clock`]) --------------------
+
+    /// The game clock, in step with the memory.
+    fn clock(&mut self) -> clock::Clock {
+        clock::Clock::get(self)
+    }
+    /// The clock changed by `f` (written through to the memory).
+    fn update_clock(&mut self, f: impl FnOnce(&mut clock::Clock)) {
+        clock::update(self, f)
+    }
+    /// The game time ([2]).
+    fn game_time(&mut self) -> u16 {
+        clock::time(self)
+    }
+    /// The timer's ticks ([0CE7Ah]).
+    fn timer(&mut self) -> u16 {
+        clock::ticks(self)
+    }
+
     fn code_word(&mut self, off: u16) -> u16 {
         self.m.cpu.read16(&mut self.m.hw, CS, off)
     }

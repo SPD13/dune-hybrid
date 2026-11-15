@@ -40,7 +40,7 @@ pub fn start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xaeb7, 0x0019)?;
     c.run(0x0019, 3)?;
     c.set_byte(g::MUSIC_SETTINGS, 0);
-    c.set_word(g::GAME_TIME, 2);
+    c.update_clock(|k| k.time = 2);
     c.call(0x0083, 0x0027)?;
     c.run(0x0027, 2)?;
     c.set_reg8(r8::CL, 0xff);
@@ -200,7 +200,7 @@ fn intro_end(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x060e, 1)?;
     c.call(0xca01, 0x0611)?;
     c.run(0x0611, 2)?;
-    c.set_word(g::GAME_TIME, 2);
+    c.update_clock(|k| k.time = 2);
     c.call(0x0911, 0x061a)?;
     c.run(0x061a, 2)?;
     let f = c.pop();
@@ -214,7 +214,7 @@ pub fn game_loop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd815)?;
     let mut c = Ctx::new(m);
     c.run(0xd815, 3)?;
-    let t = c.word(g::TIMER);
+    let t = c.timer();
     c.set_reg(AX, t);
     c.set_word(g::FRAME_TASKS_LAST_TICK, t);
     c.set_byte(0xdc4b, 0);
@@ -331,7 +331,7 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
 fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail> {
     let kb = c.byte(g::KEYBOARD_CURSOR);
     c.run(0xd893, 4)?;
-    let t = c.word(g::TIMER);
+    let t = c.timer();
     c.set_reg(BP, t);
     c.set_word(0xdc5a, t);
     c.cmp(B, kb as u16, 0);
@@ -390,7 +390,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
             c.run(0xd8d7, 1)?;
             return Ok(());
         }
-        let t = c.word(g::TIMER);
+        let t = c.timer();
         let t0 = c.word(0xdc5e);
         c.run(0xd8da, 5)?;
         c.set_reg(AX, t);
@@ -495,7 +495,7 @@ fn release_at_d92b(c: &mut Ctx) -> Result<(), Bail> {
 /// [0DC35h], then back to the top.
 fn press_at_d935(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xd935, 4)?;
-    let t = c.word(g::TIMER);
+    let t = c.timer();
     c.set_reg(AX, t);
     c.set_word(0xdc5e, t);
     let a = c.byte(g::MOUSE_BUTTONS_SEEN);

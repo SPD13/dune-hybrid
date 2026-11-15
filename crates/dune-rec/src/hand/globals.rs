@@ -193,6 +193,8 @@ pub const TIMER_HIGH: u16 = 0xce7c;
 pub const CLOCK_COUNTDOWN: u16 = 0x46db;
 pub const CLOCK_PERIOD: u16 = 0x146e;
 pub const CLOCK_STEPS_PENDING: u16 = 0x46dd;
+/// Above 0 (signed) the timer's interrupt counts nothing (the clock held).
+pub const CLOCK_HELD: u16 = 0xceea;
 /// While not 0 the game clock does not run (the timer's interrupt skips
 /// it): a count of who stopped it.
 pub const CLOCK_STOPPED: u16 = 0x2788;

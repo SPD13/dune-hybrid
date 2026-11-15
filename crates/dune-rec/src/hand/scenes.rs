@@ -550,7 +550,7 @@ fn note_stat(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> R
     let new = c.word_in(SS, sp);
     let di = c.word_in(SS, sp.wrapping_add(2));
     let old = c.word(di);
-    let period = c.word(g::GAME_TIME) & 0xfff0;
+    let period = c.game_time() & 0xfff0;
     let saved = c.word(STATS_PERIOD);
     let n = if new == old {
         if saved == period { 14 } else { 17 }
@@ -568,7 +568,7 @@ fn note_stat(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> R
     c.cmp(W, new, old);
     let mut ax = old & 0xff00 | 3;
     let mark = if new == old {
-        let t = c.word(g::GAME_TIME);
+        let t = c.game_time();
         let t = c.and(W, t, 0xfff0);
         ax = t;
         c.cmp(W, saved, t);

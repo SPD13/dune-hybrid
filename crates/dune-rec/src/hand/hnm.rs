@@ -123,7 +123,7 @@ pub fn hnm_reset_frame_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xca59)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let t = c.word(g::TIMER);
+    let t = c.timer();
     c.set_reg(AX, t);
     c.set_word(g::HNM_FRAME_TICK, t);
     c.ret()
