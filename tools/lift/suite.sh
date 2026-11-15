@@ -15,8 +15,9 @@
 #                 first state whose memory or screen differs.
 #
 # Compared: the whole machine state (CPU, instruction count, memory), the
-# screens and the save written; and the clock kept in Rust must have seen
-# no write of its words it did not foresee (`clock: 0 sync-ins`).
+# screens and the save written; and the subsystems kept in Rust (the clock,
+# the troop table) must have seen no write of their memory they did not
+# foresee (`clock: 0 sync-ins`, `troops: 0 sync-ins`).
 #
 # The saves are game-derived and stay outside git (SAVES, default
 # ../dune-hybrid/tests-data/saves).
@@ -71,7 +72,9 @@ echo "$CASES" | while read name seed lang save; do
         # unforeseen write of its words fails the case.
         ck=$(grep '^clock:' $S/run/$name.log | sed 's/^clock: //')
         case "$ck" in "0 sync-ins"*) dc="" ;; *) dc="clock [$ck]" ;; esac
-        if [ -z "$dm$ds$dv$dc" ]; then echo "$name: $n states, the save and the clock equal ($(cat $S/run/$name.sav))"
+        tr=$(grep '^troops:' $S/run/$name.log | sed 's/^troops: //')
+        case "$tr" in "0 sync-ins"*) ;; *) dc="$dc troops [$tr]" ;; esac
+        if [ -z "$dm$ds$dv$dc" ]; then echo "$name: $n states, the save, the clock and the troops equal ($(cat $S/run/$name.sav))"
         else echo "$name: DIFFERS state [$dm] screen [$ds] save [$dv] $dc"; fi
     fi
 done

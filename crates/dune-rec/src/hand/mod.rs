@@ -1698,6 +1698,9 @@ impl Ctx<'_> {
     /// return address goes on the stack: the callee may look at it).
     fn call(&mut self, target: u16, ret: u16) -> Result<(), Bail> {
         self.push(ret);
+        if let Some(r) = self.m.rec.as_mut() {
+            r.from_port = true;
+        }
         self.m.rec_call(target, ret)
     }
 

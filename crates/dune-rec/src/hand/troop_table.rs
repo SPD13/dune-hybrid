@@ -11,11 +11,11 @@
 //! didn't make: the record takes the memory's bytes. A port's writes
 //! that don't use the view yet are followed (`Ctx`'s writes tell the
 //! table, [`follow`]); a save loaded and the tools' own stepping are told
-//! ([`outside`]). What is left is the generated code finishing a port
-//! that gave up (at a stop for an interrupt; it is the original's code,
-//! in Rust): counted apart ([`after_bails`]), as the record was verified
-//! before the bail. Anything else is unforeseen ([`syncs`]; the suite
-//! wants none). `TROOPS_TRACE=1` prints each with the offsets that
+//! ([`outside`]). What is left is the generated code (the original's
+//! code in Rust, finishing a port that gave up at a stop for an
+//! interrupt): counted apart ([`after_bails`]) when it ran since the
+//! record was last verified. Anything else is unforeseen ([`syncs`]; the
+//! suite wants none). `TROOPS_TRACE=1` prints each with the offsets that
 //! differed.
 
 use super::{Ctx, globals as g};
@@ -120,11 +120,13 @@ impl TroopRecord {
 pub struct TroopTable {
     /// By record; none until first used (or after a boundary).
     records: Vec<Option<TroopRecord>>,
-    /// By record: the count of bails (`Rec::bails`) when it last matched.
+    /// By record: the count of the generated code's runs
+    /// (`Rec::generated_runs`) when it last matched.
     verified_at: Vec<u64>,
     /// Unforeseen writes (see the module's notes).
     syncs: u64,
-    /// Writes of the generated code after a port gave up.
+    /// Writes of the generated code (finishing a port that gave up, or a
+    /// routine without a port).
     after_bails: u64,
 }
 
@@ -143,8 +145,8 @@ pub fn after_bails(m: &mut Machine) -> u64 {
     table(m).after_bails
 }
 
-fn bails(m: &Machine) -> u64 {
-    m.rec.as_ref().map_or(0, |r| r.bails)
+fn generated_runs(m: &Machine) -> u64 {
+    m.rec.as_ref().map_or(0, |r| r.generated_runs)
 }
 
 /// How often a record took the memory's bytes, unforeseen.
@@ -176,7 +178,7 @@ fn mirror(m: &mut Machine, i: usize) -> [u8; SIZE as usize] {
 pub(super) fn get(c: &mut Ctx, i: usize) -> TroopRecord {
     let bytes = mirror(c.m, i);
     let mem = TroopRecord::from_bytes(&bytes);
-    let now = bails(c.m);
+    let now = generated_runs(c.m);
     let t = table(c.m);
     let since = t.verified_at[i];
     t.verified_at[i] = now;
@@ -192,7 +194,7 @@ pub(super) fn get(c: &mut Ctx, i: usize) -> TroopRecord {
             if std::env::var_os("TROOPS_TRACE").is_some() {
                 let was = r.to_bytes();
                 let at: Vec<String> = (0..SIZE as usize).filter(|&k| was[k] != bytes[k]).map(|k| format!("{k:02x}:{:02x}>{:02x}", was[k], bytes[k])).collect();
-                let why = if now > since { "after a bail" } else { "UNFORESEEN" };
+                let why = if now > since { "after the generated code ran" } else { "UNFORESEEN" };
                 eprintln!("troops sync-in ({why}), troop {} at insn {} ({:04x}): {}", i + 1, c.m.cpu.instructions, c.m.cpu.ip, at.join(" "));
             }
             mem

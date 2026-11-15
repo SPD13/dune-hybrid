@@ -364,11 +364,15 @@ at 8AAh) is a `TroopRecord` kept with the machine (`hand/native.rs`
 holds the subsystems' state); the `Troop` view (`hand/game.rs`) reads
 and writes through it, with the clock's mirror and check. Writes a port
 makes without the view (through `Ctx`) are followed, a save loaded and
-the tools' stepping are told; the generated code finishing a port that
-gave up is counted apart (the record was verified before the bail).
-The runner prints both (`troops: N sync-ins (M after a port gave up)`);
-`TROOPS_TRACE=1` prints each sync-in and each write a port makes into
-the table without the view.
+the tools' stepping are told; the generated code (the original's code
+in Rust, finishing a port that gave up at a stop) is counted apart when
+it ran since the record was last verified (`Rec::generated_runs`: a
+routine taken from the generated table, or a return into the generated
+code from a call it made; a hand port's own calls are marked and don't
+count). The runner prints both (`troops: N sync-ins (M written by the
+generated code)`), and the suite wants `troops: 0 sync-ins` in every
+game, as it does for the clock. `TROOPS_TRACE=1` prints each sync-in and
+each write a port makes into the table without the view.
 
 What the sync-ins showed: the troops' job handlers (the table at
 CS:6C26h, called from `troops_tick`) had no ports and ran as generated

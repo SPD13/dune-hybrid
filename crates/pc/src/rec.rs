@@ -103,6 +103,14 @@ pub struct Rec {
     pub stats: BTreeMap<u32, ShadowStats>,
     /// `On` mode: entries into Rust (calls and resumptions), and bails.
     pub calls: u64,
+    /// Runs of the generated code (a routine or block without a hand port
+    /// taken, from the run loop or a call): the subsystems kept in Rust
+    /// (dune-rec's `hand/native.rs`) take the memory's values after one
+    /// without counting them as unforeseen.
+    pub generated_runs: u64,
+    /// The next `rec_call` is a hand port's (`Ctx::call`): its return goes
+    /// back to Rust written by hand, not to the generated code.
+    pub from_port: bool,
     pub bails: u64,
     /// `On` mode profile: bails by the seg000 offset they left at, and
     /// instructions generated code ran through the interpreter, by opcode.
@@ -306,6 +314,8 @@ impl Rec {
             one_block: 0,
             stats: BTreeMap::new(),
             calls: 0,
+            generated_runs: 0,
+            from_port: false,
             bails: 0,
             bail_at: vec![0; 0x10000],
             returned: vec![0; 0x40000],
@@ -593,6 +603,9 @@ impl Machine {
                     return false;
                 };
                 let rec = self.rec.as_mut().unwrap();
+                if space == 0 && rec.generated[ip as usize].is_some_and(|g| g as usize == f as usize) {
+                    rec.generated_runs += 1;
+                }
                 rec.in_interp = false;
                 rec.calls += 1;
                 rec.busy = true;
@@ -1287,9 +1300,20 @@ impl Machine {
         self.cpu.ip = target;
         let nested = self.rec.as_ref().is_some_and(|r| r.interp_nested);
         let (cs, ss, sp) = (self.cpu.sregs[CS], self.cpu.sregs[SS], self.cpu.regs[SP]);
+        let from_port = self.rec.as_mut().is_some_and(|r| std::mem::take(&mut r.from_port));
         self.rec_settle()?;
         if let Some(f) = self.rec_routine(cs, target, true) {
+            if let Some(rec) = self.rec.as_mut()
+                && self.cpu.sregs[CS] == crate::LOAD_SEG
+                && rec.generated[target as usize].is_some_and(|g| g as usize == f as usize)
+            {
+                rec.generated_runs += 1;
+            }
             let r = f(self, target);
+            // Back in the generated code, which goes on writing memory.
+            if !from_port && let Some(rec) = self.rec.as_mut() {
+                rec.generated_runs += 1;
+            }
             let r = self.rec_settle().and(r);
             match r {
                 Ok(()) => {

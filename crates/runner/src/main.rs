@@ -794,7 +794,7 @@ fn main() -> ExitCode {
         let (n, t) = (dune_rec::hand::clock::syncs(&mut m), dune_rec::hand::clock::ticks_outside(&mut m));
         println!("clock: {n} sync-ins ({t} ticks counted by the original's code, as the clock predicts)");
         let (n, b) = (dune_rec::hand::troop_table::syncs(&mut m), dune_rec::hand::troop_table::after_bails(&mut m));
-        println!("troops: {n} sync-ins ({b} after a port gave up, written by the generated code)");
+        println!("troops: {n} sync-ins ({b} written by the generated code)");
     }
     if let Some(rec) = &m.rec {
         rec_report(rec, args.rec_report.as_deref(), m.cpu.instructions);
