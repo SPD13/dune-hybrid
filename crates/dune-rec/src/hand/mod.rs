@@ -32,6 +32,7 @@ pub mod clock;
 pub mod native;
 pub mod troop_table;
 pub mod record_table;
+pub mod text_box;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1476,6 +1477,15 @@ impl Ctx<'_> {
     /// The clock changed by `f` (written through to the memory).
     fn update_clock(&mut self, f: impl FnOnce(&mut clock::Clock)) {
         clock::update(self, f)
+    }
+    /// The text box's layout (Rust state, see [`text_box`]), in step
+    /// with the memory.
+    fn text_box(&mut self) -> text_box::TextBox {
+        text_box::get(self)
+    }
+    /// The text box changed by `f` (written through to the memory).
+    fn update_text_box(&mut self, f: impl FnOnce(&mut text_box::TextBox)) {
+        text_box::update(self, f)
     }
     /// The game time ([2]).
     fn game_time(&mut self) -> u16 {

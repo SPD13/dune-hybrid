@@ -345,10 +345,15 @@ set_word!(
     /// `loc_01399`: the handler at [2220h] = 1FAEh.
     set_2220_to_1fae, 0x1399, 0x2220, 0x1fae
 );
-set_word!(
-    /// `loc_09901`: [479Eh] = 0.
-    clear_479e, 0x9901, 0x479e, 0
-);
+/// `loc_09901`: no text box shown ([`super::text_box::TextBox::shown`]
+/// 0).
+pub fn clear_479e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x9901)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.update_text_box(|t| t.shown = 0);
+    c.ret()
+}
 
 /// `loc_011cb`: the phase to 60h (unchanged-flag cleared), and the
 /// position of location 11Ch (`loc_040ae`) noted at 1048h with DL = 2.
@@ -5079,7 +5084,7 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(SI, s);
         }
     }
-    let a = c.word(0x479e);
+    let a = c.text_box().shown;
     let b = c.byte(0x46eb);
     let v = a & 0xff00 | ((a as u8) | b) as u16;
     if v != 0 {
@@ -6815,7 +6820,7 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x2c72, 8)?;
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
-    c.set_word(0x479e, 0);
+    c.update_text_box(|t| t.shown = 0);
     c.set_word(0x4540, 0);
     c.set_byte(0xea, 0xff);
     c.set_byte(g::HEAD_ANIMATION_STEP, 0x0a);

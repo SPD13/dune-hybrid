@@ -1,6 +1,7 @@
 //! The game's record tables as Rust state (Stage B of
-//! `docs/readable-port-plan.md`): the troops (`hand/troop_table.rs`) and
-//! the locations, kept with the machine ([`super::native`]).
+//! `docs/readable-port-plan.md`): the troops (`hand/troop_table.rs`),
+//! the locations and the text box (`hand/text_box.rs`, a table of one),
+//! kept with the machine ([`super::native`]).
 //!
 //! Each record is cached the first time it is used. The views
 //! (`hand/game.rs`'s `Troop`, `Location`) read and write through the
@@ -33,33 +34,39 @@ pub enum Which {
     Troops,
     /// 46h locations of 1Ch bytes at 100h (an FFh after the last).
     Locations,
+    /// The text box's layout, 1Ch bytes at 4784h.
+    TextBox,
 }
 
 impl Which {
-    pub const ALL: [Which; 2] = [Which::Troops, Which::Locations];
+    pub const ALL: [Which; 3] = [Which::Troops, Which::Locations, Which::TextBox];
 
     pub fn name(self) -> &'static str {
         match self {
             Which::Troops => "troops",
             Which::Locations => "locations",
+            Which::TextBox => "text box",
         }
     }
     const fn base(self) -> u16 {
         match self {
             Which::Troops => g::TROOPS,
             Which::Locations => 0x100,
+            Which::TextBox => 0x4784,
         }
     }
     pub const fn size(self) -> u16 {
         match self {
             Which::Troops => 0x1b,
             Which::Locations => 0x1c,
+            Which::TextBox => 0x1c,
         }
     }
     pub const fn count(self) -> usize {
         match self {
             Which::Troops => ((g::TROOPS_END - g::TROOPS) / 0x1b) as usize,
             Which::Locations => 0x46,
+            Which::TextBox => 1,
         }
     }
     fn end(self) -> u16 {
@@ -89,6 +96,7 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
     let t = match w {
         Which::Troops => &mut n.troops,
         Which::Locations => &mut n.locations,
+        Which::TextBox => &mut n.text_box,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];

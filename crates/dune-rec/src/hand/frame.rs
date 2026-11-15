@@ -552,7 +552,7 @@ pub fn sub_b23f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xb24e, 1)?;
     c.call(code::SUB_B039, 0xb251)?;
     c.run(0xb251, 3)?; // jmp 9901h; mov word [479Eh], 0; ret
-    c.set_word(g::BOX_SHOWN, 0);
+    c.update_text_box(|t| t.shown = 0);
     c.ret()
 }
 

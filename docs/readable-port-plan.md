@@ -290,8 +290,11 @@ the subsystem's boundary. Candidates, smallest boundary first:
 
 - the game clock and the time of day (a few words: [2], [46DBh], the
   timer): done, with a mirror (below);
-- troops and their jobs (the troop table, the callbacks): under way (below);
-- the dialogue state machine;
+- troops and their jobs (the troop table, the callbacks), and the
+  locations: done, with a mirror (below);
+- the dialogue state machine: its text box's layout done (below); the
+  rest of the 4770h block (phrases, talking heads, voice) first needs
+  names for its bytes;
 - the map's projection and drawing (the HD renderer already models it).
 
 The shadow check no longer applies inside such a subsystem. Two checks
@@ -394,6 +397,18 @@ takes the job table's targets as known for that call site) make them
 known: mask 0, and their exits (tails into `add_skill`,
 `set_troop_activity`, `kind_6acb`, whose flags are not exact) are no
 longer compared.
+
+### The text box (in Rust with a mirror)
+
+`hand/text_box.rs`: the layout of the box the dialogue's text goes in
+(1Ch bytes at 4784h: the margins, the words laid out, the room left, the
+inner width, the pen, the inner corner, the style, the line height, the
+gaps still a pixel wider, the box shown) is a typed `TextBox`, kept as a
+table of one record in `hand/record_table.rs` (so with the same mirror,
+checks and counts; `text box:` in the runner's and the suite's output).
+The ports read and change it through `Ctx::text_box` /
+`update_text_box`; the suite wants 0 sync-ins. The generated code sets
+it a few times per game (ports that gave up: counted apart).
 
 ## Tools in place
 

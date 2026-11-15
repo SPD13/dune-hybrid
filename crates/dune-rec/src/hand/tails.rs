@@ -591,7 +591,7 @@ pub fn head_09c7(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let clip = (r as i16) > 0x140;
         c.run(0x09d0, 5 + 4 + clip as u32 + 1)?;
     }
-    c.set_byte(0x478c, 0x1e);
+    c.update_text_box(|t| t.words = 0x1e);
     c.set_reg(DI, 0x1bf0);
     let d = c.pop();
     c.set_reg(AX, d);
@@ -1218,7 +1218,7 @@ pub fn dialogue_941d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(g::HEAD_ANIMATION_BLOCKED);
     let g = c.byte(0x11ca);
     let book = f & 3 != 0 && g == 0;
-    let open = c.word(0x479e);
+    let open = c.text_box().shown;
     c.run(0x942a, 2 + 2 + if f & 3 != 0 { 2 } else { 0 } + if book { 1 } else { 2 + if open != 0 { 1 } else { 3 } })?;
     if book {
         return c.jump(0x4aad);
@@ -1256,7 +1256,7 @@ pub fn jessica_0f08(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::TALKER, 7);
     c.call(0x9197, 0x0f1f)?;
     c.run(0x0f1f, 3)?;
-    c.set_byte(0x478c, 0);
+    c.update_text_box(|t| t.words = 0);
     let v = c.word(g::HEAD_ORIGIN_Y);
     let v = pure::add(W, v, 0xf);
     c.set_word(g::HEAD_ORIGIN_Y, v);
@@ -1892,12 +1892,12 @@ pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx = pure::add(W, bx, 3);
     c.set_reg(BX, bx);
     c.set_word(0x2246, bx);
-    c.set_word(0x4784, 0);
-    c.set_word(0x4786, 5);
-    c.set_word(0x4788, 0);
+    c.update_text_box(|t| t.margins[0] = 0);
+    c.update_text_box(|t| t.margins[1] = 5);
+    c.update_text_box(|t| t.margins[2] = 0);
     let a = pure::inc(W, 0);
     c.set_reg(AX, a);
-    c.set_word(0x478a, 1);
+    c.update_text_box(|t| t.margins[3] = 1);
     let dx = pure::add(W, dx, 4);
     c.set_word(0x18f3, dx);
     c.set_word(0x18f5, bx);

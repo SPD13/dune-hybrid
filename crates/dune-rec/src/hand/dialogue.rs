@@ -488,7 +488,7 @@ pub fn blit_dialogue_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let at = c.word(0xd83a);
     let cost = if at <= c.word(0x4782) {
         4
-    } else if c.word(g::BOX_SHOWN) != 0x223c {
+    } else if c.text_box().shown != 0x223c {
         6
     } else {
         14
@@ -498,7 +498,7 @@ pub fn blit_dialogue_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if cost != 14 {
         return c.ret();
     }
-    let rows = c.word(0x4793);
+    let rows = c.text_box().pen[1];
     c.set_reg(BX, 0x92u16.wrapping_sub(rows));
     c.set_reg(DX, 0);
     c.set_reg(CX, 0xff00 | rows & 0xff);
@@ -513,14 +513,14 @@ pub fn blit_dialogue_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_08df0`: with bit 1 of [4799h], it is cleared when one of the
+/// `loc_08df0`: with bit 0 of the text box's style, it is cleared when one of the
 /// [`LINES`] (count first, then 6-byte entries) has a first word and a
 /// second of 1Eh or more. SI kept; CX the entries left, AX the last first
 /// word.
 pub fn check_dialogue_entries(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8df0)?;
     let mut c = Ctx::new(m);
-    let flags = c.byte(0x4799);
+    let flags = c.text_box().style;
     if flags & 1 == 0 {
         c.run(start, 3)?;
         return c.ret();
@@ -553,7 +553,7 @@ pub fn check_dialogue_entries(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, cost + if found { 0 } else { 2 })?;
     c.save(&[SI]);
     if found {
-        c.set_byte(0x4799, flags & !1);
+        c.update_text_box(|t| t.style = flags & !1);
     }
     c.set_reg(AX, first);
     c.set_reg(CX, left);
@@ -661,7 +661,7 @@ pub fn say_phrase_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn outline_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9046)?;
     let mut c = Ctx::new(m);
-    let (rows, width) = (c.word(0x4793), c.word(0x2240));
+    let (rows, width) = (c.text_box().pen[1], c.word(0x2240));
     let size = rows as u32 * width as u32;
     if size as u16 == 0 {
         return Err(Bail);
@@ -740,10 +740,10 @@ pub fn speaker_text_setup(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !map_up {
         c.call(0xc07c, 0x9f6a)?;
         c.run(0x9f6a, 4)?;
-        c.set_word(0x4784, 0x28);
-        c.set_word(0x4786, 0x10);
-        c.set_word(0x4788, 0x10);
-        c.set_word(0x478a, 0x10);
+        c.update_text_box(|t| t.margins[0] = 0x28);
+        c.update_text_box(|t| t.margins[1] = 0x10);
+        c.update_text_box(|t| t.margins[2] = 0x10);
+        c.update_text_box(|t| t.margins[3] = 0x10);
     }
     tall_font_colour_f0(c.m, 0x9f82)
 }
@@ -767,7 +767,7 @@ pub fn start_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x994f, 0x9913)?;
     c.run(0x9913, 8)?;
     c.set_byte(TEXT_FLAGS, 0xc0);
-    let n = (c.byte(0x478c) as u16) << 2;
+    let n = (c.text_box().words as u16) << 2;
     c.set_reg(AX, n);
     c.set_word(TEXT_LEFT, n);
     let (si, bp) = (c.reg(SI), c.reg(BP));
@@ -1103,10 +1103,10 @@ pub fn close_dialogue_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 fn close_box_at(c: &mut Ctx) -> Result<(), Bail> {
-    let shown = c.word(g::BOX_SHOWN);
+    let shown = c.text_box().shown;
     if shown < 2 {
         c.run(0x8c8a, 5)?;
-        c.set_word(g::BOX_SHOWN, 0);
+        c.update_text_box(|t| t.shown = 0);
         c.set_reg(AX, shown);
         // `cmp ax,2`: its flags are returned (callers read them).
         c.cmp(W, shown, 2);
@@ -1114,7 +1114,7 @@ fn close_box_at(c: &mut Ctx) -> Result<(), Bail> {
     }
     let on_map = c.byte(MAP_SCREEN) != 0;
     c.run(0x8c8a, if on_map { 10 } else { 8 })?;
-    c.set_word(g::BOX_SHOWN, 0);
+    c.update_text_box(|t| t.shown = 0);
     c.set_reg(AX, shown);
     c.set_reg(SI, 0x1470);
     if on_map {
@@ -1187,10 +1187,10 @@ pub fn store_spacing(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, w);
         c.stos(W);
     }
-    let n = c.byte(0x478c).wrapping_add(count as u8);
-    c.set_byte(0x478c, n);
+    let n = c.text_box().words.wrapping_add(count as u8);
+    c.update_text_box(|t| t.words = n);
     c.set_reg(DX, (((dx >> 8) as u8).wrapping_add(1) as u16) << 8);
-    let next = c.word(0x478f);
+    let next = c.text_box().width;
     c.set_reg(BX, next);
     if count != 0 {
         // The `push dx` / `pop dx` around the division leaves its word.
@@ -1268,9 +1268,10 @@ pub fn reset_dialogue(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x98f5, 0x98e9)?;
     c.run(0x98e9, 4)?;
     let ax = c.reg(AX);
-    for at in [0x47c8u16, 0x47aa, g::BOX_SHOWN] {
+    for at in [0x47c8u16, 0x47aa] {
         c.set_word(at, ax);
     }
+    c.update_text_box(|t| t.shown = ax);
     drop_dialogue_text(c.m, 0x9b8b)
 }
 
@@ -1479,9 +1480,9 @@ pub fn break_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(ds);
     let es = c.pop();
     c.set_sreg(ES, es);
-    c.set_byte(0x478c, 0);
+    c.update_text_box(|t| t.words = 0);
     c.set_reg(DI, LINES + 2);
-    let width = c.word(0x478f);
+    let width = c.text_box().width;
     c.set_reg(BX, width);
     c.set_reg(DX, 0);
     let words_on_line = |c: &Ctx| c.reg(DX) & 0xff;
@@ -1727,7 +1728,7 @@ pub fn redraw_dialogue_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x91a0, 0x979c)?;
     c.run(0x979c, 1)?;
     c.call(0x9908, 0x979f)?;
-    let boxed = c.word(g::BOX_SHOWN) != 0;
+    let boxed = c.text_box().shown != 0;
     c.run(0x979f, if boxed { 4 } else { 2 })?;
     if boxed {
         c.set_reg(SI, 0x1be2);
@@ -1739,7 +1740,7 @@ pub fn redraw_dialogue_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if text != 0 {
         c.set_word(0x4540, 0);
         c.call(0x9bac, 0x97bd)?;
-        let big = c.word(g::BOX_SHOWN) == 0x223c;
+        let big = c.text_box().shown == 0x223c;
         c.run(0x97bd, 3)?;
         if big {
             c.call(0x9025, 0x97c8)?;
@@ -2393,7 +2394,7 @@ fn line_end_9858(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x9858, 7)?;
         c.set_reg(AX, 0);
         c.set_word(HEAD_SPRITES_KEPT, 0);
-        c.set_word(g::BOX_SHOWN, 0);
+        c.update_text_box(|t| t.shown = 0);
         let flags = c.byte(TEXT_FLAGS);
         c.set_byte(TEXT_FLAGS, flags & 0x3f);
         c.set_word(0x47c8, 0);
@@ -2845,7 +2846,7 @@ fn fade_panel_tail(m: &mut Machine) -> Result<(), Bail> {
 pub fn dialogue_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x945b)?;
     let mut c = Ctx::new(m);
-    if c.word(g::BOX_SHOWN) != 0 {
+    if c.text_box().shown != 0 {
         c.run(start, 2)?;
         return next_dialogue_line(c.m, 0x9468);
     }
@@ -2994,7 +2995,7 @@ const BOOK_PAGE: u16 = 0x11bf;
 
 /// `loc_08ccd`: the text box for the phrase SI: [4799h] 9, colour F0h,
 /// then the box (BP, on the stack segment) and its margins
-/// ([`MARGINS`]: left, right, top, bottom) by the situation: the map
+/// (the text box's margins: left, right, top, bottom) by the situation: the map
 /// views 2244h (the troop's description `loc_079ee` first unless
 /// [46EFh]); no speaker 224Ch; the book ([0C6h]) 2265h in colour 64h
 /// (`loc_0d082`); in the intro ([227Dh]) 2275h in colour 6, no margins;
@@ -3057,21 +3058,17 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(super::globals::TEXT_COLOUR, 6);
         c.set_reg(BP, 0x2275);
         c.set_reg(AX, 0);
-        for at in MARGINS {
-            c.set_word(at, 0);
-        }
+        c.update_text_box(|t| t.margins = [0; 4]);
         return box_8ddb(&mut c);
     }
     if !screen {
         c.run(start, 23)?;
         text_defaults(&mut c);
-        c.set_byte(0x4799, 1);
+        c.update_text_box(|t| t.style = 1);
         c.set_byte(super::globals::TEXT_COLOUR, 0x0f);
         c.set_reg(BP, 0x223c);
         c.set_reg(AX, 0x10);
-        for (at, v) in MARGINS.into_iter().zip([0x10, 0x10, 1, 0]) {
-            c.set_word(at, v);
-        }
+        c.update_text_box(|t| t.margins = [0x10, 0x10, 1, 0]);
         return box_8ddb(&mut c);
     }
     // The first of the 3 boxes the lines fit in.
@@ -3088,7 +3085,7 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(left);
         c.call(0x8e16, 0x8da3)?;
         let lines = c.byte(LINES);
-        let [_, _, top, bottom] = MARGINS.map(|a| c.word(a));
+        let [_, _, top, bottom] = c.text_box().margins;
         let need = (lines as u16 * 10).wrapping_add(top).wrapping_add(bottom);
         let fits = need < c.word_in(SS, frame.wrapping_add(6));
         let left = c.word_in(SS, c.reg(SP)).wrapping_sub(1);
@@ -3121,8 +3118,7 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return box_8ddb(&mut c);
         }
         if last {
-            c.set_word(MARGINS[2], 0);
-            c.set_word(MARGINS[3], 0);
+            c.update_text_box(|t| t.margins[2..].fill(0));
             c.set_reg(AX, bottom);
             c.set_reg(BP, frame);
             c.or(W, bottom, bottom); // the exit's flags
@@ -3133,32 +3129,27 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// A text box's margins: left, right, top, bottom.
-const MARGINS: [u16; 4] = [0x4784, 0x4786, 0x4788, 0x478a];
-
 /// The first two steps of [`text_box_for`]: [4799h] 9, the text colour
 /// F0h.
 fn text_defaults(c: &mut Ctx) {
-    c.set_byte(0x4799, 9);
+    c.update_text_box(|t| t.style = 9);
     c.set_word(super::globals::TEXT_COLOUR, 0xf0);
 }
 
 /// The margins set as the original does (`mov ax, left`, then `mov al`
 /// for each of the others: AH stays 0; the last two are the same).
 fn margins(c: &mut Ctx, values: [u16; 4]) {
-    for (at, v) in MARGINS.into_iter().zip(values) {
-        c.set_word(at, v);
-    }
+    c.update_text_box(|t| t.margins = values);
     c.set_reg(AX, values[3]);
 }
 
 /// The width for the box BP less the margins into [478Fh].
 fn width_478f(c: &mut Ctx, frame: u16) {
     let width = c.word_in(SS, frame.wrapping_add(4));
-    let [left, right] = [MARGINS[0], MARGINS[1]].map(|a| c.word(a));
+    let [left, right, ..] = c.text_box().margins;
     let inner = width.wrapping_sub(left).wrapping_sub(right);
     c.set_reg(AX, inner);
-    c.set_word(0x478f, inner);
+    c.update_text_box(|t| t.width = inner);
 }
 
 /// From 8DDBh: the lines broken for the box BP ([`break_lines`] with its
@@ -3513,17 +3504,17 @@ fn phrase_93aa(c: &mut Ctx) -> Result<(), Bail> {
 /// `loc_08b11`: the text SI laid out in its box: the old box closed
 /// (`loc_08c8a`), the new one placed ([`text_box_for`]; CF: no room,
 /// done), drawn ([`draw_speech_bubble`], [`check_dialogue_entries`]) and
-/// the pen at [`PEN`]. The lines ([`LINES`]: a count, then per line its
-/// word count, offset and spacing) are placed by [`TEXT_STYLE`]: bits 2-3
-/// spread them (4: the line height [`LINE_HEIGHT`] from the room
-/// [`ROOM`]; 8 / 0Ch: the block centred, 8 halved), bit 1 centres each
+/// the pen at the text box's pen. The lines ([`LINES`]: a count, then per line its
+/// word count, offset and spacing) are placed by the text box's style: bits 2-3
+/// spread them (4: the line height the line height from the room
+/// the room; 8 / 0Ch: the block centred, 8 halved), bit 1 centres each
 /// line by its offset, bit 0 spaces words by the line's spacing (not on
 /// the last line; once cleared, by the first line). Each line: its words
 /// (space / CR runs end a word, a negative byte the line), 1 swaps the
 /// colour pair [`TEXT_COLOUR`](super::globals::TEXT_COLOUR), 6 / 8 the
 /// font switches (`loc_0d075` / `loc_0d068`), others are drawn (the font
 /// routine [2518h]); words spaced by DX ([479Ch] of them one wider).
-/// Lines step by [`LINE_HEIGHT`] (taken from [`ROOM`]); at the end the
+/// Lines step by the line height (taken from the room); at the end the
 /// pen kept, SI back on the last byte, and for the picture box 223Ch its
 /// outline ([`outline_picture`]) and the front buffer made current.
 pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -3547,20 +3538,20 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x8f28, 0x8b1e)?;
     c.run(0x8b1e, 1)?;
     c.call(0x8df0, 0x8b21)?;
-    let [x, y] = PEN.map(|a| c.word(a));
+    let [x, y] = c.text_box().pen;
     c.run(0x8b21, 3)?;
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     c.call(0xd04e, 0x8b2c)?;
     // The lines spread over the box.
-    let spread = c.byte(TEXT_STYLE) & 0x0c;
+    let spread = c.text_box().style & 0x0c;
     let count = c.word_in(SS, LINES);
-    let room = c.word(ROOM);
+    let room = c.text_box().room;
     match spread {
         0 => {
             c.run(0x8b2c, 5)?;
             c.set_reg(BP, LINES);
-            c.set_word(LINE_HEIGHT, 0x0a);
+            c.update_text_box(|t| t.line_height = 0x0a);
             c.set_reg8(r8::AL, 0);
         }
         4 => {
@@ -3569,12 +3560,12 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let room = room.wrapping_sub(8);
             c.run(0x8b2c, if gaps != 0 { 16 } else { 18 })?;
             c.set_reg(BP, LINES);
-            c.set_word(LINE_HEIGHT, 0x0a);
+            c.update_text_box(|t| t.line_height = 0x0a);
             c.set_reg(BX, gaps);
             if gaps != 0 {
                 c.set_reg(AX, room / gaps);
                 c.set_reg(DX, room % gaps);
-                c.set_word(LINE_HEIGHT, room / gaps);
+                c.update_text_box(|t| t.line_height = room / gaps);
             } else {
                 c.set_reg(AX, room >> 1);
                 let x = c.word(FONT_X);
@@ -3586,21 +3577,21 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
         }
         _ => {
-            // The block's height ([`ROOM`] from now on) centred in the
+            // The block's height (the room from now on) centred in the
             // room (8: the space halved; 0Ch: at the bottom).
             let height = (count & 0xff) * 10;
             let space = room.saturating_sub(height);
             let space = if spread == 8 { space >> 1 } else { space };
             c.run(0x8b2c, 14 + (room < height) as u32 + 3 + (spread == 8) as u32 + 3)?;
             c.set_reg(BP, LINES);
-            c.set_word(LINE_HEIGHT, 0x0a);
+            c.update_text_box(|t| t.line_height = 0x0a);
             // `pushf` / `popf` around the height: the word stays below SP.
             c.cmp(B, spread as u16, 8);
             let flags = c.m.cpu.flags();
             c.push(flags);
             c.pop();
             c.set_reg(AX, height);
-            c.set_word(ROOM, height);
+            c.update_text_box(|t| t.room = height);
             let x = c.word(FONT_X);
             c.set_reg(DX, x);
             let y = c.word(FONT_Y).wrapping_add(space);
@@ -3626,14 +3617,14 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
             line_8ba3(&mut c, words, offset, spacing)?;
         }
         // The pen to the next line.
-        let height = c.word(LINE_HEIGHT);
-        let room = c.word(ROOM);
+        let height = c.text_box().line_height;
+        let room = c.text_box().room;
         let [x, y] = [FONT_LINE_X, FONT_LINE_Y].map(|a| c.word(a));
         c.run(0x8c47, if room < height { 8 } else { 7 })?;
         c.set_reg(DX, x);
         c.set_reg(BX, y.wrapping_add(height));
         c.set_reg(AX, height);
-        c.set_word(ROOM, room.saturating_sub(height));
+        c.update_text_box(|t| t.room = room.saturating_sub(height));
         c.call(0xd04e, 0x8c63)?;
         let sp = c.reg(SP);
         let left = c.word_in(SS, sp).wrapping_sub(1);
@@ -3642,13 +3633,13 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DX, left);
         if left == 0 {
             // The pen kept, SI back on the last byte.
-            let boxed = c.word(g::BOX_SHOWN);
+            let boxed = c.text_box().shown;
             let [x, y] = [FONT_LINE_X, FONT_LINE_Y].map(|a| c.word(a));
             c.run(0x8c6a, 8)?;
             c.set_reg(DX, x);
             c.set_reg(BX, y);
-            c.set_word(PEN[0], x);
-            c.set_word(PEN[1], y);
+            c.update_text_box(|t| t.pen[0] = x);
+            c.update_text_box(|t| t.pen[1] = y);
             let text = c.reg(SI).wrapping_sub(1);
             c.set_reg(SI, text);
             if boxed != 0x223c {
@@ -3663,23 +3654,15 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
     Err(Bail)
 }
 
-/// How the text is laid out (see [`layout_text`]).
-const TEXT_STYLE: u16 = 0x4799;
-/// The pen where the text starts (x, y).
-const PEN: [u16; 2] = [0x4791, 0x4793];
 /// The text's lines as [`break_lines`] leaves them: a count, then 6
 /// bytes each (its words, offset, spacing).
 const LINES: u16 = 0xa9d0;
-/// The step from line to line.
-const LINE_HEIGHT: u16 = 0x479a;
-/// The room left in the box below the pen.
-const ROOM: u16 = 0x478d;
 
 /// `loc_08ba3`: a line of CX words with the offset DX / spacing BX (see
 /// [`layout_text`]).
 fn line_8ba3(c: &mut Ctx, words: u16, offset: u16, spacing: u16) -> Result<(), Bail> {
     use super::globals::FONT_X;
-    let style = c.byte(TEXT_STYLE);
+    let style = c.text_box().style;
     if style & 2 != 0 {
         // Centred: the pen moved by half of what the words leave.
         let gaps = (words as u8).wrapping_sub(1);
@@ -3692,14 +3675,14 @@ fn line_8ba3(c: &mut Ctx, words: u16, offset: u16, spacing: u16) -> Result<(), B
         c.set_reg(DX, shift);
         let x = c.word(FONT_X).wrapping_add(shift);
         c.set_word(FONT_X, x);
-        c.set_byte(TEXT_STYLE, style & 0xfe);
+        c.update_text_box(|t| t.style = style & 0xfe);
     } else {
         c.run(0x8ba3, 2)?;
     }
     // Spacing by the line's own, but on the last line or without bit 0.
     let sp = c.reg(SP);
     let left = c.word_in(SS, sp);
-    let style = c.byte(TEXT_STYLE);
+    let style = c.text_box().style;
     let plain = left == 1 || style & 1 == 0;
     c.run(0x8bd1, 4 + if left == 1 { 0 } else { 2 } + if plain { 2 } else { 0 } + 1)?;
     c.set_reg(AX, left);
@@ -3708,7 +3691,7 @@ fn line_8ba3(c: &mut Ctx, words: u16, offset: u16, spacing: u16) -> Result<(), B
         c.set_reg(BX, 0);
     }
     let wide = c.reg(BX);
-    c.set_word(0x479c, wide);
+    c.update_text_box(|t| t.wider_gaps = wide);
     let mut words = words;
     loop {
         let at = c.reg(SI);
@@ -3757,13 +3740,13 @@ fn line_8ba3(c: &mut Ctx, words: u16, offset: u16, spacing: u16) -> Result<(), B
             c.set_reg(CX, 0);
             return Ok(());
         }
-        let wider = c.word(0x479c);
+        let wider = c.text_box().wider_gaps;
         let gap = c.reg(DX);
         let x = c.word(FONT_X).wrapping_add(gap).wrapping_add((wider != 0) as u16);
         c.run(0x8c26, if wider != 0 { 11 } else { 9 })?;
         c.set_reg(CX, words);
         if wider != 0 {
-            c.set_word(0x479c, wider - 1);
+            c.update_text_box(|t| t.wider_gaps = wider - 1);
         }
         c.set_word(FONT_X, x);
         // DX (the gap) pushed and popped around the sum: it stays below
@@ -4065,7 +4048,7 @@ fn show_text_88d2(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x88d9, 21)?;
         let text = c.pop();
         c.set_reg(SI, text);
-        c.set_word(g::BOX_SHOWN, 1);
+        c.update_text_box(|t| t.shown = 1);
         c.set_byte(0x1c06, shown);
         let ds = c.sreg(DS);
         c.push(ds);
@@ -4279,19 +4262,18 @@ pub fn draw_speech_bubble(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (right, bottom) = (x.wrapping_add(width), y.wrapping_add(height));
     let wide = right >= 0x140;
     c.run(start, if wide { 33 } else { 32 })?;
-    c.set_word(g::BOX_SHOWN, rect);
+    c.update_text_box(|t| t.shown = rect);
     let ds = c.sreg(DS);
     c.push(ds);
     let es = c.pop();
     c.set_sreg(ES, es);
-    let [left_margin, right_margin, top_margin, bottom_margin] = [0x4784u16, 0x4786, 0x4788, 0x478a].map(|a| c.word(a));
-    let text_x = x.wrapping_add(left_margin);
-    let text_y = y.wrapping_add(top_margin);
-    for (a, v) in [(0x4791u16, text_x), (0x4795, text_x), (0x4793, text_y), (0x4797, text_y)] {
-        c.set_word(a, v);
-    }
-    c.set_word(0x478f, width.wrapping_sub(left_margin).wrapping_sub(right_margin));
-    c.set_word(0x478d, height.wrapping_sub(top_margin).wrapping_sub(bottom_margin));
+    c.update_text_box(|t| {
+        let [left, right, top, bottom] = t.margins;
+        t.pen = [x.wrapping_add(left), y.wrapping_add(top)];
+        t.origin = t.pen;
+        t.width = width.wrapping_sub(left).wrapping_sub(right);
+        t.room = height.wrapping_sub(top).wrapping_sub(bottom);
+    });
     let edge = if wide { 0x140 } else { right };
     c.set_reg(DI, 0x1be2);
     for v in [x, y, edge, bottom] {

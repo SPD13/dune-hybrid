@@ -584,7 +584,7 @@ pub fn gfx_call_38c9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9025)?;
     let mut c = Ctx::new(m);
     c.run(start, 9)?;
-    let h = c.word(0x4793);
+    let h = c.text_box().pen[1];
     c.set_reg(CX, h);
     let top = 0x92u16.wrapping_sub(h);
     c.set_reg(BX, top);
@@ -5763,7 +5763,7 @@ pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
     }
     c.run(0x542f, 3)?;
     c.set_word(0x46fc, 0);
-    c.set_word(0x479e, 0);
+    c.update_text_box(|t| t.shown = 0);
     c.call(0x557b, 0x543e)?;
     c.run(0x543e, 15)?;
     c.set_reg(DI, 0x46e3);
