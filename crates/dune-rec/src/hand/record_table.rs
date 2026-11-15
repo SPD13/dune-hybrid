@@ -1,8 +1,9 @@
 //! The game's record tables as Rust state (Stage B of
 //! `docs/readable-port-plan.md`): the troops (`hand/troop_table.rs`),
 //! the locations, the text box (`hand/text_box.rs`) and the dialogue's
-//! text (`hand/dialogue_text.rs`) and the conversation
-//! (`hand/conversation.rs`), these three tables of one,
+//! text (`hand/dialogue_text.rs`), the conversation
+//! (`hand/conversation.rs`) and the map view (`hand/map_view.rs`),
+//! these four tables of one,
 //! kept with the machine ([`super::native`]).
 //!
 //! Each record is cached the first time it is used. The views
@@ -42,10 +43,19 @@ pub enum Which {
     DialogueText,
     /// The conversation and scene state, 24h bytes at 47A2h.
     Conversation,
+    /// The map view, 0Ch bytes at 46E3h.
+    MapView,
 }
 
 impl Which {
-    pub const ALL: [Which; 5] = [Which::Troops, Which::Locations, Which::TextBox, Which::DialogueText, Which::Conversation];
+    pub const ALL: [Which; 6] = [
+        Which::Troops,
+        Which::Locations,
+        Which::TextBox,
+        Which::DialogueText,
+        Which::Conversation,
+        Which::MapView,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -54,6 +64,7 @@ impl Which {
             Which::TextBox => "text box",
             Which::DialogueText => "dialogue text",
             Which::Conversation => "conversation",
+            Which::MapView => "map view",
         }
     }
     const fn base(self) -> u16 {
@@ -63,6 +74,7 @@ impl Which {
             Which::TextBox => 0x4784,
             Which::DialogueText => 0x47c6,
             Which::Conversation => 0x47a2,
+            Which::MapView => 0x46e3,
         }
     }
     pub const fn size(self) -> u16 {
@@ -72,6 +84,7 @@ impl Which {
             Which::TextBox => 0x1c,
             Which::DialogueText => 0x0e,
             Which::Conversation => 0x24,
+            Which::MapView => 0x0c,
         }
     }
     pub const fn count(self) -> usize {
@@ -81,6 +94,7 @@ impl Which {
             Which::TextBox => 1,
             Which::DialogueText => 1,
             Which::Conversation => 1,
+            Which::MapView => 1,
         }
     }
     fn end(self) -> u16 {
@@ -113,6 +127,7 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::TextBox => &mut n.text_box,
         Which::DialogueText => &mut n.dialogue_text,
         Which::Conversation => &mut n.conversation,
+        Which::MapView => &mut n.map_view,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];

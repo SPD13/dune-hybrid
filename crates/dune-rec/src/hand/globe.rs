@@ -506,7 +506,7 @@ pub fn swap_projection(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn map_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb647)?;
     let mut c = Ctx::new(m);
-    let zoom = c.byte(g::MAP_MODE) & 0x80 != 0;
+    let zoom = c.map_view().mode & 0x80 != 0;
     let shift = if zoom { 2 } else { 0 };
     let (along, row) = (c.reg(DX), c.reg(BX));
     let y = (row.wrapping_sub(c.word(CENTRE + 2)) << shift).wrapping_add(c.word(SCREEN_CENTRE + 2));
@@ -710,7 +710,7 @@ const ROWS_BUFFER: u16 = 0x9e68;
 pub fn screen_to_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb5f9)?;
     let mut c = Ctx::new(m);
-    let zoom = c.byte(g::MAP_MODE) & 0x80 != 0;
+    let zoom = c.map_view().mode & 0x80 != 0;
     let cl = if zoom { 2u16 } else { 0 };
     let (dx, bx) = (c.reg(DX), c.reg(BX));
     let (sx, sy) = (c.word(SCREEN_CENTRE), c.word(SCREEN_CENTRE + 2));
@@ -1838,7 +1838,7 @@ fn clamp_197e_count(c: &mut Ctx, bx: u16) -> u32 {
 pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb6c3)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0x46eb);
+    let f = c.map_view().mode;
     if f & 0x80 != 0 {
         let n = clamp_197e_count(&mut c, 0x4b);
         c.run(0xb6c3, 2 + 6 + 4 + n + 7)?;
@@ -1868,7 +1868,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xb713, 1)?;
         return c.ret();
     }
-    let (e3, e5, e7, e9) = (c.word(0x46e3), c.word(0x46e5), c.word(0x46e7), c.word(0x46e9));
+    let [e3, e5, e7, e9] = c.map_view().rect;
     let h1 = e9.wrapping_sub(e5).wrapping_sub(1);
     let half = h1 >> 1;
     let lim = 0x56u16.wrapping_sub(half);
@@ -1963,7 +1963,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
             break;
         }
     }
-    let f = c.byte(0x46eb);
+    let f = c.map_view().mode;
     c.run(0xb7ae, 9 + (f & 0x40 != 0) as u32)?;
     let es = c.word(g::FRAMEBUFFER_ACTIVE);
     c.set_sreg(ES, es);
@@ -1971,9 +1971,9 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, di);
     let cx = c.word(0xdcf4);
     c.set_reg(CX, cx);
-    let dx = c.word(0x46e3);
+    let dx = c.map_view().rect[0];
     c.set_reg(DX, dx);
-    let bx = c.word(0x46e5);
+    let bx = c.map_view().rect[1];
     c.set_reg(BX, bx);
     c.set_reg(SI, 0x4c60);
     let a = c.pop();

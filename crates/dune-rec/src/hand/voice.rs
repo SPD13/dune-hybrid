@@ -1590,7 +1590,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     let si = c.reg(SI);
     c.push(si);
     c.call(0x9197, 0x9def)?;
-    let f = c.byte(0x46eb);
+    let f = c.map_view().mode;
     let neg = f & 0x80 != 0;
     c.run(0x9def, 4 + if neg { 0 } else { 2 })?;
     let si = c.pop();

@@ -723,7 +723,7 @@ pub fn speaker_text_setup(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x9f54, 2)?;
         c.restore(&[AX, SI]);
     }
-    let map_up = c.byte(g::MAP_MODE) != 0;
+    let map_up = c.map_view().mode != 0;
     c.run(0x9f56, if map_up { 6 } else { 7 })?;
     c.set_reg8(r8::CL, 0x10);
     let record = (c.reg(AX) & 0xff) * 0x10 + 0x0fd8;
@@ -1953,7 +1953,7 @@ pub fn show_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.or(W, 0, 0);
         return c.ret();
     }
-    let mode = c.byte(g::MAP_MODE);
+    let mode = c.map_view().mode;
     let note = move |c: &mut Ctx| {
         c.set_word(g::TALKING_HEAD_TIME, phrase);
         c.set_byte(g::VOICE_LANGUAGE_PART, 0);
@@ -1961,7 +1961,7 @@ pub fn show_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if mode & 0x40 != 0 {
         return phrase_on_map_at(&mut c, start, 8, |c| {
             note(c);
-            c.set_byte(g::MAP_MODE, mode & !0x40);
+            c.update_map_view(|t| t.mode = mode & !0x40);
         });
     }
     c.run(start, 8)?;
@@ -2496,7 +2496,7 @@ pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     // The portrait first, outside the map views.
-    let map_view = c.byte(g::MAP_MODE) != 0;
+    let map_view = c.map_view().mode != 0;
     let talker = c.conversation().talker;
     if map_view {
         c.run(0x9fd8, 2)?;
@@ -2629,7 +2629,7 @@ pub(super) fn entry_said_a03f(c: &mut Ctx) -> Result<(), Bail> {
         }
     }
     // Outside the map views: the scene and the voice.
-    let map_view = c.byte(g::MAP_MODE) != 0;
+    let map_view = c.map_view().mode != 0;
     if map_view || c.conversation().talker >= 0x10 {
         c.run(0xa0aa, if map_view { 2 } else { 4 })?;
     } else {
@@ -2985,7 +2985,7 @@ const BOOK_PAGE: u16 = 0x11bf;
 pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8ccd)?;
     let mut c = Ctx::new(m);
-    let map_view = c.byte(g::MAP_MODE) != 0;
+    let map_view = c.map_view().mode != 0;
     let talker = c.conversation().talker;
     let book = c.byte(0xc6) != 0;
     let intro = c.byte(g::MAP_VIEW_FLAG) != 0;
@@ -4462,7 +4462,7 @@ pub fn portrait_a28e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(person);
     c.call(0x5b55, 0xa2e0)?;
     c.run(0xa2e0, 4)?;
-    c.set_byte(g::MAP_MODE, 1);
+    c.update_map_view(|t| t.mode = 1);
     c.set_reg(SI, 0x22f4);
     c.set_reg(DI, 0x46e3);
     c.call(0x5b99, 0xa2ee)?;
@@ -4475,7 +4475,7 @@ pub fn portrait_a28e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, person);
     c.call(0x62fe, 0xa2fe)?;
     c.run(0xa2fe, 3)?;
-    c.set_byte(g::MAP_MODE, 0);
+    c.update_map_view(|t| t.mode = 0);
     c.set_reg(SI, 0x22ec);
     c.call(0xc477, 0xa309)?;
     c.run(0xa309, 2)?;

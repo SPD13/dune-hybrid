@@ -917,7 +917,7 @@ pub fn place_1bec(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn redraw_1c18(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1c18)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0x46eb);
+    let k = c.map_view().mode;
     if k & 0x80 == 0 {
         let fb = c.byte(0xfb);
         let n = if k != 0 { 4 } else if fb & 0x80 == 0 { 6 } else { 6 };
@@ -2031,9 +2031,9 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn leave_hotspot_mode(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4415)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0x46eb);
+    let k = c.map_view().mode;
     c.run(start, if k == 0 { 5 } else { 6 })?;
-    c.set_byte(0x46eb, 0);
+    c.update_map_view(|t| t.mode = 0);
     c.set_reg8(r8::AL, k);
     if k == 0 {
         return c.ret();
@@ -4642,7 +4642,7 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     c.set_byte(g::HEADING, a as u8);
     c.set_byte(8, 0xff);
     c.call(0x4b3b, 0x4763)?;
-    let v = c.byte(0x46eb);
+    let v = c.map_view().mode;
     let neg = v & 0x80 != 0;
     c.run(0x4763, if neg { 5 } else { 5 })?;
     c.set_word(g::MAP_POSITION_RECORD, 0);
@@ -5091,7 +5091,7 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     let a = c.text_box().shown;
-    let b = c.byte(0x46eb);
+    let b = c.map_view().mode;
     let v = a & 0xff00 | ((a as u8) | b) as u16;
     if v != 0 {
         c.run(0x0b5f, 5)?;
@@ -5675,7 +5675,7 @@ fn enter_room_at(c: &mut Ctx) -> Result<(), Bail> {
     c.call(0x40c3, 0x405a)?;
     let dx = c.reg(DX);
     let bx = c.reg(BX);
-    let f = c.byte(0x46eb);
+    let f = c.map_view().mode;
     if f & 0x80 == 0 && dx == 0x3002 {
         c.m.cpu.ip = 0x405a;
         return Err(Bail);
@@ -6420,7 +6420,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
         c.cmp(B, k as u16, 0);
         return clear_473b(c);
     }
-    let e = c.byte(0x46ec);
+    let e = c.map_view().changes;
     c.run(0x1b90, 4 + (e != 0) as u32)?;
     c.cmp(B, 0, 0);
     c.cmp(B, e as u16, 0);

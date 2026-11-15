@@ -1477,7 +1477,7 @@ pub fn place_7c02(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.pop();
         c.set_reg(SI, v);
     }
-    let f = c.byte(0x46eb);
+    let f = c.map_view().mode;
     c.run(0x7c56, 2 + if f & 0x80 != 0 { 1 } else { 1 })?;
     c.cmp(B, f as u16, 0);
     if f & 0x80 != 0 {
@@ -2181,7 +2181,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0d8e, 2 + 3 + 4 + 1)?;
     c.set_reg(AX, 0);
     c.set_byte(0x473b, 0);
-    c.set_byte(0x46ec, 0);
+    c.update_map_view(|t| t.changes = 0);
     if fb & 0x80 != 0 {
         c.call(0xdbb2, 0x0dad)?;
         c.run(0x0dad, 1)?;
@@ -2357,11 +2357,11 @@ pub fn kind_6a89(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn head_49d9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x49d9)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0x46eb);
+    let f = c.map_view().mode;
     if f & 0x80 != 0 {
         c.run(0x49d9, 3)?;
         c.cmp(B, f as u16, 0); // the indirect jump's target could see these
-        let to = c.word(0x46ed);
+        let to = c.map_view().redraw;
         return c.jump(to);
     }
     c.run(0x49d9, 3)?;
@@ -2454,7 +2454,7 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn night_4795(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4795)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0x46eb);
+    let f = c.map_view().mode;
     if f & 0x80 != 0 {
         c.run(0x4795, 3)?;
         return c.ret();

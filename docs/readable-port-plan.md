@@ -296,7 +296,8 @@ the subsystem's boundary. Candidates, smallest boundary first:
   played and the conversation (47A2h-47C5h) done (below); the rest of
   the 4770h block (talking heads, voice, 4770h-4783h and 47D4h-47EFh)
   first needs names for its bytes;
-- the map's projection and drawing (the HD renderer already models it).
+- the map's projection and drawing (the HD renderer already models it):
+  its view (46E3h-46EEh) done (below).
 
 The shadow check no longer applies inside such a subsystem. Two checks
 replace it:
@@ -426,6 +427,13 @@ the group, the mode, the two heads, the talker) is a third (the
 records may now be up to 24h bytes; `conversation:` in the output). The
 word the original pushes over the mode and the two heads is
 `Conversation::mode_word`.
+
+The map view (`hand/map_view.rs`, 0Ch bytes at 46E3h: the rect shown,
+which view is up ([46EBh]: 80h the map zoomed in, 40h a place's view),
+the changes seen since it was drawn, the routine that redraws it) is a
+fourth (`Ctx::map_view` / `update_map_view`; `map view:` in the
+output). The generated routines that fill its rect (given 46E3h in DI)
+are counted apart.
 
 ## Tools in place
 

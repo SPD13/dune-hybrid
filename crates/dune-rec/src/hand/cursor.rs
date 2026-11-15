@@ -179,7 +179,7 @@ pub fn hotspots_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn hotspots_particles(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe0a2)?;
     let mut c = Ctx::new(m);
-    let kinds = c.byte(g::MAP_MODE);
+    let kinds = c.map_view().mode;
     let on = kinds & 0x80 != 0;
     c.run(start, if on { 2 } else { 3 })?;
     if !on {
@@ -231,7 +231,7 @@ pub fn hotspots_particles(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn hotspots_markers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe0db)?;
     let mut c = Ctx::new(m);
-    let kinds = c.byte(g::MAP_MODE);
+    let kinds = c.map_view().mode;
     c.run(start, 3)?;
     if kinds == 0 {
         return c.ret();
@@ -273,7 +273,7 @@ pub fn hotspots_markers(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn hotspots_eight_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe11c)?;
     let mut c = Ctx::new(m);
-    let kinds = c.byte(g::MAP_MODE);
+    let kinds = c.map_view().mode;
     if kinds & 1 == 0 {
         c.run(start, 3)?;
         return c.ret();

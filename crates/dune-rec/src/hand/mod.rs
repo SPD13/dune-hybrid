@@ -35,6 +35,7 @@ pub mod record_table;
 pub mod text_box;
 pub mod dialogue_text;
 pub mod conversation;
+pub mod map_view;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1506,6 +1507,15 @@ impl Ctx<'_> {
     /// The conversation changed by `f` (written through).
     fn update_conversation(&mut self, f: impl FnOnce(&mut conversation::Conversation)) {
         conversation::update(self, f)
+    }
+    /// The map view (Rust state, see [`map_view`]), in step with the
+    /// memory.
+    fn map_view(&mut self) -> map_view::MapView {
+        map_view::get(self)
+    }
+    /// The map view changed by `f` (written through).
+    fn update_map_view(&mut self, f: impl FnOnce(&mut map_view::MapView)) {
+        map_view::update(self, f)
     }
     /// The game time ([2]).
     fn game_time(&mut self) -> u16 {

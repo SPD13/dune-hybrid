@@ -435,7 +435,7 @@ pub fn set_buttons_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn set_buttons_for_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd717)?;
     let mut c = Ctx::new(m);
-    let kinds = c.byte(0x46eb);
+    let kinds = c.map_view().mode;
     let f = c.byte(g::HEAD_ANIMATION_BLOCKED);
     let prefix = if kinds != 0 { 4 } else if f & 3 == 0 { 5 } else { 6 };
     set_buttons(&mut c, start, prefix, |c| {

@@ -803,7 +803,7 @@ pub fn shown_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x68eb)?;
     let mut c = Ctx::new(m);
     let number = c.byte(SHOWN_TROOP);
-    if c.byte(g::MAP_MODE) >= 0x80 {
+    if c.map_view().mode >= 0x80 {
         c.run(start, 3 + 8)?;
         c.set_reg8(r8::AL, number);
         c.set_reg(SI, Troop::number(number).offset());
@@ -828,7 +828,7 @@ const SHOWN_INDEX: u16 = 0x476c;
 pub fn troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6917)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0x46eb);
+    let k = c.map_view().mode;
     let si = c.reg(SI);
     // The path, purely.
     let n_all = c.word(g::PARTICLES);
@@ -2596,7 +2596,7 @@ fn clear_bit_40(c: &mut Ctx, item: u16) {
 pub fn troop_screen_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x686e)?;
     let mut c = Ctx::new(m);
-    if c.byte(g::MAP_MODE) < 0x80 {
+    if c.map_view().mode < 0x80 {
         c.run(start, 3)?;
         c.set_flag(CF, true);
         return c.ret();
@@ -3400,7 +3400,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x7c52, 2)?;
         c.restore(&[SI]);
     }
-    let zoomed = c.byte(g::MAP_MODE) & 0x80 != 0;
+    let zoomed = c.map_view().mode & 0x80 != 0;
     c.run(0x7c56, 3)?;
     if zoomed {
         c.call(0x9901, 0x7c60)?;
@@ -4857,9 +4857,6 @@ pub fn tally_72a2(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// and the spice harvested in all ([0A0h]).
 const SPICE_TENTHS: u16 = 0x46e1;
 const SPICE_HARVESTED: u16 = 0x00a0;
-/// Counted up when a location's spice runs lower than a harvest takes
-/// while the place view is up ([`g::MAP_MODE`] bit 40h).
-const SPICE_SHORT: u16 = 0x46ec;
 
 /// `loc_06fe5`, job 0: harvesting spice. The troop SI's day
 /// (`troop_day_update`); unless it waits (word 10h bit 200h) or is held
@@ -4966,15 +4963,15 @@ pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let spice = place.spice(&mut c);
     let low = spice & 0x0f;
     let more = q > low;
-    let place_view = c.byte(g::MAP_MODE) & 0x40 != 0;
+    let place_view = c.map_view().mode & 0x40 != 0;
     let borrow = spice < q;
     c.run(0x702f, 4 + 5 + if more { 2 + place_view as u32 } else { 0 } + 2 + borrow as u32 + 1)?;
     c.set_reg8(r8::CL, per);
     place.set_harvest_left(&mut c, r);
     c.set_reg(AX, (low as u16) << 8 | q as u16);
     if more && place_view {
-        let k = c.byte(SPICE_SHORT).wrapping_add(1);
-        c.set_byte(SPICE_SHORT, k);
+        let k = c.map_view().changes.wrapping_add(1);
+        c.update_map_view(|t| t.changes = k);
     }
     let left = c.sub(B, spice as u16, q as u16) as u8; // the exit's flags
     place.set_spice(&mut c, if borrow { 0 } else { left });
@@ -5326,13 +5323,13 @@ pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, 0);
         c.set_reg8(r8::AL, 2);
         c.call(0x6edd, 0x7117)?;
-        let place_view = c.byte(g::MAP_MODE) & 0x40 != 0;
+        let place_view = c.map_view().mode & 0x40 != 0;
         c.run(0x7117, 3 + place_view as u32)?;
         let a = c.byte(di.wrapping_add(0x0a));
         c.set_byte(di.wrapping_add(0x0a), a | 0x40);
         if place_view {
-            let k = c.byte(0x46ec).wrapping_add(1);
-            c.set_byte(0x46ec, k);
+            let k = c.map_view().changes.wrapping_add(1);
+            c.update_map_view(|t| t.changes = k);
         }
     } else {
         c.run(0x70cc, 5)?;

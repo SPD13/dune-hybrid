@@ -14,6 +14,7 @@ pub struct Native {
     pub text_box: super::record_table::RecordTable,
     pub dialogue_text: super::record_table::RecordTable,
     pub conversation: super::record_table::RecordTable,
+    pub map_view: super::record_table::RecordTable,
 }
 
 /// The machine's Rust state (made on first use).

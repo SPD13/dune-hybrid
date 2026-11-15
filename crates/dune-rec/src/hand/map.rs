@@ -108,7 +108,7 @@ pub fn after_8850(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(0x8850, 0x5b13)?;
-    let kinds = c.byte(g::MAP_MODE);
+    let kinds = c.map_view().mode;
     let on = kinds & 0x40 != 0;
     c.run(0x5b13, if on { 5 } else { 3 })?;
     if !on {
@@ -221,7 +221,7 @@ pub fn in_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5d1d)?;
     let mut c = Ctx::new(m);
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    let v = [c.word(VIEW), c.word(VIEW + 2), c.word(VIEW + 4), c.word(VIEW + 6)];
+    let v = c.map_view().rect;
     let n = if dx < v[0] {
         4
     } else if dx >= v[2] {
@@ -263,7 +263,7 @@ pub fn outside_view_after_b647(m: &mut Machine, start: u16) -> Result<(), Bail> 
 /// out); returns.
 fn outside_view_tail(c: &mut Ctx) -> Result<(), Bail> {
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    let v = [c.word(VIEW), c.word(VIEW + 2), c.word(VIEW + 4), c.word(VIEW + 6)];
+    let v = c.map_view().rect;
     let n = if dx < v[0] {
         3
     } else if dx >= v[2] {
@@ -465,7 +465,7 @@ pub fn map_list_without_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.cmp(W, bp, 0x2136);
     }
     if ours {
-        let k = c.byte(g::MAP_MODE);
+        let k = c.map_view().mode;
         let al = !k;
         c.set_reg8(r8::AL, al);
         c.test(B, al as u16, 0x40);
@@ -529,7 +529,7 @@ pub fn redraw_and_handle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(0x7b36, 0x8853)?;
     c.run(0x8853, 1)?;
-    let h = c.word(0x46ed);
+    let h = c.map_view().redraw;
     c.call(h, 0x8857)?;
     c.run(0x8857, 1)?;
     c.ret()
@@ -614,7 +614,7 @@ fn draw_zoomed_map(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)
     c.run(0x49a3, 1)?;
     c.call(0x5b93, 0x49a6)?;
     c.run(0x49a6, 2)?;
-    c.set_byte(g::MAP_MODE, 1);
+    c.update_map_view(|t| t.mode = 1);
     c.call(0xb6c3, 0x49ae)?;
     c.run(0x49ae, 1)?;
     c.call(0x5b69, 0x49b1)?;
@@ -642,7 +642,7 @@ fn draw_zoomed_map(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)
             c.run(0x49cc, 2)?;
         }
     }
-    c.set_byte(g::MAP_MODE, 0);
+    c.update_map_view(|t| t.mode = 0);
     super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
 }
 
@@ -920,7 +920,7 @@ pub fn gfx_call_3961_at_4710(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn drop_point_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x58fa)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(g::MAP_MODE);
+    let k = c.map_view().mode;
     c.run(start, 3)?;
     if k & 0x40 == 0 {
         return c.ret();
@@ -928,9 +928,9 @@ pub fn drop_point_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::SAVE_REGS, 0x5904)?;
     let first = c.word(g::SPRITE_LIST) == POINT_4710;
     c.run(0x5904, 4 + (!first) as u32 + 3)?;
-    let k = c.byte(g::MAP_MODE);
+    let k = c.map_view().mode;
     let k = pure::and(B, k as u16, 0xbf);
-    c.set_byte(g::MAP_MODE, k as u8);
+    c.update_map_view(|t| t.mode = k as u8);
     let di = if first { g::SPRITE_LIST } else { g::SPRITE_LIST + 2 };
     c.set_reg(DI, di);
     let old = c.word(di);
@@ -1056,7 +1056,7 @@ pub fn count_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
     let f = c.byte(di.wrapping_add(0x0a));
-    let k = c.byte(g::MAP_MODE);
+    let k = c.map_view().mode;
     let si = c.reg(SI);
     let n = if f & 0x80 != 0 { 7 } else if k == 0 { 9 } else { 8 };
     c.run(start, n)?;
@@ -1069,9 +1069,9 @@ pub fn count_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let out = c.flag(CF);
             c.run(0x5d64, if out { 4 } else { 5 })?;
             if !out {
-                let v = c.byte(0x46ec);
+                let v = c.map_view().changes;
                 let v = pure::inc(B, v as u16);
-                c.set_byte(0x46ec, v as u8);
+                c.update_map_view(|t| t.changes = v as u8);
             }
         }
     }
@@ -1087,7 +1087,7 @@ pub fn count_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn location_icon(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5e42)?;
     let mut c = Ctx::new(m);
-    let zoom = c.byte(g::MAP_MODE) & 0x80 != 0;
+    let zoom = c.map_view().mode & 0x80 != 0;
     let si = c.reg(SI);
     let kind = c.byte(si.wrapping_add(8));
     let reached = [0x20u8, 0x21, 0x28, 0x30].iter().take_while(|&&t| kind >= t).count() as u32;
@@ -1129,7 +1129,7 @@ pub fn drop_map_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn record_outside_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x62c9)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(g::MAP_MODE);
+    let k = c.map_view().mode;
     if k < 1 {
         c.run(start, 3)?;
         c.cmp(B, k as u16, 1);
@@ -1341,7 +1341,7 @@ pub fn map_mode_flag(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn redraw_map_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x82b7)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(g::MAP_MODE);
+    let k = c.map_view().mode;
     if k & 0x40 == 0 {
         c.run(start, 3)?;
         return c.ret();
@@ -1388,7 +1388,7 @@ pub fn show_message_0f(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x7bd4, 2)?;
         c.call(0x9efd, 0x7bd9)?;
     }
-    let k = c.byte(g::MAP_MODE);
+    let k = c.map_view().mode;
     let si = c.word(0x46f1);
     if k & 0x80 != 0 {
         c.run(0x7bd9, 5)?;
@@ -2537,7 +2537,7 @@ pub fn leave_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x7b36, 0x5ae2)?;
     c.run(0x5ae2, 11)?;
     c.set_reg(AX, 0);
-    c.set_byte(g::MAP_MODE, 0);
+    c.update_map_view(|t| t.mode = 0);
     c.set_byte(0x46f3, 0);
     for p in [0x3cbeu16, 0xa5c0, 0xdbe0, 0xdbe2, 0x1954] {
         c.set_word(p, 0);
@@ -3162,7 +3162,7 @@ pub fn nearest_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5e6d)?;
     let mut c = Ctx::new(m);
     let (al, dx0, bx0, si0) = (c.reg8(r8::AL), c.reg(DX), c.reg(BX), c.reg(SI));
-    let mode = c.byte(g::MAP_MODE);
+    let mode = c.map_view().mode;
     let mut best = 0xffffu16;
     let mut best_di = 0u16;
     let mut n = 8;
@@ -3317,10 +3317,10 @@ fn map_row(m: &mut Machine, start: u16, right: bool) -> Result<(), Bail> {
         }
         let dx = c.reg(DX);
         let (lim, out) = if right {
-            let l = c.word(0x46e7);
+            let l = c.map_view().rect[2];
             (l, dx.wrapping_add(4) >= l)
         } else {
-            let l = c.word(0x46e3);
+            let l = c.map_view().rect[0];
             (l, dx.wrapping_sub(4) < l)
         };
         let si = c.reg(SI);
@@ -3692,7 +3692,7 @@ fn skill_bars_at(c: &mut Ctx) -> Result<(), Bail> {
 pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5dce)?;
     let mut c = Ctx::new(m);
-    let mode = c.byte(g::MAP_MODE);
+    let mode = c.map_view().mode;
     let neg = mode & 0x80 != 0;
     c.run(start, 3 + if neg { 2 } else { 0 })?;
     c.set_reg8(r8::AL, mode);
@@ -3769,7 +3769,7 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let (di, s, dx, bx) = (c.reg(DI), c.reg(SI), c.reg(DX), c.reg(BX));
             c.set_word(di, s);
             c.set_word(di.wrapping_add(2), dx);
-            let m2 = c.byte(g::MAP_MODE);
+            let m2 = c.map_view().mode;
             let bx = (m2 as u16) << 8 | bx & 0xff;
             c.set_word(di.wrapping_add(4), bx);
             c.set_reg(BX, bx & 0xff);
@@ -4462,12 +4462,12 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xd6fe, 0x5c35)?;
     if c.flag(CF) {
         c.run(0x5c35, 4)?;
-        c.set_byte(g::MAP_MODE, 0x40);
+        c.update_map_view(|t| t.mode = 0x40);
         c.set_reg8(r8::AL, 0xff);
         c.call(0x5e6d, 0x5c41)?;
         let ax = c.reg(AX);
         c.run(0x5c41, 3 + if ax < 9 { 0 } else { 1 })?;
-        c.set_byte(g::MAP_MODE, 0xc0);
+        c.update_map_view(|t| t.mode = 0xc0);
         if ax >= 9 {
             c.set_reg(DI, 0);
         }
@@ -4731,7 +4731,7 @@ fn spread_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
         }
         n += 1;
     }
-    let mode = c.byte(g::MAP_MODE);
+    let mode = c.map_view().mode;
     n += 3 + if bp == 0 { 1 } else { 2 + if mode & 0x80 != 0 { 2 } else { 1 } };
     if n > 300_000 {
         c.m.cpu.ip = at;
@@ -4752,9 +4752,9 @@ fn spread_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     if bp != 0 {
         c.cmp(B, mode as u16, 0);
         if mode & 0x80 != 0 {
-            let v = c.byte(0x46ec);
+            let v = c.map_view().changes;
             let v = c.inc(B, v as u16);
-            c.set_byte(0x46ec, v as u8);
+            c.update_map_view(|t| t.changes = v as u8);
         }
     }
     c.ret()
@@ -4922,7 +4922,7 @@ pub fn heading_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn enter_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5a56)?;
     let mut c = Ctx::new(m);
-    let v = c.byte(g::MAP_MODE);
+    let v = c.map_view().mode;
     if v & 0x80 != 0 {
         return map_view_redraw(&mut c, start, 2, |c| c.cmp(B, v as u16, 0));
     }
@@ -4946,12 +4946,12 @@ pub fn enter_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5a7b, 1)?;
     c.call(0x1797, 0x5a7e)?;
     c.run(0x5a7e, 2)?;
-    c.set_byte(g::MAP_MODE, 0x80);
+    c.update_map_view(|t| t.mode = 0x80);
     c.call(0xad5e, 0x5a86)?;
     c.run(0x5a86, 4)?;
     c.set_word(0x2786, 0xc835);
     c.set_reg(AX, 0x5a9a);
-    c.set_word(0x46ed, 0x5a9a);
+    c.update_map_view(|t| t.redraw = 0x5a9a);
     c.call(0x5a9a, 0x5a94)?;
     c.run(0x5a94, 1)?;
     c.call(0xd792, 0x5a97)?;
@@ -4970,8 +4970,8 @@ fn map_view_redraw(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -
     c.run(0x5a9d, 1)?;
     c.call(0x5b8d, 0x5aa0)?;
     c.run(0x5aa0, 4)?;
-    let old = c.byte(g::MAP_MODE);
-    c.set_byte(g::MAP_MODE, 0x80);
+    let old = c.map_view().mode;
+    c.update_map_view(|t| t.mode = 0x80);
     let ax = c.reg(AX) & 0xff00 | old as u16;
     c.set_reg(AX, ax);
     c.push(ax);
@@ -4993,7 +4993,7 @@ fn map_view_redraw(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -
     c.run(0x5ac8, if bit { 5 } else { 6 })?;
     let ax = c.pop();
     c.set_reg(AX, ax);
-    c.set_byte(g::MAP_MODE, ax as u8);
+    c.update_map_view(|t| t.mode = ax as u8);
     let a = c.and(B, ax & 0xff, 0x40);
     c.set_reg(AX, ax & 0xff00 | a);
     if bit {
@@ -5316,20 +5316,20 @@ pub fn caption_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn refresh_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5d6d)?;
     let mut c = Ctx::new(m);
-    let v = c.byte(g::MAP_MODE);
+    let v = c.map_view().mode;
     if v == 0 {
         c.run(start, 5)?;
-        c.set_byte(0x46ec, 0);
+        c.update_map_view(|t| t.changes = 0);
         return c.ret();
     }
     if v & 0x80 == 0 {
-        if c.word(0x46ed) != 0x5a9a {
+        if c.map_view().redraw != 0x5a9a {
             return Err(Bail);
         }
         c.run(start, 5)?;
-        c.set_byte(0x46ec, 0);
+        c.update_map_view(|t| t.changes = 0);
         c.call(0xdbb2, 0x5d7e)?;
-        if c.word(0x46ed) != 0x5a9a {
+        if c.map_view().redraw != 0x5a9a {
             c.m.cpu.ip = 0x5d7e;
             return Err(Bail);
         }
@@ -5337,15 +5337,15 @@ pub fn refresh_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return ui_main_view_map_interface(c.m, 0x5a9a);
     }
     c.run(start, 4)?;
-    c.set_byte(0x46ec, 0);
+    c.update_map_view(|t| t.changes = 0);
     c.call(0xc07c, 0x5d85)?;
     c.run(0x5d85, 1)?;
     c.call(0xdbb2, 0x5d88)?;
     c.run(0x5d88, 1)?;
     c.call(0x5b8d, 0x5d8b)?;
     c.run(0x5d8b, 5)?;
-    let old = c.byte(g::MAP_MODE);
-    c.set_byte(g::MAP_MODE, 0x80);
+    let old = c.map_view().mode;
+    c.update_map_view(|t| t.mode = 0x80);
     let ax = c.reg(AX) & 0xff00 | old as u16;
     c.set_reg(AX, ax);
     c.push(ax);
@@ -5375,7 +5375,7 @@ pub fn refresh_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bit = ax & 0x40 != 0;
     c.run(0x5dbf, if bit { 5 } else { 5 })?;
     let ax = c.pop();
-    c.set_byte(g::MAP_MODE, ax as u8);
+    c.update_map_view(|t| t.mode = ax as u8);
     let a = pure::and(B, ax & 0xff, 0x40);
     c.set_reg(AX, ax & 0xff00 | a);
     if bit {
@@ -5467,7 +5467,7 @@ pub fn route_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let dsi = x.wrapping_sub(next);
         let same = (dax ^ dsi) & 0x8000 == 0;
         let mut n = 8 + 7;
-        let (left, right) = (c.word(0x46e3), c.word(0x46e7));
+        let (left, right) = (c.map_view().rect[0], c.map_view().rect[2]);
         let mut seam = None;
         let mut chk = None;
         if !same {
@@ -5771,12 +5771,9 @@ pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
     let dx = c.add(W, dx, 5);
     let bx = c.reg(BX);
     let bx = c.add(W, bx, 7);
-    c.set_word(0x46e3, dx);
-    c.set_word(0x46e5, bx);
-    let dx = c.add(W, dx, 0xa0);
-    c.set_word(0x46e7, dx);
-    let bx = c.add(W, bx, 0x59);
-    c.set_word(0x46e9, bx);
+    let (right, bottom) = (c.add(W, dx, 0xa0), c.add(W, bx, 0x59));
+    c.update_map_view(|t| t.rect = [dx, bx, right, bottom]);
+    let (dx, bx) = (right, bottom);
     c.set_reg(SI, 0x4710);
     let dx = c.add(W, dx, 5);
     c.set_word(0x4714, dx);
@@ -5804,7 +5801,7 @@ pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
     c.run(0x5487, 4)?;
     let v = c.word(g::SPRITE_SHEET + 2);
     c.set_word(0xdd00, v);
-    c.set_byte(g::MAP_MODE, 0x40);
+    c.update_map_view(|t| t.mode = 0x40);
     c.call(0xb69a, 0x5497)?;
     c.run(0x5497, 1)?;
     c.call(0xb6c3, 0x549a)?;
@@ -5881,7 +5878,7 @@ pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
     c.run(0x5561, 1)?;
     c.call(0xb69a, 0x5564)?;
     c.run(0x5564, 4)?;
-    c.set_byte(g::MAP_MODE, 0xc0);
+    c.update_map_view(|t| t.mode = 0xc0);
     c.set_reg(SI, 0x1482);
     c.set_reg(DI, 0x46e3);
     c.call(0x5b99, 0x5572)?;
@@ -5979,7 +5976,7 @@ pub fn map_list_or_zoom(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x5b5d, 0x5b10)?;
     c.run(0x5b10, 1)?;
     c.call(0x8850, 0x5b13)?;
-    let v = c.byte(g::MAP_MODE);
+    let v = c.map_view().mode;
     c.run(0x5b13, 3)?;
     if v & 0x40 != 0 {
         return mouse_rect_4710(&mut c);
@@ -6284,7 +6281,7 @@ pub fn ui_click_map_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     // The point moved by the step at SI: the place view's or the map's.
-    let mode = c.byte(g::MAP_MODE);
+    let mode = c.map_view().mode;
     let place_view = mode & 0x80 != 0 && mode & 0x40 != 0;
     if place_view {
         c.run(0x8831, 6 + 5)?;
