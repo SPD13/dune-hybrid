@@ -10,7 +10,8 @@
 
 #![allow(dead_code)] // views grow ahead of the ports that use them
 
-use super::{Ctx, globals as g};
+use super::{Ctx, globals as g, troop_table};
+use pc::cpu::DS;
 
 /// A troop: a 1Bh-byte record in the table at [`g::TROOPS`], numbered from
 /// 1. (Byte 3 bit 80h marks a record that isn't a troop of yours.)
@@ -53,12 +54,41 @@ impl Troop {
         self.0.wrapping_add(field)
     }
 
+    /// The record in the Rust table (`hand/troop_table.rs`) for a field of
+    /// `len` bytes; none for an offset that starts no record, a field
+    /// past it, or another data segment (then the memory, as before).
+    fn native(self, c: &mut Ctx, field: u16, len: u16) -> Option<usize> {
+        if c.sreg(DS) != g::GAME_DS || field + len > Self::SIZE {
+            return None;
+        }
+        troop_table::index(self.0)
+    }
+    fn byte(self, c: &mut Ctx, field: u16) -> u8 {
+        match self.native(c, field, 1) {
+            Some(i) => troop_table::byte(c, i, field),
+            None => c.byte(self.at(field)),
+        }
+    }
+    fn set_byte(self, c: &mut Ctx, field: u16, v: u8) {
+        match self.native(c, field, 1) {
+            Some(i) => troop_table::set_byte(c, i, field, v),
+            None => c.set_byte(self.at(field), v),
+        }
+    }
+    fn word(self, c: &mut Ctx, field: u16) -> u16 {
+        self.byte(c, field) as u16 | (self.byte(c, field + 1) as u16) << 8
+    }
+    fn set_word(self, c: &mut Ctx, field: u16, v: u16) {
+        self.set_byte(c, field, v as u8);
+        self.set_byte(c, field + 1, (v >> 8) as u8);
+    }
+
     /// Byte 3: the job (low four bits) and [`troop_state`] bits.
     pub fn state(self, c: &mut Ctx) -> u8 {
-        c.byte(self.at(3))
+        self.byte(c, 3)
     }
     pub fn set_state(self, c: &mut Ctx, v: u8) {
-        c.set_byte(self.at(3), v)
+        self.set_byte(c, 3, v)
     }
     /// The job: byte 3's low four bits.
     pub fn job(self, c: &mut Ctx) -> u8 {
@@ -67,57 +97,57 @@ impl Troop {
 
     /// Word 4: its location (a [`Location`] record's offset).
     pub fn location(self, c: &mut Ctx) -> u16 {
-        c.word(self.at(4))
+        self.word(c, 4)
     }
     pub fn set_location(self, c: &mut Ctx, v: u16) {
-        c.set_word(self.at(4), v)
+        self.set_word(c, 4, v)
     }
 
     /// Word 10h: its low two bits the step of its last skill gain (the
     /// skill's index + 1); bit 80h, 200h: not known yet.
     pub fn word_10(self, c: &mut Ctx) -> u16 {
-        c.word(self.at(0x10))
+        self.word(c, 0x10)
     }
     pub fn set_word_10(self, c: &mut Ctx, v: u16) {
-        c.set_word(self.at(0x10), v)
+        self.set_word(c, 0x10, v)
     }
 
     /// Word 0Ah: the game time it last changed (`stamp_record`).
     pub fn changed_at(self, c: &mut Ctx) -> u16 {
-        c.word(self.at(0x0a))
+        self.word(c, 0x0a)
     }
     pub fn set_changed_at(self, c: &mut Ctx, v: u16) {
-        c.set_word(self.at(0x0a), v)
+        self.set_word(c, 0x0a, v)
     }
 
     /// Word 12h: bits, not all known (bits 15..13 select the skills its
     /// activity trains, see `troop_skills_decay`; 400h, 40h, 30h).
     pub fn word_12(self, c: &mut Ctx) -> u16 {
-        c.word(self.at(0x12))
+        self.word(c, 0x12)
     }
 
     /// Byte 14h: the day it joined or was last given a job.
     pub fn day(self, c: &mut Ctx) -> u8 {
-        c.byte(self.at(0x14))
+        self.byte(c, 0x14)
     }
     pub fn set_day(self, c: &mut Ctx, v: u8) {
-        c.set_byte(self.at(0x14), v)
+        self.set_byte(c, 0x14, v)
     }
 
     /// Byte 15h: its motivation (0 to 100).
     pub fn motivation(self, c: &mut Ctx) -> u8 {
-        c.byte(self.at(0x15))
+        self.byte(c, 0x15)
     }
     pub fn set_motivation(self, c: &mut Ctx, v: u8) {
-        c.set_byte(self.at(0x15), v)
+        self.set_byte(c, 0x15, v)
     }
 
     /// Byte 16h + `k`: its skill `k` (0 to 5Fh).
     pub fn skill(self, c: &mut Ctx, k: u16) -> u8 {
-        c.byte(self.at(0x16).wrapping_add(k))
+        self.byte(c, 0x16 + k)
     }
     pub fn set_skill(self, c: &mut Ctx, k: u16, v: u8) {
-        c.set_byte(self.at(0x16).wrapping_add(k), v)
+        self.set_byte(c, 0x16 + k, v)
     }
 }
 
@@ -126,60 +156,63 @@ impl Troop {
     /// tallies (`tally_yield`, `sum_troop_6155`) and raids; bit 10h marks
     /// it for `troop_68da`.
     pub fn byte_10(self, c: &mut Ctx) -> u8 {
-        c.byte(self.at(0x10))
+        self.byte(c, 0x10)
     }
     pub fn set_byte_10(self, c: &mut Ctx, v: u8) {
-        c.set_byte(self.at(0x10), v)
+        self.set_byte(c, 0x10, v)
     }
 
     pub fn set_word_12(self, c: &mut Ctx, v: u16) {
-        c.set_word(self.at(0x12), v)
+        self.set_word(c, 0x12, v)
     }
     /// Byte 12h (word 12h's low byte).
     pub fn byte_12(self, c: &mut Ctx) -> u8 {
-        c.byte(self.at(0x12))
+        self.byte(c, 0x12)
     }
     pub fn set_byte_12(self, c: &mut Ctx, v: u8) {
-        c.set_byte(self.at(0x12), v)
+        self.set_byte(c, 0x12, v)
     }
 
     /// Byte 0: its number (as [`Troop::number`] takes it).
     pub fn id(self, c: &mut Ctx) -> u8 {
-        c.byte(self.0)
+        self.byte(c, 0)
     }
     /// Byte 1: the number of the next troop in its location's chain (0
     /// for the last; [`Location::first_troop`] starts it).
     pub fn next(self, c: &mut Ctx) -> u8 {
-        c.byte(self.at(1))
+        self.byte(c, 1)
     }
 
     /// Word 0Ch: its production rate (`troop_rate`, 708Ah).
     pub fn rate(self, c: &mut Ctx) -> u16 {
-        c.word(self.at(0x0c))
+        self.word(c, 0x0c)
     }
     pub fn set_rate(self, c: &mut Ctx, v: u16) {
-        c.set_word(self.at(0x0c), v)
+        self.set_word(c, 0x0c, v)
     }
     /// Word 0Eh: cleared with the rate when stamped; summed by
     /// `sum_troop_6155`.
     pub fn word_0e(self, c: &mut Ctx) -> u16 {
-        c.word(self.at(0x0e))
+        self.word(c, 0x0e)
+    }
+    pub fn set_word_0e(self, c: &mut Ctx, v: u16) {
+        self.set_word(c, 0x0e, v)
     }
 
     /// Byte 1Ah: its size (how many; the rate grows with it).
     pub fn size(self, c: &mut Ctx) -> u8 {
-        c.byte(self.at(0x1a))
+        self.byte(c, 0x1a)
     }
     pub fn set_size(self, c: &mut Ctx, v: u8) {
-        c.set_byte(self.at(0x1a), v)
+        self.set_byte(c, 0x1a, v)
     }
 
     /// Byte 19h: bits, one per need of its location it covers.
     pub fn byte_19(self, c: &mut Ctx) -> u8 {
-        c.byte(self.at(0x19))
+        self.byte(c, 0x19)
     }
     pub fn set_byte_19(self, c: &mut Ctx, v: u8) {
-        c.set_byte(self.at(0x19), v)
+        self.set_byte(c, 0x19, v)
     }
 }
 

@@ -4855,3 +4855,396 @@ pub fn tally_72a2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, dh << 8 | dl);
     c.ret()
 }
+
+// --- The jobs (the handlers in the table at CS:6C26h) ---------------------
+
+/// The spice harvested by all troops not yet counted in tenths ([46E1h]),
+/// and the spice harvested in all ([0A0h]).
+const SPICE_TENTHS: u16 = 0x46e1;
+const SPICE_HARVESTED: u16 = 0x00a0;
+/// Counted up when a location's spice runs lower than a harvest takes
+/// while the place view is up ([`g::MAP_MODE`] bit 40h).
+const SPICE_SHORT: u16 = 0x46ec;
+
+/// `loc_06fe5`, job 0: harvesting spice. The troop SI's day
+/// (`troop_day_update`); unless it waits (word 10h bit 200h) or is held
+/// (`troop_bit_10_by_state`, CF: then its rate and word 0Eh cleared and
+/// byte 3 bit 10h set), its events (`troop_event_roll`); word 10h bit
+/// 100h set, the harvest at its rate (`troop_rate`) added to word 0Eh (a
+/// skill point, `add_skill`, each time its 80h crosses), counted in
+/// tenths into [0A0h], and taken from its location DI: with the
+/// location's leftover (+13h) divided by +11h, the location's spice
+/// (+12h) lowered by the quotient (not below 0; [46ECh] counted when more
+/// than its low nibble in the place view). A waiting troop goes on only
+/// in its own slot of the time of day (its number's low nibble), its
+/// wait over (bit 200h cleared) and not held; else its rate cleared.
+pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6fe5)?;
+    let mut c = Ctx::new(m);
+    c.run(0x6fe5, 1)?;
+    c.call(0x6e20, 0x6fe8)?;
+    let troop = Troop(c.reg(SI));
+    let w10 = troop.word_10(&mut c);
+    if w10 & 0x200 != 0 {
+        // 705Ch: its slot of the time of day?
+        let (time, id) = (c.game_time(), troop.id(&mut c));
+        let ax = ((id as u16) << 8 | time & 0xff) & 0x0f0f;
+        let mine = ax & 0xff == ax >> 8;
+        if !mine {
+            c.run(0x6fe8, 2 + 5 + 2 + 2)?;
+            c.set_reg(AX, ax);
+            troop.set_rate(&mut c, 0);
+            return held_end(&mut c, troop);
+        }
+        c.run(0x6fe8, 2 + 7)?;
+        c.set_reg(AX, ax);
+        troop.set_word_10(&mut c, w10 & !0x200);
+        c.call(0x6b96, 0x7070)?;
+        if c.flag(CF) {
+            c.run(0x7070, 2)?; // jb; ret
+            return c.ret();
+        }
+        c.run(0x7070, 2)?;
+    } else {
+        c.run(0x6fe8, 3)?;
+        c.call(0x6b96, 0x6ff2)?;
+        if c.flag(CF) {
+            // 707Bh: held.
+            c.run(0x6ff2, 2 + 4)?; // jae; jmp; 707Bh: mov; mov; or; ret
+            troop.set_rate(&mut c, 0);
+            troop.set_word_0e(&mut c, 0);
+            return held_end(&mut c, troop);
+        }
+        c.run(0x6ff2, 2)?;
+        c.call(0x714c, 0x6ffa)?;
+    }
+    // 6FFAh: the harvest.
+    c.run(0x6ffa, 2)?;
+    let w10 = troop.word_10(&mut c);
+    troop.set_word_10(&mut c, w10 | 0x100);
+    c.call(0x708a, 0x7002)?;
+    let rate = c.reg(AX);
+    let old = troop.word_0e(&mut c);
+    let total = old.wrapping_add(rate);
+    let crossed = (total ^ old) & 0xff80 != 0;
+    c.run(0x7002, 7 + if crossed { 3 } else { 0 })?;
+    c.push(rate);
+    c.set_reg(DX, old);
+    troop.set_word_0e(&mut c, total);
+    c.set_reg(AX, (total ^ old) & 0xff80);
+    if crossed {
+        c.set_reg8(r8::AL, 1);
+        c.set_reg(BX, 0);
+        c.call(0x6edd, 0x7019)?;
+    }
+    // 7019h: counted in tenths.
+    c.run(0x7019, 9)?;
+    let rate = c.pop();
+    c.push(rate);
+    let n = rate.wrapping_add(c.word(SPICE_TENTHS));
+    c.set_reg(CX, 0x0a);
+    c.set_reg(AX, n / 10);
+    c.set_reg(DX, n % 10);
+    c.set_word(SPICE_TENTHS, n % 10);
+    let all = c.word(SPICE_HARVESTED).wrapping_add(n / 10);
+    c.set_word(SPICE_HARVESTED, all);
+    let rate = c.pop();
+    c.set_reg(AX, rate);
+    // 702Fh: taken from the location.
+    let di = c.reg(DI);
+    let taken = rate.wrapping_add(c.byte(di.wrapping_add(0x13)) as u16);
+    let per = c.byte(di.wrapping_add(0x11));
+    if per == 0 || taken / per as u16 > 0xff {
+        c.m.cpu.ip = 0x702f; // the division faults: the interpreter's
+        return Err(Bail);
+    }
+    let (q, r) = ((taken / per as u16) as u8, (taken % per as u16) as u8);
+    let spice = c.byte(di.wrapping_add(0x12));
+    let low = spice & 0x0f;
+    let more = q > low;
+    let place_view = c.byte(g::MAP_MODE) & 0x40 != 0;
+    let borrow = spice < q;
+    c.run(0x702f, 4 + 5 + if more { 2 + place_view as u32 } else { 0 } + 2 + borrow as u32 + 1)?;
+    c.set_reg8(r8::CL, per);
+    c.set_byte(di.wrapping_add(0x13), r);
+    c.set_reg(AX, (low as u16) << 8 | q as u16);
+    if more && place_view {
+        let k = c.byte(SPICE_SHORT).wrapping_add(1);
+        c.set_byte(SPICE_SHORT, k);
+    }
+    let left = c.sub(B, spice as u16, q as u16) as u8; // the exit's flags
+    c.set_byte(di.wrapping_add(0x12), if borrow { 0 } else { left });
+    c.ret()
+}
+
+/// 7085h: byte 3 bit 10h set (the exit's flags).
+fn held_end(c: &mut Ctx, troop: Troop) -> Result<(), Bail> {
+    let s = troop.state(c);
+    let s = c.or(B, s as u16, 0x10) as u8;
+    troop.set_state(c, s);
+    c.ret()
+}
+
+/// `loc_072b0`, job 5. BX the game time since the troop SI last changed
+/// (word 0Ah). Unless done before (byte 10h bit 40h): with
+/// h = (50h - skill 1) / 2 (signed) and h / 2 below BX, its rate (word
+/// 0Ch, when 0 from `for_each_troop_68da`'s count in CX; none: done)
+/// and, past h, word 0Eh = [94h] / the rate after `loc_033be`; then
+/// bit 40h set. Then, unless it is at its location's own troop (byte 0
+/// = location +9), once skill 1 / 2 is below BX: a random number's low
+/// six bits not below skill 1 start it (`start_troop`).
+pub fn job_5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x72b0)?;
+    let mut c = Ctx::new(m);
+    let troop = Troop(c.reg(SI));
+    let elapsed = c.game_time().wrapping_sub(troop.changed_at(&mut c));
+    let skill = troop.skill(&mut c, 1);
+    let done = troop.byte_10(&mut c) & 0x40 != 0;
+    c.run(0x72b0, 4)?;
+    c.set_reg(BX, elapsed);
+    if !done {
+        let half = ((0x50u8.wrapping_sub(skill) as i8 as i16) >> 1) as u16;
+        let quarter = ((half as i16) >> 1) as u16;
+        let due = (quarter as i16) < elapsed as i16;
+        c.run(0x72bd, 8)?;
+        c.set_reg8(r8::AL, 0x50u8.wrapping_sub(skill));
+        c.set_reg(BP, half);
+        c.set_reg(AX, quarter);
+        if due {
+            let mut counted = true;
+            if troop.rate(&mut c) == 0 {
+                c.run(0x72cd, 5)?;
+                c.push(elapsed);
+                c.push(half);
+                c.call(0x68d2, 0x72d8)?;
+                let cx = c.reg(CX);
+                c.run(0x72d8, 3 + (cx != 0) as u32)?;
+                let bp = c.pop();
+                c.set_reg(BP, bp);
+                let bx = c.pop();
+                c.set_reg(BX, bx);
+                if cx == 0 {
+                    counted = false;
+                } else {
+                    troop.set_rate(&mut c, cx);
+                }
+            } else {
+                c.run(0x72cd, 2)?;
+            }
+            if counted {
+                // 72DFh: past h, its word 0Eh.
+                if (half as i16) < elapsed as i16 {
+                    c.run(0x72df, 4)?;
+                    c.push(elapsed);
+                    c.call(0x33be, 0x72e7)?;
+                    let rate = troop.rate(&mut c);
+                    let total = c.word(0x94);
+                    if rate == 0 {
+                        c.m.cpu.ip = 0x72e7; // the division faults: the interpreter's
+                        return Err(Bail);
+                    }
+                    c.run(0x72e7, 5)?;
+                    let bx = c.pop();
+                    c.set_reg(BX, bx);
+                    c.set_reg(AX, total / rate);
+                    c.set_reg(DX, total % rate);
+                    troop.set_word_0e(&mut c, total / rate);
+                } else {
+                    c.run(0x72df, 2)?;
+                    return job_5_start(&mut c, troop, elapsed, skill);
+                }
+            }
+            // 72F3h
+            c.run(0x72f3, 1)?;
+            let b = troop.byte_10(&mut c);
+            troop.set_byte_10(&mut c, b | 0x40);
+        }
+    }
+    job_5_start(&mut c, troop, elapsed, skill)
+}
+
+/// 72F7h: started, maybe (the exits' flags are their compares').
+fn job_5_start(c: &mut Ctx, troop: Troop, elapsed: u16, skill: u8) -> Result<(), Bail> {
+    let (id, own) = (troop.id(c), c.byte(c.reg(DI).wrapping_add(9)));
+    if id == own {
+        c.run(0x72f7, 4)?;
+        c.set_reg8(r8::AL, id);
+        c.cmp(B, id as u16, own as u16);
+        return c.ret();
+    }
+    let half = (skill >> 1) as u16;
+    if half >= elapsed {
+        c.run(0x72f7, 3 + 6)?;
+        c.set_reg(AX, half);
+        c.cmp(W, half, elapsed);
+        return c.ret();
+    }
+    c.run(0x72f7, 3 + 6)?;
+    c.call(0xe3cc, 0x730c)?;
+    let r = (c.reg8(r8::AL) & 0x3f) as u16;
+    c.set_reg8(r8::AL, r as u8);
+    c.cmp(B, r, skill as u16);
+    if r < skill as u16 {
+        c.run(0x730c, 4)?;
+        return c.ret();
+    }
+    c.run(0x730c, 4)?;
+    c.jump(0x668f)
+}
+
+/// `loc_0767d`, job 10: with the location's byte 1Ah 0, the counter
+/// [0ECh] up (on to 0: byte 1Ah 10h); else, or then, `kind_6acb` with CL 8.
+pub fn job_10(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x767d)?;
+    let mut c = Ctx::new(m);
+    let di = c.reg(DI);
+    let v = c.byte(di.wrapping_add(0x1a));
+    if v == 0 {
+        let k = c.byte(0xec);
+        let wraps = k == 0xff;
+        c.run(0x767d, 4 + if wraps { 3 } else { 1 })?;
+        c.cmp(B, 0, 0); // CF (clear), which the `inc` keeps
+        let k = c.inc(B, k as u16) as u8; // the flags of the exit (or the tail's)
+        c.set_byte(0xec, k);
+        if !wraps {
+            return c.ret();
+        }
+        c.set_byte(di.wrapping_add(0x1a), 0x10);
+    } else {
+        c.run(0x767d, 4)?;
+        c.cmp(B, v as u16, 0); // the flags the tail gets
+    }
+    c.set_reg8(r8::CL, 8);
+    c.jump(0x6acb)
+}
+
+/// `loc_07711`, job 9: unless the location's byte 0Ah has bit 20h, the
+/// troop's motivation up 1 (`add_motivation`) and the location's byte
+/// 1Bh up by its strength (`troop_strength`); on a carry bits 20h of
+/// byte 0Ah and 8 of byte 8 set and byte 1Bh 5. Then (bit 20h)
+/// `set_troop_activity`.
+pub fn job_9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7711)?;
+    let mut c = Ctx::new(m);
+    let di = c.reg(DI);
+    let a = c.byte(di.wrapping_add(0x0a));
+    if a & 0x20 != 0 {
+        c.run(0x7711, 3)?;
+        c.test(B, a as u16, 0x20); // the flags the tail gets
+        return c.jump(0x6ac5);
+    }
+    c.run(0x7711, 4)?;
+    c.set_reg8(r8::AL, 1);
+    c.call(0x6f48, 0x771c)?;
+    c.run(0x771c, 1)?;
+    c.call(0x348a, 0x771f)?;
+    let al = c.reg8(r8::AL);
+    let v = c.byte(di.wrapping_add(0x1b));
+    let carry = v as u16 + al as u16 > 0xff;
+    c.run(0x771f, if carry { 6 } else { 3 })?;
+    let r = c.add(B, v as u16, al as u16) as u8; // the exit's flags
+    c.set_byte(di.wrapping_add(0x1b), r);
+    if !carry {
+        return c.ret();
+    }
+    let a = c.byte(di.wrapping_add(0x0a));
+    c.set_byte(di.wrapping_add(0x0a), a | 0x20);
+    let b = c.byte(di.wrapping_add(8));
+    let b = c.or(B, b as u16, 8) as u8; // the flags the tail gets
+    c.set_byte(di.wrapping_add(8), b);
+    c.set_byte(di.wrapping_add(0x1b), 5);
+    c.jump(0x6ac5)
+}
+
+/// `loc_07693`, job 8. Not for a marked troop (byte 3 bit 10h) or one
+/// held by its skill (`troop_bit_10_by_skill`, CF). [4737h] FFh, word
+/// 10h bit 100h. A location not yet started (byte 0Ah bit 0) is: its
+/// +12h 0, +0Ch / +0Eh its position (+2, +4's low byte), +0Bh 4, then
+/// `start_move`. Else the troop's day (`troop_day_update`), the
+/// location's +0Fh up by skill 2 / 4 (at least 1); on a carry a skill
+/// point (`add_skill`, BX 2) and +1Bh down 0Ch: below 0 it is 0, the
+/// troop marked (`mark_troop_10`) and its particle dropped
+/// (`drop_troop_particle`); else +0Bh up to 0Ch, +0Eh (signed byte)
+/// down 2 unless below -50h, and `start_move`.
+pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7693)?;
+    let mut c = Ctx::new(m);
+    let troop = Troop(c.reg(SI));
+    let st = troop.state(&mut c);
+    if st & 0x10 != 0 {
+        c.run(0x7693, 3)?;
+        c.test(B, st as u16, 0x10); // the exit's flags
+        return c.ret();
+    }
+    c.run(0x7693, 3)?;
+    c.call(0x6bd7, 0x769c)?;
+    if c.flag(CF) {
+        c.run(0x769c, 2)?;
+        return c.ret();
+    }
+    let di = c.reg(DI);
+    let a = c.byte(di.wrapping_add(0x0a));
+    if a & 1 == 0 {
+        c.run(0x769c, 1 + 4 + 9)?;
+        c.set_byte(0x4737, 0xff);
+        let w = troop.word_10(&mut c);
+        troop.set_word_10(&mut c, w | 0x100);
+        c.set_byte(di.wrapping_add(0x0a), a | 1);
+        c.set_byte(di.wrapping_add(0x12), 0);
+        let (dx, bx) = (c.word(di.wrapping_add(2)), c.word(di.wrapping_add(4)));
+        c.set_reg(DX, dx);
+        c.set_word(di.wrapping_add(0x0c), dx);
+        let bx = c.xor(B, bx >> 8, bx >> 8) << 8 | bx & 0xff; // the flags the tail gets
+        c.set_reg(BX, bx);
+        c.set_word(di.wrapping_add(0x0e), bx);
+        c.set_byte(di.wrapping_add(0x0b), 4);
+        return c.jump(0x6515);
+    }
+    c.run(0x769c, 1 + 4 + 1)?;
+    c.set_byte(0x4737, 0xff);
+    let w = troop.word_10(&mut c);
+    troop.set_word_10(&mut c, w | 0x100);
+    c.call(0x6e20, 0x76ce)?;
+    let step = match troop.skill(&mut c, 2) >> 2 {
+        0 => 1,
+        k => k,
+    };
+    let f = c.byte(di.wrapping_add(0x0f));
+    let carry = f as u16 + step as u16 > 0xff;
+    let zero = troop.skill(&mut c, 2) >> 2 == 0;
+    c.run(0x76ce, 4 + zero as u32 + 2 + if carry { 3 } else { 1 })?;
+    let ax = c.reg(AX) & 0xff00 | (troop.skill(&mut c, 2) >> 2) as u16;
+    c.set_reg(AX, if zero { ax.wrapping_add(1) } else { ax });
+    let r = c.add(B, f as u16, step as u16) as u8; // the exit's flags
+    c.set_byte(di.wrapping_add(0x0f), r);
+    if !carry {
+        return c.ret();
+    }
+    c.set_reg(BX, 2);
+    c.set_reg8(r8::AL, 1);
+    c.call(0x6edd, 0x76e5)?;
+    let e = c.byte(di.wrapping_add(0x1b));
+    if e < 0x0c {
+        c.run(0x76e5, 2 + 2)?;
+        c.set_byte(di.wrapping_add(0x1b), 0);
+        c.call(0x7085, 0x770e)?;
+        c.run(0x770e, 1)?;
+        return c.jump(0x8461);
+    }
+    let b = c.byte(di.wrapping_add(0x0b));
+    let ax = c.word(di.wrapping_add(0x0e));
+    let ax = ((ax as u8 as i8) as i16 as u16).wrapping_sub(2);
+    let keep = (ax as i16) < -0x52;
+    c.run(0x76e5, 2 + 2 + (b < 0x0c) as u32 + 5 + (!keep) as u32 + 1)?;
+    c.set_byte(di.wrapping_add(0x1b), e - 0x0c);
+    if b < 0x0c {
+        c.set_byte(di.wrapping_add(0x0b), b + 1);
+    }
+    c.set_reg(AX, ax);
+    if !keep {
+        c.set_byte(di.wrapping_add(0x0e), ax as u8);
+    }
+    c.call(0x6515, 0x7706)?;
+    c.run(0x7706, 1)?;
+    c.ret()
+}

@@ -1,6 +1,6 @@
 //! The game clock as Rust state (Stage B of `docs/readable-port-plan.md`).
 //!
-//! The clock is a [`Clock`] kept with the machine ([`Machine::native`]);
+//! The clock is a [`Clock`] kept with the machine ([`Machine::native`], [`super::native`]);
 //! the ports that count, stop or read it go through it, and the clock's
 //! logic (the timer's tick, a step of the game time, stopping and
 //! starting) is its methods.
@@ -41,9 +41,10 @@ pub struct Clock {
     pub time: u16,
 }
 
-/// The Rust state kept with a machine.
+/// The clock's part of the Rust state kept with a machine
+/// ([`super::native`]).
 #[derive(Default)]
-pub struct Native {
+pub struct ClockState {
     clock: Clock,
     /// The clock has been read from the memory once.
     started: bool,
@@ -55,9 +56,8 @@ pub struct Native {
     ticks_outside: u64,
 }
 
-/// The machine's Rust state (made on first use).
-fn native(m: &mut Machine) -> &mut Native {
-    m.native.get_or_insert_with(|| Box::new(Native::default())).downcast_mut::<Native>().expect("native state")
+fn native(m: &mut Machine) -> &mut ClockState {
+    &mut super::native::native(m).clock
 }
 
 /// How often the clock took the memory's values after the first time
@@ -66,7 +66,7 @@ pub fn syncs(m: &mut Machine) -> u64 {
     native(m).clock_syncs
 }
 
-/// How many timer ticks the original's code counted (see [`Native`]).
+/// How many timer ticks the original's code counted (see [`ClockState`]).
 pub fn ticks_outside(m: &mut Machine) -> u64 {
     native(m).ticks_outside
 }

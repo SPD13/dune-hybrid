@@ -29,6 +29,8 @@ use pc::{
 
 mod audio;
 pub mod clock;
+pub mod native;
+pub mod troop_table;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -840,6 +842,11 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x6bd7, troops::troop_bit_10_by_skill, "loc_06bd7"),
     (0x8018, troops::lower_needs_by_movers, "loc_08018"),
     (0x708a, troops::troop_rate, "loc_0708a"),
+    (0x6fe5, troops::job_harvest, "loc_06fe5"),
+    (0x72b0, troops::job_5, "loc_072b0"),
+    (0x767d, troops::job_10, "loc_0767d"),
+    (0x7711, troops::job_9, "loc_07711"),
+    (0x7693, troops::job_8, "loc_07693"),
     (0x6827, troops::troop_facing_sprite, "loc_06827"),
     (0xd23d, screens::nudge_panel, "loc_0d23d"),
     (0x55c0, map::unmark_regions_of, "loc_055c0"),
@@ -1407,9 +1414,28 @@ impl Ctx<'_> {
     }
     fn set_byte(&mut self, off: u16, v: u8) {
         self.m.cpu.write8(&mut self.m.hw, DS, off, v);
+        self.wrote(DS, off, 1);
     }
     fn set_word(&mut self, off: u16, v: u16) {
         self.m.cpu.write16(&mut self.m.hw, DS, off, v);
+        self.wrote(DS, off, 2);
+    }
+    /// A port wrote `len` bytes at `seg:off`: a record of the troop table
+    /// kept in Rust (`hand/troop_table.rs`) follows (the port is Rust
+    /// code, not a write from outside). `TROOPS_TRACE=1` lists such
+    /// writes, which don't go through the view yet.
+    fn wrote(&mut self, seg: usize, off: u16, len: u16) {
+        let at = self.m.cpu.phys(self.m.cpu.sregs[seg], off);
+        let t0 = self.m.cpu.phys(globals::GAME_DS, globals::TROOPS);
+        let t1 = self.m.cpu.phys(globals::GAME_DS, globals::TROOPS_END);
+        if at + len as u32 > t0 && at < t1 {
+            let k = (at.max(t0) - t0) as usize;
+            troop_table::follow(self.m, k / 0x1b, (at + len as u32 - 1 - t0) as usize / 0x1b);
+            static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            if *ON.get_or_init(|| std::env::var_os("TROOPS_TRACE").is_some()) {
+                eprintln!("troops raw write by {:04x} (at {:04x}): troop {} field {:02x} ({len})", self.entry, self.m.cpu.ip, k / 0x1b + 1, k % 0x1b);
+            }
+        }
     }
     /// Byte or word through segment register `seg`.
     fn byte_in(&mut self, seg: usize, off: u16) -> u8 {
@@ -1420,6 +1446,7 @@ impl Ctx<'_> {
     }
     fn set_word_in(&mut self, seg: usize, off: u16, v: u16) {
         self.m.cpu.write16(&mut self.m.hw, seg, off, v);
+        self.wrote(seg, off, 2);
     }
     /// Word at `segment:off` for a segment value no register holds.
     fn word_at(&mut self, segment: u16, off: u16) -> u16 {
@@ -1520,6 +1547,7 @@ impl Ctx<'_> {
         if w == B {
             let al = self.reg8(r8::AL);
             self.m.cpu.write8(&mut self.m.hw, ES, di, al);
+            self.wrote(ES, di, 1);
         } else {
             let ax = self.reg(AX);
             self.set_word_in(ES, di, ax);
@@ -1533,6 +1561,7 @@ impl Ctx<'_> {
         if w == B {
             let v = self.byte_in(DS, si);
             self.m.cpu.write8(&mut self.m.hw, ES, di, v);
+            self.wrote(ES, di, 1);
         } else {
             let v = self.word_in(DS, si);
             self.set_word_in(ES, di, v);

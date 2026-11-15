@@ -316,7 +316,7 @@ fn enter_phase(m: &mut Machine, phase: u8) -> Option<RunExit> {
     // (Stepped in the interpreter to the breakpoint: the clock kept in
     // Rust takes what it counted.)
     if m.rec.is_some() {
-        dune_rec::hand::clock::outside(m);
+        dune_rec::hand::native::outside(m);
     }
     match r {
         RunExit::Break => {
@@ -351,7 +351,7 @@ fn enter_load(m: &mut Machine, slot: u8, save: bool) -> Option<RunExit> {
     // (Stepped in the interpreter to the breakpoint: the clock kept in
     // Rust takes what it counted.)
     if m.rec.is_some() {
-        dune_rec::hand::clock::outside(m);
+        dune_rec::hand::native::outside(m);
     }
     match r {
         RunExit::Break => {
@@ -751,7 +751,7 @@ fn main() -> ExitCode {
             m.exited = None;
             m.load_state(state).expect("rewind");
             if m.rec.is_some() {
-                dune_rec::hand::clock::outside(&mut m);
+                dune_rec::hand::native::outside(&mut m);
             }
             t = *at;
             events = schedule(*at, rewinds * 0x1_0000);
@@ -793,6 +793,8 @@ fn main() -> ExitCode {
         // the memory's values, written by code outside it.
         let (n, t) = (dune_rec::hand::clock::syncs(&mut m), dune_rec::hand::clock::ticks_outside(&mut m));
         println!("clock: {n} sync-ins ({t} ticks counted by the original's code, as the clock predicts)");
+        let (n, b) = (dune_rec::hand::troop_table::syncs(&mut m), dune_rec::hand::troop_table::after_bails(&mut m));
+        println!("troops: {n} sync-ins ({b} after a port gave up, written by the generated code)");
     }
     if let Some(rec) = &m.rec {
         rec_report(rec, args.rec_report.as_deref(), m.cpu.instructions);

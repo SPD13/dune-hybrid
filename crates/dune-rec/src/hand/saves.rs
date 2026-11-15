@@ -242,8 +242,10 @@ pub fn load_save_cl_after_restore(m: &mut Machine, start: u16) -> Result<(), Bai
 }
 
 fn after_restore(c: &mut Ctx) -> Result<(), Bail> {
-    // The game time came with the save: the clock takes it.
+    // The game time and the troops came with the save: the subsystems
+    // kept in Rust take them.
     super::clock::loaded(c);
+    super::troop_table::outside(c.m);
     c.run(0xb3f0, 2)?;
     let v = c.pop();
     c.set_sreg(DS, v);

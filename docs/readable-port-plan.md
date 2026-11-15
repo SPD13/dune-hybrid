@@ -290,7 +290,7 @@ the subsystem's boundary. Candidates, smallest boundary first:
 
 - the game clock and the time of day (a few words: [2], [46DBh], the
   timer): done, with a mirror (below);
-- troops and their jobs (the troop table, the callbacks);
+- troops and their jobs (the troop table, the callbacks): under way (below);
 - the dialogue state machine;
 - the map's projection and drawing (the HD renderer already models it).
 
@@ -356,6 +356,25 @@ To drop the mirror later, nothing else may write those words: the
 save's image is built from the memory (`create_save_in_memory`), so it
 would need the clock's values, and the tick would need to finish in
 Rust across such a stop.
+
+### The troops (in Rust with a mirror, under way)
+
+`hand/troop_table.rs`: each record of the troop table (67 of 1Bh bytes
+at 8AAh) is a `TroopRecord` kept with the machine (`hand/native.rs`
+holds the subsystems' state); the `Troop` view (`hand/game.rs`) reads
+and writes through it, with the clock's mirror and check. Writes a port
+makes without the view (through `Ctx`) are followed, a save loaded and
+the tools' stepping are told; the generated code finishing a port that
+gave up is counted apart (the record was verified before the bail).
+The runner prints both (`troops: N sync-ins (M after a port gave up)`);
+`TROOPS_TRACE=1` prints each sync-in and each write a port makes into
+the table without the view.
+
+What the sync-ins showed: the troops' job handlers (the table at
+CS:6C26h, called from `troops_tick`) had no ports and ran as generated
+code. Ported: jobs 0 (`job_harvest`, the spice), 5, 8, 9, 10; jobs 1 and
+4 next. Job 6 (739Eh) never ran in any coverage run, so it has no
+generated code to compare with: left until a run reaches it.
 
 ## Tools in place
 
