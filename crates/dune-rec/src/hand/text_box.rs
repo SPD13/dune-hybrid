@@ -64,7 +64,7 @@ impl TextBox {
     }
 
     fn to_bytes(&self) -> record_table::Bytes {
-        let mut b = record_table::Bytes::default();
+        let mut b = [0; record_table::MAX];
         let mut w = |i: usize, v: u16| {
             b[i] = v as u8;
             b[i + 1] = (v >> 8) as u8;
@@ -89,7 +89,7 @@ impl TextBox {
     /// The record's bytes in the memory at DS (another data segment than
     /// the game's: not the table's).
     fn raw(c: &mut Ctx) -> TextBox {
-        let mut b = record_table::Bytes::default();
+        let mut b = [0; record_table::MAX];
         for (k, v) in b.iter_mut().enumerate() {
             *v = c.byte(AT + k as u16);
         }

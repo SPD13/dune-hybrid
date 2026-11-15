@@ -517,7 +517,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 c.call(0xd6fe, 0xd53f)?;
                 let cf = c.flag(CF);
                 c.run(0xd53f, 2)?;
-                let sp = c.word(g::TALKER);
+                let sp = c.conversation().talker;
                 c.set_reg(CX, sp);
                 at = if cf { 4 } else { 5 };
             } else {
@@ -641,7 +641,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                     at = 2;
                     continue;
                 }
-                let (cx, sp) = (c.reg(CX), c.word(g::TALKER));
+                let (cx, sp) = (c.reg(CX), c.conversation().talker);
                 c.run(0xd5a7, 4)?;
                 c.set_reg8(r8::CL, 2);
                 at = if cx == sp { 0 } else { 2 };

@@ -1459,7 +1459,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     // there ([0C9h]; its phrase 26h then, 28h in a call),
                     // the second once they're all there.
                     let here = c.byte(0xc9);
-                    let calling = c.byte(0x47a9) != 0;
+                    let calling = c.conversation().caller != 0;
                     c.run(0x2f58, 15 + calling as u32 + 11 + 2)?;
                     c.set_reg(SI, 0x21e8);
                     let v = c.lods(W, DS);

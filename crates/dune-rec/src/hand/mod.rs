@@ -34,6 +34,7 @@ pub mod troop_table;
 pub mod record_table;
 pub mod text_box;
 pub mod dialogue_text;
+pub mod conversation;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1496,6 +1497,15 @@ impl Ctx<'_> {
     /// The dialogue's text changed by `f` (written through).
     fn update_dialogue_text(&mut self, f: impl FnOnce(&mut dialogue_text::DialogueText)) {
         dialogue_text::update(self, f)
+    }
+    /// The conversation and scene state (Rust state, see
+    /// [`conversation`]), in step with the memory.
+    fn conversation(&mut self) -> conversation::Conversation {
+        conversation::get(self)
+    }
+    /// The conversation changed by `f` (written through).
+    fn update_conversation(&mut self, f: impl FnOnce(&mut conversation::Conversation)) {
+        conversation::update(self, f)
     }
     /// The game time ([2]).
     fn game_time(&mut self) -> u16 {

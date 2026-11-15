@@ -345,7 +345,7 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = pure::add(B, 0xc0, k as u16);
     c.set_reg(AX, a);
     c.set_reg(SI, a);
-    let (di, es) = (c.word(g::COMMAND_STRINGS), c.word(0x47ae));
+    let (di, es) = (c.conversation().commands[0], c.conversation().commands[1]);
     c.set_reg(DI, di);
     c.set_sreg(ES, es);
     c.call(0xf0b9, 0xd00a)?;
@@ -365,7 +365,7 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(g::PHRASE_LOADED, a as u8);
     c.set_reg(AX, a);
     c.set_reg(SI, a);
-    let (di, es) = (c.word(g::PHRASE_STRINGS), c.word(0x47b2));
+    let (di, es) = (c.conversation().phrases[0], c.conversation().phrases[1]);
     c.set_reg(DI, di);
     c.set_sreg(ES, es);
     c.call(0xf0b9, 0xd035)?;

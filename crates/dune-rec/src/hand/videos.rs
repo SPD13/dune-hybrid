@@ -606,7 +606,7 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.run(0x2677, 3)?;
-    c.set_byte(0x47a9, 1);
+    c.update_conversation(|t| t.caller = 1);
     c.set_reg(BP, 0x2db1);
     c.call(0xc097, 0x2682)?;
     c.run(0x2682, 2)?;
@@ -620,7 +620,7 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, 0x2db1);
     c.call(0xc097, 0x2696)?;
     c.run(0x2696, 4)?;
-    c.set_byte(0x47a9, 0);
+    c.update_conversation(|t| t.caller = 0);
     c.set_reg(BP, 0x26a6);
     c.set_reg8(r8::AL, 8);
     c.call(0xc108, 0x26a3)?;

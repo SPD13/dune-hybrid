@@ -1377,7 +1377,7 @@ pub fn show_message_0f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (si, al) = (c.reg(SI), c.reg8(r8::AL));
     c.set_word(0x46f1, si);
     c.set_byte(g::STAGE, al);
-    c.set_word(g::DIALOGUE_PENDING, 0);
+    c.update_conversation(|t| t.pending = 0);
     c.call(0xc08e, 0x7bce)?;
     c.run(0x7bce, 2)?;
     c.set_reg(AX, 0x0f);
@@ -6059,7 +6059,7 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut ax = 0x40a7u16;
     if plain {
         c.run(start, if t < 0x20 { 6 } else { 8 } + 3)?;
-        c.set_word(g::DIALOGUE_PENDING, 0);
+        c.update_conversation(|t| t.pending = 0);
         c.set_reg(AX, ax);
         let di = c.reg(DI);
         c.push(di);
@@ -6078,7 +6078,7 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, ax);
     } else {
         c.run(start, if t == 0xff { 4 } else { 8 })?;
-        c.set_word(g::DIALOGUE_PENDING, 0);
+        c.update_conversation(|t| t.pending = 0);
         c.set_reg(AX, ax);
     }
     let ph = c.byte(g::GAME_PHASE);
@@ -6516,7 +6516,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x4f49, 4)?;
     c.set_reg(SI, si);
     c.call(0x2e52, 0x4f55)?;
-    let k = c.byte(0x47a7);
+    let k = c.conversation().scene_count;
     if k != 0 {
         c.run(0x4f55, 3)?;
         return ret_mouse(&mut c);

@@ -13,6 +13,7 @@ pub struct Native {
     pub locations: super::record_table::RecordTable,
     pub text_box: super::record_table::RecordTable,
     pub dialogue_text: super::record_table::RecordTable,
+    pub conversation: super::record_table::RecordTable,
 }
 
 /// The machine's Rust state (made on first use).

@@ -1152,13 +1152,13 @@ pub fn bring_portrait(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 3)?;
         return super::screen::copy_game_area_to_screen_fb2_to_fb1(c.m, 0xc43e);
     }
-    let state = c.byte(g::LINE_STATE);
+    let state = c.conversation().line_state;
     if state & 0x80 != 0 {
         c.run(start, 5)?;
         return c.ret();
     }
     // The speaker's place (0Fh: the phrase's own, 0Fh + [476Ch]).
-    let talker = c.word(g::TALKER);
+    let talker = c.conversation().talker;
     let own = talker & 0xff == 0x0f;
     let talker = if own { talker & 0xff00 | 0x0fu8.wrapping_add(c.byte(0x476c)) as u16 } else { talker };
     let slot = talker.wrapping_shl(2);
@@ -1174,7 +1174,7 @@ pub fn bring_portrait(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let y = c.word(slot.wrapping_add(0x47fa));
     c.push(y);
     c.push(x);
-    c.set_byte(g::LINE_STATE, state | 0x80);
+    c.update_conversation(|t| t.line_state = state | 0x80);
     c.call(0x37b5, 0x3b30)?;
     // Clamped to (F0h, 71h), copied by the driver (far [3949h], mode 6).
     let sp = c.reg(SP);

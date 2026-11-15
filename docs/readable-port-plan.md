@@ -292,9 +292,10 @@ the subsystem's boundary. Candidates, smallest boundary first:
   timer): done, with a mirror (below);
 - troops and their jobs (the troop table, the callbacks), and the
   locations: done, with a mirror (below);
-- the dialogue state machine: its text box's layout and the text being
-  played done (below); the rest of the 4770h block (phrases, talking
-  heads, voice) first needs names for its bytes;
+- the dialogue state machine: its text box's layout, the text being
+  played and the conversation (47A2h-47C5h) done (below); the rest of
+  the 4770h block (talking heads, voice, 4770h-4783h and 47D4h-47EFh)
+  first needs names for its bytes;
 - the map's projection and drawing (the HD renderer already models it).
 
 The shadow check no longer applies inside such a subsystem. Two checks
@@ -416,6 +417,15 @@ table, the phrases left, the sentence kind, the flags, the last sentence
 block) is a second table of one, the same way (`Ctx::dialogue_text` /
 `update_dialogue_text`; `dialogue text:` in the output). Reads through
 SS (the head's tables, while DS is the head's sheet) read the mirror.
+
+The conversation and scene state (`hand/conversation.rs`, 24h bytes at
+47A2h: the speaker, the line state, the scene's flags and count, the
+device's caller, the first speaker, the command and phrase strings' far
+pointers, where a phrase goes on, the pending list, the append point,
+the group, the mode, the two heads, the talker) is a third (the
+records may now be up to 24h bytes; `conversation:` in the output). The
+word the original pushes over the mode and the two heads is
+`Conversation::mode_word`.
 
 ## Tools in place
 

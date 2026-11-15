@@ -78,7 +78,7 @@ impl TroopRecord {
     }
 
     fn to_bytes(&self) -> record_table::Bytes {
-        let mut b = record_table::Bytes::default();
+        let mut b = [0; record_table::MAX];
         let mut w = |i: usize, v: u16| {
             b[i] = v as u8;
             b[i + 1] = (v >> 8) as u8;

@@ -1621,7 +1621,7 @@ pub fn drop_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x18e9);
     c.set_reg(AX, 0);
     c.set_word(g::SPRITE_LIST, 0);
-    c.set_word(g::DIALOGUE_PENDING, 0);
+    c.update_conversation(|t| t.pending = 0);
     c.call(0xc6ad, 0x7b9d)?;
     c.run(0x7b9d, 2)?;
     c.set_reg8(r8::AL, 4);
@@ -3327,7 +3327,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let panel = c.byte(0x46f4) != 0;
     if panel && c.byte(0x46f5) != 0 {
         c.run(start, 12)?;
-        c.set_word(g::DIALOGUE_PENDING, 0);
+        c.update_conversation(|t| t.pending = 0);
         c.set_reg(DI, 0x1936);
         c.call(0xd6fe, 0x7ea4)?;
         if !c.flag(CF) {
@@ -3352,7 +3352,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(start, if panel { 9 } else { 7 })?;
-    c.set_word(g::DIALOGUE_PENDING, 0);
+    c.update_conversation(|t| t.pending = 0);
     c.set_reg(SI, selected);
     c.call(0x7ba3, 0x7c05)?;
     c.run(0x7c05, 1)?;
@@ -3388,7 +3388,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.save(&[SI]);
     c.call(0x9efd, 0x7c3a)?;
-    let orders = c.byte(g::FLAG_47A5) == 0x80;
+    let orders = c.conversation().flag_47a5 == 0x80;
     c.run(0x7c3a, if orders { 6 } else { 4 })?;
     c.restore(&[SI]);
     c.set_byte(0x46f4, orders as u8);

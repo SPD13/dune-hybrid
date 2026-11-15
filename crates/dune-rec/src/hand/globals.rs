@@ -92,7 +92,6 @@ pub const SCENE_SEQUENCE_OFFSET: u16 = 0x4854;
 pub const FRAME_TASKS_ACTIVE: u16 = 0x46d7;
 /// Toggled by `blink` (the cursor or text blink phase).
 pub const BLINK_PHASE: u16 = 0x4775;
-pub const FLAG_47A5: u16 = 0x47a5;
 /// The sub-resource index `open_sky_palette_al_sub_bl_dsdx` was asked for.
 pub const PALETTE_SUB: u16 = 0x46d6;
 /// The sky resource offset (0 or 1: SKY or SKYDN).
@@ -235,11 +234,6 @@ pub const MOUSE_RECT: u16 = 0xdc58;
 
 // --- Text ------------------------------------------------------------------
 
-/// Far pointers to the string tables: commands, and the loaded phrases.
-pub const COMMAND_STRINGS: u16 = 0x47ac;
-pub const PHRASE_STRINGS: u16 = 0x47b0;
-/// The loaded phrase file's last offset.
-pub const PHRASE_END: u16 = 0x47b4;
 /// Which phrase file: PHRASE1x while [`PHRASE_PART`] is below
 /// [`PHRASE_SPLIT`], else PHRASE2x; the one loaded.
 pub const PHRASE_PART: u16 = 0x477c;
@@ -428,18 +422,12 @@ pub const TALKER: u16 = 0x47c4;
 /// The text being shown (cleared when done).
 pub const TEXT_PTR: u16 = 0x1bea;
 
-/// The dialogue's state bits: 80h ends it with this line, 1 keeps the
-/// view.
-pub const LINE_STATE: u16 = 0x47a4;
-
 /// Set during a dialogue scene.
 pub const IN_DIALOGUE: u16 = 0x2b;
 
 /// The game's stage (64h to 73h: a wait after each line).
 pub const STAGE: u16 = 0x23;
 
-/// The dialogue list the dialogue goes on from (0: from its group, [47BEh]).
-pub const DIALOGUE_PENDING: u16 = 0x47ba;
 
 /// The video sprite list the dirty rect is redrawn with.
 pub const SPRITE_LIST: u16 = 0xdbe0;

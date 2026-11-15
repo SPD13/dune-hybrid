@@ -43,8 +43,8 @@ pub fn get_phrase_or_command_string_si(m: &mut Machine, start: u16) -> Result<()
         c.run(start, 9)?;
         c.push(bx);
         let index = pure::shl1(W, id, 1);
-        let table = c.word(g::COMMAND_STRINGS);
-        let seg = c.word(g::COMMAND_STRINGS + 2);
+        let table = c.conversation().commands[0];
+        let seg = c.conversation().commands[1];
         c.set_sreg(ES, seg);
         let si = c.word_in(ES, table.wrapping_add(index));
         c.set_reg(SI, si);
@@ -57,8 +57,8 @@ pub fn get_phrase_or_command_string_si(m: &mut Machine, start: u16) -> Result<()
     c.set_reg(SI, id);
     c.call(code::LOAD_PHRASE_HSQ, 0xcf7b)?;
     c.run(0xcf7b, 9)?;
-    let table = c.word(g::PHRASE_STRINGS);
-    let seg = c.word(g::PHRASE_STRINGS + 2);
+    let table = c.conversation().phrases[0];
+    let seg = c.conversation().phrases[1];
     c.set_sreg(ES, seg);
     let si = c.reg(SI);
     let index = pure::and(W, si, 0x07ff);
@@ -68,7 +68,7 @@ pub fn get_phrase_or_command_string_si(m: &mut Machine, start: u16) -> Result<()
     let first = c.word_in(ES, table);
     let end = c.word_in(ES, first.wrapping_sub(2));
     c.set_reg(BX, end);
-    c.set_word(g::PHRASE_END, end);
+    c.update_conversation(|t| t.phrase_end = end);
     let bx = c.pop();
     c.set_reg(BX, bx);
     c.ret()
@@ -104,7 +104,7 @@ pub fn load_phrase_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(g::PHRASE_LOADED, al);
     c.set_reg(AX, al as u16);
     c.set_reg(SI, al as u16);
-    let (di, es) = (c.word(g::PHRASE_STRINGS), c.word(g::PHRASE_STRINGS + 2));
+    let (di, es) = (c.conversation().phrases[0], c.conversation().phrases[1]);
     c.set_reg(pc::cpu::DI, di);
     c.set_sreg(ES, es);
     c.call(code::LOAD_RESOURCE_TO, 0xd035)?;

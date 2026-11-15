@@ -579,7 +579,7 @@ pub fn head_09c7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(dx);
     c.set_reg8(r8::AH, 0);
     let ax = c.reg(AX);
-    c.set_word(g::TALKER, ax);
+    c.update_conversation(|t| t.talker = ax);
     c.call(0x91a0, 0x09d0)?;
     let sp = c.reg(pc::cpu::SP);
     let d = c.word_in(pc::cpu::SS, sp);
@@ -657,7 +657,7 @@ pub fn comm_28b5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, 0xa);
     c.call(0xab15, 0x28c0)?;
     c.run(0x28c0, 12)?;
-    let k = c.byte(0x47a9) as u16;
+    let k = c.conversation().caller as u16;
     c.set_reg8(r8::AL, k as u8);
     c.set_reg(AX, k);
     let si = pure::shl1(W, k, 1);
@@ -701,7 +701,7 @@ pub fn sheets_cfe4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = pure::add(B, 0xc0, k as u16);
     c.set_reg(AX, a);
     c.set_reg(SI, a);
-    let (d, e) = (c.word(g::COMMAND_STRINGS), c.word(0x47ae));
+    let (d, e) = (c.conversation().commands[0], c.conversation().commands[1]);
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
     c.call(0xf0b9, 0xd00a)?;
@@ -897,10 +897,10 @@ pub fn dialogue_9719(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(0x9f82, 0x972f)?;
     c.run(0x972f, 3)?;
-    c.set_word(g::TALKER, 0xf);
-    c.set_word(0x47a2, 0x10c8);
+    c.update_conversation(|t| t.talker = 0xf);
+    c.update_conversation(|t| t.speaker = 0x10c8);
     c.call(0xa1c4, 0x973e)?;
-    let v = c.word(g::DIALOGUE_PENDING);
+    let v = c.conversation().pending;
     let n = if v == 0xffff { 3 + 1 } else if v != 0 { 3 + 2 } else { 3 + 2 + 1 };
     c.run(0x973e, n + 2)?;
     c.set_reg(SI, v);
@@ -914,14 +914,14 @@ pub fn dialogue_9719(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let w = c.word(0xab6a);
         c.set_reg(SI, w);
     }
-    c.set_byte(0x47c2, 0x20);
+    c.update_conversation(|t| t.mode = 0x20);
     c.call(0x9f9e, 0x9754)?;
     let cf = c.flag(CF);
     c.run(0x9754, 2 + if cf { 1 } else { 0 } + 1)?;
     let si = c.reg(SI);
-    c.set_word(g::DIALOGUE_PENDING, si);
+    c.update_conversation(|t| t.pending = si);
     if cf {
-        c.set_word(g::DIALOGUE_PENDING, 0);
+        c.update_conversation(|t| t.pending = 0);
     }
     c.ret()
 }
@@ -1201,7 +1201,7 @@ pub fn book_afc7(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn dialogue_941d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x941d)?;
     let mut c = Ctx::new(m);
-    let comm = c.byte(0x47a9);
+    let comm = c.conversation().caller;
     if comm != 0 {
         c.run(0x941d, 3)?;
         return c.jump(0x2993);
@@ -1253,7 +1253,7 @@ pub fn jessica_0f08(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0f08, 3)?;
     c.call(0xc412, 0x0f16)?;
     c.run(0x0f16, 2)?;
-    c.set_word(g::TALKER, 7);
+    c.update_conversation(|t| t.talker = 7);
     c.call(0x9197, 0x0f1f)?;
     c.run(0x0f1f, 3)?;
     c.update_text_box(|t| t.words = 0);
@@ -1265,9 +1265,9 @@ pub fn jessica_0f08(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x998e, 0x0f2f)?;
     c.run(0x0f2f, 4)?;
     c.set_word(0x22a6, 0xffff);
-    let v = c.byte(0x47c3);
+    let v = c.conversation().two_heads;
     let v = pure::inc(B, v as u16);
-    c.set_byte(0x47c3, v as u8);
+    c.update_conversation(|t| t.two_heads = v as u8);
     c.update_dialogue_text(|t| t.next = 1);
     c.call(0xc412, 0x0f42)?;
     c.run(0x0f42, 2)?;
@@ -1458,7 +1458,7 @@ pub fn place_7c02(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     c.push(si);
     c.call(0x9efd, 0x7c3a)?;
-    let k = c.byte(g::FLAG_47A5);
+    let k = c.conversation().flag_47a5;
     c.run(0x7c3a, 4 + if k == 0x80 { 2 } else { 0 })?;
     let v = c.pop();
     c.set_reg(SI, v);
@@ -1936,7 +1936,7 @@ pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (ax, bp) = if troop {
         c.run(0x7a82, 3)?;
         c.set_reg(AX, 0xc);
-        c.set_word(g::TALKER, 0xc);
+        c.update_conversation(|t| t.talker = 0xc);
         c.call(0x91a0, 0x7a8b)?;
         c.run(0x7a8b, 1)?;
         c.call(0xc0f4, 0x7a8e)?;
@@ -1947,7 +1947,7 @@ pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x7a96, 5)?;
         c.set_reg(AX, 0xf);
-        c.set_word(g::TALKER, 0xf);
+        c.update_conversation(|t| t.talker = 0xf);
         let si = c.reg(SI);
         c.set_word(0x4758, si);
         c.set_byte(0x476c, 0);
@@ -2033,7 +2033,7 @@ pub fn comm_28a1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x28a1, 2)?;
     let al = c.reg8(r8::AL);
-    c.set_byte(0x47a9, al);
+    c.update_conversation(|t| t.caller = al);
     c.call(0x2795, 0x28a7)?;
     c.run(0x28a7, 1)?;
     c.call(0xc49a, 0x28aa)?;
@@ -2166,7 +2166,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::ES;
     entered(start, 0x0d8e)?;
     let mut c = Ctx::new(m);
-    let comm = c.byte(0x47a9);
+    let comm = c.conversation().caller;
     if comm != 0 {
         c.run(0x0d8e, 3)?;
         return c.ret();
@@ -2200,7 +2200,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0x11ca, 1);
     c.call(0x9f40, 0x0dcd)?;
     c.run(0x0dcd, 7)?;
-    c.set_word(g::TALKER, 0xffff);
+    c.update_conversation(|t| t.talker = 0xffff);
     let who = c.byte(0x46d9);
     c.set_byte(0x46d9, 0x80);
     let ax = who as u16;
@@ -2253,7 +2253,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0x4727, 0);
     c.call(0xd741, 0x0e2d)?;
     c.run(0x0e2d, 4)?;
-    c.set_byte(0x47a7, 1);
+    c.update_conversation(|t| t.scene_count = 1);
     c.set_reg(BP, 0x20a2);
     c.set_reg(BX, 0xf66);
     c.call(0xd323, 0x0e3b)?;
@@ -2621,7 +2621,7 @@ pub fn set_47a5_ff(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1d0)?;
     let mut c = Ctx::new(m);
     c.run(0xa1d0, 2)?;
-    c.set_byte(g::FLAG_47A5, 0xff);
+    c.update_conversation(|t| t.flag_47a5 = 0xff);
     c.ret()
 }
 
@@ -2630,7 +2630,7 @@ pub fn set_47a5_80(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1dc)?;
     let mut c = Ctx::new(m);
     c.run(0xa1dc, 2)?;
-    c.set_byte(g::FLAG_47A5, 0x80);
+    c.update_conversation(|t| t.flag_47a5 = 0x80);
     c.ret()
 }
 
@@ -2673,7 +2673,7 @@ pub fn screen_2c9a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x2ca4, 1)?;
     c.call(0xc412, 0x2ca7)?;
     c.run(0x2ca7, 2)?;
-    let state = c.word(g::TALKER);
+    let state = c.conversation().talker;
     c.set_reg(AX, state);
     c.call(0x96d8, 0x2cad)?;
     c.run(0x2cad, 6)?;
