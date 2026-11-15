@@ -17,7 +17,7 @@
 # Compared: the whole machine state (CPU, instruction count, memory), the
 # screens and the save written; and the subsystems kept in Rust (the clock,
 # the troop and location tables) must have seen no write of their memory
-# they did not foresee (`clock: 0 sync-ins`, `troops: ...`, `locations: ...`, `text box: ...`).
+# they did not foresee (`clock: 0 sync-ins`, `troops: ...`, `locations: ...`, `text box: ...`, `dialogue text: ...`).
 #
 # The saves are game-derived and stay outside git (SAVES, default
 # ../dune-hybrid/tests-data/saves).
@@ -72,7 +72,7 @@ echo "$CASES" | while read name seed lang save; do
         # unforeseen write of its words fails the case.
         ck=$(grep '^clock:' $S/run/$name.log | sed 's/^clock: //')
         case "$ck" in "0 sync-ins"*) dc="" ;; *) dc="clock [$ck]" ;; esac
-        for t in troops locations "text box"; do
+        for t in troops locations "text box" "dialogue text"; do
             tr=$(grep "^$t:" $S/run/$name.log | sed "s/^$t: //")
             case "$tr" in "0 sync-ins"*) ;; *) dc="$dc $t [$tr]" ;; esac
         done

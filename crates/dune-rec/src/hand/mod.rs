@@ -33,6 +33,7 @@ pub mod native;
 pub mod troop_table;
 pub mod record_table;
 pub mod text_box;
+pub mod dialogue_text;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1486,6 +1487,15 @@ impl Ctx<'_> {
     /// The text box changed by `f` (written through to the memory).
     fn update_text_box(&mut self, f: impl FnOnce(&mut text_box::TextBox)) {
         text_box::update(self, f)
+    }
+    /// The dialogue's text being played (Rust state, see
+    /// [`dialogue_text`]), in step with the memory.
+    fn dialogue_text(&mut self) -> dialogue_text::DialogueText {
+        dialogue_text::get(self)
+    }
+    /// The dialogue's text changed by `f` (written through).
+    fn update_dialogue_text(&mut self, f: impl FnOnce(&mut dialogue_text::DialogueText)) {
+        dialogue_text::update(self, f)
     }
     /// The game time ([2]).
     fn game_time(&mut self) -> u16 {

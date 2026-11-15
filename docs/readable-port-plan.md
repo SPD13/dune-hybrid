@@ -292,9 +292,9 @@ the subsystem's boundary. Candidates, smallest boundary first:
   timer): done, with a mirror (below);
 - troops and their jobs (the troop table, the callbacks), and the
   locations: done, with a mirror (below);
-- the dialogue state machine: its text box's layout done (below); the
-  rest of the 4770h block (phrases, talking heads, voice) first needs
-  names for its bytes;
+- the dialogue state machine: its text box's layout and the text being
+  played done (below); the rest of the 4770h block (phrases, talking
+  heads, voice) first needs names for its bytes;
 - the map's projection and drawing (the HD renderer already models it).
 
 The shadow check no longer applies inside such a subsystem. Two checks
@@ -409,6 +409,13 @@ checks and counts; `text box:` in the runner's and the suite's output).
 The ports read and change it through `Ctx::text_box` /
 `update_text_box`; the suite wants 0 sync-ins. The generated code sets
 it a few times per game (ports that gave up: counted apart).
+
+The dialogue's text being played (`hand/dialogue_text.rs`, 0Eh bytes at
+47C6h: the next phrase, the phrase shown, the head's sentences and frame
+table, the phrases left, the sentence kind, the flags, the last sentence
+block) is a second table of one, the same way (`Ctx::dialogue_text` /
+`update_dialogue_text`; `dialogue text:` in the output). Reads through
+SS (the head's tables, while DS is the head's sheet) read the mirror.
 
 ## Tools in place
 

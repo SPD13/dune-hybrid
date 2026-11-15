@@ -1268,7 +1268,7 @@ pub fn jessica_0f08(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte(0x47c3);
     let v = pure::inc(B, v as u16);
     c.set_byte(0x47c3, v as u8);
-    c.set_word(0x47c6, 1);
+    c.update_dialogue_text(|t| t.next = 1);
     c.call(0xc412, 0x0f42)?;
     c.run(0x0f42, 2)?;
     c.set_reg(DX, 0x2d);
@@ -1959,7 +1959,7 @@ pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let a = pure::sub(W, h, 0xe);
         let a = pure::shl1(W, a, 2);
         c.set_reg(AX, a);
-        let p = c.byte(0x47d0);
+        let p = c.dialogue_text().sentence_kind;
         let b = pure::dec(B, p as u16);
         c.set_reg8(r8::BL, b as u8);
         let bx = pure::shl1(W, b, 1);

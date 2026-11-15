@@ -114,9 +114,9 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(BP, bp);
             c.call(0xc097, 0x05b7)?;
             c.run(0x05b7, 2)?;
-            let v = c.byte(0x47d1);
+            let v = c.dialogue_text().flags;
             let v = c.and(B, v as u16, 0x7f);
-            c.set_byte(0x47d1, v as u8);
+            c.update_dialogue_text(|t| t.flags = v as u8);
             c.call(0x39e6, 0x05bf)?;
             c.run(0x05bf, 1)?;
             c.call(0x093f, 0x05c2)?;
@@ -145,9 +145,9 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x05dc, 1)?;
             c.call(0xc07c, 0x05df)?;
             c.run(0x05df, 2)?;
-            let v = c.byte(0x47d1);
+            let v = c.dialogue_text().flags;
             let v = c.or(B, v as u16, 0x80);
-            c.set_byte(0x47d1, v as u8);
+            c.update_dialogue_text(|t| t.flags = v as u8);
             c.call(0xdd63, 0x05e7)?;
             if c.flag(CF) {
                 c.run(0x05e7, 1)?;

@@ -1603,7 +1603,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     }
     c.set_reg(DI, 0xd834);
     c.call(0x5b99, 0x9dfe)?;
-    let d = c.byte(0x47d0);
+    let d = c.dialogue_text().sentence_kind;
     let none = d.wrapping_sub(1) & 0x80 != 0;
     let kind = c.word(0x22a6);
     c.run(0x9dfe, 10 + if none { 0 } else { 2 + (kind == 0xd) as u32 + 3 } + 4)?;
@@ -1618,7 +1618,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
         let w = c.add(W, w, v);
         c.set_word(a, w);
     }
-    let si = c.word(0x47d2);
+    let si = c.dialogue_text().sentences_last;
     c.set_reg(SI, si);
     let ah = c.dec(B, d as u16);
     c.set_reg8(r8::AH, ah as u8);
@@ -1693,12 +1693,12 @@ fn lip_sprite_9e75(c: &mut Ctx) -> Result<(), Bail> {
     let k = c.word(g::TALKER);
     let twelve = k == 0xc;
     c.run(0x9e75, 3 + if twelve { 0 } else { 5 } + 6)?;
-    let si = c.word(0x47d2);
+    let si = c.dialogue_text().sentences_last;
     c.set_reg(SI, si);
     c.cmp(W, k, 0xc);
     let mut al = c.reg8(r8::AL) as u16;
     if !twelve {
-        let d = c.byte(0x47d0);
+        let d = c.dialogue_text().sentence_kind;
         let ah = c.dec(B, d as u16);
         let ah = c.shl1(B, ah, 2);
         c.set_reg8(r8::AH, ah as u8);

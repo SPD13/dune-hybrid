@@ -277,9 +277,12 @@ pub fn set_charisma(c: &mut Ctx, v: u8) {
 /// Any record stamped with the game time (`stamp_record`, 6B25h): word 0Ah
 /// the time, words 0Ch and 0Eh cleared.
 pub fn stamp(c: &mut Ctx, record: u16, time: u16) {
-    c.set_word(record.wrapping_add(0x0a), time);
-    c.set_word(record.wrapping_add(0x0c), 0);
-    c.set_word(record.wrapping_add(0x0e), 0);
+    // A troop's through its view (the same words of another record in
+    // the memory).
+    let t = Troop(record);
+    t.set_changed_at(c, time);
+    t.set_rate(c, 0);
+    t.set_word_0e(c, 0);
 }
 
 /// The game time (word [2]).

@@ -1,6 +1,7 @@
 //! The game's record tables as Rust state (Stage B of
 //! `docs/readable-port-plan.md`): the troops (`hand/troop_table.rs`),
-//! the locations and the text box (`hand/text_box.rs`, a table of one),
+//! the locations, the text box (`hand/text_box.rs`) and the dialogue's
+//! text (`hand/dialogue_text.rs`), these two tables of one,
 //! kept with the machine ([`super::native`]).
 //!
 //! Each record is cached the first time it is used. The views
@@ -36,16 +37,19 @@ pub enum Which {
     Locations,
     /// The text box's layout, 1Ch bytes at 4784h.
     TextBox,
+    /// The dialogue's text being played, 0Eh bytes at 47C6h.
+    DialogueText,
 }
 
 impl Which {
-    pub const ALL: [Which; 3] = [Which::Troops, Which::Locations, Which::TextBox];
+    pub const ALL: [Which; 4] = [Which::Troops, Which::Locations, Which::TextBox, Which::DialogueText];
 
     pub fn name(self) -> &'static str {
         match self {
             Which::Troops => "troops",
             Which::Locations => "locations",
             Which::TextBox => "text box",
+            Which::DialogueText => "dialogue text",
         }
     }
     const fn base(self) -> u16 {
@@ -53,6 +57,7 @@ impl Which {
             Which::Troops => g::TROOPS,
             Which::Locations => 0x100,
             Which::TextBox => 0x4784,
+            Which::DialogueText => 0x47c6,
         }
     }
     pub const fn size(self) -> u16 {
@@ -60,6 +65,7 @@ impl Which {
             Which::Troops => 0x1b,
             Which::Locations => 0x1c,
             Which::TextBox => 0x1c,
+            Which::DialogueText => 0x0e,
         }
     }
     pub const fn count(self) -> usize {
@@ -67,6 +73,7 @@ impl Which {
             Which::Troops => ((g::TROOPS_END - g::TROOPS) / 0x1b) as usize,
             Which::Locations => 0x46,
             Which::TextBox => 1,
+            Which::DialogueText => 1,
         }
     }
     fn end(self) -> u16 {
@@ -97,6 +104,7 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::Troops => &mut n.troops,
         Which::Locations => &mut n.locations,
         Which::TextBox => &mut n.text_box,
+        Which::DialogueText => &mut n.dialogue_text,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];

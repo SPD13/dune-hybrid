@@ -1191,8 +1191,8 @@ pub fn lose_charisma(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `stamp_record`. Flags come back as given.
 fn set_troop_bit_10(c: &mut Ctx) -> Result<(), Bail> {
     let cf = c.flag(CF);
-    let si = c.reg(SI);
-    let b3 = c.byte(si.wrapping_add(3));
+    let troop = Troop(c.reg(SI));
+    let b3 = troop.state(c);
     let want = if cf { 0x10 } else { 0 };
     let have = b3 & 0x10;
     if have == want {
@@ -1208,7 +1208,7 @@ fn set_troop_bit_10(c: &mut Ctx) -> Result<(), Bail> {
     c.cmp(B, ax & 0xff, ax >> 8);
     if have != want {
         let v = c.xor(B, b3 as u16, 0x10);
-        c.set_byte(si.wrapping_add(3), v as u8);
+        troop.set_state(c, v as u8);
         c.push(ax);
         let di = c.reg(DI);
         c.push(di);
@@ -1235,8 +1235,7 @@ pub fn troop_bit_10_by_location(m: &mut Machine, start: u16) -> Result<(), Bail>
     entered(start, 0x6b8a)?;
     let mut c = Ctx::new(m);
     c.run(start, 5)?;
-    let di = c.reg(DI);
-    let a = c.byte(di.wrapping_add(0x0a));
+    let a = Location(c.reg(DI)).byte_0a(&mut c);
     let ah = c.and(B, a as u16, 0x41);
     c.set_reg8(r8::AH, ah as u8);
     c.cmp(B, ah, 1);
@@ -3937,11 +3936,8 @@ fn steps_8313(c: &mut Ctx) -> Result<(), Bail> {
             return troop_arrived_at(c);
         }
         let troop = Troop(c.reg(SI));
-        let at = troop.offset();
-        let x = c.word(at.wrapping_add(6)).wrapping_add(dx);
-        c.set_word(at.wrapping_add(6), x);
-        let y = c.word(at.wrapping_add(8)).wrapping_add(dy);
-        c.set_word(at.wrapping_add(8), y);
+        let (x, y) = (troop.x(c).wrapping_add(dx), troop.y(c).wrapping_add(dy));
+        troop.set_position(c, x, y);
         let left = c.reg(CX).wrapping_sub(1);
         c.set_reg(CX, left);
         if left == 0 {
