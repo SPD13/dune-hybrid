@@ -372,9 +372,20 @@ the table without the view.
 
 What the sync-ins showed: the troops' job handlers (the table at
 CS:6C26h, called from `troops_tick`) had no ports and ran as generated
-code. Ported: jobs 0 (`job_harvest`, the spice), 5, 8, 9, 10; jobs 1 and
-4 next. Job 6 (739Eh) never ran in any coverage run, so it has no
-generated code to compare with: left until a run reaches it.
+code. Ported: jobs 0 (`job_harvest`, the spice), 1, 4, 5, 8, 9 and 10;
+the sync-ins are now 0 to 2 per suite game (they were up to 53). Job 6
+(739Eh) never ran in any run, so it has no generated code to compare
+with: left until a run reaches it.
+
+The jobs' exits returned flags their caller doesn't read, but
+`flags_used.py` listed them as unknown (all read): no coverage run had
+the call through the job table, as the old runs all start a new game,
+where the troops have no jobs yet. Coverage from the saves
+(`$LIFT_DATA/cov/cov-save*.txt`) and the table itself (`flags_used.py`
+takes the job table's targets as known for that call site) make them
+known: mask 0, and their exits (tails into `add_skill`,
+`set_troop_activity`, `kind_6acb`, whose flags are not exact) are no
+longer compared.
 
 ## Tools in place
 

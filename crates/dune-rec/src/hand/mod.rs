@@ -847,6 +847,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x767d, troops::job_10, "loc_0767d"),
     (0x7711, troops::job_9, "loc_07711"),
     (0x7693, troops::job_8, "loc_07693"),
+    (0x70cc, troops::job_1, "loc_070cc"),
+    (0x71ef, troops::job_4, "loc_071ef"),
     (0x6827, troops::troop_facing_sprite, "loc_06827"),
     (0xd23d, screens::nudge_panel, "loc_0d23d"),
     (0x55c0, map::unmark_regions_of, "loc_055c0"),

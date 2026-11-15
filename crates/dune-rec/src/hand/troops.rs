@@ -5248,3 +5248,256 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7706, 1)?;
     c.ret()
 }
+
+/// `loc_070cc`, job 1. Not at a location with byte 0Ah bit 2, nor one
+/// held (`troop_bit_10_by_location`, CF). Unless bit 40h is already set:
+/// the troop's rate (word 0Ch; when 0 set to (location +11h · 16) /
+/// (motivation + skill 0)); while the game time since its last change
+/// is below the rate, word 0Eh = that time · 100 / the rate (its share
+/// done); once reached, a skill point (`add_skill`, AL 2), bit 40h set
+/// ([46ECh] counted in the place view). With bit 40h: held again
+/// (`troop_bit_10_by_location`), word 0Eh 100; then, unless it is the
+/// troop [46EFh], it sets out (`troop_set_out`) when [11D3h] is set,
+/// else (not marked, byte 3 bit 10h) `call_29f0_f` with AL 0Eh.
+pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x70cc)?;
+    let mut c = Ctx::new(m);
+    let troop = Troop(c.reg(SI));
+    let di = c.reg(DI);
+    let a = c.byte(di.wrapping_add(0x0a));
+    if a & 2 != 0 {
+        c.run(0x70cc, 4)?;
+        c.set_reg8(r8::AL, a);
+        c.test(B, a as u16, 2); // the exit's flags
+        return c.ret();
+    }
+    if a & 0x40 == 0 {
+        c.run(0x70cc, 6)?;
+        c.set_reg8(r8::AL, a);
+        c.call(0x6b8a, 0x70da)?;
+        if c.flag(CF) {
+            c.run(0x70da, 2)?;
+            return c.ret();
+        }
+        let mut rate = troop.rate(&mut c);
+        if rate == 0 {
+            let v = (c.byte(di.wrapping_add(0x11)) as u16) << 4;
+            let cl = troop.motivation(&mut c).wrapping_add(troop.skill(&mut c, 0));
+            if cl == 0 || v / cl as u16 > 0xff {
+                c.run(0x70da, 4 + 5)?;
+                c.set_reg(AX, v);
+                c.set_reg(CX, c.reg(CX) & 0xff00 | cl as u16);
+                c.m.cpu.ip = 0x70f0; // the division faults: the interpreter's
+                return Err(Bail);
+            }
+            c.run(0x70da, 4 + 8)?;
+            rate = v / cl as u16;
+            c.set_reg(CX, c.reg(CX) & 0xff00 | cl as u16);
+            troop.set_rate(&mut c, rate);
+        } else {
+            c.run(0x70da, 4)?;
+        }
+        // 70F7h: the share done, or the job's end.
+        let elapsed = c.game_time().wrapping_sub(troop.changed_at(&mut c));
+        c.set_reg(AX, rate);
+        if rate > elapsed {
+            c.run(0x70f7, 4 + if elapsed == 0 { 2 } else { 7 })?;
+            c.set_reg(CX, elapsed);
+            if elapsed == 0 {
+                c.cmp(W, rate, elapsed); // the exit's flags
+                return c.ret();
+            }
+            c.cmp(W, rate, elapsed); // AF, which the `mul` leaves
+            c.set_reg(CX, rate);
+            c.set_reg(AX, elapsed);
+            c.mul16(0x64); // the exit's flags (the `div` keeps them)
+            let n = (c.reg(DX) as u32) << 16 | c.reg(AX) as u32;
+            c.set_reg(AX, (n / rate as u32) as u16);
+            c.set_reg(DX, (n % rate as u32) as u16);
+            troop.set_word_0e(&mut c, (n / rate as u32) as u16);
+            return c.ret();
+        }
+        c.run(0x70f7, 4 + 3)?;
+        c.set_reg(CX, elapsed);
+        c.set_reg(BX, 0);
+        c.set_reg8(r8::AL, 2);
+        c.call(0x6edd, 0x7117)?;
+        let place_view = c.byte(g::MAP_MODE) & 0x40 != 0;
+        c.run(0x7117, 3 + place_view as u32)?;
+        let a = c.byte(di.wrapping_add(0x0a));
+        c.set_byte(di.wrapping_add(0x0a), a | 0x40);
+        if place_view {
+            let k = c.byte(0x46ec).wrapping_add(1);
+            c.set_byte(0x46ec, k);
+        }
+    } else {
+        c.run(0x70cc, 5)?;
+        c.set_reg8(r8::AL, a);
+    }
+    // 7126h: done.
+    let st = troop.state(&mut c);
+    c.run(0x7126, 3)?;
+    c.set_reg8(r8::AL, st);
+    let ax = c.reg(AX);
+    c.push(ax);
+    c.call(0x6b8a, 0x712d)?;
+    let shown = c.word(0x46ef);
+    let si = troop.offset();
+    if si == shown {
+        c.run(0x712d, 5)?;
+        troop.set_word_0e(&mut c, 0x64);
+        let ax = c.pop();
+        c.set_reg(AX, ax);
+        c.cmp(W, si, shown); // the exit's flags
+        return c.ret();
+    }
+    let setting_out = c.word(0x11d3);
+    if setting_out != 0 {
+        c.run(0x712d, 7)?;
+        troop.set_word_0e(&mut c, 0x64);
+        let ax = c.pop();
+        c.set_reg(AX, ax);
+        c.cmp(W, setting_out, 0); // the flags the tail gets
+        return c.jump(0x84a6);
+    }
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    let st = ax as u8;
+    if st & 0x10 != 0 {
+        c.run(0x712d, 9)?;
+        troop.set_word_0e(&mut c, 0x64);
+        c.test(B, st as u16, 0x10); // the exit's flags
+        return c.ret();
+    }
+    c.run(0x712d, 10)?;
+    troop.set_word_0e(&mut c, 0x64);
+    c.test(B, st as u16, 0x10); // the flags the tail gets
+    c.set_reg8(r8::AL, 0x0e);
+    c.jump(0x71b2)
+}
+
+/// `loc_071ef`, job 4. The troop's day (`troop_day_update`), its wait
+/// over (word 10h bit 200h cleared). At a location without byte 0Ah bit
+/// 4: the countdown (word 0Ch) down one; at its end a new one: from the
+/// strength there (at the location [473Ch] A0h and word 10h bit 800h;
+/// else the location's troops' skill 1 averaged, `for_location_troops`)
+/// above the troop's skill 1, times 2, plus its motivation (at least
+/// 1Eh, `troop_motivation`): C8h, FAh, 12Ch or 190h (by byte 19h's bits
+/// Ch, 10h, 20h) divided by that; then a skill point (`add_skill`, BX
+/// 1). With bit 4: word 0Eh counts down from FF40h - skill 1 (on from
+/// its value once the high byte is FFh) until below 0, then the
+/// location's bit 4 cleared (`clear_location_4`, its CX into word 12h)
+/// and word 0Eh 0.
+pub fn job_4(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x71ef)?;
+    let mut c = Ctx::new(m);
+    c.run(0x71ef, 1)?;
+    c.call(0x6e20, 0x71f2)?;
+    let troop = Troop(c.reg(SI));
+    let di = c.reg(DI);
+    let a = c.byte(di.wrapping_add(0x0a));
+    if a & 4 != 0 {
+        // 725Fh: word 0Eh's count.
+        let w = troop.word_0e(&mut c);
+        let on = w >> 8 == 0xff;
+        let s1 = troop.skill(&mut c, 1);
+        let ax = if on { w } else { 0xff00 | 0x40u8.wrapping_sub(s1) as u16 };
+        let over = (ax as u8).wrapping_sub(1) & 0x80 != 0;
+        c.run(0x71f2, 3 + 3 + if on { 0 } else { 2 } + 2 + if over { 1 } else { 2 })?;
+        let w10 = troop.word_10(&mut c);
+        troop.set_word_10(&mut c, w10 & 0xfdff);
+        // CF for the exit, which the `dec` keeps.
+        if on {
+            c.cmp(B, 0xff, 0xff);
+        } else {
+            c.sub(B, 0x40, s1 as u16);
+        }
+        let ax = ax & 0xff00 | c.dec(B, ax & 0xff); // the exit's flags (unless over)
+        c.set_reg(AX, ax);
+        if !over {
+            troop.set_word_0e(&mut c, ax);
+            return c.ret();
+        }
+        c.call(0x727d, 0x7274)?;
+        let cx = c.reg(CX);
+        c.run(0x7274, 4)?;
+        let w12 = troop.word_12(&mut c);
+        troop.set_word_12(&mut c, w12 | cx);
+        c.xor(W, 0, 0); // the exit's flags
+        c.set_reg(AX, 0);
+        troop.set_word_0e(&mut c, 0);
+        return c.ret();
+    }
+    let n = troop.rate(&mut c).wrapping_sub(1);
+    if n & 0x8000 == 0 {
+        c.run(0x71f2, 3 + 3)?;
+        let w10 = troop.word_10(&mut c);
+        troop.set_word_10(&mut c, w10 & 0xfdff);
+        c.test(B, a as u16, 4); // CF (clear) for the exit, which the `dec` keeps
+        let r = troop.rate(&mut c);
+        let n = c.dec(W, r); // the exit's flags
+        troop.set_rate(&mut c, n);
+        return c.ret();
+    }
+    let own = di == c.word(0x473c);
+    c.run(0x71f2, 3 + 2 + 2 + if own { 3 } else { 1 })?;
+    let w10 = troop.word_10(&mut c);
+    troop.set_word_10(&mut c, w10 & 0xfdff);
+    troop.set_rate(&mut c, n);
+    let ax;
+    if own {
+        let w10 = troop.word_10(&mut c);
+        troop.set_word_10(&mut c, w10 | 0x800);
+        ax = c.reg(AX) & 0xff00 | 0xa0;
+        c.set_reg(AX, ax);
+    } else {
+        c.call(0x7298, 0x7215)?;
+        let (cx, dx) = (c.reg(CX), c.reg(DX));
+        if cx != 0 {
+            let cl = cx as u8;
+            if cl == 0 || dx / cl as u16 > 0xff {
+                c.run(0x7215, 2)?;
+                c.set_reg(AX, dx);
+                c.m.cpu.ip = 0x7219; // the division faults: the interpreter's
+                return Err(Bail);
+            }
+            c.run(0x7215, 3)?;
+            ax = (dx % cl as u16) << 8 | dx / cl as u16;
+        } else {
+            c.run(0x7215, 2)?;
+            ax = dx;
+        }
+        c.set_reg(AX, ax);
+    }
+    // 721Bh: above the troop's skill 1, doubled.
+    let s1 = troop.skill(&mut c, 1);
+    let below = (ax as u8) < s1;
+    c.run(0x721b, 3 + below as u32 + 3)?;
+    let cx = (ax as u8).saturating_sub(s1) as u16 * 2;
+    c.set_reg(AX, cx);
+    c.set_reg(CX, cx);
+    c.call(0x6efd, 0x722b)?;
+    // 722Bh: plus the motivation (at least 1Eh); the base by byte 19h.
+    let al = c.reg8(r8::AL);
+    let m = al.max(0x1e) as u16;
+    let bl = troop.byte_19(&mut c);
+    let (base, chain) = if bl & 0x0c != 0 {
+        (0xc8u16, 0)
+    } else if bl & 0x10 != 0 {
+        (0xfa, 3)
+    } else if bl & 0x20 != 0 {
+        (0x12c, 6)
+    } else {
+        (0x190, 7)
+    };
+    let d = cx + m;
+    c.run(0x722b, 3 + (al < 0x1e) as u32 + 5 + chain + 5 + 1)?;
+    c.set_reg(CX, d);
+    c.set_reg(AX, base / d);
+    c.set_reg(DX, base % d);
+    troop.set_rate(&mut c, base / d);
+    // 7259h: BX 1, then 6EDBh: AL 1, `add_skill`.
+    c.set_reg(BX, 1);
+    c.set_reg8(r8::AL, 1);
+    c.jump(0x6edd)
+}
