@@ -36,6 +36,7 @@ pub mod text_box;
 pub mod dialogue_text;
 pub mod conversation;
 pub mod map_view;
+pub mod map_selection;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1516,6 +1517,15 @@ impl Ctx<'_> {
     /// The map view changed by `f` (written through).
     fn update_map_view(&mut self, f: impl FnOnce(&mut map_view::MapView)) {
         map_view::update(self, f)
+    }
+    /// The map's selection (Rust state, see [`map_selection`]), in step
+    /// with the memory.
+    fn map_selection(&mut self) -> map_selection::MapSelection {
+        map_selection::get(self)
+    }
+    /// The map's selection changed by `f` (written through).
+    fn update_map_selection(&mut self, f: impl FnOnce(&mut map_selection::MapSelection)) {
+        map_selection::update(self, f)
     }
     /// The game time ([2]).
     fn game_time(&mut self) -> u16 {

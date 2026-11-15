@@ -513,7 +513,7 @@ pub fn redraw_8770(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(code::SAVE_REGS, 0x877a)?;
     c.run(0x877a, 2)?;
-    c.set_byte(0x46f3, 0);
+    c.update_map_selection(|t| t.map_screen = 0);
     c.call(0x878c, 0x8782)?;
     c.run(0x8782, 2)?;
     c.set_word(g::TEXT_PTR, 0);
@@ -659,7 +659,7 @@ pub fn open_zoomed_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4988)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_word(0x46fc, 0);
+    c.update_map_selection(|t| t.subject = 0);
     c.call(0x5b5d, 0x4991)?;
     c.run(0x4991, 3)?;
     c.set_reg(SI, 0x148a);
@@ -1111,8 +1111,8 @@ pub fn drop_map_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5f91)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
-    c.set_word(0x46f8, 0);
-    c.set_byte(0x46f7, 0);
+    c.update_map_selection(|t| t.caption = 0);
+    c.update_map_selection(|t| t.caption_kind = 0);
     c.set_reg(SI, 0x1668);
     c.call(0xc07c, 0x5fa2)?;
     c.run(0x5fa2, 2)?;
@@ -1375,7 +1375,7 @@ pub fn show_message_0f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
     let (si, al) = (c.reg(SI), c.reg8(r8::AL));
-    c.set_word(0x46f1, si);
+    c.update_map_selection(|t| t.shown = si);
     c.set_byte(g::STAGE, al);
     c.update_conversation(|t| t.pending = 0);
     c.call(0xc08e, 0x7bce)?;
@@ -1389,7 +1389,7 @@ pub fn show_message_0f(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0x9efd, 0x7bd9)?;
     }
     let k = c.map_view().mode;
-    let si = c.word(0x46f1);
+    let si = c.map_selection().shown;
     if k & 0x80 != 0 {
         c.run(0x7bd9, 5)?;
         c.set_reg(SI, si);
@@ -1480,7 +1480,7 @@ pub fn open_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, 0x34);
     c.set_reg(DX, 0xffff);
     c.call(0xc108, 0x5a30)?;
-    let k = c.byte(0x46f3);
+    let k = c.map_selection().map_screen;
     if k != 0 {
         c.run(0x5a30, 3)?;
     } else {
@@ -1922,7 +1922,7 @@ pub fn draw_location_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x6015, 3)?;
     let di = c.pop();
     c.set_reg(DI, di);
-    c.set_word(0x46f8, di);
+    c.update_map_selection(|t| t.caption = di);
     c.call(0xd068, 0x601d)?;
     c.run(0x601d, 7)?;
     let ch = c.byte(0x1671);
@@ -2538,7 +2538,7 @@ pub fn leave_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5ae2, 11)?;
     c.set_reg(AX, 0);
     c.update_map_view(|t| t.mode = 0);
-    c.set_byte(0x46f3, 0);
+    c.update_map_selection(|t| t.map_screen = 0);
     for p in [0x3cbeu16, 0xa5c0, 0xdbe0, 0xdbe2, 0x1954] {
         c.set_word(p, 0);
     }
@@ -3948,14 +3948,14 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn drop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5f79)?;
     let mut c = Ctx::new(m);
-    let old = c.word(0x46f8);
+    let old = c.map_selection().caption;
     if old == 0 {
         c.run(start, 5)?;
         c.set_reg(AX, 0);
         return c.ret();
     }
     c.run(start, 5)?;
-    c.set_word(0x46f8, 0);
+    c.update_map_selection(|t| t.caption = 0);
     c.set_reg(AX, old);
     c.call(0xd41b, 0x5f86)?;
     let bp = c.reg(BP);
@@ -3974,8 +3974,8 @@ pub fn drop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x5f86, 3 + 4)?;
     c.set_reg8(r8::AL, 0);
-    c.set_word(0x46f8, 0);
-    c.set_byte(0x46f7, 0);
+    c.update_map_selection(|t| t.caption = 0);
+    c.update_map_selection(|t| t.caption_kind = 0);
     c.set_reg(SI, 0x1668);
     c.call(0xc07c, 0x5fa2)?;
     c.run(0x5fa2, 2)?;
@@ -4406,7 +4406,7 @@ fn toggle_map_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
 pub fn redraw_and_toggle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8763)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0x46f3);
+    let k = c.map_selection().map_screen;
     if k == 0 {
         c.run(start, 2)?;
         return redraw_8770(c.m, 0x8770);
@@ -4476,10 +4476,10 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DI, 0);
     }
     let di = c.reg(DI);
-    let old = c.word(0x46fc);
+    let old = c.map_selection().subject;
     c.run(0x5c4d, 4 + if old != di { 5 } else { 0 })?;
     c.set_reg(AX, old);
-    c.set_word(0x46fc, di);
+    c.update_map_selection(|t| t.subject = di);
     if old != di {
         let (bx, dx) = (c.reg(BX), c.reg(DX));
         c.push(bx);
@@ -5349,7 +5349,7 @@ pub fn refresh_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX) & 0xff00 | old as u16;
     c.set_reg(AX, ax);
     c.push(ax);
-    let t = c.word(0x46ef);
+    let t = c.map_selection().selected;
     c.push(t);
     c.call(0xb6c3, 0x5d99)?;
     for (to, ret) in [(0xc13bu16, 0x5d9cu16), (0x5dce, 0x5d9f), (0x6314, 0x5da2), (0xc412, 0x5da5)] {
@@ -5596,9 +5596,9 @@ pub fn message_subject(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// From 45D3h: [46FCh] = DI (`subject`); on a change the line redrawn.
 fn subject_tail(c: &mut Ctx, subject: u16) -> Result<(), Bail> {
-    let old = c.word(0x46fc);
+    let old = c.map_selection().subject;
     c.run(0x45d3, if old == subject { 5 } else { 4 })?;
-    c.set_word(0x46fc, subject);
+    c.update_map_selection(|t| t.subject = subject);
     c.set_reg(AX, old);
     if old == subject {
         return c.ret();
@@ -5625,9 +5625,9 @@ pub fn marker_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x1668);
     c.call(0x6252, 0x5eef)?;
     let ax = c.reg(AX);
-    let (di, cur) = (c.reg(DI), c.word(0x46f8));
+    let (di, cur) = (c.reg(DI), c.map_selection().caption);
     let al = (ax as u8).wrapping_add(1);
-    let kind = c.byte(0x46f7);
+    let kind = c.map_selection().caption_kind;
     let ops = |c: &mut Ctx| {
         c.set_reg(BX, ax);
         let a = pure::inc(W, ax);
@@ -5660,7 +5660,7 @@ pub fn marker_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (dx, by) = (c.word_in(SS, bp.wrapping_add(2)), c.word_in(SS, bp.wrapping_add(4)));
     let shown = by & 0x8000 != 0;
     c.run(0x5f12, 7 + if shown { 0 } else { 1 })?;
-    c.set_byte(0x46f7, al);
+    c.update_map_selection(|t| t.caption_kind = al);
     c.set_reg(CX, cl as u16);
     c.set_reg(DX, dx);
     c.set_reg(BX, by);
@@ -5762,7 +5762,7 @@ pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
         c.set_word(0x1980, v);
     }
     c.run(0x542f, 3)?;
-    c.set_word(0x46fc, 0);
+    c.update_map_selection(|t| t.subject = 0);
     c.update_text_box(|t| t.shown = 0);
     c.call(0x557b, 0x543e)?;
     c.run(0x543e, 15)?;
@@ -6157,12 +6157,12 @@ pub fn animate_map_sprites(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if c.flag(pc::cpu::DF) {
         return Err(Bail);
     }
-    let frame = c.byte(0x46f6).wrapping_add(1);
+    let frame = c.map_selection().sprite_frame.wrapping_add(1);
     if frame & 3 != 0 {
         // Just the one entry.
         let di = c.word(0x4752);
         c.run(start, if di == 0 { 9 } else { 8 })?;
-        c.set_byte(0x46f6, frame);
+        c.update_map_selection(|t| t.sprite_frame = frame);
         c.set_reg8(r8::AL, frame & 3);
         c.set_reg(CX, 1);
         c.set_reg(DI, di);
@@ -6173,7 +6173,7 @@ pub fn animate_map_sprites(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // All of the list.
         let n = c.word(g::PARTICLES);
         c.run(start, 9)?;
-        c.set_byte(0x46f6, frame);
+        c.update_map_selection(|t| t.sprite_frame = frame);
         c.set_reg8(r8::AL, 0);
         c.set_reg(SI, 0x3cbe);
         c.lods(W, DS);
@@ -6413,7 +6413,7 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x5c95, 3)?;
         c.set_reg(DI, 0);
     }
-    let f = c.byte(0x46f5);
+    let f = c.map_selection().skills_panel;
     if f != 0 {
         c.run(0x5ca5, 3)?;
         return super::screens::leave_and_fade(c.m, 0xd2e2);
@@ -6429,7 +6429,7 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x5e6d, 0x5cbc)?;
     let ax = c.reg(AX);
     let di = c.reg(DI);
-    let cur = c.word(0x46f8);
+    let cur = c.map_selection().caption;
     if ax < 0x14 && di != cur {
         c.m.cpu.ip = 0x5cbc;
         return Err(Bail);

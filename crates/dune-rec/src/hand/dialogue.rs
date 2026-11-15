@@ -2991,7 +2991,7 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let intro = c.byte(g::MAP_VIEW_FLAG) != 0;
     let screen = c.byte(MAP_SCREEN) != 0;
     if map_view {
-        let described = c.word(0x46ef) != 0;
+        let described = c.map_selection().selected != 0;
         c.run(start, if described { 6 } else { 7 })?;
         text_defaults(&mut c);
         if !described {
@@ -2999,7 +2999,7 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x8ce9, 3)?;
             let es = c.sreg(ES);
             c.push(es);
-            let troop = c.word(0x46f1);
+            let troop = c.map_selection().shown;
             c.set_reg(SI, troop);
             c.call(0x79ee, 0x8cf1)?;
             c.run(0x8cf1, 2)?;

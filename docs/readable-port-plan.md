@@ -297,7 +297,7 @@ the subsystem's boundary. Candidates, smallest boundary first:
   the 4770h block (talking heads, voice, 4770h-4783h and 47D4h-47EFh)
   first needs names for its bytes;
 - the map's projection and drawing (the HD renderer already models it):
-  its view (46E3h-46EEh) done (below).
+  its view (46E3h-46EEh) and its selection (46EFh-46FDh) done (below).
 
 The shadow check no longer applies inside such a subsystem. Two checks
 replace it:
@@ -434,6 +434,14 @@ the changes seen since it was drawn, the routine that redraws it) is a
 fourth (`Ctx::map_view` / `update_map_view`; `map view:` in the
 output). The generated routines that fill its rect (given 46E3h in DI)
 are counted apart.
+
+The map's selection (`hand/map_selection.rs`, 0Fh bytes at 46EFh: the
+troop selected, the record shown, the map screen toggled in, the troop
+panel and its skills panel, the animated sprites' frame, the caption's
+kind and location, the panel to draw, the place under the cursor) is a
+fifth (`Ctx::map_selection` / `update_map_selection`; `map selection:`
+in the output). The bytes after it (46FEh-470Fh) are scratch of the
+troop panel's computations, left in memory.
 
 ## Tools in place
 

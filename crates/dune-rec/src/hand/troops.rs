@@ -370,7 +370,7 @@ pub fn redraw_7b36(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x79de, 0x7b4b)?;
     c.run(0x7b4b, 5)?;
     c.set_byte(g::TRANSITION_ACTIVE, 0);
-    c.set_byte(0x46f4, 0);
+    c.update_map_selection(|t| t.panel = 0);
     let di = c.pop();
     c.set_reg(DI, di);
     let si = c.pop();
@@ -1587,20 +1587,20 @@ const NEEDS_46FE: u16 = 0x46fe;
 /// The troop's skill bits before `troop_take_skill` changed them ([3Dh]).
 const LAST_SKILLS: u16 = 0x3d;
 
-/// `loc_07b58`: [1BEAh], [46F4h] and [4Ch] cleared, and the troop
-/// [`SELECTED`] dropped (0): its state reset (`loc_01ebe`; word 10h kept
+/// `loc_07b58`: [1BEAh], [46F4h] and [4Ch] cleared, and the
+/// selected troop ([46EFh]) dropped (0): its state reset (`loc_01ebe`; word 10h kept
 /// to bits 3F0h, word 12h without bits 1A00h, its day today), `loc_0a7a5`,
 /// the panel 18E9h redrawn ([0DBE0h] 0, `loc_0c6ad`), [47BAh] 0, and
 /// `gfx_call_30_unless_redrawing` with AL 4. SI the troop.
 pub fn drop_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7b58)?;
     let mut c = Ctx::new(m);
-    let selected = c.word(SELECTED);
+    let selected = c.map_selection().selected;
     c.run(start, if selected == 0 { 8 } else { 10 })?;
     c.set_word(g::TEXT_PTR, 0);
-    c.set_byte(0x46f4, 0);
+    c.update_map_selection(|t| t.panel = 0);
     c.set_byte(0x4c, 0);
-    c.set_word(SELECTED, 0);
+    c.update_map_selection(|t| t.selected = 0);
     c.set_reg(SI, selected);
     if selected == 0 {
         return c.ret();
@@ -1629,9 +1629,6 @@ pub fn drop_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7ba2, 1)?;
     c.ret()
 }
-
-/// The troop selected on the map ([46EFh]), 0 for none.
-const SELECTED: u16 = 0x46ef;
 
 /// `loc_083bc`: the troop SI relinked (`link_troop`), no longer at its
 /// travelling, `reset_location_troop`, `count_location_bits`; for a
@@ -2138,14 +2135,14 @@ pub fn merge_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_079de`: with [`PANEL_DIRTY`] set (then cleared), the panel 18DFh
+/// `loc_079de`: with the panel to draw ([46FAh]) set (then cleared), the panel 18DFh
 /// redrawn on the front buffer ([0DBE0h] 0, `loc_0c6ad`) and
 /// `gfx_call_30_unless_redrawing` with AL 8; else only the front buffer
 /// made active. AX the flag.
 pub fn redraw_panel_18df(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x79de)?;
     let mut c = Ctx::new(m);
-    let dirty = c.word(PANEL_DIRTY);
+    let dirty = c.map_selection().panel_dirty;
     if dirty == 0 {
         c.run(start, 5)?;
         c.set_reg(AX, 0);
@@ -2153,7 +2150,7 @@ pub fn redraw_panel_18df(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c);
     }
     c.run(start, 7)?;
-    c.set_word(PANEL_DIRTY, 0);
+    c.update_map_selection(|t| t.panel_dirty = 0);
     c.set_reg(AX, dirty);
     c.set_reg(SI, 0x18df);
     c.call(0xc07c, 0x5fa2)?;
@@ -2164,9 +2161,6 @@ pub fn redraw_panel_18df(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, 8);
     gfx_call_30_unless_redrawing(c.m, 0x7b2b)
 }
-
-/// The troop whose panel is to be drawn ([46FAh]), 0 for none.
-const PANEL_DIRTY: u16 = 0x46fa;
 
 /// `loc_06bd7`: [`set_troop_bit_10`] with CF set for a troop with bits
 /// 30h of word 12h, at a location with byte 1Bh 0 or without bit 20h of
@@ -3304,7 +3298,7 @@ const TICK_AGAIN: u16 = 0xfa;
 /// The job handlers: words in the code segment, by job.
 const JOB_HANDLERS: u16 = 0x6c26;
 
-/// `loc_07be0`: for the selected troop ([`SELECTED`] = SI): [47BAh] 0.
+/// `loc_07be0`: for the selected troop ([46EFh] = SI): [47BAh] 0.
 /// With its skills panel up ([46F4h], [46F5h]), a click on a need (the
 /// rect 1936h, `loc_0d6fe`; which one by `find_range` over 4C7Ch) moves
 /// one point from the spread bits at [`SPREAD_BITS`] to [`NEEDS_46FE`]
@@ -3319,13 +3313,13 @@ const JOB_HANDLERS: u16 = 0x6c26;
 pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7be0)?;
     let mut c = Ctx::new(m);
-    let selected = c.word(SELECTED);
+    let selected = c.map_selection().selected;
     if c.reg(SI) != selected {
         c.run(start, 3)?;
         return c.ret();
     }
-    let panel = c.byte(0x46f4) != 0;
-    if panel && c.byte(0x46f5) != 0 {
+    let panel = c.map_selection().panel != 0;
+    if panel && c.map_selection().skills_panel != 0 {
         c.run(start, 12)?;
         c.update_conversation(|t| t.pending = 0);
         c.set_reg(DI, 0x1936);
@@ -3380,7 +3374,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0x9719, 0x7c30)?;
         let again = c.flag(CF);
         c.run(0x7c30, if again { 3 } else { 4 })?;
-        let selected = c.word(SELECTED);
+        let selected = c.map_selection().selected;
         c.set_reg(SI, selected);
         if !again {
             break;
@@ -3391,7 +3385,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let orders = c.conversation().flag_47a5 == 0x80;
     c.run(0x7c3a, if orders { 6 } else { 4 })?;
     c.restore(&[SI]);
-    c.set_byte(0x46f4, orders as u8);
+    c.update_map_selection(|t| t.panel = orders as u8);
     if orders {
         c.call(0x7efb, 0x7c4e)?;
         c.run(0x7c4e, 2)?;
@@ -3639,7 +3633,7 @@ const JOB_SPRITES: u16 = 0x179c;
 /// the troop panel 18DFh: a click inside the troop panel (`loc_0d6fe`,
 /// CF) redraws it (`redraw_panel_18df`); else the troop of the particle
 /// under the cursor (`particle_at`, CF): the one shown already
-/// ([`PANEL_DIRTY`]) is redrawn the same way, another is drawn first
+/// ([46FAh]) is redrawn the same way, another is drawn first
 /// (`redraw_7b36`; SI kept), then its caption and panel
 /// (`troop_caption`).
 pub fn map_troop_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -3676,7 +3670,7 @@ pub fn map_troop_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let troop = c.word(c.reg(SI).wrapping_add(0x0a));
-    let same = troop == c.word(PANEL_DIRTY);
+    let same = troop == c.map_selection().panel_dirty;
     c.run(0x5d07, if same { 5 } else { 6 })?;
     c.set_reg(SI, troop);
     if same {
@@ -3692,7 +3686,7 @@ pub fn map_troop_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_078bc`: for the troop SI within reach of the map position
 /// ([`troop_map_distance`] below [`g::REACH`]) and shown (`troop_particle`,
 /// ZF; DI its particle): on the screen (`loc_0c08e`), it becomes the
-/// panel's troop ([`PANEL_DIRTY`]), the panel box ([`PANEL`], 64h wide)
+/// panel's troop ([46FAh]), the panel box ([`PANEL`], 64h wide)
 /// is placed at its particle (`loc_05f25`; SI kept), [1955h] = its
 /// number, then its panel ([`troop_panel`]). Callers read the flags of
 /// its exits.
@@ -3717,7 +3711,7 @@ pub fn troop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xc08e, 0x78d0)?;
     c.run(0x78d0, 7)?;
     let troop = Troop(c.reg(SI));
-    c.set_word(PANEL_DIRTY, troop.offset());
+    c.update_map_selection(|t| t.panel_dirty = troop.offset());
     c.save(&[SI]);
     c.set_reg(SI, PANEL);
     let particle = c.reg(DI);
@@ -3892,7 +3886,7 @@ fn skills_79bc(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x79c7, 3)?;
     let bx = c.reg(BX).wrapping_add(8);
     c.set_reg(BX, bx);
-    let troop = c.word(PANEL_DIRTY);
+    let troop = c.map_selection().panel_dirty;
     c.set_reg(SI, troop);
     c.call(0x7efb, 0x79d1)?;
     c.run(0x79d1, 3)?;
@@ -5342,7 +5336,7 @@ pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     c.push(ax);
     c.call(0x6b8a, 0x712d)?;
-    let shown = c.word(0x46ef);
+    let shown = c.map_selection().selected;
     let si = troop.offset();
     if si == shown {
         c.run(0x712d, 5)?;

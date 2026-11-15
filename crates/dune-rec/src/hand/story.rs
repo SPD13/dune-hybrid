@@ -934,13 +934,13 @@ pub fn redraw_1c18(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, 3)?;
     c.call(0xc13b, 0x1c22)?;
-    let si = c.word(0x46fa);
+    let si = c.map_selection().panel_dirty;
     c.run(0x1c22, 3 + (si != 0) as u32)?;
     c.set_reg(SI, si);
     if si != 0 {
         c.call(0x78e9, 0x1c2d)?;
     }
-    let di = c.word(0x46f8);
+    let di = c.map_selection().caption;
     c.run(0x1c2d, if di != 0 { 4 } else { 4 })?;
     c.set_reg(DI, di);
     if di == 0 {
@@ -4477,7 +4477,7 @@ pub fn map_pick_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(bx);
     c.push(dx);
     c.call(0x4586, 0x451a)?;
-    let di = c.word(0x46fc);
+    let di = c.map_selection().subject;
     let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
     let cur = c.word(g::MAP_POSITION_RECORD);
     let ops = |c: &mut Ctx| {

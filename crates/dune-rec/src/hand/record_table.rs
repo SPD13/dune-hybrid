@@ -2,8 +2,8 @@
 //! `docs/readable-port-plan.md`): the troops (`hand/troop_table.rs`),
 //! the locations, the text box (`hand/text_box.rs`) and the dialogue's
 //! text (`hand/dialogue_text.rs`), the conversation
-//! (`hand/conversation.rs`) and the map view (`hand/map_view.rs`),
-//! these four tables of one,
+//! (`hand/conversation.rs`), the map view (`hand/map_view.rs`) and the
+//! map's selection (`hand/map_selection.rs`), these five tables of one,
 //! kept with the machine ([`super::native`]).
 //!
 //! Each record is cached the first time it is used. The views
@@ -45,16 +45,19 @@ pub enum Which {
     Conversation,
     /// The map view, 0Ch bytes at 46E3h.
     MapView,
+    /// The map's selection, 0Fh bytes at 46EFh.
+    MapSelection,
 }
 
 impl Which {
-    pub const ALL: [Which; 6] = [
+    pub const ALL: [Which; 7] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
         Which::DialogueText,
         Which::Conversation,
         Which::MapView,
+        Which::MapSelection,
     ];
 
     pub fn name(self) -> &'static str {
@@ -65,6 +68,7 @@ impl Which {
             Which::DialogueText => "dialogue text",
             Which::Conversation => "conversation",
             Which::MapView => "map view",
+            Which::MapSelection => "map selection",
         }
     }
     const fn base(self) -> u16 {
@@ -75,6 +79,7 @@ impl Which {
             Which::DialogueText => 0x47c6,
             Which::Conversation => 0x47a2,
             Which::MapView => 0x46e3,
+            Which::MapSelection => 0x46ef,
         }
     }
     pub const fn size(self) -> u16 {
@@ -85,6 +90,7 @@ impl Which {
             Which::DialogueText => 0x0e,
             Which::Conversation => 0x24,
             Which::MapView => 0x0c,
+            Which::MapSelection => 0x0f,
         }
     }
     pub const fn count(self) -> usize {
@@ -95,6 +101,7 @@ impl Which {
             Which::DialogueText => 1,
             Which::Conversation => 1,
             Which::MapView => 1,
+            Which::MapSelection => 1,
         }
     }
     fn end(self) -> u16 {
@@ -128,6 +135,7 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::DialogueText => &mut n.dialogue_text,
         Which::Conversation => &mut n.conversation,
         Which::MapView => &mut n.map_view,
+        Which::MapSelection => &mut n.map_selection,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];

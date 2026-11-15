@@ -326,14 +326,14 @@ pub fn select_7ba3(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7ba3, 1)?;
     c.call(0xc08e, 0x7ba6)?;
     let si = c.reg(SI);
-    let cur = c.word(0x46ef);
+    let cur = c.map_selection().selected;
     if si == cur {
         c.run(0x7ba6, 3)?;
         return c.ret();
     }
     c.run(0x7ba6, 5)?;
     c.push(si);
-    c.set_word(0x46f1, si);
+    c.update_map_selection(|t| t.shown = si);
     c.call(0x79ee, 0x7bb4)?;
     c.run(0x7bb4, 1)?;
     c.call(0x9f40, 0x7bb7)?;
@@ -887,7 +887,7 @@ pub fn dialogue_9719(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x9719, 2 + if neg { 1 } else { 4 })?;
     c.cmp(B, f as u16, 0);
     if !neg {
-        let si = c.word(0x46ef);
+        let si = c.map_selection().selected;
         c.set_reg(SI, si);
         let di = c.word(si.wrapping_add(4));
         c.set_reg(DI, di);
@@ -1448,7 +1448,7 @@ pub fn place_7c02(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0x9719, 0x7c30)?;
         let cf = c.flag(CF);
         c.run(0x7c30, 2 + if cf { 1 } else { 0 })?;
-        let si = c.word(0x46ef);
+        let si = c.map_selection().selected;
         c.set_reg(SI, si);
         if !cf {
             break;
@@ -1462,12 +1462,12 @@ pub fn place_7c02(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7c3a, 4 + if k == 0x80 { 2 } else { 0 })?;
     let v = c.pop();
     c.set_reg(SI, v);
-    c.set_byte(0x46f4, 0);
+    c.update_map_selection(|t| t.panel = 0);
     c.cmp(B, k as u16, 0x80);
     if k == 0x80 {
-        let v = c.byte(0x46f4);
+        let v = c.map_selection().panel;
         let v = c.inc(B, v as u16);
-        c.set_byte(0x46f4, v as u8);
+        c.update_map_selection(|t| t.panel = v as u8);
         c.call(0x7efb, 0x7c4e)?;
         c.run(0x7c4e, 2)?;
         let si = c.reg(SI);
@@ -1854,7 +1854,7 @@ pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x79ee, 2)?;
     let si = c.reg(SI);
-    c.set_word(0x46ef, si);
+    c.update_map_selection(|t| t.selected = si);
     c.call(0x6917, 0x79f5)?;
     let z = c.flag(ZF);
     if z {
@@ -1908,7 +1908,7 @@ pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0x18f7, dx);
     c.set_word(0x18f9, bx);
     c.call(0x7b1b, 0x7a6a)?;
-    let si = c.word(0x46ef);
+    let si = c.map_selection().selected;
     let k = c.byte(si.wrapping_add(3));
     let sietch = k & 0x20 != 0;
     let mut troop = false;
@@ -2103,7 +2103,7 @@ pub fn place_780a(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.test(B, k as u16, 0x40);
             if !b6 {
                 c.set_reg(BP, 0x210a);
-                let f = c.byte(0x46f3);
+                let f = c.map_selection().map_screen;
                 c.cmp(B, f as u16, 1);
                 let a = c.adc(W, 0x52, 0);
                 c.set_reg(AX, a);
