@@ -15,7 +15,8 @@
 #                 first state whose memory or screen differs.
 #
 # Compared: the whole machine state (CPU, instruction count, memory), the
-# screens and the save written.
+# screens and the save written; and the clock kept in Rust must have seen
+# no write of its words it did not foresee (`clock: 0 sync-ins`).
 #
 # The saves are game-derived and stay outside git (SAVES, default
 # ../dune-hybrid/tests-data/saves).
@@ -66,8 +67,11 @@ echo "$CASES" | while read name seed lang save; do
         ds=$(diff $S/ref/$name.shots $S/run/$name.shots | grep '^<' | head -1)
         dv=$(diff $S/ref/$name.sav $S/run/$name.sav | grep '^<' | head -1)
         n=$(wc -l < $S/ref/$name.st)
+        # The clock kept in Rust (see dune-rec's hand/clock.rs): any
+        # unforeseen write of its words fails the case.
         ck=$(grep '^clock:' $S/run/$name.log | sed 's/^clock: //')
-        if [ -z "$dm$ds$dv" ]; then echo "$name: $n states and the save equal ($(cat $S/run/$name.sav)), clock ${ck:-?}"
-        else echo "$name: DIFFERS state [$dm] screen [$ds] save [$dv]"; fi
+        case "$ck" in "0 sync-ins"*) dc="" ;; *) dc="clock [$ck]" ;; esac
+        if [ -z "$dm$ds$dv$dc" ]; then echo "$name: $n states, the save and the clock equal ($(cat $S/run/$name.sav))"
+        else echo "$name: DIFFERS state [$dm] screen [$ds] save [$dv] $dc"; fi
     fi
 done

@@ -347,8 +347,10 @@ the timer's tick at EF7Ah, the load after its restore), so the
 interpreter or the generated code no longer finishes them. Left: a
 device event (the sound) inside the few instructions of the timer's
 tick, where the stretch must stop at that instruction and the
-interpreter does the tick: about once in 300 s, then the struct syncs
-in, as it should.
+interpreter does the tick (about once in 300 s): the memory is then the
+clock with one tick more, as `Clock::tick` predicts, and the clock takes
+it as such (counted apart, not a sync-in). Any other write fails the
+suite: `suite.sh check` wants `clock: 0 sync-ins` in every game.
 
 To drop the mirror later, nothing else may write those words: the
 save's image is built from the memory (`create_save_in_memory`), so it

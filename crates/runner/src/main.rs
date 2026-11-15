@@ -791,7 +791,8 @@ fn main() -> ExitCode {
     if m.rec.is_some() {
         // The clock kept in Rust (dune_rec::hand::clock): how often it took
         // the memory's values, written by code outside it.
-        println!("clock: {} sync-ins", dune_rec::hand::clock::syncs(&mut m));
+        let (n, t) = (dune_rec::hand::clock::syncs(&mut m), dune_rec::hand::clock::ticks_outside(&mut m));
+        println!("clock: {n} sync-ins ({t} ticks counted by the original's code, as the clock predicts)");
     }
     if let Some(rec) = &m.rec {
         rec_report(rec, args.rec_report.as_deref(), m.cpu.instructions);

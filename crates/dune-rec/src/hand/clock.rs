@@ -49,6 +49,10 @@ pub struct Native {
     started: bool,
     /// Sync-ins after the first (see the module's notes).
     clock_syncs: u64,
+    /// Timer ticks the original's code counted itself (the interpreter
+    /// ran the handler's tick): the memory was the clock with one tick
+    /// more, as [`Clock::tick`] predicts. Taken, not counted as sync-ins.
+    ticks_outside: u64,
 }
 
 /// The machine's Rust state (made on first use).
@@ -56,9 +60,15 @@ fn native(m: &mut Machine) -> &mut Native {
     m.native.get_or_insert_with(|| Box::new(Native::default())).downcast_mut::<Native>().expect("native state")
 }
 
-/// How often the clock took the memory's values after the first time.
+/// How often the clock took the memory's values after the first time
+/// (unforeseen writes).
 pub fn syncs(m: &mut Machine) -> u64 {
     native(m).clock_syncs
+}
+
+/// How many timer ticks the original's code counted (see [`Native`]).
+pub fn ticks_outside(m: &mut Machine) -> u64 {
+    native(m).ticks_outside
 }
 
 impl Clock {
@@ -112,7 +122,15 @@ impl Clock {
         let mem = Clock::mirror(c);
         let n = native(c.m);
         if !n.started || n.clock != mem {
-            if n.started {
+            // The interpreter ran the timer's tick (an event fell inside
+            // its stretch): the memory is what the clock's own tick makes.
+            let mut ticked = n.clock;
+            if !ticked.is_held() {
+                ticked.tick();
+            }
+            if n.started && ticked == mem {
+                n.ticks_outside += 1;
+            } else if n.started {
                 n.clock_syncs += 1;
                 let was = n.clock;
                 if std::env::var_os("CLOCK_TRACE").is_some() {
