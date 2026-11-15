@@ -18,7 +18,7 @@
 
 use super::Ctx;
 use super::globals as g;
-use pc::Machine;
+use pc::{Machine, cpu::Bus};
 
 /// The game clock.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -206,7 +206,34 @@ impl Clock {
 /// (a sync-in at the boundary, not counted).
 pub(super) fn loaded(c: &mut Ctx) {
     let mem = Clock::mirror(c);
+    if std::env::var_os("CLOCK_TRACE").is_some() {
+        eprintln!("clock loaded at insn {}: {mem:?}", c.m.cpu.instructions);
+    }
     let n = native(c.m);
+    n.started = true;
+    n.clock = mem;
+}
+
+/// The machine ran outside the recompiled code on purpose (a tool
+/// stepping it in the interpreter, a snapshot restored): the clock takes
+/// the memory's values (a sync-in at the boundary, not counted).
+pub fn outside(m: &mut Machine) {
+    let a = |m: &Machine, off: u16| m.cpu.phys(g::GAME_DS, off);
+    let b = |m: &mut Machine, off: u16| {
+        let p = a(m, off);
+        m.hw.read8(p)
+    };
+    let w = |m: &mut Machine, off: u16| b(m, off) as u16 | (b(m, off.wrapping_add(1)) as u16) << 8;
+    let mem = Clock {
+        ticks: (w(m, g::TIMER_HIGH) as u32) << 16 | w(m, g::TIMER) as u32,
+        held: b(m, g::CLOCK_HELD),
+        stopped: b(m, g::CLOCK_STOPPED),
+        countdown: w(m, g::CLOCK_COUNTDOWN),
+        period: w(m, g::CLOCK_PERIOD),
+        steps_pending: b(m, g::CLOCK_STEPS_PENDING),
+        time: w(m, g::GAME_TIME),
+    };
+    let n = native(m);
     n.started = true;
     n.clock = mem;
 }

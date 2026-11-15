@@ -66,7 +66,8 @@ echo "$CASES" | while read name seed lang save; do
         ds=$(diff $S/ref/$name.shots $S/run/$name.shots | grep '^<' | head -1)
         dv=$(diff $S/ref/$name.sav $S/run/$name.sav | grep '^<' | head -1)
         n=$(wc -l < $S/ref/$name.st)
-        if [ -z "$dm$ds$dv" ]; then echo "$name: $n states and the save equal ($(cat $S/run/$name.sav))"
+        ck=$(grep '^clock:' $S/run/$name.log | sed 's/^clock: //')
+        if [ -z "$dm$ds$dv" ]; then echo "$name: $n states and the save equal ($(cat $S/run/$name.sav)), clock ${ck:-?}"
         else echo "$name: DIFFERS state [$dm] screen [$ds] save [$dv]"; fi
     fi
 done

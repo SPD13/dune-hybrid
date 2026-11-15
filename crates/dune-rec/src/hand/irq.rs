@@ -23,7 +23,7 @@ use pc::{
 pub fn pit_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xef6a)?;
     let mut c = Ctx::new(m);
-    let mut clock = c.clock();
+    let clock = c.clock();
     let held = clock.is_held();
     c.run(0xef6a, 8)?;
     let ax = c.reg(AX);
@@ -39,18 +39,40 @@ pub fn pit_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // before the chain keeps CF (else the frame tasks' CF).
     c.cmp(B, clock.held as u16, 0);
     if !held {
-        // The clock's tick ([`Clock::tick`]); the cost by the original's
-        // path through it.
-        let wraps = clock.ticks as u16 == 0xffff;
-        let frozen = clock.stopped != 0;
-        let restart = !frozen && clock.countdown.wrapping_sub(1) & 0x8000 != 0;
-        c.run(0xef7a, 2 + wraps as u32 + 2 + if frozen { 0 } else { 2 + 4 * restart as u32 } + 1)?;
-        if clock.tick() {
-            c.set_reg(AX, clock.period);
-        }
-        clock.set(&mut c);
-        c.call(0xefba, 0xefa2)?;
+        timer_tick(&mut c)?;
     }
+    timer_end(&mut c)
+}
+
+/// EF7Ah, where the interpreter can come back to Rust after the handler
+/// gave up at its start: the clock's tick and the rest.
+pub fn pit_timer_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    if start != 0xef7a {
+        return Err(Bail);
+    }
+    let mut c = Ctx::new(m);
+    timer_tick(&mut c)?;
+    timer_end(&mut c)
+}
+
+/// EF7Ah: the clock's tick ([`super::clock::Clock::tick`]), the cost by
+/// the original's path through it; then the frame tasks.
+fn timer_tick(c: &mut Ctx) -> Result<(), Bail> {
+    let mut clock = c.clock();
+    let wraps = clock.ticks as u16 == 0xffff;
+    let frozen = clock.stopped != 0;
+    let restart = !frozen && clock.countdown.wrapping_sub(1) & 0x8000 != 0;
+    c.run(0xef7a, 2 + wraps as u32 + 2 + if frozen { 0 } else { 2 + 4 * restart as u32 } + 1)?;
+    if clock.tick() {
+        c.set_reg(AX, clock.period);
+    }
+    clock.set(c);
+    c.call(0xefba, 0xefa2)
+}
+
+/// EFA2h on: the BIOS's handler chained every tenth tick or so, else the
+/// PIC's EOI and a video frame.
+fn timer_end(c: &mut Ctx) -> Result<(), Bail> {
     let k = c.byte(0xce72).wrapping_sub(1);
     c.run(0xefa2, 3)?;
     let es = c.pop();

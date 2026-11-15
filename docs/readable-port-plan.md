@@ -333,16 +333,27 @@ step, and why it can't simply own the words yet: any port can give up
 partway to the interpreter (at a run deadline, an interrupt due), and
 then the original's code goes on writing the memory itself; so do a
 loaded save and the shadow check putting the original's memory back.
-The runner prints the count (`clock: N sync-ins`); `CLOCK_TRACE=1`
-prints each with the fields that differed. In 300 s of play from a save
-there are two: the ticks the interpreter counted while the runner
-stepped to the main loop's top for the load, and the loaded game time
-(the load's copy gave up partway, so its port's explicit sync,
-`clock::loaded`, wasn't reached).
+The runner prints the count (`clock: N sync-ins`, also in each
+`suite.sh check` line); `CLOCK_TRACE=1` prints each with the fields that
+differed.
 
-To drop the mirror later, every remaining writer must go through the
-clock: the save's load and write (the save image has the game time),
-and no interpreter fallback in its code (the interrupt included).
+The planned boundaries are told to the clock and not counted: a save
+loaded (`loc_0b3b0`, now a port, hands the clock the loaded state after
+`restore_from_save_memory`), and the runner's own stepping in the
+interpreter (to a breakpoint for its events, a rewind:
+`clock::outside`). The clock's writers resume in Rust where a call of
+theirs gave up partway (`RESUMES`: `run_clock_ticks` after each call,
+the timer's tick at EF7Ah, the load after its restore), so the
+interpreter or the generated code no longer finishes them. Left: a
+device event (the sound) inside the few instructions of the timer's
+tick, where the stretch must stop at that instruction and the
+interpreter does the tick: about once in 300 s, then the struct syncs
+in, as it should.
+
+To drop the mirror later, nothing else may write those words: the
+save's image is built from the memory (`create_save_in_memory`), so it
+would need the clock's values, and the tick would need to finish in
+Rust across such a stop.
 
 ## Tools in place
 

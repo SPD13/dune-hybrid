@@ -313,6 +313,11 @@ fn enter_phase(m: &mut Machine, phase: u8) -> Option<RunExit> {
     m.break_at = Some((pc::LOAD_SEG, MAIN_LOOP));
     let r = m.run_until(m.now_ns() + 10_000_000_000);
     m.break_at = None;
+    // (Stepped in the interpreter to the breakpoint: the clock kept in
+    // Rust takes what it counted.)
+    if m.rec.is_some() {
+        dune_rec::hand::clock::outside(m);
+    }
     match r {
         RunExit::Break => {
             let ds = pc::GAME_DS as usize * 16;
@@ -343,6 +348,11 @@ fn enter_load(m: &mut Machine, slot: u8, save: bool) -> Option<RunExit> {
     m.break_at = Some((pc::LOAD_SEG, MAIN_LOOP));
     let r = m.run_until(m.now_ns() + 10_000_000_000);
     m.break_at = None;
+    // (Stepped in the interpreter to the breakpoint: the clock kept in
+    // Rust takes what it counted.)
+    if m.rec.is_some() {
+        dune_rec::hand::clock::outside(m);
+    }
     match r {
         RunExit::Break => {
             println!("{what} DUNE37S{slot}.SAV at {:.1}s", m.now_ns() as f64 / 1e9);
@@ -740,6 +750,9 @@ fn main() -> ExitCode {
             println!("monkey: the game exited at {:.1}s; rewinding to {at:.1}s", m.now_ns() as f64 / 1e9 - t0);
             m.exited = None;
             m.load_state(state).expect("rewind");
+            if m.rec.is_some() {
+                dune_rec::hand::clock::outside(&mut m);
+            }
             t = *at;
             events = schedule(*at, rewinds * 0x1_0000);
             ei = 0;

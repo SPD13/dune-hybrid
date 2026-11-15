@@ -97,47 +97,78 @@ pub fn start_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// Set while [`run_clock_ticks`] runs.
 const TICKING: u16 = 0x46da;
 
-/// `loc_00fd9`: the game clock run CX ticks at once (the clock started;
-/// each tick the countdown reset from [146Eh], the game time up one, and
-/// `loc_01b23` once or twice with [46DDh]).
+/// `loc_00fd9`: the game clock run CX steps at once (the clock started;
+/// each step the countdown restarted, the pending step run
+/// (`loc_01b23`), the game time on and its step run).
 pub fn run_clock_ticks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0fd9)?;
     let mut c = Ctx::new(m);
+    clock_steps(&mut c, 0x0fd9)
+}
+
+/// The leaders after `run_clock_ticks`' calls, where the interpreter can
+/// come back to Rust when a call gave up partway: the rest of the step
+/// and the steps after it.
+pub fn run_clock_ticks_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    match start {
+        0x0fe1 | 0x0ff6 | 0x1002 => {
+            let mut c = Ctx::new(m);
+            clock_steps(&mut c, start)
+        }
+        _ => Err(Bail),
+    }
+}
+
+/// `run_clock_ticks` from `at` (its entry or a leader after a call).
+fn clock_steps(c: &mut Ctx, mut at: u16) -> Result<(), Bail> {
     loop {
-        c.run(0x0fd9, 2)?;
-        c.set_byte(TICKING, 1);
-        c.call(0xb2be, 0x0fe1)?;
-        let cx = c.reg(CX);
-        if cx as i16 <= 0 {
-            c.run(0x0fe1, 4)?;
-            c.set_byte(TICKING, 0);
-            return c.ret();
+        match at {
+            0x0fd9 => {
+                c.run(0x0fd9, 2)?;
+                c.set_byte(TICKING, 1);
+                c.call(0xb2be, 0x0fe1)?;
+                at = 0x0fe1;
+            }
+            0x0fe1 => {
+                let cx = c.reg(CX);
+                if cx as i16 <= 0 {
+                    c.run(0x0fe1, 4)?;
+                    c.set_byte(TICKING, 0);
+                    return c.ret();
+                }
+                let pending = c.clock().steps_pending != 0;
+                c.run(0x0fe1, 7 + pending as u32)?;
+                c.push(cx);
+                let reset = c.clock().period;
+                c.set_reg(AX, reset);
+                c.update_clock(|k| k.restart_countdown());
+                if pending {
+                    c.call(0x1b23, 0x0ff6)?;
+                }
+                at = 0x0ff6;
+            }
+            0x0ff6 => {
+                c.run(0x0ff6, 3)?;
+                c.update_clock(|k| k.advance());
+                c.call(0x1b23, 0x1002)?;
+                at = 0x1002;
+            }
+            _ => {
+                // 1002h: the next step, or done.
+                let sp = c.reg(pc::cpu::SP);
+                let cx = c.word_in(pc::cpu::SS, sp).wrapping_sub(1);
+                if cx == 0 {
+                    c.run(0x1002, 4)?;
+                    c.pop();
+                    c.set_reg(CX, 0);
+                    c.set_byte(TICKING, 0);
+                    return c.ret();
+                }
+                c.run(0x1002, 2)?;
+                c.pop();
+                c.set_reg(CX, cx);
+                at = 0x0fd9;
+            }
         }
-        let pending = c.clock().steps_pending != 0;
-        c.run(0x0fe1, 7 + pending as u32)?;
-        c.push(cx);
-        let reset = c.clock().period;
-        c.set_reg(AX, reset);
-        c.update_clock(|k| k.restart_countdown());
-        if pending {
-            c.call(0x1b23, 0x0ff6)?;
-            c.run(0x0ff6, 3)?;
-        } else {
-            c.run(0x0ff6, 3)?;
-        }
-        c.update_clock(|k| k.advance());
-        c.call(0x1b23, 0x1002)?;
-        let sp = c.reg(pc::cpu::SP);
-        let cx = c.word_in(pc::cpu::SS, sp).wrapping_sub(1);
-        if cx == 0 {
-            c.run(0x1002, 4)?;
-            c.pop();
-            c.set_reg(CX, 0);
-            c.set_byte(TICKING, 0);
-            return c.ret();
-        }
-        c.run(0x1002, 2)?;
-        c.pop();
-        c.set_reg(CX, cx);
     }
 }

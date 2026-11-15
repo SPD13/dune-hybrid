@@ -166,9 +166,122 @@ pub fn restore_from_save_memory(m: &mut Machine, start: u16) -> Result<(), Bail>
         c.rep_counted(0xa4); // rep movsb
     }
     c.run(0xb4ba, 1)?;
-    // The game time came with the save: the clock takes it.
-    super::clock::loaded(&mut c);
     c.ret()
+}
+
+/// `loc_0b3b0`: save slot CL loaded (the mirror menu's load), unless
+/// [46D9h] (then `loc_00e49`): the file DUNE37S?.SAV ('1' + CL into the
+/// name at 38A8h) read into a buffer (`loc_0f11c`, `loc_0f255`), moved
+/// to its end at 5779h (backwards), unpacked to its start
+/// (`decompress_sav`) and restored from (`restore_from_save_memory`);
+/// the clock takes the game time it brought. Then the view
+/// (`loc_03ae9`, `loc_0da53`, the head [22A6h] none, the clock started)
+/// and, with [0FBh] (kept) bit 7, the map (`loc_0b915` with [0DD02h],
+/// `loc_0b96b`, `loc_0b8ea`, `loc_0ba9e`); else the room (`loc_0d2bd`,
+/// `loc_01a0f`, `loc_0adbe`, `loc_02db1`).
+pub fn load_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use pc::cpu::DF;
+    entered(start, 0xb3b0)?;
+    let mut c = Ctx::new(m);
+    let busy = c.byte(0x46d9);
+    c.run(0xb3b0, if busy != 0 { 3 } else { 2 })?;
+    c.cmp(B, busy as u16, 0); // the flags the jump's target gets
+    if busy != 0 {
+        return c.jump(0x0e49);
+    }
+    c.run(0xb3ba, 4)?;
+    let cl = c.reg8(r8::CL).wrapping_add(0x31);
+    c.set_reg8(r8::CL, cl);
+    c.set_byte(0x38af, cl);
+    c.set_reg(CX, 0x578);
+    c.call(0xf11c, 0xb3c7)?;
+    c.run(0xb3c7, 2)?;
+    c.set_reg(DX, 0x38a8);
+    c.call(0xf255, 0xb3cd)?;
+    // The file (CX bytes at ES:DI) moved to end at 5779h, backwards (the
+    // `rep`'s iterations counted in the `run`).
+    let (cx, di) = (c.reg(CX), c.reg(DI));
+    let n = cx.wrapping_sub(2);
+    c.run(0xb3cd, 12 + n as u32)?;
+    let al = c.byte(0xfb);
+    c.set_reg8(r8::AL, al);
+    let ax = c.reg(AX);
+    c.push(ax);
+    let ds = c.sreg(DS);
+    c.push(ds);
+    let es = c.sreg(ES);
+    c.push(es);
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.set_reg(SI, di.wrapping_add(cx).wrapping_sub(1));
+    c.set_reg(DI, 0x5779);
+    c.set_reg(CX, n);
+    c.set_flag(DF, true);
+    c.rep_counted(0xa4);
+    c.run(0xb3e2, 4)?;
+    c.set_flag(DF, false);
+    let di = c.reg(DI);
+    c.set_reg(SI, di.wrapping_add(1));
+    c.set_reg(DI, 0);
+    c.call(0xb4bb, 0xb3eb)?;
+    c.run(0xb3eb, 2)?;
+    let di = c.reg(DI);
+    c.set_reg(SI, di);
+    c.call(0xb473, 0xb3f0)?;
+    after_restore(&mut c)
+}
+
+/// B3F0h, after `restore_from_save_memory` (the interpreter can come back
+/// to Rust here when the restore gave up partway): the rest of the load.
+pub fn load_save_cl_after_restore(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    if start != 0xb3f0 {
+        return Err(Bail);
+    }
+    let mut c = Ctx::new(m);
+    after_restore(&mut c)
+}
+
+fn after_restore(c: &mut Ctx) -> Result<(), Bail> {
+    // The game time came with the save: the clock takes it.
+    super::clock::loaded(c);
+    c.run(0xb3f0, 2)?;
+    let v = c.pop();
+    c.set_sreg(DS, v);
+    c.call(0x3ae9, 0xb3f4)?;
+    c.run(0xb3f4, 1)?;
+    c.call(0xda53, 0xb3f7)?;
+    c.run(0xb3f7, 2)?;
+    c.set_word(0x22a6, 0xffff);
+    c.call(0xb2be, 0xb400)?;
+    let sp = c.reg(SP);
+    let fb = c.word_in(SS, sp) as u8;
+    if fb & 0x80 == 0 {
+        c.run(0xb400, 4 + 1)?;
+        let ax = c.pop();
+        c.set_reg(AX, ax);
+        c.set_byte(0xfb, fb);
+        c.call(0xd2bd, 0xb41e)?;
+        for (at, to) in [(0xb41eu16, 0x1a0fu16), (0xb421, 0xadbe)] {
+            c.run(at, 1)?;
+            c.call(to, at + 3)?;
+        }
+        c.run(0xb424, 1)?;
+        return c.jump(0x2db1);
+    }
+    let zoomed = c.byte(0xdd02) != 0;
+    c.run(0xb400, 4 + 2 + zoomed as u32)?;
+    let ax = c.pop();
+    c.set_reg(AX, ax);
+    c.set_byte(0xfb, fb);
+    if zoomed {
+        c.call(0xb915, 0xb412)?;
+    }
+    for (at, to) in [(0xb412u16, 0xb96bu16), (0xb415, 0xb8ea)] {
+        c.run(at, 1)?;
+        c.call(to, at + 3)?;
+    }
+    c.run(0xb418, 1)?;
+    c.jump(0xba9e)
 }
 
 /// `particles_remove_particle` (C58A): removes the particle at DI (if it

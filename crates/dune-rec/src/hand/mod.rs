@@ -81,6 +81,12 @@ mod waits;
 /// check them (`STATE_HASH=1`).
 pub static RESUMES: &[(u16, Routine, &str)] = &[
     (0xd820, main_loop::main_loop_top, "game_loop's top"),
+    // The clock's writers, after their calls (see `hand/clock.rs`).
+    (0x0fe1, time::run_clock_ticks_at, "run_clock_ticks after start_clock"),
+    (0x0ff6, time::run_clock_ticks_at, "run_clock_ticks after the pending step"),
+    (0x1002, time::run_clock_ticks_at, "run_clock_ticks after the step"),
+    (0xef7a, irq::pit_timer_tick, "pit_timer_callback's tick"),
+    (0xb3f0, saves::load_save_cl_after_restore, "loc_0b3b0 after the restore"),
 ];
 
 pub static ROUTINES: &[(u16, Routine, &str)] = &[
@@ -1205,6 +1211,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x380c, tails::sky_380c, "loc_0380c"),
     (0x1c46, tails::day_1c46, "loc_01c46"),
     (0xb389, tails::create_save_cl, "create_save_cl"),
+    (0xb3b0, saves::load_save_cl, "loc_0b3b0"),
     (0xa03f, tails::line_a03f, "loc_0a03f"),
     (0x79ee, tails::place_panel_79ee, "loc_079ee"),
     (0x5692, tails::map_panel_5692, "loc_05692"),
