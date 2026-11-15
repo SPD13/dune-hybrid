@@ -318,10 +318,25 @@ impl Location {
         Location((n as u16 * Self::SIZE).wrapping_add(Self::FIRST - Self::SIZE))
     }
 
-    /// Byte 12h: its top four bits scale its troops' rate (`troop_rate`);
-    /// summed / 8 by `sum_locations_a8`.
-    pub fn byte_12(self, c: &mut Ctx) -> u8 {
+    /// Byte 12h: its spice. The top four bits scale its troops' rate
+    /// (`troop_rate`); the harvest (`job_harvest`) lowers it; summed / 8
+    /// by `sum_locations_a8`.
+    pub fn spice(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x12)
+    }
+    pub fn set_spice(self, c: &mut Ctx, v: u8) {
+        self.set_byte(c, 0x12, v)
+    }
+    /// Byte 11h: what a point of its spice takes of the harvest.
+    pub fn harvest_per_spice(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 0x11)
+    }
+    /// Byte 13h: the harvest carried over (below byte 11h).
+    pub fn harvest_left(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 0x13)
+    }
+    pub fn set_harvest_left(self, c: &mut Ctx, v: u8) {
+        self.set_byte(c, 0x13, v)
     }
 
     /// Byte 19h: eight bits, not known yet (spread one per byte by

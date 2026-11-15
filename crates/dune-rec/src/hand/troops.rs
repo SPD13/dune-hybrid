@@ -616,7 +616,7 @@ pub fn sum_locations_a8(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if !skipped {
             let dx = c.reg(DX).wrapping_add(1);
             c.set_reg(DX, dx);
-            let part = (place.byte_12(&mut c) >> 3) as u16;
+            let part = (place.spice(&mut c) >> 3) as u16;
             c.set_reg(AX, part);
             let cx = c.reg(CX).wrapping_add(part);
             c.set_reg(CX, cx);
@@ -2293,7 +2293,7 @@ pub fn troop_rate(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     // `inc ax` over (product's high byte, the location's top bits), then
     // `mul ah`: those two bytes multiplied.
-    let pair = (product & 0xff00 | (place.byte_12(&mut c) & 0xf0) as u16).wrapping_add(1);
+    let pair = (product & 0xff00 | (place.spice(&mut c) & 0xf0) as u16).wrapping_add(1);
     let rate = ((pair & 0xff) * (pair >> 8)).swap_bytes().rotate_left(1) & 0x01ff;
     let old = troop.rate(&mut c);
     let changed = old != rate;
@@ -4960,29 +4960,29 @@ pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let rate = c.pop();
     c.set_reg(AX, rate);
     // 702Fh: taken from the location.
-    let di = c.reg(DI);
-    let taken = rate.wrapping_add(c.byte(di.wrapping_add(0x13)) as u16);
-    let per = c.byte(di.wrapping_add(0x11));
+    let place = Location(c.reg(DI));
+    let taken = rate.wrapping_add(place.harvest_left(&mut c) as u16);
+    let per = place.harvest_per_spice(&mut c);
     if per == 0 || taken / per as u16 > 0xff {
         c.m.cpu.ip = 0x702f; // the division faults: the interpreter's
         return Err(Bail);
     }
     let (q, r) = ((taken / per as u16) as u8, (taken % per as u16) as u8);
-    let spice = c.byte(di.wrapping_add(0x12));
+    let spice = place.spice(&mut c);
     let low = spice & 0x0f;
     let more = q > low;
     let place_view = c.byte(g::MAP_MODE) & 0x40 != 0;
     let borrow = spice < q;
     c.run(0x702f, 4 + 5 + if more { 2 + place_view as u32 } else { 0 } + 2 + borrow as u32 + 1)?;
     c.set_reg8(r8::CL, per);
-    c.set_byte(di.wrapping_add(0x13), r);
+    place.set_harvest_left(&mut c, r);
     c.set_reg(AX, (low as u16) << 8 | q as u16);
     if more && place_view {
         let k = c.byte(SPICE_SHORT).wrapping_add(1);
         c.set_byte(SPICE_SHORT, k);
     }
     let left = c.sub(B, spice as u16, q as u16) as u8; // the exit's flags
-    c.set_byte(di.wrapping_add(0x12), if borrow { 0 } else { left });
+    place.set_spice(&mut c, if borrow { 0 } else { left });
     c.ret()
 }
 
