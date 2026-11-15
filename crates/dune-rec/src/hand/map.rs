@@ -3,6 +3,7 @@
 
 use super::globals as g;
 use super::pure;
+use super::game::Location;
 use super::{B, Ctx, W, entered, r8};
 use pc::{
     Machine,
@@ -4258,10 +4259,10 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let mut region = 0u16;
         let mut place = 0x100u16;
         loop {
-            let flags = c.byte(place.wrapping_add(0x0a));
+            let flags = Location(place).byte_0a(&mut c);
             c.set_reg8(r8::AL, flags);
             if flags & 0x80 == 0 {
-                region = c.byte(place.wrapping_add(0x10)) as u16;
+                region = Location(place).region(&mut c) as u16;
                 // `pushf` / `popf` around the colour: the word stays
                 // below SP.
                 c.test(B, flags as u16, 0x40);
@@ -4269,7 +4270,7 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.push(kept);
                 c.pop();
                 let colour = if flags & 0x40 != 0 {
-                    (c.byte(place.wrapping_add(0x12)) >> 4).wrapping_add(0x50)
+                    (Location(place).spice(&mut c) >> 4).wrapping_add(0x50)
                 } else if alt {
                     0x78
                 } else {

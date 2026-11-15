@@ -195,6 +195,30 @@ impl Troop {
     pub fn next(self, c: &mut Ctx) -> u8 {
         self.byte(c, 1)
     }
+    pub fn set_next(self, c: &mut Ctx, v: u8) {
+        self.set_byte(c, 1, v)
+    }
+    /// Byte 2: its slot at its location (`link_troop` gives the first
+    /// free one, from 1, or from 9 for a troop set apart; 0 while
+    /// travelling). Its sprite's spot there follows from it.
+    pub fn slot(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 2)
+    }
+    pub fn set_slot(self, c: &mut Ctx, v: u8) {
+        self.set_byte(c, 2, v)
+    }
+    /// Words 6, 8: its map position (its location's, when it last left
+    /// one; moved along while travelling).
+    pub fn x(self, c: &mut Ctx) -> u16 {
+        self.word(c, 6)
+    }
+    pub fn y(self, c: &mut Ctx) -> u16 {
+        self.word(c, 8)
+    }
+    pub fn set_position(self, c: &mut Ctx, x: u16, y: u16) {
+        self.set_word(c, 6, x);
+        self.set_word(c, 8, y);
+    }
 
     /// Word 0Ch: its production rate (`troop_rate`, 708Ah).
     pub fn rate(self, c: &mut Ctx) -> u16 {
@@ -209,6 +233,19 @@ impl Troop {
         self.word(c, 0x0e)
     }
     pub fn set_word_0e(self, c: &mut Ctx, v: u16) {
+        self.set_word(c, 0x0e, v)
+    }
+    /// Word 0Ch while moving (job bits 3): the next place it goes (a
+    /// [`Location`] record's offset).
+    pub fn destination(self, c: &mut Ctx) -> u16 {
+        self.word(c, 0x0c)
+    }
+    /// Word 0Eh while moving: the skill it carries there (the need's
+    /// index, and its bit in the high byte).
+    pub fn carried(self, c: &mut Ctx) -> u16 {
+        self.word(c, 0x0e)
+    }
+    pub fn set_carried(self, c: &mut Ctx, v: u16) {
         self.set_word(c, 0x0e, v)
     }
 
@@ -302,7 +339,6 @@ impl Location {
             None => c.set_byte(self.0.wrapping_add(field), v),
         }
     }
-    #[allow(dead_code)]
     fn word(self, c: &mut Ctx, field: u16) -> u16 {
         self.byte(c, field) as u16 | (self.byte(c, field + 1) as u16) << 8
     }
@@ -367,9 +403,35 @@ impl Location {
     pub fn first_troop(self, c: &mut Ctx) -> u8 {
         self.byte(c, 9)
     }
+    pub fn set_first_troop(self, c: &mut Ctx, v: u8) {
+        self.set_byte(c, 9, v)
+    }
 
-    /// Byte 0Ah: bits (8: taken, freed by `troop_day_update`; 4 cleared by
-    /// `clear_location_4`).
+    /// Word 0: FFFFh in the word just past the last record (the table's
+    /// end, as the walks over it test).
+    pub fn is_end(self, c: &mut Ctx) -> bool {
+        self.word(c, 0) == 0xffff
+    }
+
+    /// Words 2, 4: its map position.
+    pub fn x(self, c: &mut Ctx) -> u16 {
+        self.word(c, 2)
+    }
+    pub fn y(self, c: &mut Ctx) -> u16 {
+        self.word(c, 4)
+    }
+
+    /// Byte 10h: its region (the map colours the region of a location
+    /// shown, `loc_057fa`).
+    pub fn region(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 0x10)
+    }
+
+    /// Byte 0Ah: bits. 80h: not on the map yet (`region_colours` skips
+    /// it; a talk with person 0Ch clears it for the place at [11CEh]);
+    /// 40h: the map colours its region by its spice; 8: taken, freed by
+    /// `troop_day_update`; 4: cleared by `clear_location_4`; 2: tested
+    /// for its troops' sprites and facing.
     pub fn byte_0a(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x0a)
     }

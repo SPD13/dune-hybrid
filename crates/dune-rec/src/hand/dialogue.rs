@@ -4576,8 +4576,9 @@ pub fn dialogue_state_a125(m: &mut Machine, start: u16) -> Result<(), Bail> {
             if talker == 0x0c {
                 let place = c.word(0x11ce);
                 c.set_reg(DI, place);
-                let b = c.byte(place.wrapping_add(0x0a));
-                c.set_byte(place.wrapping_add(0x0a), b & 0x7f);
+                let place = game::Location(place);
+                let b = place.byte_0a(&mut c);
+                place.set_byte_0a(&mut c, b & 0x7f);
             }
             if talker == 0x0d {
                 return c.jump(0x2388);

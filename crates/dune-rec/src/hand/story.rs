@@ -1,5 +1,6 @@
 //! Story progress, the intro script, and one-line flag setters.
 
+use super::game::Location;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -4186,8 +4187,7 @@ pub fn update_people(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'one;
             }
             let cur = c.byte(9);
-            let loc = (0x1cu16 * bh as u16).wrapping_add(0xe4);
-            let lf = c.byte(loc.wrapping_add(0x0a));
+            let lf = Location::number(bh).byte_0a(&mut c);
             let mut n = n0 + 2 + 2;
             let stage = if dh >= 0x21 {
                 0

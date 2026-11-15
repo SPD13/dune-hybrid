@@ -1908,7 +1908,7 @@ pub fn reset_location_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 3)?;
         return c.ret();
     }
-    let slot = c.byte(troop.offset().wrapping_add(2));
+    let slot = troop.slot(&mut c);
     c.run(start, 5)?;
     if slot <= 8 {
         return c.ret();
@@ -2227,15 +2227,15 @@ pub fn lower_needs_by_movers(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let lowers = travelling
             && moving
             && troop.location(&mut c) == place
-            && c.word(troop.offset().wrapping_add(0x0c)) != place
-            && c.byte(troop.offset().wrapping_add(0x0e)) == skill as u8;
+            && troop.destination(&mut c) != place
+            && (troop.carried(&mut c) as u8) == skill as u8;
         let cost = 6 + if !travelling {
             0
         } else if !moving {
             3
         } else if troop.location(&mut c) != place {
             5
-        } else if c.word(troop.offset().wrapping_add(0x0c)) == place {
+        } else if troop.destination(&mut c) == place {
             7
         } else if !lowers {
             9
@@ -2326,8 +2326,8 @@ pub fn troop_facing_sprite(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let troop = Troop(c.reg(SI));
     let place = troop.location(&mut c);
     let abs = |v: u16| if v & 0x8000 != 0 { v.wrapping_neg() } else { v };
-    let (lx, ly) = (c.word(place.wrapping_add(2)), c.word(place.wrapping_add(4)));
-    let (tx, ty) = (c.word(troop.offset().wrapping_add(6)), c.word(troop.offset().wrapping_add(8)));
+    let (lx, ly) = (Location(place).x(&mut c), Location(place).y(&mut c));
+    let (tx, ty) = (troop.x(&mut c), troop.y(&mut c));
     // `cbw` of the x delta's high byte.
     let across = (lx.wrapping_sub(tx) >> 8) as u8 as i8 as u16;
     let down = ly.wrapping_sub(ty);
@@ -2380,7 +2380,7 @@ pub fn for_troops_at_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         } else {
             let moving = state & 3 == 3;
             // While moving, word 0Ch holds where it goes.
-            let place = if moving { c.word(troop.offset().wrapping_add(0x0c)) } else { troop.location(&mut c) };
+            let place = if moving { troop.destination(&mut c) } else { troop.location(&mut c) };
             let here = place == c.reg(DI);
             c.run(0x6640, 11 + moving as u32 + if here { 5 } else { 0 })?;
             c.set_reg8(r8::AL, state & 3);
@@ -2427,7 +2427,7 @@ pub fn unlink_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x85ba, 4)?;
         let troop = Troop(c.reg(BP));
         c.set_reg(SI, troop.offset());
-        c.set_byte(troop.offset().wrapping_add(1), 0);
+        troop.set_next(c, 0);
         c.restore(&[DI]);
         c.ret()
     };
@@ -2438,11 +2438,11 @@ pub fn unlink_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if first == id {
         c.run(0x859a, 7)?;
         let next = troop.next(&mut c);
-        c.set_byte(troop.offset().wrapping_add(1), 0);
+        troop.set_next(&mut c, 0);
         c.set_reg8(r8::AH, next);
         c.restore(&[DI]);
         let place = Location(c.reg(DI));
-        c.set_byte(place.offset().wrapping_add(9), next);
+        place.set_first_troop(&mut c, next);
         return c.ret();
     }
     c.run(0x859a, 5)?;
@@ -2466,7 +2466,7 @@ pub fn unlink_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
             // `mov ah,[bp+1]`: BP addresses the stack segment.
             let past = c.byte_in(SS, c.reg(BP).wrapping_add(1));
             c.set_reg8(r8::AH, past);
-            c.set_byte(before.offset().wrapping_add(1), past);
+            before.set_next(&mut c, past);
             return finish(&mut c);
         }
     }
@@ -2605,7 +2605,7 @@ pub fn troop_screen_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let troop = Troop(c.reg(SI));
     if troop.state(&mut c) & troop_state::TRAVELLING != 0 {
         c.run(start, 7)?;
-        let (x, y) = (c.word(troop.offset().wrapping_add(6)), c.word(troop.offset().wrapping_add(8)));
+        let (x, y) = (troop.x(&mut c), troop.y(&mut c));
         c.set_reg(DX, x);
         c.set_reg(BX, y);
         c.call(0xb647, 0x68b8)?;
@@ -2616,7 +2616,7 @@ pub fn troop_screen_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_flag(CF, failed.is_some());
         return c.ret();
     }
-    let slot = c.byte(troop.offset().wrapping_add(2));
+    let slot = troop.slot(&mut c);
     let place = Location(troop.location(&mut c));
     let other_side = place.byte_0a(&mut c) & 2 != 0;
     let frame = c.reg(BP);
@@ -3009,7 +3009,7 @@ pub fn nearest_needing_location(m: &mut Machine, start: u16) -> Result<(), Bail>
     let mut c = Ctx::new(m);
     c.run(start, 7)?;
     let home = Location(Troop(c.reg(SI)).location(&mut c));
-    let (hx, hy) = (c.word(home.offset().wrapping_add(2)), c.word(home.offset().wrapping_add(4)));
+    let (hx, hy) = (home.x(&mut c), home.y(&mut c));
     c.set_reg(DI, home.offset());
     c.push(home.offset());
     c.push(hy);
@@ -3021,7 +3021,7 @@ pub fn nearest_needing_location(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.set_reg(DI, place.offset());
     let abs = |v: u16| if v & 0x8000 != 0 { v.wrapping_neg() } else { v };
     loop {
-        if c.word(place.offset()) == 0xffff {
+        if place.is_end(&mut c) {
             c.run(0x7fa5, 4)?;
             c.set_reg(SP, sp.wrapping_add(6));
             return c.ret();
@@ -3034,8 +3034,8 @@ pub fn nearest_needing_location(m: &mut Machine, start: u16) -> Result<(), Bail>
         } else if place == home {
             c.run(0x7fa5, 8)?;
         } else {
-            let across = c.word(place.offset().wrapping_add(2)).wrapping_sub(hx);
-            let down = c.word(place.offset().wrapping_add(4)).wrapping_sub(hy);
+            let across = place.x(&mut c).wrapping_sub(hx);
+            let down = place.y(&mut c).wrapping_sub(hy);
             let coarse = abs(across) >> 8;
             let take_down = (coarse as u8) < (abs(down) as u8);
             let mut distance = if take_down { abs(down) } else { coarse };
@@ -3102,8 +3102,8 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if first == 0 {
         c.run(start, 10 + if apart { 2 } else { 0 })?;
         c.set_reg(AX, (id as u16) << 8);
-        c.set_byte(place.offset().wrapping_add(9), id);
-        c.set_byte(troop.offset().wrapping_add(2), lowest);
+        place.set_first_troop(&mut c, id);
+        troop.set_slot(&mut c, lowest);
         c.set_reg(CX, lowest as u16);
         return c.ret();
     }
@@ -3132,7 +3132,7 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let last = loop {
         c.call(0x6906, 0x8559)?;
         let other = Troop(c.reg(SI));
-        let slot = c.byte(other.offset().wrapping_add(2));
+        let slot = other.slot(&mut c);
         let next = other.next(&mut c);
         c.run(0x8559, if next == 0 { 10 } else { 6 })?;
         c.set_reg(BX, slot as u16);
@@ -3142,7 +3142,7 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
             break other;
         }
     };
-    c.set_byte(last.offset().wrapping_add(1), id);
+    last.set_next(&mut c, id);
     c.restore(&[SI]);
     c.set_reg(CX, TABLE);
     // Tested again: the marks can land anywhere (a slot past 1Eh writes
@@ -3162,7 +3162,7 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SP, table.wrapping_add(TABLE));
     c.restore(&[DI]);
     let troop = Troop(c.reg(SI));
-    c.set_byte(troop.offset().wrapping_add(2), slot as u8);
+    troop.set_slot(&mut c, slot as u8);
     c.ret()
 }
 
@@ -3424,8 +3424,8 @@ pub fn troop_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
     let place = troop.location(&mut c);
-    let (lx, ly) = (c.word(place.wrapping_add(2)), c.word(place.wrapping_add(4)));
-    let (tx, ty) = (c.word(troop.offset().wrapping_add(6)), c.word(troop.offset().wrapping_add(8)));
+    let (lx, ly) = (Location(place).x(&mut c), Location(place).y(&mut c));
+    let (tx, ty) = (troop.x(&mut c), troop.y(&mut c));
     let neg = |v: u16| v & 0x8000 != 0;
     let abs = |v: u16| if neg(v) { v.wrapping_neg() } else { v };
     let row = ty.wrapping_shl(1);
@@ -3618,7 +3618,7 @@ fn sprite_list_of(c: &mut Ctx, troop: Troop) -> SpriteList {
         cost += 1;
     }
     cost += 5;
-    let heading = c.byte(troop.offset().wrapping_add(2)).wrapping_sub(1) & 7;
+    let heading = troop.slot(c).wrapping_sub(1) & 7;
     let further = match heading {
         0..=2 => 0,
         3 => 1,
@@ -4009,7 +4009,7 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
     let troop = Troop(c.reg(SI));
     let order = troop.state(c);
     let place = Location(troop.location(c));
-    let (x, y) = (c.word(place.offset().wrapping_add(2)), c.word(place.offset().wrapping_add(4)));
+    let (x, y) = (place.x(c), place.y(c));
     let secret = place.byte_0a(c) & 2 == 0;
     c.run(0x8368, if secret { 10 } else { 9 })?;
     let job = order & 0x0f;
@@ -4017,8 +4017,7 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(DI, place.offset());
     c.set_reg(DX, x);
     c.set_reg(BX, y);
-    c.set_word(troop.offset().wrapping_add(6), x);
-    c.set_word(troop.offset().wrapping_add(8), y);
+    troop.set_position(c, x, y);
     let mut found = true;
     if secret {
         c.call(0x5d36, 0x8385)?;
@@ -4095,7 +4094,7 @@ fn tell_troops_83fd(c: &mut Ctx) -> Result<(), Bail> {
 fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
     let troop = Troop(c.reg(SI));
     let place = troop.location(c);
-    let next = c.word(troop.offset().wrapping_add(0x0c));
+    let next = troop.destination(c);
     c.run(0x841f, 5)?;
     c.set_reg(DI, place);
     if place == next {
@@ -4106,7 +4105,7 @@ fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
     c.save(&[SI]);
     c.call(0x7f27, 0x842b)?;
     let troop = Troop(c.word_in(SS, c.reg(SP)));
-    let carried = c.word(troop.offset().wrapping_add(0x0e));
+    let carried = troop.carried(c);
     let need = carried & 0xff;
     let needed = c.byte(NEEDS_46FE.wrapping_add(need)) != 0;
     c.run(0x842b, if needed { 13 } else { 10 })?;
@@ -4114,16 +4113,16 @@ fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(BX, need);
     let mut carried = carried;
     if needed {
-        let at = need.wrapping_add(c.reg(DI)).wrapping_add(0x14);
-        let v = c.byte(at).wrapping_sub(1);
-        c.set_byte(at, v);
+        let old = Location(c.reg(DI));
+        let v = old.need(c, need).wrapping_sub(1);
+        old.set_need(c, need, v);
         let bits = troop.byte_19(c) | (carried >> 8) as u8;
         troop.set_byte_19(c, bits);
         carried = need;
     }
     c.set_reg(CX, carried);
-    c.set_word(troop.offset().wrapping_add(0x0e), carried);
-    let next = c.word(troop.offset().wrapping_add(0x0c));
+    troop.set_carried(c, carried);
+    let next = troop.destination(c);
     c.set_reg(DI, next);
     troop.set_location(c, next);
     c.run(0x8461, 1)?;
@@ -4273,7 +4272,7 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, old);
     let s = troop.state(&mut c);
     troop.set_state(&mut c, s | troop_state::TRAVELLING);
-    c.set_byte(troop.offset().wrapping_add(2), 0);
+    troop.set_slot(&mut c, 0);
     c.call(0x7f75, 0x850f)?;
     c.run(0x850f, 1)?;
     c.call(0x8461, 0x8512)?;
@@ -5074,7 +5073,7 @@ pub fn job_5(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// 72F7h: started, maybe (the exits' flags are their compares').
 fn job_5_start(c: &mut Ctx, troop: Troop, elapsed: u16, skill: u8) -> Result<(), Bail> {
-    let (id, own) = (troop.id(c), c.byte(c.reg(DI).wrapping_add(9)));
+    let (id, own) = (troop.id(c), Location(c.reg(DI)).first_troop(c));
     if id == own {
         c.run(0x72f7, 4)?;
         c.set_reg8(r8::AL, id);
