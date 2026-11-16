@@ -398,7 +398,7 @@ pub fn b18b(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn room_189a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x189a)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0x46d9);
+    let f = c.byte(g::COMM_CALLER);
     c.run(0x189a, 3 + if f != 0 { 1 } else { 2 })?;
     c.set_reg(BP, 0x2db1);
     if f != 0 {
@@ -2171,7 +2171,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x0d8e, 3)?;
         return c.ret();
     }
-    let k = c.byte(0x46d9);
+    let k = c.byte(g::COMM_CALLER);
     if k & 0x80 != 0 {
         c.run(0x0d8e, 2 + 3 + 1)?;
         c.set_reg(AX, 0);
@@ -2201,8 +2201,8 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x9f40, 0x0dcd)?;
     c.run(0x0dcd, 7)?;
     c.update_conversation(|t| t.talker = 0xffff);
-    let who = c.byte(0x46d9);
-    c.set_byte(0x46d9, 0x80);
+    let who = c.byte(g::COMM_CALLER);
+    c.set_byte(g::COMM_CALLER, 0x80);
     let ax = who as u16;
     c.push(ax);
     c.set_reg(AX, ax + 0xba);

@@ -2811,7 +2811,7 @@ pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.byte(di.wrapping_add(0x0a));
         let v = pure::and(B, v as u16, 0xfd);
         c.set_byte(di.wrapping_add(0x0a), v as u8);
-        c.set_byte(0x46d9, 6);
+        c.set_byte(g::COMM_CALLER, 6);
         return c.ret();
     }
     let al = c.byte(di.wrapping_add(8));
@@ -4379,7 +4379,7 @@ fn toggle_map_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.set_word(0x1c22, 0x80);
     c.set_reg(BP, 0xd75a);
     c.call(0xc097, 0x1898)?;
-    if c.byte(0x46d9) != 0 {
+    if c.byte(g::COMM_CALLER) != 0 {
         c.m.cpu.ip = 0x1898;
         return Err(Bail);
     }

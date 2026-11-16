@@ -525,7 +525,13 @@ room, [0Ah] event bits, [23h] the talker's dialogue stage, [2Ah] the
 game phase; [2Bh], once `IN_DIALOGUE`, is `HARKONNEN_PLACE`: the
 player is at a place the Harkonnens hold or occupy, from the listing:
 location bit 2 is what `sub_1dd7` sets when they take one) and
-1140h-11BFh. DCE4h-DCFFh, 4710h-476Fh and 4770h-4783h / 47D4h-47EFh are
+1140h-11BFh. Other names found in the listing: [227Dh] `CINEMATIC`
+(was `MAP_VIEW_FLAG`: counted up while the intro, the end video and two
+scenes play full screen), [FBh] `MAP_INTERFACE`, [C6h] `BOOK`, [EAh]
+`EVENT_KIND`, [46D9h] `COMM_CALLER` (the character waiting to call on
+the communicator, 80h while the call is on). Open: the six records of
+11h bytes at 10D8h (keyed by a location's byte 0, five slots filled at
+random each day; the current one at [10B4h]). DCE4h-DCFFh, 4710h-476Fh and 4770h-4783h / 47D4h-47EFh are
 mixes. The music driver's tick runs as generated code when the timer
 interrupt comes inside generated code; that is where most of the
 sound's counted writes come from.

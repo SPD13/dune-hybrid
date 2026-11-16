@@ -269,6 +269,10 @@ pub const SKY_CLIP_RECT: u16 = 0x1efe;
 pub const CINEMATIC: u16 = 0x227d;
 /// Set by `set_sky_palette`.
 pub const SKY_PALETTE_SET: u16 = 0x46df;
+/// The character waiting to call on the communicator (2, 3, 4, 6, 7 as
+/// events set it), 80h while its call is on (`loc_00d8e` takes it at
+/// 0DD5h), 0 for none.
+pub const COMM_CALLER: u16 = 0x46d9;
 /// The talking head's zooms: the tick last seen, the start, the interval
 /// (Cryogenic: `TimeBetweenFaceZooms`).
 pub const HEAD_ZOOM_START: u16 = 0x476e;

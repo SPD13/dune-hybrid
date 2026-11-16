@@ -499,7 +499,7 @@ pub fn element_under_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if few {
         cx = cx.wrapping_sub(5);
     }
-    let alt = c.byte(0x46d9) != 0;
+    let alt = c.byte(g::COMM_CALLER) != 0;
     if alt {
         cx = 5;
         di = 0x1b48;

@@ -877,7 +877,7 @@ fn music_walk(c: &mut Ctx, write: bool) -> u32 {
         return fin(c, n + 2, ax, dx, bx);
     }
     ax = 0x0d;
-    for (addr, kind) in [(0x46d9u16, 0), (0xdd03, 0), (g::MAP_INTERFACE, 1), (g::BOOK, 0), (g::EVENT_KIND, 2)] {
+    for (addr, kind) in [(g::COMM_CALLER, 0), (0xdd03, 0), (g::MAP_INTERFACE, 1), (g::BOOK, 0), (g::EVENT_KIND, 2)] {
         let v = c.byte(addr);
         c.cmp(B, v as u16, 0);
         n += 3;
@@ -889,7 +889,7 @@ fn music_walk(c: &mut Ctx, write: bool) -> u32 {
         if stop {
             return fin(c, n, ax, dx, bx);
         }
-        ax = if addr == 0x46d9 { 1 } else { c.inc(W, ax) };
+        ax = if addr == g::COMM_CALLER { 1 } else { c.inc(W, ax) };
     }
     n += 5;
     dx = c.word(4);

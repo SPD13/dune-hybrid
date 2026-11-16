@@ -361,7 +361,7 @@ set_flag!(
 );
 set_flag!(
     /// `loc_0215f`: [46D9h] = 7.
-    set_46d9_to_7, 0x215f, 0x46d9, 7
+    set_46d9_to_7, 0x215f, g::COMM_CALLER, 7
 );
 set_word!(
     /// `loc_01392`: the handler at [2220h] = 1FBAh.
@@ -910,11 +910,11 @@ pub fn place_1bec(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let di = c.word(g::MAP_POSITION_RECORD);
     c.set_reg(DI, di);
     c.call(0x503c, 0x1bfa)?;
-    let f = c.byte(0x46d9);
+    let f = c.byte(g::COMM_CALLER);
     let still = c.byte(g::HARKONNEN_PLACE);
     c.run(0x1bfa, 2 + (f != 0) as u32 + 2 + if still != 0 { 1 } else { 2 })?;
     if f != 0 {
-        c.set_byte(0x46d9, 6);
+        c.set_byte(g::COMM_CALLER, 6);
     }
     if still != 0 {
         return c.ret();
@@ -2011,7 +2011,7 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if dx == 0 {
             c.run(0x5054, if cx == 0 { 4 } else { 5 })?;
             if cx != 0 {
-                c.set_byte(0x46d9, 4);
+                c.set_byte(g::COMM_CALLER, 4);
             }
             return c.ret();
         }
@@ -2568,7 +2568,7 @@ pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if r != 0 {
         return c.ret();
     }
-    c.set_byte(0x46d9, 2);
+    c.set_byte(g::COMM_CALLER, 2);
     c.ret()
 }
 
@@ -4941,7 +4941,7 @@ pub fn spice_demand_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if f & 0x10 == 0 {
         // [11BBh] set: 215Fh.
         c.run(0x20ae, 7 + 2)?;
-        c.set_byte(0x46d9, 7);
+        c.set_byte(g::COMM_CALLER, 7);
         return c.ret();
     }
     // 2131h: reminders.
@@ -4955,7 +4955,7 @@ pub fn spice_demand_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x20ae, 8 + 2)?;
         let a = pure::sub(W, ax, day);
         c.set_reg(AX, a);
-        c.set_byte(0x46d9, 7);
+        c.set_byte(g::COMM_CALLER, 7);
         return c.ret();
     }
     c.run(0x20ae, 12)?;
@@ -4977,7 +4977,7 @@ pub fn spice_demand_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, code);
     let _ = a;
     if code == 0 {
-        c.set_byte(0x46d9, 7);
+        c.set_byte(g::COMM_CALLER, 7);
         return c.ret();
     }
     c.set_reg(AX, (code as u16) << 8 | 0x0b);
@@ -6435,7 +6435,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     let v = c.pop();
     c.set_word(0x11f7, v);
     c.call(0x1bec, 0x1b90)?;
-    let k = c.byte(0x46d9);
+    let k = c.byte(g::COMM_CALLER);
     if k != 0 {
         c.run(0x1b90, 2)?;
         c.cmp(B, k as u16, 0);
@@ -6623,7 +6623,7 @@ fn scene_record_3551(c: &mut Ctx) -> Result<(), Bail> {
 pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2b2a)?;
     let mut c = Ctx::new(m);
-    let (a, b, d) = (c.byte(0x46d9), c.byte(g::KEYBOARD_CURSOR), c.travel().screen_kind);
+    let (a, b, d) = (c.byte(g::COMM_CALLER), c.byte(g::KEYBOARD_CURSOR), c.travel().screen_kind);
     // Not in a scene, a talk or with the head held.
     c.run(0x2b2a, 5)?;
     c.set_reg8(r8::AL, a | b | d);

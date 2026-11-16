@@ -4020,8 +4020,8 @@ fn show_text_88d2(c: &mut Ctx) -> Result<(), Bail> {
     c.push(TEXT_BUFFER);
     c.call(0x8944, 0x88d9)?;
     let screen = c.byte(MAP_SCREEN);
-    let scene = c.byte(0x46d9) != 0;
-    if screen >= 2 && !scene {
+    let caller = c.byte(g::COMM_CALLER) != 0;
+    if screen >= 2 && !caller {
         if c.flag(pc::cpu::DF) {
             c.m.cpu.ip = 0x88d9;
             return Err(Bail);
@@ -4264,7 +4264,7 @@ pub fn draw_speech_bubble(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg(DX, right);
     c.set_reg(BX, bottom);
-    let [head, book, intro, busy, map_screen] = [g::MAP_MODE, 0xc6, 0x227d, 0x46d9, MAP_SCREEN].map(|a| c.byte(a));
+    let [head, book, intro, caller, map_screen] = [g::MAP_MODE, g::BOOK, g::CINEMATIC, g::COMM_CALLER, MAP_SCREEN].map(|a| c.byte(a));
     if head != 0 {
         c.run(0x8f7f, 2)?;
         return frame_8fd1(&mut c);
@@ -4273,7 +4273,7 @@ pub fn draw_speech_bubble(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x8f7f, 4)?;
         return book_8ff5(&mut c);
     }
-    if intro != 0 || busy != 0 {
+    if intro != 0 || caller != 0 {
         c.run(0x8f7f, if intro != 0 { 7 } else { 9 })?;
         return c.ret();
     }

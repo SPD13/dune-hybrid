@@ -183,10 +183,10 @@ pub fn load_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::DF;
     entered(start, 0xb3b0)?;
     let mut c = Ctx::new(m);
-    let busy = c.byte(0x46d9);
-    c.run(0xb3b0, if busy != 0 { 3 } else { 2 })?;
-    c.cmp(B, busy as u16, 0); // the flags the jump's target gets
-    if busy != 0 {
+    let caller = c.byte(g::COMM_CALLER);
+    c.run(0xb3b0, if caller != 0 { 3 } else { 2 })?;
+    c.cmp(B, caller as u16, 0); // the flags the jump's target gets
+    if caller != 0 {
         return c.jump(0x0e49);
     }
     c.run(0xb3ba, 4)?;

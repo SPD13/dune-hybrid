@@ -254,20 +254,20 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
             c.call(0xb270, 0xd831)?;
         }
     }
-    let video = c.byte(0x46d9);
-    c.run(0xd831, 2 + if video == 0 { 1 } else { 0 })?;
-    c.cmp(B, video as u16, 0);
-    if video == 0 {
+    let caller = c.byte(g::COMM_CALLER);
+    c.run(0xd831, 2 + if caller == 0 { 1 } else { 0 })?;
+    c.cmp(B, caller as u16, 0);
+    if caller == 0 {
         c.call(0xd7b7, 0xd83b)?;
         c.run(0xd83b, 1)?;
         c.call(0x1b0d, 0xd83e)?;
     }
     c.run(0xd83e, 1)?;
     c.call(0xd9d2, 0xd841)?;
-    let video = c.byte(0x46d9);
-    c.run(0xd841, 2 + (video != 0) as u32)?;
-    c.cmp(B, video as u16, 0);
-    if video != 0 {
+    let caller = c.byte(g::COMM_CALLER);
+    c.run(0xd841, 2 + (caller != 0) as u32)?;
+    c.cmp(B, caller as u16, 0);
+    if caller != 0 {
         c.call(0x0d8e, 0xd84b)?;
     }
     c.run(0xd84b, 1)?;
