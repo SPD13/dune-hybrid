@@ -188,10 +188,10 @@ pub fn font_set_draw_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 5)?;
     let (x, y) = (c.reg(DX), c.reg(BX));
-    c.set_word(g::FONT_X, x);
-    c.set_word(g::FONT_Y, y);
-    c.set_word(g::FONT_LINE_X, x);
-    c.set_word(g::FONT_LINE_Y, y);
+    c.update_font_pen(|t| t.at[0] = x);
+    c.update_font_pen(|t| t.at[1] = y);
+    c.update_font_pen(|t| t.line[0] = x);
+    c.update_font_pen(|t| t.line[1] = y);
     c.ret()
 }
 
@@ -200,7 +200,7 @@ pub fn font_get_draw_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd05f)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let (x, y) = (c.word(g::FONT_X), c.word(g::FONT_Y));
+    let (x, y) = (c.font_pen().at[0], c.font_pen().at[1]);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     c.ret()

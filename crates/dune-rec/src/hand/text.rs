@@ -172,10 +172,10 @@ pub fn font_draw_glyph(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, advance);
     c.call(code::FONT_GET_DRAW_POSITION, 0xd187)?;
     c.run(0xd187, 3)?;
-    let x = c.word(g::FONT_X);
+    let x = c.font_pen().at[0];
     let advance = c.reg(AX);
     let x = pure::add(W, x, advance);
-    c.set_word(g::FONT_X, x);
+    c.update_font_pen(|t| t.at[0] = x);
     let glyph = c.pop();
     c.set_reg(AX, glyph);
     c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0xd18f)?;
@@ -208,14 +208,14 @@ pub fn font_draw_string(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xd1bb, 5 + if small { 9 } else { 8 })?;
             c.lods(B, ES);
             // A new line: 7 down in the small font, else 10.
-            let line_x = c.word(g::FONT_LINE_X);
-            c.set_word(g::FONT_X, line_x);
+            let line_x = c.font_pen().line[0];
+            c.update_font_pen(|t| t.at[0] = line_x);
             let step = if small { 7 } else { 0x0a };
             c.set_reg(AX, step);
-            let y = c.word(g::FONT_LINE_Y).wrapping_add(step);
-            c.set_word(g::FONT_LINE_Y, y);
-            let y = c.word(g::FONT_Y).wrapping_add(step);
-            c.set_word(g::FONT_Y, y);
+            let y = c.font_pen().line[1].wrapping_add(step);
+            c.update_font_pen(|t| t.line[1] = y);
+            let y = c.font_pen().at[1].wrapping_add(step);
+            c.update_font_pen(|t| t.at[1] = y);
             continue;
         }
         c.run(0xd1bb, if ch & 0x80 != 0 { 9 } else { 8 })?;
@@ -441,9 +441,9 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0xd05f, 0xd0b5)?;
         c.run(0xd0b5, 5)?;
         let ax = c.reg(AX);
-        let x = c.word(g::FONT_X);
+        let x = c.font_pen().at[0];
         let x = c.add(W, x, ax); // the driver's far call sees the flags
-        c.set_word(g::FONT_X, x);
+        c.update_font_pen(|t| t.at[0] = x);
         c.set_reg8(r8::CL, ax as u8);
         c.set_reg8(r8::CH, 9);
         let col = c.word(g::TEXT_COLOUR);
@@ -475,8 +475,8 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd115, 7 + if bx < 0x13 { 1 } else { 0 } + 1)?;
     let ax = c.pop();
     c.set_reg8(r8::CL, (ax >> 8) as u8);
-    let x = c.word(g::FONT_X).wrapping_add(ax & 0xff);
-    c.set_word(g::FONT_X, x);
+    let x = c.font_pen().at[0].wrapping_add(ax & 0xff);
+    c.update_font_pen(|t| t.at[0] = x);
     c.set_reg(AX, ax >> 8);
     c.set_reg(BX, bx.saturating_sub(0x13));
     c.call(0xc22f, 0xd12a)?;

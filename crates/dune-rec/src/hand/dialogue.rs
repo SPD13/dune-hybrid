@@ -2901,7 +2901,7 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xb091, 1)?;
     c.call(0x1797, 0xb094)?;
     // The mark, when the text ends high enough.
-    let text_end = c.word(super::globals::FONT_Y);
+    let text_end = c.font_pen().at[1];
     let middle = (0x8cu16.wrapping_sub(text_end) >> 1).wrapping_add(text_end);
     let mark = middle < 0x8a;
     c.run(0xb094, if mark { 10 } else { 7 })?;
@@ -3494,7 +3494,6 @@ fn phrase_93aa(c: &mut Ctx) -> Result<(), Bail> {
 /// pen kept, SI back on the last byte, and for the picture box 223Ch its
 /// outline ([`outline_picture`]) and the front buffer made current.
 pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    use super::globals::{FONT_LINE_X, FONT_LINE_Y, FONT_X, FONT_Y};
     use pc::cpu::CF;
     entered(start, 0x8b11)?;
     let mut c = Ctx::new(m);
@@ -3544,9 +3543,9 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.update_text_box(|t| t.line_height = room / gaps);
             } else {
                 c.set_reg(AX, room >> 1);
-                let x = c.word(FONT_X);
+                let x = c.font_pen().at[0];
                 c.set_reg(DX, x);
-                let y = c.word(FONT_Y).wrapping_add(room >> 1);
+                let y = c.font_pen().at[1].wrapping_add(room >> 1);
                 c.set_reg(BX, y);
                 c.call(0xd04e, 0x8b64)?;
                 c.run(0x8b64, 1)?;
@@ -3568,9 +3567,9 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.pop();
             c.set_reg(AX, height);
             c.update_text_box(|t| t.room = height);
-            let x = c.word(FONT_X);
+            let x = c.font_pen().at[0];
             c.set_reg(DX, x);
-            let y = c.word(FONT_Y).wrapping_add(space);
+            let y = c.font_pen().at[1].wrapping_add(space);
             c.set_reg(BX, y);
             c.call(0xd04e, 0x8b8b)?;
         }
@@ -3595,7 +3594,7 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // The pen to the next line.
         let height = c.text_box().line_height;
         let room = c.text_box().room;
-        let [x, y] = [FONT_LINE_X, FONT_LINE_Y].map(|a| c.word(a));
+        let [x, y] = c.font_pen().line;
         c.run(0x8c47, if room < height { 8 } else { 7 })?;
         c.set_reg(DX, x);
         c.set_reg(BX, y.wrapping_add(height));
@@ -3610,7 +3609,7 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if left == 0 {
             // The pen kept, SI back on the last byte.
             let boxed = c.text_box().shown;
-            let [x, y] = [FONT_LINE_X, FONT_LINE_Y].map(|a| c.word(a));
+            let [x, y] = c.font_pen().line;
             c.run(0x8c6a, 8)?;
             c.set_reg(DX, x);
             c.set_reg(BX, y);
@@ -3637,7 +3636,6 @@ const LINES: u16 = 0xa9d0;
 /// `loc_08ba3`: a line of CX words with the offset DX / spacing BX (see
 /// [`layout_text`]).
 fn line_8ba3(c: &mut Ctx, words: u16, offset: u16, spacing: u16) -> Result<(), Bail> {
-    use super::globals::FONT_X;
     let style = c.text_box().style;
     if style & 2 != 0 {
         // Centred: the pen moved by half of what the words leave.
@@ -3649,8 +3647,8 @@ fn line_8ba3(c: &mut Ctx, words: u16, offset: u16, spacing: u16) -> Result<(), B
         c.run(0x8ba3, 2 + 4 + (gaps != 0) as u32 + 12)?;
         c.set_reg(AX, k << 2);
         c.set_reg(DX, shift);
-        let x = c.word(FONT_X).wrapping_add(shift);
-        c.set_word(FONT_X, x);
+        let x = c.font_pen().at[0].wrapping_add(shift);
+        c.update_font_pen(|t| t.at[0] = x);
         c.update_text_box(|t| t.style = style & 0xfe);
     } else {
         c.run(0x8ba3, 2)?;
@@ -3718,13 +3716,13 @@ fn line_8ba3(c: &mut Ctx, words: u16, offset: u16, spacing: u16) -> Result<(), B
         }
         let wider = c.text_box().wider_gaps;
         let gap = c.reg(DX);
-        let x = c.word(FONT_X).wrapping_add(gap).wrapping_add((wider != 0) as u16);
+        let x = c.font_pen().at[0].wrapping_add(gap).wrapping_add((wider != 0) as u16);
         c.run(0x8c26, if wider != 0 { 11 } else { 9 })?;
         c.set_reg(CX, words);
         if wider != 0 {
             c.update_text_box(|t| t.wider_gaps = wider - 1);
         }
-        c.set_word(FONT_X, x);
+        c.update_font_pen(|t| t.at[0] = x);
         // DX (the gap) pushed and popped around the sum: it stays below
         // SP.
         c.push(gap);

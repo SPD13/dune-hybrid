@@ -6010,14 +6010,14 @@ pub fn zoom_legend(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = c.pop();
     let a = c.add(W, a, 0x53); // the character writer sees these flags
     c.set_reg(AX, a);
-    c.set_word(g::FONT_X, a);
+    c.update_font_pen(|t| t.at[0] = a);
     c.set_reg8(r8::AL, 0x2d);
     let to = c.word(g::FONT_DRAW);
     c.call(to, 0x5666)?;
     c.run(0x5666, 3)?;
-    let v = c.word(g::FONT_X);
+    let v = c.font_pen().at[0];
     let v = c.add(W, v, 0x41); // the character writer sees these flags
-    c.set_word(g::FONT_X, v);
+    c.update_font_pen(|t| t.at[0] = v);
     c.set_reg8(r8::AL, 0x2b);
     let to = c.word(g::FONT_DRAW);
     c.call(to, 0x5671)?;

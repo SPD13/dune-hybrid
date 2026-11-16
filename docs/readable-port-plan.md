@@ -494,6 +494,9 @@ heading (a byte angle), no target to home on, the screen kind, the
 travel held (a call, a dialogue), the heading kept, the step's carried
 fraction). `travel:` in the output.
 
+The font's pen (`hand/font_pen.rs`, 8 bytes at D82Ch: where the next
+character goes, where the line started). `font pen:` in the output.
+
 ## Tools in place
 
 | Tool | What it checks |

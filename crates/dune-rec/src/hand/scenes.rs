@@ -490,9 +490,9 @@ fn glyph(c: &mut Ctx, entry: u16, rows: u16, table: u16, widths: u16, height: u8
     c.call(code::FONT_GET_DRAW_POSITION, entry + 0x1f)?;
     c.run(entry + 0x1f, 5)?;
     let ax = c.reg(AX);
-    let x = c.word(g::FONT_X);
+    let x = c.font_pen().at[0];
     let x = c.add(W, x, ax);
-    c.set_word(g::FONT_X, x);
+    c.update_font_pen(|t| t.at[0] = x);
     c.set_reg8(r8::CL, ax as u8);
     c.set_reg8(r8::CH, height);
     let colour = c.word(g::TEXT_COLOUR);

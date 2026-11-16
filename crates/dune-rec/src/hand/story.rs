@@ -4357,7 +4357,7 @@ pub fn redraw_message_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let mut i = 0;
     loop {
-        let v = c.word(g::FONT_X);
+        let v = c.font_pen().at[0];
         i += 1;
         if i > 1000 {
             c.m.cpu.ip = 0x4641;

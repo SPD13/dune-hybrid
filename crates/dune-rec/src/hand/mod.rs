@@ -44,6 +44,7 @@ pub mod mouse_state;
 pub mod sound_state;
 pub mod video_state;
 pub mod travel;
+pub mod font_pen;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1590,6 +1591,14 @@ impl Ctx<'_> {
     }
     /// The player's travel changed by `f` (written through).
     fn update_travel(&mut self, f: impl FnOnce(&mut travel::Travel)) {
+        record_table::update_single(self, f)
+    }
+    /// The font's pen (Rust state, see [`font_pen`]), in step with the memory.
+    fn font_pen(&mut self) -> font_pen::FontPen {
+        record_table::single(self)
+    }
+    /// The font's pen changed by `f` (written through).
+    fn update_font_pen(&mut self, f: impl FnOnce(&mut font_pen::FontPen)) {
         record_table::update_single(self, f)
     }
     /// The game time ([2]).
