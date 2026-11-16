@@ -449,7 +449,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0xcec9, irq::hnm_render_timer_callback, "hnm_render_timer_callback"),
     (0xe85c, waits::measure_pit_e85c, "loc_0e85c"),
     (0x72a2, troops::tally_72a2, "loc_072a2"),
-    (0x2566, videos::endgame_2566, "loc_02566"),
+    (0x2566, videos::ship_spice_2566, "loc_02566"),
     // Unverified (no run reaches them; the harness's calls quit the game):
     // (0x1566, videos::repeat_1566, "loc_01566"),
     // (0x491c, videos::video_491c, "loc_0491c"),

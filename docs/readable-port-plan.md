@@ -532,7 +532,7 @@ in the output).
 
 Left, needing names before any grouping: the story state (DS:0-FFh: [0]
 the random seed, [4]/[6] the player's place and position, [8]/[9] the
-room, [0Ah] event bits, [23h] the talker's dialogue stage, [2Ah] the
+location the player is in (`PLACE_KIND`, `PLACE_INDEX`), [0Ah] event bits, [23h] the talker's dialogue stage, [2Ah] the
 game phase; [2Bh], once `IN_DIALOGUE`, is `HARKONNEN_PLACE`: the
 player is at a place the Harkonnens hold or occupy, from the listing:
 location bit 2 is what `sub_1dd7` sets when they take one) and
@@ -543,7 +543,18 @@ scenes play full screen), [FBh] `MAP_INTERFACE`, [C6h] `BOOK`, [EAh]
 the communicator, 80h while the call is on). Open: the six records of
 11h bytes at 10D8h (keyed by a location's byte 0, five slots filled at
 random each day; the current one at [10B4h]). DCE4h-DCFFh, 4710h-476Fh and 4770h-4783h / 47D4h-47EFh are
-mixes. The music driver's tick runs as generated code when the timer
+mixes.
+
+The spice and the Emperor's demands are named too: [A0h] `SPICE` in
+stock, [A6h]/[AEh] the spice gained this phase and the one before,
+[1170h] the stock when the phase began, [1172h] `SPICE_SHIPPED` this
+phase; [BCh] `SPICE_DEMANDED`, [B4h] the four amounts offered,
+[C0h] the one chosen, [BEh] `SHIPMENT_RATIO` (shipped × 80h ÷
+demanded), [BFh] the shipment's bits, [C3h] `DEMANDS` made, [118Dh]
+`SHIPMENT_DUE` (a day), [CFh] the days left, [1158h] `SHIPMENT_READY`.
+The port of `loc_02566`, once `endgame_2566`, is the shipment
+(`ship_spice_2566`): it runs when the player is in room 8 with
+character 3 present and an amount chosen. The music driver's tick runs as generated code when the timer
 interrupt comes inside generated code; that is where most of the
 sound's counted writes come from.
 

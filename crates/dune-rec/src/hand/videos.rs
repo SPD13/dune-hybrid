@@ -393,16 +393,19 @@ fn sal_end(c: &mut Ctx) -> Result<(), Bail> {
     c.jump(0x2d74)
 }
 
-/// `loc_02566`: the end of the game. The location 1008h's state
-/// (`loc_040e6`, AX kept), `loc_02524` with BX the score AX; [0BEh] the
-/// score's share of [0BCh] (AX x 100h / it, below 200h, halved, at least
-/// 1); the rating BX (7 from C0h, 6 above 80h, 5 at 80h, 4 below; at 4,
-/// [0BEh] 0 when bit 8 of [0BFh]) added to [118Dh] with `loc_0e3b7`'s
-/// value for bits 1-2 of [0C3h]; [0CFh] the difference from the day
-/// (`loc_01ac5`); then the closing scenes: transitions, waits, the
-/// fading frames (`loc_0e353` with BP A44h and 26ACh), voices and music,
-/// on into `loc_02773`.
-pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_02566`: the spice shipped to the Emperor (AX, the amount
+/// chosen, [`g::SHIPMENT_CHOSEN`]; called at 35E0h). The location 1008h's
+/// state (`loc_040e6`, AX kept), `loc_02524` taking it from
+/// [`g::SPICE`] into [`g::SPICE_SHIPPED`]; [`g::SHIPMENT_RATIO`] the
+/// amount's share of [`g::SPICE_DEMANDED`] (AX x 100h / it, below 200h,
+/// halved, at least 1); the days BX (7 from C0h, 6 above 80h, 5 at 80h,
+/// 4 below; at 4, the ratio 0 when bit 8 of [`g::SHIPMENT_FLAGS`])
+/// added to [`g::SHIPMENT_DUE`] with `loc_0e3b7`'s value for bits 1-2 of
+/// [`g::DEMANDS`]; [`g::SHIPMENT_DAYS_LEFT`] the difference from the day
+/// (`loc_01ac5`), [`g::SHIPMENT_READY`] cleared; then the shipment's
+/// scene: transitions, waits, the fading frames (`loc_0e353` with BP
+/// A44h and 26ACh), voices and music, on into `loc_02773`.
+pub fn ship_spice_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{DX, ES};
     entered(start, 0x2566)?;
     let mut c = Ctx::new(m);
@@ -416,11 +419,11 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     c.set_reg(BX, ax);
     c.call(0x2524, 0x2573)?;
-    // The score x 100h over [0BCh]: a divide error (by 0, or a quotient
+    // The amount x 100h over the demand: a divide error (by 0, or a quotient
     // over FFFFh) is left to the interpreter.
     let bx = c.reg(BX);
     let num = (bx as u32) << 8;
-    let den = c.word(0xbc) as u32;
+    let den = c.word(g::SPICE_DEMANDED) as u32;
     if den == 0 || num / den > 0xffff {
         c.m.cpu.ip = 0x2573;
         return Err(Bail);
@@ -443,7 +446,7 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg(AX, ax);
     let al = ax & 0xff;
-    let flags_bf = c.byte(0xbf);
+    let flags_bf = c.byte(g::SHIPMENT_FLAGS);
     let (rating, ah, n) = if al >= 0xc0 {
         (7u16, 0x40u16, 5)
     } else if al > 0x80 {
@@ -454,12 +457,12 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
         (4, 8, 16 + (flags_bf & 8 != 0) as u32)
     };
     c.run(0x258d, n)?;
-    c.set_byte(0xbe, al as u8);
+    c.set_byte(g::SHIPMENT_RATIO, al as u8);
     c.set_reg(AX, (0x40 << 8) | al);
     c.set_reg(BX, 7);
     if rating < 5 {
         if flags_bf & 8 != 0 {
-            c.set_byte(0xbe, 0);
+            c.set_byte(g::SHIPMENT_RATIO, 0);
         }
     }
     c.set_reg(BX, rating);
@@ -467,12 +470,12 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x25b3, 8)?;
     let ah = pure::or(B, ah, 0x80);
     c.set_reg(AX, (ah << 8) | al);
-    c.set_byte(0xbf, ah as u8);
-    c.set_reg(SI, 0x118d);
-    let v = c.word(0x118d);
+    c.set_byte(g::SHIPMENT_FLAGS, ah as u8);
+    c.set_reg(SI, g::SHIPMENT_DUE);
+    let v = c.word(g::SHIPMENT_DUE);
     let v = pure::add(W, v, rating);
-    c.set_word(0x118d, v);
-    let bl = c.byte(0xc3);
+    c.set_word(g::SHIPMENT_DUE, v);
+    let bl = c.byte(g::DEMANDS);
     c.set_reg(BX, (rating & 0xff00) | bl as u16);
     let bl = pure::shr1(B, bl as u16, 1);
     let bx = pure::and(W, bl, 3);
@@ -480,18 +483,18 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xe3b7, 0x25cb)?;
     c.run(0x25cb, 2)?;
     let ax = c.reg(AX);
-    let v = c.word(0x118d);
+    let v = c.word(g::SHIPMENT_DUE);
     let v = pure::add(W, v, ax);
-    c.set_word(0x118d, v);
+    c.set_word(g::SHIPMENT_DUE, v);
     c.call(0x1ac5, 0x25d0)?;
     c.run(0x25d0, 5)?;
     let ax = c.reg(AX);
-    let v = c.word(0x118d);
+    let v = c.word(g::SHIPMENT_DUE);
     let d = pure::sub(W, ax, v);
     let d = pure::neg(W, d);
     c.set_reg(AX, d);
-    c.set_byte(0xcf, d as u8);
-    c.set_word(0x1158, 0);
+    c.set_byte(g::SHIPMENT_DAYS_LEFT, d as u8);
+    c.set_word(g::SHIPMENT_READY, 0);
     c.call(0x2806, 0x25e0)?;
     c.run(0x25e0, 1)?;
     c.call(0x2795, 0x25e3)?;

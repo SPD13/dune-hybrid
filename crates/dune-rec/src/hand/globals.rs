@@ -32,6 +32,45 @@ pub const PARTY: u16 = 0x0010;
 pub const PRESENT: u16 = 0x0012;
 /// Those spoken to in this room (cleared on arriving, 2E07h).
 pub const TALKED_HERE: u16 = 0x0014;
+/// The spice in stock (harvests add to it, 702Ah; shipments to the
+/// Emperor take from it, 2524h).
+pub const SPICE: u16 = 0x00a0;
+/// The spice gained this phase: the stock plus what was shipped, less
+/// the stock when the phase began (1C84h, C046h).
+pub const SPICE_GAINED: u16 = 0x00a6;
+/// The previous phase's [`SPICE_GAINED`] (1C87h).
+pub const SPICE_GAINED_BEFORE: u16 = 0x00ae;
+/// Four words: the amounts the player may ship to the Emperor, worked
+/// out from the demand (22B1h); the answer picks one (2509h).
+pub const SHIPMENT_OFFERS: u16 = 0x00b4;
+/// The spice the Emperor demands (set at 2114h, from [`DEMANDS`], a
+/// random factor and [`SHIPMENT_RATIO`]).
+pub const SPICE_DEMANDED: u16 = 0x00bc;
+/// How the last shipment compared to the demand: shipped × 80h ÷
+/// demanded (80h: as much, 1..FFh; 258Dh); its sign picks the
+/// Emperor's line (2125h).
+pub const SHIPMENT_RATIO: u16 = 0x00be;
+/// The shipment's bits: 80h a demand is on (211Dh sets 90h), 1 an
+/// amount chosen (24B9h), 2/4 which offers were made (22EBh); 8 tested
+/// at 25A8h, 20h set at 2951h.
+pub const SHIPMENT_FLAGS: u16 = 0x00bf;
+/// The amount chosen for the next shipment (250Dh), shipped when the
+/// player is in room 8 with character 3 present (35CFh).
+pub const SHIPMENT_CHOSEN: u16 = 0x00c0;
+/// How many demands the Emperor has made (20D5h).
+pub const DEMANDS: u16 = 0x00c3;
+/// The days left before the shipment is due (20A0h).
+pub const SHIPMENT_DAYS_LEFT: u16 = 0x00cf;
+/// FFFFh once an amount is chosen (2510h), 0 once shipped (25D7h).
+pub const SHIPMENT_READY: u16 = 0x1158;
+/// The spice in stock when the phase began (1C7Ah).
+pub const PHASE_START_SPICE: u16 = 0x1170;
+/// The spice shipped to the Emperor this phase (2528h; cleared at
+/// 1C70h).
+pub const SPICE_SHIPPED: u16 = 0x1172;
+/// The day the shipment is due (2093h; put back by a good one,
+/// 25BDh).
+pub const SHIPMENT_DUE: u16 = 0x118d;
 /// Sietches discovered.
 pub const SIETCHES_FOUND: u16 = 0x0027;
 /// How many have joined you ([28h]).

@@ -952,19 +952,19 @@ pub fn totals_c02e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xc02e, 1)?;
     c.call(0xbfe3, 0xc031)?;
-    let (a0, b1, b0, a6) = (c.word(0xa0), c.word(0x1172), c.word(0x1170), c.word(0xa6));
-    let s = a0.wrapping_add(b1);
-    let (d, borrow) = s.overflowing_sub(b0);
+    let (spice, shipped, at_start, gained) = (c.word(g::SPICE), c.word(g::SPICE_SHIPPED), c.word(g::PHASE_START_SPICE), c.word(g::SPICE_GAINED));
+    let s = spice.wrapping_add(shipped);
+    let (d, borrow) = s.overflowing_sub(at_start);
     let cap = if borrow { 0 } else { d };
-    let below = cap < a6;
+    let below = cap < gained;
     c.run(0xc031, 4 + borrow as u32 + 2 + (!below) as u32 + 4)?;
-    c.set_reg(AX, a0);
-    let v = pure::add(W, a0, b1);
-    let v = pure::sub(W, v, b0);
+    c.set_reg(AX, spice);
+    let v = pure::add(W, spice, shipped);
+    let v = pure::sub(W, v, at_start);
     let v = if borrow { pure::xor(W, v, v) } else { v };
     c.set_reg(AX, v);
     if !below {
-        c.set_word(0xa6, v);
+        c.set_word(g::SPICE_GAINED, v);
     }
     c.set_reg(AX, 0);
     c.set_word(0xaa, 0);
@@ -1697,11 +1697,11 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1c5f, 1)?;
     c.call(0x1e43, 0x1c62)?;
     let d = c.byte(0xd5).wrapping_add(1);
-    let (harvest, a0, sold, ae) = (c.word(0x1172), c.word(0xa0), c.word(0x1170), c.word(0xae));
-    let s = harvest.wrapping_add(a0);
-    let (stock, borrow) = s.overflowing_sub(sold);
+    let (shipped, spice, at_start, before) = (c.word(g::SPICE_SHIPPED), c.word(g::SPICE), c.word(g::PHASE_START_SPICE), c.word(g::SPICE_GAINED_BEFORE));
+    let s = shipped.wrapping_add(spice);
+    let (stock, borrow) = s.overflowing_sub(at_start);
     let stock = if borrow { 0 } else { stock };
-    let (diff, loss) = ae.overflowing_sub(stock);
+    let (diff, loss) = before.overflowing_sub(stock);
     c.run(0x1c62, 4 + (d >= 2) as u32 + 7 + borrow as u32 + 5 + if loss { 2 } else { 0 } + 3)?;
     c.set_reg8(r8::AL, d.wrapping_sub(1));
     let a = pure::inc(B, d.wrapping_sub(1) as u16);
@@ -1709,15 +1709,15 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if d >= 2 {
         c.set_byte(0xd5, d);
     }
-    c.set_word(0x1172, 0);
-    c.set_reg(BX, a0);
-    let v = pure::add(W, harvest, a0);
-    c.set_word(0x1170, a0);
-    let v = pure::sub(W, v, sold);
+    c.set_word(g::SPICE_SHIPPED, 0);
+    c.set_reg(BX, spice);
+    let v = pure::add(W, shipped, spice);
+    c.set_word(g::PHASE_START_SPICE, spice);
+    let v = pure::sub(W, v, at_start);
     let v = if borrow { pure::xor(W, v, v) } else { v };
-    c.set_word(0xa6, v);
-    c.set_word(0xae, v);
-    let r = pure::sub(W, ae, v);
+    c.set_word(g::SPICE_GAINED, v);
+    c.set_word(g::SPICE_GAINED_BEFORE, v);
+    let r = pure::sub(W, before, v);
     let (gain, lost) = if loss {
         let n = pure::neg(W, r);
         (0u16, n)

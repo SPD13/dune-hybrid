@@ -539,12 +539,12 @@ pub fn move_a0_to_1172(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
     let ax = c.reg(AX);
-    let v = c.word(0xa0);
+    let v = c.word(g::SPICE);
     let v = pure::sub(W, v, ax);
-    c.set_word(0xa0, v);
-    let w = c.word(0x1172);
+    c.set_word(g::SPICE, v);
+    let w = c.word(g::SPICE_SHIPPED);
     let w = pure::add(W, w, ax);
-    c.set_word(0x1172, w);
+    c.set_word(g::SPICE_SHIPPED, w);
     c.ret()
 }
 
@@ -1137,7 +1137,7 @@ pub fn grade_be(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x24d2)?;
     let mut c = Ctx::new(m);
     c.run(start, 14)?;
-    let value = c.byte(0xbe);
+    let value = c.byte(g::SHIPMENT_RATIO);
     // `cmp al, t; adc ah, cl` for each threshold.
     let grade = [1u8, 0x40, 0x80, 0x90, 0xff].iter().filter(|&&t| value < t).count() as u8;
     c.set_reg8(r8::AL, value);
@@ -3256,7 +3256,7 @@ pub fn bands_b4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x22b1)?;
     let mut c = Ctx::new(m);
     let ax = c.reg(AX);
-    let bx = c.word(0xbc);
+    let bx = c.word(g::SPICE_DEMANDED);
     let cx = (bx >> 1).wrapping_add(bx);
     let dx = bx.wrapping_add(bx);
     let si = ax >> 1;
@@ -3271,10 +3271,10 @@ pub fn bands_b4(m: &mut Machine, start: u16) -> Result<(), Bail> {
         4 + 2 + 4
     };
     c.run(start, n)?;
-    c.set_reg(BP, 0xb4);
-    let f = c.byte(0xbf);
+    c.set_reg(BP, g::SHIPMENT_OFFERS);
+    let f = c.byte(g::SHIPMENT_FLAGS);
     let f = pure::and(B, f as u16, 0xf9);
-    c.set_byte(0xbf, f as u8);
+    c.set_byte(g::SHIPMENT_FLAGS, f as u8);
     c.set_reg(BX, bx);
     let x = pure::shr1(W, bx, 1);
     let x = pure::add(W, x, bx);
@@ -3286,7 +3286,7 @@ pub fn bands_b4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let t = pure::shr1(W, ax, 2);
     let t = pure::add(W, t, s);
     c.set_reg(DI, t);
-    let put = |c: &mut Ctx, i: u16, v: u16| c.set_word_in(SS, 0xb4 + 2 * i, v);
+    let put = |c: &mut Ctx, i: u16, v: u16| c.set_word_in(SS, g::SHIPMENT_OFFERS + 2 * i, v);
     if ax < bx {
         put(&mut c, 0, ax);
         put(&mut c, 1, di);
@@ -3314,7 +3314,7 @@ pub fn bands_b4(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     };
     let v = pure::or(B, f, bits);
-    c.set_byte(0xbf, v as u8);
+    c.set_byte(g::SHIPMENT_FLAGS, v as u8);
     c.ret()
 }
 
@@ -4050,18 +4050,18 @@ pub fn next_demand(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(0x1ac5, 0x2093)?;
     let ax0 = c.reg(AX);
-    let k = c.byte(0xc3);
-    let be = c.byte(0xbe);
+    let k = c.byte(g::DEMANDS);
+    let be = c.byte(g::SHIPMENT_RATIO);
     let pos = be & 0x80 == 0;
     let tail_n = |out: bool| out as u32 + 7 + pos as u32;
     let p = ((ax0 & 0xff00) | k as u16) as u32 * 0x96;
     let over1 = p >> 16 != 0;
     let (s, carry) = (p as u16).overflowing_add(0x64);
     let head = |c: &mut Ctx| {
-        c.set_word(0x118d, ax0);
+        c.set_word(g::SHIPMENT_DUE, ax0);
         c.set_reg8(r8::AL, k);
         let v = pure::inc(B, k as u16);
-        c.set_byte(0xc3, v as u8);
+        c.set_byte(g::DEMANDS, v as u8);
         c.set_reg(BX, 0x96);
         c.mul16(0x96);
     };
@@ -4139,13 +4139,13 @@ fn demand_tail(c: &mut Ctx, out: bool) -> Result<(), Bail> {
         c.set_reg(DX, 0xffff);
     }
     let dx = c.reg(DX);
-    c.set_word(0xbc, dx);
-    c.set_byte(0xcf, 0);
-    let v = c.byte(0xbf);
+    c.set_word(g::SPICE_DEMANDED, dx);
+    c.set_byte(g::SHIPMENT_DAYS_LEFT, 0);
+    let v = c.byte(g::SHIPMENT_FLAGS);
     let v = c.or(B, v as u16, 0x90);
-    c.set_byte(0xbf, v as u8);
+    c.set_byte(g::SHIPMENT_FLAGS, v as u8);
     c.set_reg(AX, 0x20b);
-    let be = c.byte(0xbe);
+    let be = c.byte(g::SHIPMENT_RATIO);
     c.cmp(B, be as u16, 0);
     if be & 0x80 == 0 {
         let ah = c.inc(B, 2);
@@ -4909,7 +4909,7 @@ pub fn spice_demand_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1dd4)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    let f = c.byte(0xbf);
+    let f = c.byte(g::SHIPMENT_FLAGS);
     if f & 0x80 == 0 {
         c.run(0x20a4, 3)?;
         return c.ret();
@@ -4917,10 +4917,10 @@ pub fn spice_demand_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x20a4, 3)?;
     c.call(0x1ac5, 0x20ae)?;
     let ax = c.reg(AX);
-    let day = c.word(0x118d);
+    let day = c.word(g::SHIPMENT_DUE);
     let d = ax.wrapping_sub(day);
     let pend = c.byte(0xc2);
-    let f = c.byte(0xbf);
+    let f = c.byte(g::SHIPMENT_FLAGS);
     let late = c.byte(0x11bb);
     if pend != 0 || f & 0x10 == 0 && late == 0 {
         // 2098h / 20C6h: the days left.
@@ -4934,7 +4934,7 @@ pub fn spice_demand_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if d != 0 {
             let a = pure::neg(W, a);
             c.set_reg(AX, a);
-            c.set_byte(0xcf, a as u8);
+            c.set_byte(g::SHIPMENT_DAYS_LEFT, a as u8);
         }
         return c.ret();
     }
@@ -4992,10 +4992,10 @@ fn new_demand(c: &mut Ctx, ax: u16, day: u16, f: u8) -> Result<(), Bail> {
     c.cmp(B, 0, 0);
     let a = c.sub(W, ax, day);
     c.set_reg(AX, a);
-    let k = c.byte(0xc3);
+    let k = c.byte(g::DEMANDS);
     c.set_reg8(r8::AL, k);
     let v = c.inc(B, k as u16);
-    c.set_byte(0xc3, v as u8);
+    c.set_byte(g::DEMANDS, v as u8);
     c.set_reg(BX, 0x96);
     c.mul16(0x96);
     let (ax, dx) = (c.reg(AX), c.reg(DX));
@@ -5008,7 +5008,7 @@ fn new_demand(c: &mut Ctx, ax: u16, day: u16, f: u8) -> Result<(), Bail> {
     let r = c.reg(AX).wrapping_add(0xe0);
     let p = r as u32 * cx as u32;
     let (pdx, pax) = ((p >> 16) as u16, p as u16);
-    let be = c.byte(0xbe);
+    let be = c.byte(g::SHIPMENT_RATIO);
     let sh = be << 1;
     let neg = be & 0x80 != 0;
     let mut n = 4u32;
@@ -5061,12 +5061,12 @@ fn new_demand(c: &mut Ctx, ax: u16, day: u16, f: u8) -> Result<(), Bail> {
         c.set_reg(DX, 0xffff);
     }
     let dx = c.reg(DX);
-    c.set_word(0xbc, dx);
-    c.set_byte(0xcf, 0);
-    let v = c.byte(0xbf);
+    c.set_word(g::SPICE_DEMANDED, dx);
+    c.set_byte(g::SHIPMENT_DAYS_LEFT, 0);
+    let v = c.byte(g::SHIPMENT_FLAGS);
     let v = c.or(B, v as u16, 0x90);
-    c.set_byte(0xbf, v as u8);
-    let be2 = c.byte(0xbe);
+    c.set_byte(g::SHIPMENT_FLAGS, v as u8);
+    let be2 = c.byte(g::SHIPMENT_RATIO);
     c.cmp(B, be2 as u16, 0);
     let mut ax = 0x20bu16;
     if be2 & 0x80 == 0 {
@@ -5287,7 +5287,7 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
         let k = c.byte(g::CURRENT_ROOM);
-        let f = c.word(0xc0) & c.word(0x1158);
+        let f = c.word(g::SHIPMENT_CHOSEN) & c.word(g::SHIPMENT_READY);
         let t = c.word(g::PRESENT);
         let call = k == 8 && f != 0 && t & 8 != 0;
         let n = 11 + if k != 8 { 0 } else if f == 0 { 3 } else { 5 } + call as u32;
