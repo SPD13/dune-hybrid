@@ -179,9 +179,9 @@ pub fn sub_11b3(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let day = pure::add(W, day, 3);
     c.set_reg(AX, day);
     c.set_word(g::ATTACK_DAY, day);
-    let v = c.byte(g::CHANCES);
+    let v = c.byte(g::ITEMS_OFFERED);
     let v = pure::inc(B, v as u16) as u8;
-    c.set_byte(g::CHANCES, v);
+    c.set_byte(g::ITEMS_OFFERED, v);
     c.ret()
 }
 
@@ -520,16 +520,16 @@ pub fn phase_64_for_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_023d5`: [9Dh] down by an eighth of it.
-pub fn decay_9d(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_023d5`: the haggle: [`g::SMUGGLER_PRICE`] down by an eighth of it.
+pub fn haggle_23d5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x23d5)?;
     let mut c = Ctx::new(m);
     c.run(start, 8)?;
-    let v = c.byte(0x9d) as u16;
+    let v = c.byte(g::SMUGGLER_PRICE) as u16;
     let e = pure::shr1(B, v, 3);
     let v = pure::sub(B, v, e);
     c.set_reg(AX, e << 8 | v);
-    c.set_byte(0x9d, v as u8);
+    c.set_byte(g::SMUGGLER_PRICE, v as u8);
     c.ret()
 }
 
@@ -542,9 +542,9 @@ pub fn move_a0_to_1172(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.word(g::SPICE);
     let v = pure::sub(W, v, ax);
     c.set_word(g::SPICE, v);
-    let w = c.word(g::SPICE_SHIPPED);
+    let w = c.word(g::SPICE_PAID);
     let w = pure::add(W, w, ax);
-    c.set_word(g::SPICE_SHIPPED, w);
+    c.set_word(g::SPICE_PAID, w);
     c.ret()
 }
 
@@ -971,10 +971,11 @@ pub fn redraw_1c18(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0235f`: the 11h-byte record at SI made current (at [10B4h]): its
-/// bytes 2, 1 to [1Ch], [1Dh], word 0Eh to [20h], and [1Fh] = the days
-/// since its byte 10h (when word 0Eh is set; else 0).
-pub fn select_record_235f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0235f`: the smuggler at SI ([`g::SMUGGLERS`]) made current (at
+/// [10B4h]): its bytes 2, 1 to [`g::SMUGGLER_FLAGS`],
+/// [`g::SMUGGLER_PATIENCE`], its debt (word 0Eh) to [`g::SMUGGLER_DEBT`],
+/// and [`g::DEBT_DAYS`] the days since its byte 10h (0 without a debt).
+pub fn select_smuggler_235f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x235f)?;
     let mut c = Ctx::new(m);
     let si = c.reg(SI);
@@ -983,10 +984,10 @@ pub fn select_record_235f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_character(13, |t| t.word_0c = si);
     let b2 = c.byte(si.wrapping_add(2));
     c.set_reg8(r8::AL, b2);
-    c.set_byte(0x1c, b2);
+    c.set_byte(g::SMUGGLER_FLAGS, b2);
     c.set_reg(AX, w);
-    c.set_word(0x20, w);
-    c.set_byte(0x1f, 0);
+    c.set_word(g::SMUGGLER_DEBT, w);
+    c.set_byte(g::DEBT_DAYS, 0);
     if w != 0 {
         c.call(code::GET_INGAME_DAY_Q, 0x237b)?;
         c.run(0x237b, 2)?;
@@ -995,26 +996,28 @@ pub fn select_record_235f(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let b = c.byte(si.wrapping_add(0x10));
         let d = pure::sub(B, al as u16, b as u16) as u8;
         c.set_reg8(r8::AL, d);
-        c.set_byte(0x1f, d);
+        c.set_byte(g::DEBT_DAYS, d);
     }
     c.run(0x2381, 3)?;
     let si = c.reg(SI);
     let b1 = c.byte(si.wrapping_add(1));
     c.set_reg8(r8::AL, b1);
-    c.set_byte(0x1d, b1);
+    c.set_byte(g::SMUGGLER_PATIENCE, b1);
     c.ret()
 }
 
-/// `loc_02318`: the record from 10D8h (11h bytes each) whose byte 0 is
-/// the byte at DI made current (`loc_0235f`); [1Eh] = the days since its
-/// byte 3 (1 the first time, marking bit 8 of byte 2); [9Dh], [9Fh]
-/// cleared; [11F1h] = 0E8h + the low 3 bits of [0] modulo [1141h].
-pub fn select_record_2318(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_02318`: a visit to a smuggler: the one of [`g::SMUGGLERS`] whose
+/// byte 0 is the byte at DI (the location's) made current (`loc_0235f`);
+/// [`g::SMUGGLER_DAYS_AWAY`] the days since its byte 3 (1 the first
+/// time, marking bit 8 of byte 2); the price and [9Fh] cleared;
+/// [`g::SMUGGLER_ITEM`] = 0E8h + the low 3 bits of [0] modulo
+/// [`g::ITEMS_OFFERED`].
+pub fn visit_smuggler_2318(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2318)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
     let key = c.byte(di);
-    let mut si = 0x10c7u16;
+    let mut si = g::SMUGGLERS - 0x11;
     let mut k = 0;
     loop {
         si = si.wrapping_add(0x11);
@@ -1025,7 +1028,7 @@ pub fn select_record_2318(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, 2 + 3 * k + 1)?;
     c.set_reg8(r8::AL, key);
-    let mut s = 0x10c7u16;
+    let mut s = g::SMUGGLERS - 0x11;
     loop {
         s = pure::add(W, s, 0x11);
         let v = c.byte(s);
@@ -1041,7 +1044,7 @@ pub fn select_record_2318(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(si.wrapping_add(2));
     let first = f & 8 == 0;
     let m0 = c.word(0) & 7;
-    let modulus = c.byte(0x1141) as u16;
+    let modulus = c.byte(g::ITEMS_OFFERED) as u16;
     if modulus == 0 {
         c.m.cpu.ip = 0x232a;
         return Err(Bail);
@@ -1062,8 +1065,8 @@ pub fn select_record_2318(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(si.wrapping_add(2), f as u8);
     }
     c.set_reg8(r8::AL, d);
-    c.set_byte(0x1e, d);
-    c.set_byte(0x9d, 0);
+    c.set_byte(g::SMUGGLER_DAYS_AWAY, d);
+    c.set_byte(g::SMUGGLER_PRICE, 0);
     let w = c.word(0);
     let mut ax = pure::and(W, w, 7);
     loop {
@@ -1075,46 +1078,47 @@ pub fn select_record_2318(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let ax = pure::add(W, ax, 0xe8);
     c.set_reg(AX, ax);
-    c.set_word(0x11f1, ax);
+    c.set_word(g::SMUGGLER_ITEM, ax);
     c.set_byte(0x9f, 0);
     c.ret()
 }
 
-/// `loc_023e6`: the record at DI loses bits 60h of byte 2; [9Dh] (taken,
-/// cleared) added to [20h] and its word 0Eh (one more at [22h] when that
-/// was 0); its byte 10h = the day; and the stock moves: the record's byte
-/// 4 + i one down, the location [114Eh]'s byte 14h + i one up (i =
-/// [11F1h] - 0E8h).
-pub fn take_record_23e6(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_023e6`: the item bought from the smuggler at DI, on credit: its
+/// byte 2 loses bits 60h; the price (taken, cleared) added to
+/// [`g::SMUGGLER_DEBT`] and its word 0Eh (one more of [`g::DEBTS`] when
+/// that was 0); its byte 10h = the day; and the item moves: the
+/// smuggler's byte 4 + i one down, the location [114Eh]'s byte 14h + i
+/// one up (i = [`g::SMUGGLER_ITEM`] - 0E8h).
+pub fn buy_from_smuggler_23e6(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x23e6)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
-    let gain = c.byte(0x9d) as u16;
-    let w = c.word(di.wrapping_add(0x0e)).wrapping_add(gain);
-    let new = w == gain;
+    let price = c.byte(g::SMUGGLER_PRICE) as u16;
+    let w = c.word(di.wrapping_add(0x0e)).wrapping_add(price);
+    let new = w == price;
     c.run(start, 7 + new as u32 + 1)?;
     let f = c.byte(di.wrapping_add(2));
     let f = pure::and(B, f as u16, 0x9f);
     c.set_byte(di.wrapping_add(2), f as u8);
-    c.set_byte(0x9d, 0);
-    c.set_reg(AX, gain);
-    let v = c.word(0x20);
-    let v = pure::add(W, v, gain);
-    c.set_word(0x20, v);
+    c.set_byte(g::SMUGGLER_PRICE, 0);
+    c.set_reg(AX, price);
+    let v = c.word(g::SMUGGLER_DEBT);
+    let v = pure::add(W, v, price);
+    c.set_word(g::SMUGGLER_DEBT, v);
     let v = c.word(di.wrapping_add(0x0e));
-    let v = pure::add(W, v, gain);
+    let v = pure::add(W, v, price);
     c.set_word(di.wrapping_add(0x0e), v);
     if new {
-        let b = c.byte(0x22);
+        let b = c.byte(g::DEBTS);
         let b = pure::inc(B, b as u16);
-        c.set_byte(0x22, b as u8);
+        c.set_byte(g::DEBTS, b as u8);
     }
     c.call(code::GET_INGAME_DAY_Q, 0x2403)?;
     c.run(0x2403, 8)?;
     let di = c.reg(DI);
     let al = c.reg8(r8::AL);
     c.set_byte(di.wrapping_add(0x10), al);
-    let i = c.word(0x11f1);
+    let i = c.word(g::SMUGGLER_ITEM);
     let i = pure::sub(W, i, 0xe8);
     c.set_reg(AX, i);
     c.set_reg(BX, i);
@@ -3235,15 +3239,15 @@ pub fn note_pair_0(m: &mut Machine, start: u16) -> Result<(), Bail> {
     note_pair(c.m, 0x29f0)
 }
 
-/// `sub_1166`: [1141h] counted, record FD8h's byte 10h 2 (word 12h
+/// `sub_1166`: [`g::ITEMS_OFFERED`] counted, record FD8h's byte 10h 2 (word 12h
 /// 180h), then pair 105h ([`note_pair_0`]).
 pub fn event_105(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1166)?;
     let mut c = Ctx::new(m);
     c.run(start, 5)?;
-    let v = c.byte(0x1141);
+    let v = c.byte(g::ITEMS_OFFERED);
     let v = pure::inc(B, v as u16);
-    c.set_byte(0x1141, v as u8);
+    c.set_byte(g::ITEMS_OFFERED, v as u8);
     c.update_character(1, |t| t.x = t.x & 0xff00 | 2);
     c.update_character(1, |t| t.y = 0x180);
     c.set_reg(AX, 0x105);
@@ -3974,7 +3978,7 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0x46, w);
     let a = pure::add(W, w & 0xff, 0xe8);
     c.set_reg(AX, a);
-    c.set_word(0x11f1, a);
+    c.set_word(g::SMUGGLER_ITEM, a);
     c.call(0x693b, 0x3279)?;
     c.run(0x3279, 8)?;
     let ax = c.reg(AX);

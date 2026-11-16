@@ -952,7 +952,7 @@ pub fn totals_c02e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xc02e, 1)?;
     c.call(0xbfe3, 0xc031)?;
-    let (spice, shipped, at_start, gained) = (c.word(g::SPICE), c.word(g::SPICE_SHIPPED), c.word(g::PHASE_START_SPICE), c.word(g::SPICE_GAINED));
+    let (spice, shipped, at_start, gained) = (c.word(g::SPICE), c.word(g::SPICE_PAID), c.word(g::PHASE_START_SPICE), c.word(g::SPICE_GAINED));
     let s = spice.wrapping_add(shipped);
     let (d, borrow) = s.overflowing_sub(at_start);
     let cap = if borrow { 0 } else { d };
@@ -1669,13 +1669,13 @@ pub fn sky_380c(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_01c46`: a day passes. The days in the same phase [0FFh] (reset
 /// when [2Ah] changed, [0FEh] the last); `loc_01d66`, `loc_01e43`; [0D5h]
-/// up from 1; the spice: [0A6h] = [0A0h] + the harvest [1172h] - the
-/// sold [1170h] (both taken, 0 below), its change against [0AEh] (kept)
-/// as a gain [0B2h] or a loss [0B0h]; `loc_01cda`, the totals
+/// up from 1; the spice: [`g::SPICE_GAINED`] = [`g::SPICE`] + [`g::SPICE_PAID`]
+/// - [`g::PHASE_START_SPICE`] (both taken, 0 below), its change against
+/// [`g::SPICE_GAINED_BEFORE`] (kept) as a gain [0B2h] or a loss [0B0h]; `loc_01cda`, the totals
 /// (`loc_0c02e`, `loc_0bf26`); then with a random word (`loc_0e3cc`)
-/// each troop record from 10D8h (11h bytes, below kind 14h) with bit 3
-/// of +2 gets, for its five slots without a value but with +9 negative,
-/// the next 2 random bits.
+/// each smuggler ([`g::SMUGGLERS`], those with byte 0 below 14h) met (bit 3 of +2)
+/// gets, for each of its five items out of stock but sold there (+9
+/// negative), a new stock of the next 2 random bits.
 pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::SS;
     entered(start, 0x1c46)?;
@@ -1697,7 +1697,7 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1c5f, 1)?;
     c.call(0x1e43, 0x1c62)?;
     let d = c.byte(0xd5).wrapping_add(1);
-    let (shipped, spice, at_start, before) = (c.word(g::SPICE_SHIPPED), c.word(g::SPICE), c.word(g::PHASE_START_SPICE), c.word(g::SPICE_GAINED_BEFORE));
+    let (shipped, spice, at_start, before) = (c.word(g::SPICE_PAID), c.word(g::SPICE), c.word(g::PHASE_START_SPICE), c.word(g::SPICE_GAINED_BEFORE));
     let s = shipped.wrapping_add(spice);
     let (stock, borrow) = s.overflowing_sub(at_start);
     let stock = if borrow { 0 } else { stock };
@@ -1709,7 +1709,7 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if d >= 2 {
         c.set_byte(0xd5, d);
     }
-    c.set_word(g::SPICE_SHIPPED, 0);
+    c.set_word(g::SPICE_PAID, 0);
     c.set_reg(BX, spice);
     let v = pure::add(W, shipped, spice);
     c.set_word(g::PHASE_START_SPICE, spice);
@@ -1739,7 +1739,7 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1ca9, 2)?;
     let mut bx = c.reg(AX);
     c.set_reg(BX, bx);
-    let mut si = 0x10d8u16;
+    let mut si = g::SMUGGLERS;
     c.set_reg(SI, si);
     loop {
         let f = c.byte(si.wrapping_add(2));

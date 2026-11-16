@@ -65,9 +65,9 @@ pub const SHIPMENT_DAYS_LEFT: u16 = 0x00cf;
 pub const SHIPMENT_READY: u16 = 0x1158;
 /// The spice in stock when the phase began (1C7Ah).
 pub const PHASE_START_SPICE: u16 = 0x1170;
-/// The spice shipped to the Emperor this phase (2528h; cleared at
-/// 1C70h).
-pub const SPICE_SHIPPED: u16 = 0x1172;
+/// The spice paid out this phase: shipped to the Emperor or paid to a
+/// smuggler (`loc_02524`, 2528h; cleared at 1C70h).
+pub const SPICE_PAID: u16 = 0x1172;
 /// The day the shipment is due (2093h; put back by a good one,
 /// 25BDh).
 pub const SHIPMENT_DUE: u16 = 0x118d;
@@ -80,6 +80,42 @@ pub const MESSAGE_COUNT: u16 = 0x00c8;
 /// How many of them are unread (up as one comes, 2713h; down as one
 /// is read, 2941h).
 pub const UNREAD_MESSAGES: u16 = 0x00c9;
+/// The smugglers: six records of 11h bytes. Byte 0 the location's
+/// byte 0 where it is; 1 its patience ([`SMUGGLER_PATIENCE`]); 2 bits
+/// (8: met, 20h/40h how the last talk ended); 3 the day of the last
+/// visit; 4..8 how many of each of the five items it has (refilled
+/// each day, `loc_01c46`); 9..0Dh their prices (halved, 80h: sold
+/// there); word 0Eh the spice owed it; 10h the day the debt began. The
+/// current one is at [10B4h], character 13's word 0Ch.
+pub const SMUGGLERS: u16 = 0x10d8;
+/// The current smuggler's byte 2, for the dialogue's conditions
+/// (`loc_0235f`).
+pub const SMUGGLER_FLAGS: u16 = 0x001c;
+/// The current smuggler's byte 1: how many answers it stands haggling
+/// before it breaks off, the price then 0 (2483h).
+pub const SMUGGLER_PATIENCE: u16 = 0x001d;
+/// The days since the player last visited the current smuggler
+/// (its byte 3; 1 the first time, 2339h).
+pub const SMUGGLER_DAYS_AWAY: u16 = 0x001e;
+/// The days since the player went into debt with the current smuggler
+/// (its byte 10h; 0 without a debt, 237Eh).
+pub const DEBT_DAYS: u16 = 0x001f;
+/// The spice owed to the current smuggler (its word 0Eh; a purchase adds
+/// to both, 23F0h).
+pub const SMUGGLER_DEBT: u16 = 0x0020;
+/// How many smugglers the player owes spice (23FCh; one less when paid,
+/// 2520h).
+pub const DEBTS: u16 = 0x0022;
+/// The price asked for [`SMUGGLER_ITEM`] (twice the smuggler's byte
+/// 9 + i, 23D1h), an eighth off each time it is haggled (23D5h).
+pub const SMUGGLER_PRICE: u16 = 0x009d;
+/// The equipment offered: 0E8h + its index i (0 the ornithopter, then
+/// the krys knives, laser guns, weirding modules, atomics), its name
+/// the command phrase of that number.
+pub const SMUGGLER_ITEM: u16 = 0x11f1;
+/// How many kinds of equipment the smugglers sell (counted up by two
+/// events, 1166h and 11C6h).
+pub const ITEMS_OFFERED: u16 = 0x1141;
 /// Sietches discovered.
 pub const SIETCHES_FOUND: u16 = 0x0027;
 /// How many have joined you ([28h]).
@@ -96,7 +132,8 @@ pub const EVENT_FLAGS: u16 = 0x000a;
 /// Talking-head animation step (counted down by `ui_head_animate_down`).
 pub const HEAD_ANIMATION_STEP: u16 = 0x00e8;
 pub const BYTE_0FE8: u16 = 0x0fe8;
-/// The chance of an event, by the location's byte 0 (`troop_event_roll`).
+/// The chance of an event, by the location's byte 0 (1..; `troop_event_roll`;
+/// [`ITEMS_OFFERED`] is at its index 0).
 pub const CHANCES: u16 = 0x1141;
 /// The day from which `pick_attack_location` picks ([1156h]).
 pub const ATTACK_DAY: u16 = 0x1156;

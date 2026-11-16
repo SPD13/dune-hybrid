@@ -47,7 +47,8 @@ pub struct Character {
     /// +0Ah: when it left the party (9556h; out of it the mood counts
     /// from it).
     pub left_at: u16,
-    /// +0Ch.
+    /// +0Ch: for character 13, the smuggler being talked to (its record
+    /// in [`g::SMUGGLERS`], [10B4h]).
     pub word_0c: u16,
     /// +0Eh: its number, its bit in the sets [`g::MET`], [`g::PARTY`],
     /// [`g::PRESENT`] and [`g::TALKED_HERE`] (0Eh: none).

@@ -540,14 +540,24 @@ location bit 2 is what `sub_1dd7` sets when they take one) and
 (was `MAP_VIEW_FLAG`: counted up while the intro, the end video and two
 scenes play full screen), [FBh] `MAP_INTERFACE`, [C6h] `BOOK`, [EAh]
 `EVENT_KIND`, [46D9h] `COMM_CALLER` (the character waiting to call on
-the communicator, 80h while the call is on). Open: the six records of
-11h bytes at 10D8h (keyed by a location's byte 0, five slots filled at
-random each day; the current one at [10B4h]). DCE4h-DCFFh, 4710h-476Fh and 4770h-4783h / 47D4h-47EFh are
-mixes.
+the communicator, 80h while the call is on). DCE4h-DCFFh, 4710h-476Fh
+and 4770h-4783h / 47D4h-47EFh are mixes.
+
+The six records of 11h bytes at 10D8h, once taken for troops, are the
+smugglers (`SMUGGLERS`): the five slots are the five kinds of
+equipment they sell (0E8h + the slot is the command phrase naming it,
+the ornithopter first), restocked each day, with their prices beside
+them; the current one is at [10B4h] (character 13's word 0Ch). Named
+with them: [9Dh] `SMUGGLER_PRICE` (an eighth off each haggle,
+`haggle_23d5`), [11F1h] `SMUGGLER_ITEM`, [1Ch]-[20h] the current
+smuggler's bits, patience, days since the last visit, days in debt and
+the spice owed (`SMUGGLER_DEBT`: a purchase is on credit,
+`buy_from_smuggler_23e6`), [22h] `DEBTS`, [1141h] `ITEMS_OFFERED`
+(index 0 of `CHANCES`).
 
 The spice and the Emperor's demands are named too: [A0h] `SPICE` in
 stock, [A6h]/[AEh] the spice gained this phase and the one before,
-[1170h] the stock when the phase began, [1172h] `SPICE_SHIPPED` this
+[1170h] the stock when the phase began, [1172h] `SPICE_PAID` (to the Emperor or a smuggler) this
 phase; [BCh] `SPICE_DEMANDED`, [B4h] the four amounts offered,
 [C0h] the one chosen, [BEh] `SHIPMENT_RATIO` (shipped × 80h ÷
 demanded), [BFh] the shipment's bits, [C3h] `DEMANDS` made, [118Dh]

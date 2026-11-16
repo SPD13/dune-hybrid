@@ -396,7 +396,7 @@ fn sal_end(c: &mut Ctx) -> Result<(), Bail> {
 /// `loc_02566`: the spice shipped to the Emperor (AX, the amount
 /// chosen, [`g::SHIPMENT_CHOSEN`]; called at 35E0h). The location 1008h's
 /// state (`loc_040e6`, AX kept), `loc_02524` taking it from
-/// [`g::SPICE`] into [`g::SPICE_SHIPPED`]; [`g::SHIPMENT_RATIO`] the
+/// [`g::SPICE`] into [`g::SPICE_PAID`]; [`g::SHIPMENT_RATIO`] the
 /// amount's share of [`g::SPICE_DEMANDED`] (AX x 100h / it, below 200h,
 /// halved, at least 1); the days BX (7 from C0h, 6 above 80h, 5 at 80h,
 /// 4 below; at 4, the ratio 0 when bit 8 of [`g::SHIPMENT_FLAGS`])

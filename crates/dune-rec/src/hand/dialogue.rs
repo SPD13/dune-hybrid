@@ -875,7 +875,7 @@ pub fn number_words(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, if kind == 0x38 { 6 } else { 8 })?;
     c.set_reg(SI, record);
-    let number = if kind == 0x38 { c.word(0x20) } else { c.byte(0x9d) as u16 };
+    let number = if kind == 0x38 { c.word(g::SMUGGLER_DEBT) } else { c.byte(g::SMUGGLER_PRICE) as u16 };
     c.set_reg(AX, number);
     c.call(0x8a23, 0x9b1f)?;
     c.run(0x9b1f, 4)?;
