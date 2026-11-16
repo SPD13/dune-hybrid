@@ -269,7 +269,7 @@ pub fn update_screen_at_sprite_rect_updating_head(m: &mut Machine, start: u16) -
 pub fn sub_c4dd(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc4dd)?;
     let mut c = Ctx::new(m);
-    let y = c.word(g::MOUSE_Y);
+    let y = c.mouse_state().y;
     let above = y < 0x98;
     c.run(start, 3 + above as u32)?;
     c.set_reg(AX, y);

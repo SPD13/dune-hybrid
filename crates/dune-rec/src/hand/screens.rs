@@ -372,8 +372,8 @@ pub fn move_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::CALL_RESTORE_CURSOR, 0xdb06)?;
     c.run(0xdb06, 3)?;
     let (dx, bx) = (c.reg(pc::cpu::DX), c.reg(BX));
-    c.set_word(g::MOUSE_X, dx);
-    c.set_word(g::MOUSE_Y, bx);
+    c.update_mouse_state(|t| t.x = dx);
+    c.update_mouse_state(|t| t.y = bx);
     c.call(0xdae3, 0xdb11)?;
     c.run(0xdb11, 1)?;
     super::mouse::draw_mouse(c.m, 0xdbec)
@@ -592,8 +592,8 @@ pub fn cursor_over_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0xc46f, 0x4b38)?;
         c.run(0x4b38, 1)?;
     }
-    let y = c.word(g::CURSOR_Y);
-    let shown = c.byte(g::CURSOR_SHOWN);
+    let y = c.mouse_state().cursor[1];
+    let shown = c.mouse_state().cursor_shown;
     let after = shown.wrapping_sub(1);
     let n = if y >= 0x98 { 4 } else if y >= 0x88 { 5 } else if after & 0x80 != 0 { 8 } else { 9 };
     c.run(0xdbca, n)?;
@@ -605,9 +605,9 @@ pub fn cursor_over_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return super::mouse::call_restore_cursor(c.m, 0xdbb2);
     }
     let v = pure::dec(B, shown as u16) as u8;
-    c.set_byte(g::CURSOR_SHOWN, v);
+    c.update_mouse_state(|t| t.cursor_shown = v);
     if v & 0x80 == 0 {
-        c.set_byte(g::CURSOR_SHOWN, 0x80);
+        c.update_mouse_state(|t| t.cursor_shown = 0x80);
     }
     c.ret()
 }
@@ -1349,7 +1349,7 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if mode == 0 {
         c.call(0x3090, 0x2edd)?;
     }
-    let y = c.word(g::MOUSE_Y);
+    let y = c.mouse_state().y;
     if y >= 0x74 {
         c.m.cpu.ip = 0x2edd;
         return Err(Bail);

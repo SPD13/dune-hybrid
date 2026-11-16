@@ -1183,8 +1183,8 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     c.run(0xc6ad, 1)?;
     c.call(0xc13b, 0xc6b0)?;
     let si = c.reg(SI);
-    let k = c.byte(0xdc46);
-    let (my, mx) = (c.word(0xdc44), c.word(0xdc42));
+    let k = c.mouse_state().cursor_shown;
+    let (my, mx) = (c.mouse_state().cursor[1], c.mouse_state().cursor[0]);
     let r: Vec<u16> = (0..4).map(|i| c.word(si.wrapping_add(2 * i))).collect();
     let bx0 = r[0] & 0x0fff;
     let lt = |a: u16, b: u16| (a as i16) < (b as i16);

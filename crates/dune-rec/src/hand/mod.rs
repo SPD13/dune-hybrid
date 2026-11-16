@@ -40,6 +40,7 @@ pub mod map_selection;
 pub mod flight;
 pub mod typed_message;
 pub mod screen_buffers;
+pub mod mouse_state;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1554,6 +1555,14 @@ impl Ctx<'_> {
     }
     /// The screen buffers changed by `f` (written through).
     fn update_screen_buffers(&mut self, f: impl FnOnce(&mut screen_buffers::ScreenBuffers)) {
+        record_table::update_single(self, f)
+    }
+    /// The mouse and its cursor (Rust state, see [`mouse_state`]), in step with the memory.
+    fn mouse_state(&mut self) -> mouse_state::MouseState {
+        record_table::single(self)
+    }
+    /// The mouse and its cursor changed by `f` (written through).
+    fn update_mouse_state(&mut self, f: impl FnOnce(&mut mouse_state::MouseState)) {
         record_table::update_single(self, f)
     }
     /// The game time ([2]).

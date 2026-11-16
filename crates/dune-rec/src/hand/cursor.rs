@@ -1027,7 +1027,7 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
 /// D410h: the hover highlight at the mouse.
 fn slots_end(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xd410, 3)?;
-    let (x, y) = (c.word(g::MOUSE_X), c.word(g::MOUSE_Y));
+    let (x, y) = (c.mouse_state().x, c.mouse_state().y);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     highlight_hovered_text_action_item(c.m, 0xd50f)

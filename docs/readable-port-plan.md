@@ -464,6 +464,12 @@ back buffer [DC32h] apart). The most used word of all the ports
 (`active`, [DBDAh]); the generated code switches it often (counted
 apart). `screen buffers:` in the output.
 
+The mouse and its cursor (`hand/mouse_state.rs`, 14h bytes at DC34h:
+the buttons and the buttons last returned, the position, the range,
+where the cursor was drawn, the hide count, hidden for a rect) the same
+way; the driver's callback writes it (counted with the generated
+code). `mouse:` in the output.
+
 ## Tools in place
 
 | Tool | What it checks |

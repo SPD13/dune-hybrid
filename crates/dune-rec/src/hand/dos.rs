@@ -1085,7 +1085,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.interp(0xe640, 0xe644)?;
     c.run(0xe644, 7)?;
     c.set_word(0xdc48, 0x271c);
-    c.set_byte(0xdc46, 0xff);
+    c.update_mouse_state(|t| t.cursor_shown = 0xff);
     c.set_reg(AX, 0);
     c.set_reg(BX, 0xc7);
     c.set_reg(CX, 0);

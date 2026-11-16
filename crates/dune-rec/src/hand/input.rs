@@ -35,15 +35,15 @@ pub fn mouse_stuff(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xdb4c)?;
     let mut c = Ctx::new(m);
     c.run(start, 11)?;
-    let state = c.word(g::MOUSE_BUTTONS);
+    let state = c.mouse_state().buttons_word();
     let buttons = pure::and(B, state & 0xff, 3);
-    c.set_byte(g::MOUSE_BUTTONS_SEEN, buttons as u8);
+    c.update_mouse_state(|t| t.buttons_seen = buttons as u8);
     let changed = pure::xor(B, state >> 8, buttons);
     let changed = pure::add(B, changed, changed);
     let changed = pure::add(B, changed, changed);
     let al = pure::or(B, buttons, changed);
     c.set_reg(AX, al);
-    let (x, y) = (c.word(g::MOUSE_X), c.word(g::MOUSE_Y));
+    let (x, y) = (c.mouse_state().x, c.mouse_state().y);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     c.ret()
@@ -135,8 +135,8 @@ pub fn move_cursor_by(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xdaaf)?;
     let mut c = Ctx::new(m);
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    let b = [c.word(g::MOUSE_RANGE), c.word(0xdc3c), c.word(0xdc3e), c.word(0xdc40)];
-    let (x0, y0) = (c.word(g::MOUSE_X), c.word(g::MOUSE_Y));
+    let b = [c.mouse_state().range[0], c.mouse_state().range[1], c.mouse_state().range[2], c.mouse_state().range[3]];
+    let (x0, y0) = (c.mouse_state().x, c.mouse_state().y);
     let f = c.byte(g::CMD_ARGS);
     let mut n = 3;
     let mut clamp = |v: u16, lo: u16, hi: u16| -> u16 {
@@ -158,8 +158,8 @@ pub fn move_cursor_by(m: &mut Machine, start: u16) -> Result<(), Bail> {
     n += 7;
     let tell = f & 0x40 == 0;
     c.run(start, n + if tell { 8 } else { 1 })?;
-    c.set_word(g::MOUSE_X, x);
-    c.set_word(g::MOUSE_Y, y);
+    c.update_mouse_state(|t| t.x = x);
+    c.update_mouse_state(|t| t.y = y);
     c.set_reg(SI, 0xdc40);
     c.set_reg(AX, y);
     c.test(B, f as u16, 0x40);
@@ -200,7 +200,7 @@ pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let cx: u16 = if gap < 0x0c { 2 } else if gap < 0x18 { 1 } else { 0 };
     let (tx, ty) = (c.word(0xdc4c), c.word(0xdc4e));
-    let (cx0, cy0) = (c.word(g::MOUSE_X), c.word(g::MOUSE_Y));
+    let (cx0, cy0) = (c.mouse_state().x, c.mouse_state().y);
     let dx = tx.wrapping_sub(cx0);
     let dy = ty.wrapping_sub(cy0);
     let leg = |d: u16| -> u32 {
@@ -234,7 +234,7 @@ pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(0xdaaf, 0xd9ca)?;
     c.run(0xd9ca, 2)?;
-    c.set_byte(g::MOUSE_BUTTONS, 0);
+    c.update_mouse_state(|t| t.buttons = 0);
     mouse_stuff(c.m, 0xdb4c)
 }
 
@@ -537,14 +537,14 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DX, dx);
         c.set_reg(CX, ax);
         c.set_reg8(r8::AL, bx as u8 & 3);
-        c.set_word(g::MOUSE_X, ax);
-        c.set_word(g::MOUSE_Y, dx);
+        c.update_mouse_state(|t| t.x = ax);
+        c.update_mouse_state(|t| t.y = dx);
     }
     let f = c.byte(g::CMD_ARGS);
     let joy = f & 0x80 != 0;
     c.run(0xdf49, 3 + joy as u32)?;
     let al = c.reg8(r8::AL);
-    c.set_byte(g::MOUSE_BUTTONS, al);
+    c.update_mouse_state(|t| t.buttons = al);
     c.test(B, f as u16, 0x80); // `joystick_as_keys` reads them
     if joy {
         c.call(0xdd10, 0xdf56)?;
@@ -594,9 +594,9 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let old = c.byte(0xdc57);
     c.set_byte(0xdc57, a);
     let v = !old;
-    let s = c.byte(g::MOUSE_BUTTONS);
+    let s = c.mouse_state().buttons;
     let v = (v & s) | a;
-    c.set_byte(g::MOUSE_BUTTONS, v);
+    c.update_mouse_state(|t| t.buttons = v);
     c.set_reg(AX, ((a as u16) << 8) | v as u16);
     c.set_reg(AX, dx);
     let ax = dx | bx;
@@ -636,13 +636,13 @@ pub fn mouse_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let seg = c.word_in(CS, 0xea30);
     c.set_sreg(DS, seg);
     let (cx, dx) = (c.reg(CX), c.reg(DX));
-    c.set_word(g::MOUSE_X, cx);
-    c.set_word(g::MOUSE_Y, dx);
+    c.update_mouse_state(|t| t.x = cx);
+    c.update_mouse_state(|t| t.y = dx);
     let mut a = c.shr1(B, al as u16, 1);
     c.set_reg8(r8::AL, a as u8);
     if a != 0 {
         c.push(cx);
-        let mut cl = c.byte(g::MOUSE_BUTTONS) as u16;
+        let mut cl = c.mouse_state().buttons as u16;
         c.set_reg8(r8::CL, cl as u8);
         for k in 0..4 {
             a = c.shr1(B, a, 1);
@@ -657,7 +657,7 @@ pub fn mouse_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_reg8(r8::CL, cl as u8);
             }
         }
-        c.set_byte(g::MOUSE_BUTTONS, cl as u8);
+        c.update_mouse_state(|t| t.buttons = cl as u8);
         let v = c.pop();
         c.set_reg(CX, v);
     }

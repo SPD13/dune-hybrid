@@ -47,7 +47,7 @@ pub fn set_mouse_pos(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, 10)?;
     c.test(B, args as u16, 0x40);
-    let (x, y) = (c.word(g::MOUSE_X), c.word(g::MOUSE_Y));
+    let (x, y) = (c.mouse_state().x, c.mouse_state().y);
     let scale = c.word(g::MOUSE_SCALE);
     c.set_reg(CX, scale);
     let x = c.shl(W, x, scale as u8);
@@ -70,10 +70,8 @@ pub fn define_mouse_range(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let none = args & 0x40 != 0;
     c.run(start, if none { 8 } else { 11 })?;
     c.set_reg(DI, g::MOUSE_RANGE);
-    for (i, r) in [CX, DX, AX, BX].into_iter().enumerate() {
-        let v = c.reg(r);
-        c.set_word(g::MOUSE_RANGE + 2 * i as u16, v);
-    }
+    let range = [CX, DX, AX, BX].map(|r| c.reg(r));
+    c.update_mouse_state(|t| t.range = range);
     if none {
         return c.ret();
     }
@@ -105,7 +103,7 @@ pub fn define_mouse_range(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// only goes down from 0 or below), restoring what was under it if it was
 /// drawn (driver function 4). AX kept.
 fn hide(c: &mut Ctx) -> Result<(), Bail> {
-    let old = c.byte(g::CURSOR_SHOWN);
+    let old = c.mouse_state().cursor_shown;
     let lower = old.wrapping_sub(1);
     let stays = lower & 0x80 == 0;
     let drawn = old & 0x80 == 0;
@@ -114,10 +112,10 @@ fn hide(c: &mut Ctx) -> Result<(), Bail> {
     c.push(ax);
     c.set_reg8(r8::AL, old);
     let v = c.dec(B, old as u16) as u8;
-    c.set_byte(g::CURSOR_SHOWN, v);
+    c.update_mouse_state(|t| t.cursor_shown = v);
     if stays {
         let v = c.inc(B, v as u16) as u8;
-        c.set_byte(g::CURSOR_SHOWN, v);
+        c.update_mouse_state(|t| t.cursor_shown = v);
     }
     c.or(B, old as u16, old as u16);
     if drawn {
@@ -139,34 +137,34 @@ pub fn call_restore_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// it at the mouse position (driver function 3), noting where. Registers
 /// kept.
 fn show(c: &mut Ctx) -> Result<(), Bail> {
-    let old = c.byte(g::CURSOR_SHOWN);
+    let old = c.mouse_state().cursor_shown;
     let new = old.wrapping_add(1);
     if new & 0x80 != 0 {
         c.run(0xdbec, 3)?;
         let v = c.inc(B, old as u16) as u8;
-        c.set_byte(g::CURSOR_SHOWN, v);
+        c.update_mouse_state(|t| t.cursor_shown = v);
         return c.ret();
     }
     if new != 0 {
         c.run(0xdbec, 5)?;
         let v = c.inc(B, old as u16) as u8;
-        c.set_byte(g::CURSOR_SHOWN, v);
+        c.update_mouse_state(|t| t.cursor_shown = v);
         let v = c.dec(B, v as u16) as u8;
-        c.set_byte(g::CURSOR_SHOWN, v);
+        c.update_mouse_state(|t| t.cursor_shown = v);
         return c.ret();
     }
     c.run(0xdbec, 15)?;
     let v = c.inc(B, old as u16) as u8;
-    c.set_byte(g::CURSOR_SHOWN, v);
+    c.update_mouse_state(|t| t.cursor_shown = v);
     for r in [AX, BX, CX, DX, SI, DI, BP] {
         let v = c.reg(r);
         c.push(v);
     }
-    let (x, y) = (c.word(g::MOUSE_X), c.word(g::MOUSE_Y));
+    let (x, y) = (c.mouse_state().x, c.mouse_state().y);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
-    c.set_word(g::CURSOR_X, x);
-    c.set_word(g::CURSOR_Y, y);
+    c.update_mouse_state(|t| t.cursor[0] = x);
+    c.update_mouse_state(|t| t.cursor[1] = y);
     let image = c.word(g::MOUSE_CURSOR_IMAGE);
     c.set_reg(SI, image);
     c.interp(0xdc0f, 0xdc13)?;
@@ -189,7 +187,7 @@ pub fn draw_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn draw_mouse_cursor_if_needed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xdb67)?;
     let mut c = Ctx::new(m);
-    let hidden = c.byte(g::CURSOR_HIDDEN_FOR_RECT);
+    let hidden = c.mouse_state().hidden_for_rect;
     if hidden & 0x80 == 0 {
         c.run(start, 3)?;
         c.cmp(B, hidden as u16, 0);
@@ -198,7 +196,7 @@ pub fn draw_mouse_cursor_if_needed(m: &mut Machine, start: u16) -> Result<(), Ba
     c.run(start, 4)?;
     c.cmp(B, hidden as u16, 0);
     let v = c.inc(B, hidden as u16) as u8;
-    c.set_byte(g::CURSOR_HIDDEN_FOR_RECT, v);
+    c.update_mouse_state(|t| t.hidden_for_rect = v);
     show(&mut c)
 }
 
@@ -208,7 +206,7 @@ pub fn draw_mouse_cursor_if_needed(m: &mut Machine, start: u16) -> Result<(), Ba
 pub fn restore_mouse_if_rect_intersects(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xdb74)?;
     let mut c = Ctx::new(m);
-    let shown = c.byte(g::CURSOR_SHOWN);
+    let shown = c.mouse_state().cursor_shown;
     if shown & 0x80 != 0 {
         c.run(start, 3)?;
         return c.ret();
@@ -219,10 +217,10 @@ pub fn restore_mouse_if_rect_intersects(m: &mut Machine, start: u16) -> Result<(
     c.push(dx);
     let image = c.word(g::MOUSE_CURSOR_IMAGE);
     let (hx, hy) = (c.word(image), c.word(image.wrapping_add(2)));
-    let x0 = c.word(g::CURSOR_X);
+    let x0 = c.mouse_state().cursor[0];
     let x = pure::sub(W, x0, hx);
     let y = pure::neg(W, hy);
-    let y0 = c.word(g::CURSOR_Y);
+    let y0 = c.mouse_state().cursor[1];
     let y = pure::add(W, y, y0);
     let si = c.reg(SI);
     let (l, t, r, b) = (c.word(si), c.word(si + 2), c.word(si + 4), c.word(si + 6));
@@ -252,9 +250,9 @@ pub fn restore_mouse_if_rect_intersects(m: &mut Machine, start: u16) -> Result<(
         return c.ret();
     }
     c.count(n + 3);
-    let v = c.byte(g::CURSOR_HIDDEN_FOR_RECT);
+    let v = c.mouse_state().hidden_for_rect;
     let v = pure::dec(B, v as u16) as u8;
-    c.set_byte(g::CURSOR_HIDDEN_FOR_RECT, v);
+    c.update_mouse_state(|t| t.hidden_for_rect = v);
     hide(&mut c)
 }
 
@@ -269,15 +267,15 @@ pub fn redraw_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.reg(r);
         c.push(v);
     }
-    let (x, y) = (c.word(g::MOUSE_X), c.word(g::MOUSE_Y));
+    let (x, y) = (c.mouse_state().x, c.mouse_state().y);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     c.call(code::GET_MOUSE_CURSOR_IMAGE_ADDR, 0xdc32)?;
     let image = c.reg(BP);
     let before = c.word(g::MOUSE_CURSOR_IMAGE);
-    let shown = c.byte(g::CURSOR_SHOWN);
+    let shown = c.mouse_state().cursor_shown;
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    let (cx0, cy0) = (c.word(g::CURSOR_X), c.word(g::CURSOR_Y));
+    let (cx0, cy0) = (c.mouse_state().cursor[0], c.mouse_state().cursor[1]);
     let n = if shown & 0x80 != 0 {
         6
     } else if dx != cx0 {
@@ -294,7 +292,7 @@ pub fn redraw_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, before);
     c.xor(B, 0, 0);
     c.set_reg8(r8::AL, shown);
-    c.set_byte(g::CURSOR_SHOWN, 0);
+    c.update_mouse_state(|t| t.cursor_shown = 0);
     c.or(B, shown as u16, shown as u16);
     if shown & 0x80 == 0 {
         c.cmp(W, dx, cx0);
@@ -310,8 +308,8 @@ pub fn redraw_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.interp(0xdc52, 0xdc56)?; // restore under the old one
         }
         c.run(0xdc56, 2)?;
-        c.set_word(g::CURSOR_X, dx);
-        c.set_word(g::CURSOR_Y, bx);
+        c.update_mouse_state(|t| t.cursor[0] = dx);
+        c.update_mouse_state(|t| t.cursor[1] = bx);
         c.interp(0xdc5e, 0xdc62)?; // draw
         c.run(0xdc62, 8)?;
     }

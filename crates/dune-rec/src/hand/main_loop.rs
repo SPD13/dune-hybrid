@@ -381,7 +381,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
             if moved {
                 c.call(0xdbb2, 0xd8d1)?;
                 c.run(0xd8d1, 2)?;
-                let a = c.byte(g::MOUSE_BUTTONS_SEEN);
+                let a = c.mouse_state().buttons_seen;
                 c.set_reg8(r8::AL, a);
                 let si = c.reg(SI);
                 let h = c.word(si.wrapping_add(0x0a));
@@ -433,7 +433,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
             return release_at_d92b(c);
         }
         c.run(0xd952, 2)?;
-        let a = c.byte(g::MOUSE_BUTTONS_SEEN);
+        let a = c.mouse_state().buttons_seen;
         c.set_reg8(r8::AL, a);
         let si = c.reg(SI);
         let h = c.word(si.wrapping_add(6));
@@ -475,7 +475,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
     }
     let si = c.reg(SI);
     c.run(0xd90e, 2)?;
-    let a = c.byte(g::MOUSE_BUTTONS_SEEN);
+    let a = c.mouse_state().buttons_seen;
     c.set_reg8(r8::AL, a);
     let h = c.word(si.wrapping_add(2));
     c.call(h, 0xd914)?;
@@ -498,7 +498,7 @@ fn press_at_d935(c: &mut Ctx) -> Result<(), Bail> {
     let t = c.timer();
     c.set_reg(AX, t);
     c.set_word(0xdc5e, t);
-    let a = c.byte(g::MOUSE_BUTTONS_SEEN);
+    let a = c.mouse_state().buttons_seen;
     c.set_reg8(r8::AL, a);
     let di = c.reg(DI);
     let h = c.word(di.wrapping_add(0x0c));
