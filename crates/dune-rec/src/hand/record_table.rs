@@ -10,7 +10,8 @@
 //! sound (`hand/sound_state.rs`), the video playing
 //! (`hand/video_state.rs`), the player's travel (`hand/travel.rs`) and
 //! the font's pen (`hand/font_pen.rs`), these thirteen tables of one,
-//! and the two voice buffers (`hand/voice_buffers.rs`),
+//! the two voice buffers (`hand/voice_buffers.rs`) and the characters
+//! (`hand/characters.rs`),
 //! kept with the machine ([`super::native`]).
 //!
 //! Each record is cached the first time it is used. The views
@@ -75,10 +76,12 @@ pub enum Which {
     FontPen,
     /// The two voice buffers, 8 bytes each at 3811h.
     VoiceBuffers,
+    /// 10h characters of 10h bytes at FD8h.
+    Characters,
 }
 
 impl Which {
-    pub const ALL: [Which; 16] = [
+    pub const ALL: [Which; 17] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
@@ -95,6 +98,7 @@ impl Which {
         Which::Travel,
         Which::FontPen,
         Which::VoiceBuffers,
+        Which::Characters,
     ];
 
     pub fn name(self) -> &'static str {
@@ -115,6 +119,7 @@ impl Which {
             Which::Travel => "travel",
             Which::FontPen => "font pen",
             Which::VoiceBuffers => "voice buffers",
+            Which::Characters => "characters",
         }
     }
     /// Where the table starts in the game's data segment.
@@ -136,6 +141,7 @@ impl Which {
             Which::Travel => 0x11c1,
             Which::FontPen => 0xd82c,
             Which::VoiceBuffers => 0x3811,
+            Which::Characters => 0x0fd8,
         }
     }
     pub const fn size(self) -> u16 {
@@ -156,6 +162,7 @@ impl Which {
             Which::Travel => 0x0d,
             Which::FontPen => 8,
             Which::VoiceBuffers => 8,
+            Which::Characters => 0x10,
         }
     }
     pub const fn count(self) -> usize {
@@ -176,6 +183,7 @@ impl Which {
             Which::Travel => 1,
             Which::FontPen => 1,
             Which::VoiceBuffers => 2,
+            Which::Characters => 0x10,
         }
     }
     fn end(self) -> u16 {
@@ -219,6 +227,7 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::Travel => &mut n.travel,
         Which::FontPen => &mut n.font_pen,
         Which::VoiceBuffers => &mut n.voice_buffers,
+        Which::Characters => &mut n.characters,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];
@@ -308,8 +317,8 @@ pub(super) fn set(c: &mut Ctx, w: Which, i: usize, r: Bytes) {
 /// A table with a typed view of its records (the tables of one: the text
 /// box, the dialogue text, the conversation, the map view, the map's
 /// selection, the flight, the message typed out, the screen buffers, the
-/// mouse, the sound, the video, the travel, the font's pen; and the voice
-/// buffers): the view to and from a record's bytes. [`single`] and
+/// mouse, the sound, the video, the travel, the font's pen; the voice
+/// buffers and the characters): the view to and from a record's bytes. [`single`] and
 /// [`update_single`] keep a table of one; [`nth`],
 /// [`set_nth`] and [`update_nth`] record `i` of a longer one.
 pub(super) trait Single: Sized {

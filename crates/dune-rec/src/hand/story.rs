@@ -81,9 +81,9 @@ pub fn set_bit_1067(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x112d)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let bits = c.byte(g::BITS_1067);
+    let bits = c.character(8).flags;
     let bits = pure::or(B, bits as u16, 2) as u8;
-    c.set_byte(g::BITS_1067, bits);
+    c.update_character(8, |t| t.flags = bits);
     c.ret()
 }
 
@@ -145,7 +145,7 @@ pub fn sub_1011(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `mov byte [0FE8h], 9; ret` (101B).
 fn set_0fe8(c: &mut Ctx) -> Result<(), Bail> {
-    c.set_byte(g::BYTE_0FE8, 9);
+    c.update_character(1, |t| t.place = t.place & 0xff00 | 9);
     c.ret()
 }
 
@@ -169,7 +169,7 @@ pub fn sub_11b3(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x11b3)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    c.set_byte(g::BYTE_1038, 5);
+    c.update_character(6, |t| t.place = t.place & 0xff00 | 5);
     let v = c.byte(g::BYTE_11D0);
     let v = pure::add(B, v as u16, 0x0c) as u8;
     c.set_byte(g::BYTE_11D0, v);
@@ -394,8 +394,8 @@ pub fn go_to_phase_60(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x11db, 4)?;
     c.set_reg8(r8::DL, 2);
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    c.set_word(0x1048, dx);
-    c.set_word(0x104a, bx);
+    c.update_character(7, |t| t.place = dx);
+    c.update_character(7, |t| t.position = bx);
     c.ret()
 }
 
@@ -980,7 +980,7 @@ pub fn select_record_235f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     let w = c.word(si.wrapping_add(0x0e));
     c.run(start, if w == 0 { 8 } else { 9 })?;
-    c.set_word(0x10b4, si);
+    c.update_character(13, |t| t.word_0c = si);
     let b2 = c.byte(si.wrapping_add(2));
     c.set_reg8(r8::AL, b2);
     c.set_byte(0x1c, b2);
@@ -1450,8 +1450,8 @@ pub fn reset_records_3127(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x3157, 6)?;
         let (dx, bx) = (c.reg(DX), c.reg(BX));
-        c.set_word(0x10a8, dx);
-        c.set_word(0x10aa, bx);
+        c.update_character(13, |t| t.place = dx);
+        c.update_character(13, |t| t.position = bx);
         c.push(di);
         c.call(0x2318, 0x3169)?;
         c.run(0x3169, 2)?;
@@ -2677,7 +2677,7 @@ pub fn event_10b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1045)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_byte(0xfd8, 5);
+    c.update_character(0, |t| t.place = t.place & 0xff00 | 5);
     c.call(0x101b, 0x104d)?;
     c.run(0x104d, 2)?;
     c.set_reg(AX, 0x10b);
@@ -3215,11 +3215,11 @@ pub fn set_current_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn event_280a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x110f)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0xfe8);
+    let k = c.character(1).place as u8;
     c.run(start, if k == 8 { 4 } else { 6 })?;
     if k != 8 {
-        c.set_byte(0xfe8, 0x0a);
-        c.set_word(0xfea, 0x180);
+        c.update_character(1, |t| t.place = t.place & 0xff00 | 0x0a);
+        c.update_character(1, |t| t.position = 0x180);
     }
     c.set_reg(AX, 0x280a);
     note_event_at(&mut c)
@@ -3243,8 +3243,8 @@ pub fn event_105(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte(0x1141);
     let v = pure::inc(B, v as u16);
     c.set_byte(0x1141, v as u8);
-    c.set_byte(0xfe8, 2);
-    c.set_word(0xfea, 0x180);
+    c.update_character(1, |t| t.place = t.place & 0xff00 | 2);
+    c.update_character(1, |t| t.position = 0x180);
     c.set_reg(AX, 0x105);
     note_pair_0(c.m, 0x29ee)
 }
@@ -3344,10 +3344,10 @@ pub fn start_phase_15(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 8)?;
     c.set_byte(g::PHASE_CHANGED_FLAG, 0);
     c.set_byte(g::GAME_PHASE, 0x15);
-    c.set_byte(g::FLAG_0FDB, 1);
-    c.set_word(0x1018, 0x200b);
-    c.set_word(0x101a, 0x180);
-    c.set_byte(0xfe8, 0x0a);
+    c.update_character(0, |t| t.position = t.position & 0x00ff | 1 << 8);
+    c.update_character(4, |t| t.place = 0x200b);
+    c.update_character(4, |t| t.position = 0x180);
+    c.update_character(1, |t| t.place = t.place & 0xff00 | 0x0a);
     c.set_byte(0xd5, 0xff);
     c.call(0x2090, 0x1099)?;
     c.run(0x1099, 3)?;
@@ -3712,8 +3712,8 @@ pub fn event_2b0a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (dx, bx, di) = (c.reg(DX), c.reg(BX), c.reg(DI));
     let dx = dx & 0xff00 | 3;
     c.set_reg(DX, dx);
-    c.set_word(0x1048, dx);
-    c.set_word(0x104a, bx);
+    c.update_character(7, |t| t.place = dx);
+    c.update_character(7, |t| t.position = bx);
     let ax = (c.byte(di) as u16) << 8 | c.byte(di.wrapping_add(1)) as u16;
     c.set_word(0xf2, ax);
     c.set_reg(AX, 0x2b0a);

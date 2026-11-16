@@ -3177,7 +3177,7 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6c6f)?;
     let mut c = Ctx::new(m);
-    let w = c.word(0x101a);
+    let w = c.character(4).position;
     let at_place = w & 0xff == 0x80;
     c.run(start, if at_place { 11 } else { 6 })?;
     // Location (number - 1) × 1Ch + 100h, the number wrapping (0: 1CE4h).

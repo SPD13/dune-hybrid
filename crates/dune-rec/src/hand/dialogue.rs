@@ -3184,7 +3184,7 @@ pub fn setup_lip_sync_data_from_sprite_sheet(m: &mut Machine, start: u16) -> Res
 fn lip_sync_setup_at(c: &mut Ctx) -> Result<(), Bail> {
     use super::globals::SPRITE_SHEET;
     let talker = c.reg(AX);
-    let alt = talker == 0x0c && c.byte(0x10a7) & 0x10 != 0;
+    let alt = talker == 0x0c && c.character(12).flags & 0x10 != 0;
     c.run(0x91a0, if talker != 0x0c { 4 } else if alt { 7 } else { 6 })?;
     c.set_word(0xf0, if alt { 0x0a } else { 0 });
     c.call(0x9123, 0x91bb)?;
@@ -3269,7 +3269,7 @@ pub fn speaker_list_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
         cost += 4;
         (phrase, handler) = (0x9c, 0x9584);
     }
-    if !(special && c.byte(0x10a7) & 0x10 == 0) {
+    if !(special && c.character(12).flags & 0x10 == 0) {
         cost += 4;
         (phrase, handler) = (0x93, 0x5a03);
         if speaker != 0x0f {

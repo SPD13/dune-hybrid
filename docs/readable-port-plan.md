@@ -509,6 +509,16 @@ the original's code, so its writes showed as unforeseen. `Rec::
 generated_runs` now counts the drivers' lifted code and each step of
 the interpreter as well (nothing but the hand ports is left out).
 
+The characters (`hand/characters.rs`, 10h records of 10h bytes at
+FD8h, the talker's being FD8h + 10h × [47C4h]): where each is (its
+place word and position), where a click on it goes (+4, `jmp [si+4]`),
+two game times the speaker's mood counts from, +0Eh, and flag bits
+(+0Fh). `Ctx::character(i)` / `update_character(i, f)`; the fixed
+addresses into the table (some named `BYTE_0FD8`, `WORD_1018`, ..., now
+gone) go through it. Most ports still reach a record through SI
+(followed). Fields at +6, +0Ch and +0Eh are not understood yet.
+`characters:` in the output.
+
 Left, needing names before any grouping: the story state (DS:0-FFh: [0]
 the random seed, [4]/[6] the player's place and position, [8]/[9] the
 room, [0Ah] event bits, [23h] the talker's dialogue stage, [2Ah] the

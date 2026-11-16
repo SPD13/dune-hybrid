@@ -46,6 +46,7 @@ pub mod video_state;
 pub mod travel;
 pub mod font_pen;
 pub mod voice_buffers;
+pub mod characters;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1609,6 +1610,15 @@ impl Ctx<'_> {
     }
     /// Voice buffer `i` changed by `f` (written through).
     fn update_voice_buffer(&mut self, i: usize, f: impl FnOnce(&mut voice_buffers::VoiceBuffer)) {
+        record_table::update_nth(self, i, f)
+    }
+    /// Character `i` (Rust state, see [`characters`]), in step with the
+    /// memory.
+    fn character(&mut self, i: usize) -> characters::Character {
+        record_table::nth(self, i)
+    }
+    /// Character `i` changed by `f` (written through).
+    fn update_character(&mut self, i: usize, f: impl FnOnce(&mut characters::Character)) {
         record_table::update_nth(self, i, f)
     }
     /// The game time ([2]).

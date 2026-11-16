@@ -77,8 +77,8 @@ s, crlf = load('mod.rs')
 m = re.search(r'pub mod %s;\n' % Pf, s)
 assert m
 s = s[:m.end()] + 'pub mod %s;\n' % fld + s[m.end():]
-m = re.search(r'    fn update_%s\(&mut self[^\n]*\n[^\n]*\n    \}\n' % Pf, s)
-assert m
+# After the last table's `update_` method (`update_single` or `update_nth`).
+m = list(re.finditer(r'        record_table::update_(?:single|nth)\(self[^\n]*\n    \}\n', s))[-1]
 add = """    /// %s (Rust state, see [`%s`]), in step with the memory.
     fn %s(&mut self) -> %s::%s {
         record_table::single(self)

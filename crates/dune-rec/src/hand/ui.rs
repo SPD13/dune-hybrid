@@ -1626,7 +1626,7 @@ pub fn draw_character(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x127c, 0x3d5e)?;
     let cf = c.flag(CF);
     let mut al = if cf { 0x11 } else { c.reg8(r8::AL) };
-    let f = c.byte(0x10a7);
+    let f = c.character(12).flags;
     let swap = al == 0x0c && f & 0x10 != 0;
     let n = 1 + if cf { 2 } else { 0 } + 2 + if al == 0x0c { 2 + swap as u32 } else { 0 } + 4;
     c.run(0x3d5e, n)?;

@@ -115,7 +115,7 @@ pub fn sub_1053(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1053)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_byte(g::BYTE_0FD8, 0x0a);
+    c.update_character(0, |t| t.place = t.place & 0xff00 | 0x0a);
     c.set_reg(SI, 0x1069);
     discover_list(&mut c)
 }
@@ -129,11 +129,11 @@ pub fn sub_10be(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let time = c.game_time();
     c.set_reg(AX, time);
     c.set_word(g::WORD_1154, time);
-    c.set_word(g::WORD_1018, 0x2006);
-    c.set_word(g::WORD_0FF8, 0x2008);
-    c.set_word(g::WORD_0FFA, 0x0180);
-    c.set_byte(g::BYTE_0FE8, 0x0a);
-    c.set_word(g::WORD_0FEA, 0x0180);
+    c.update_character(4, |t| t.place = 0x2006);
+    c.update_character(2, |t| t.place = 0x2008);
+    c.update_character(2, |t| t.position = 0x0180);
+    c.update_character(1, |t| t.place = t.place & 0xff00 | 0x0a);
+    c.update_character(1, |t| t.position = 0x0180);
     c.set_word(g::WORD_1201, 0x0109);
     c.set_reg8(r8::AL, 0x14);
     c.call(code::INCREASE_CHARISMA_BY_AL, 0x10ec)?;
@@ -157,10 +157,10 @@ pub fn sub_1139(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x1313);
     c.call(code::SUB_1771, 0x1144)?;
     c.run(0x1144, 9)?;
-    let v = c.byte(g::BYTE_1057);
+    let v = c.character(7).flags;
     let v = pure::or(B, v as u16, 0x10);
     let v = pure::and(B, v, 0xfd) as u8;
-    c.set_byte(g::BYTE_1057, v);
+    c.update_character(7, |t| t.flags = v);
     let b = c.byte(g::JOINED);
     let b = pure::add(B, b as u16, 2) as u8;
     c.set_reg8(r8::AL, b);

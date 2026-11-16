@@ -32,7 +32,6 @@ pub const EVENT_FLAGS: u16 = 0x000a;
 /// Talking-head animation step (counted down by `ui_head_animate_down`).
 pub const HEAD_ANIMATION_STEP: u16 = 0x00e8;
 pub const BYTE_0FE8: u16 = 0x0fe8;
-pub const BYTE_1038: u16 = 0x1038;
 /// The chance of an event, by the location's byte 0 (`troop_event_roll`).
 pub const CHANCES: u16 = 0x1141;
 /// The day from which `pick_attack_location` picks ([1156h]).
@@ -41,17 +40,11 @@ pub const BYTE_11D0: u16 = 0x11d0;
 pub const COUNTER_122A: u16 = 0x122a;
 pub const BYTE_0FD8: u16 = 0x0fd8;
 pub const FLAG_0FDB: u16 = 0x0fdb;
-pub const WORD_0FEA: u16 = 0x0fea;
-pub const WORD_0FF8: u16 = 0x0ff8;
-pub const WORD_0FFA: u16 = 0x0ffa;
-pub const WORD_1018: u16 = 0x1018;
-pub const BYTE_1057: u16 = 0x1057;
 pub const WORD_1154: u16 = 0x1154;
 /// The count of [`g::JOINED`] from which `troop_joins` calls 121Fh.
 pub const JOINED_ENOUGH: u16 = 0x1178;
 pub const WORD_1201: u16 = 0x1201;
 pub const FLAG_0FFB: u16 = 0x0ffb;
-pub const BITS_1067: u16 = 0x1067;
 /// The troops: 68 records of 1Bh bytes.
 pub const TROOPS: u16 = 0x08aa;
 pub const TROOPS_END: u16 = 0x0fbb;
