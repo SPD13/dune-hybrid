@@ -33,8 +33,8 @@ pub struct Character {
     /// +0, +2: where it is, as the player's [4], [6] ([`g::PLAYER_X`]):
     /// a map position (x, y), or with 80h in y's low byte at the location
     /// whose index is y's high byte, x's low byte then its room (1..) and
-    /// its high byte a state (set from DH when the place changes hands,
-    /// `loc_06dbb`).
+    /// its high byte the location's kind (set again from DH when the
+    /// place changes hands, `loc_06dbb`).
     pub x: u16,
     pub y: u16,
     /// +4: where a click on it goes (`jmp [si+4]`, 923Dh).

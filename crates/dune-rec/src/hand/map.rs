@@ -6050,7 +6050,7 @@ pub fn zoom_legend(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x878c)?;
     let mut c = Ctx::new(m);
-    let t = c.byte(8);
+    let t = c.byte(g::PLACE_KIND);
     let b = c.byte(g::CURRENT_ROOM);
     let plain = t != 0xff && (t < 0x20 || b < 3);
     let mut ax = 0x40a7u16;

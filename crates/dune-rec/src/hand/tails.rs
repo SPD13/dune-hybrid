@@ -1115,7 +1115,7 @@ pub fn people_6dbb(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let ax = c.reg(AX);
         c.update_player(|p| p.x = ax);
         c.set_byte(g::CURRENT_ROOM, ax as u8);
-        c.set_byte(8, (ax >> 8) as u8);
+        c.set_byte(g::PLACE_KIND, (ax >> 8) as u8);
     }
     let v = c.pop();
     c.set_reg(SI, v);

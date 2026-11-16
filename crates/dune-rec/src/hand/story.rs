@@ -3200,7 +3200,7 @@ pub fn set_current_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (dx, bx) = (c.reg(DX), c.reg(BX));
     c.update_player(|p| p.x = dx);
     c.update_player(|p| p.y = bx);
-    c.set_byte(8, (dx >> 8) as u8);
+    c.set_byte(g::PLACE_KIND, (dx >> 8) as u8);
     c.set_reg8(r8::AL, 0x1c);
     c.mul8((bx >> 8) as u8);
     let ax = c.reg(AX);
@@ -4217,7 +4217,7 @@ pub fn update_people(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_byte(si, al);
                 break 'one;
             }
-            let cur = c.byte(9);
+            let cur = c.byte(g::PLACE_INDEX);
             let lf = Location::number(bh).byte_0a(&mut c);
             let mut n = n0 + 2 + 2;
             let stage = if dh >= 0x21 {
@@ -4660,7 +4660,7 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     let a = c.pop();
     c.set_reg(AX, a);
     c.update_travel(|t| t.heading = a as u8);
-    c.set_byte(8, 0xff);
+    c.set_byte(g::PLACE_KIND, 0xff);
     c.call(0x4b3b, 0x4763)?;
     let v = c.map_view().mode;
     let neg = v & 0x80 != 0;
@@ -5442,12 +5442,12 @@ fn refresh_at(c: &mut Ctx) -> Result<(), Bail> {
         head(c);
         return travel_step(c);
     }
-    let b8 = c.byte(8);
-    if b8 != 0xff {
+    let kind = c.byte(g::PLACE_KIND);
+    if kind != 0xff {
         let p = c.byte(g::KEYBOARD_CURSOR);
         c.run(0x2e55, 12)?;
         head(c);
-        c.cmp(B, b8 as u16, 0xff);
+        c.cmp(B, kind as u16, 0xff);
         c.cmp(B, p as u16, 0);
         if p != 0 {
             return c.ret();
@@ -5458,14 +5458,14 @@ fn refresh_at(c: &mut Ctx) -> Result<(), Bail> {
     if mode != 0 {
         c.run(0x2e55, 12)?;
         head(c);
-        c.cmp(B, b8 as u16, 0xff);
+        c.cmp(B, kind as u16, 0xff);
         c.cmp(B, mode as u16, 0);
         return c.ret();
     }
     let si = c.conversation().first_speaker;
     c.run(0x2e55, if si == 0 { 15 } else { 18 })?;
     head(c);
-    c.cmp(B, b8 as u16, 0xff);
+    c.cmp(B, kind as u16, 0xff);
     c.cmp(B, 0, 0);
     c.set_reg(SI, si);
     c.or(W, si, si);
@@ -5882,8 +5882,8 @@ fn leave_place(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(DX, dx);
     c.xor(B, bx >> 8, bx >> 8);
     c.set_reg(BX, bx & 0xff);
-    c.set_byte(8, 0xff);
-    c.set_byte(9, 0xff);
+    c.set_byte(g::PLACE_KIND, 0xff);
+    c.set_byte(g::PLACE_INDEX, 0xff);
     step_3ff5(c)
 }
 
@@ -5959,8 +5959,8 @@ fn step_3ff5(c: &mut Ctx) -> Result<(), Bail> {
     let bh = c.reg8(r8::BH);
     let si = c.reg(SI);
     c.run(0x4043, 4 + (dh >= 0x20) as u32 + 1)?;
-    c.set_byte(8, dh);
-    c.set_byte(9, bh);
+    c.set_byte(g::PLACE_KIND, dh);
+    c.set_byte(g::PLACE_INDEX, bh);
     c.cmp(B, dh as u16, 0x20);
     if dh >= 0x20 {
         let v = c.byte(si.wrapping_add(0x0a));
@@ -5996,8 +5996,8 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x5ba8, 0x37c1)?;
     c.run(0x37c1, 1)?;
     c.call(0xc432, 0x37c4)?;
-    let b8 = c.byte(8);
-    if b8 == 0xff {
+    let kind = c.byte(g::PLACE_KIND);
+    if kind == 0xff {
         c.run(0x37c4, 6)?;
         c.set_reg(AX, 0xffff);
     } else {
@@ -6650,9 +6650,9 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let last = c.word(0xdc5a);
     if h == 0x14 {
         let party = c.word(g::PARTY);
-        let b8 = c.byte(8);
+        let kind = c.byte(g::PLACE_KIND);
         let dt = t.wrapping_sub(last);
-        let n = if party != 0 { 2 } else if b8 != 0xff { 4 } else if dt < 0x3e8 { 7 } else { 9 };
+        let n = if party != 0 { 2 } else if kind != 0xff { 4 } else if dt < 0x3e8 { 7 } else { 9 };
         c.run(0x2b3a, 8 + n + (n < 9) as u32)?;
         c.set_reg(AX, if n >= 7 { dt } else { t });
         if n < 9 {

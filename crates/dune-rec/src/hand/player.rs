@@ -17,7 +17,7 @@ pub const AT: u16 = Which::Player.base();
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct PlayerAt {
     /// [4] ([`g::PLAYER_X`]): the map x; at a location, its low byte the
-    /// room (1..) and its high byte a state.
+    /// room (1..) and its high byte the location's kind ([`g::PLACE_KIND`]).
     pub x: u16,
     /// [6] ([`g::PLAYER_Y`]): the map y; 80h in its low byte: at the
     /// location whose index is its high byte.

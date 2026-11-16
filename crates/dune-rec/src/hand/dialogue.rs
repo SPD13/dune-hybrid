@@ -3349,7 +3349,7 @@ pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
             // (not a palace's, by day) below y 98h.
             let room = c.byte(g::CURRENT_ROOM);
             let y = c.reg(BX);
-            let place = c.byte(8);
+            let place = c.byte(g::PLACE_KIND);
             let harkonnen = c.byte(g::HARKONNEN_PLACE);
             let cost = if room != 1 {
                 4
