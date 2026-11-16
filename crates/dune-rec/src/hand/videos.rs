@@ -274,7 +274,7 @@ pub fn frame_wait_c8c1(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // Until [0DBE6h] ticks have passed.
         let d = t.wrapping_sub(t0);
         c.set_reg(AX, d);
-        if d as u8 >= c.byte(0xdbe6) {
+        if d as u8 >= c.video_state().delay {
             break;
         }
     }
@@ -318,7 +318,7 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, 0);
             c.call(0x4ec6, 0x48ab)?;
             let bx = c.word_in(SS, c.reg(pc::cpu::SP));
-            let video = c.word(g::HNM_VIDEO);
+            let video = c.video_state().video;
             if video != 2 {
                 c.run(0x48ab, 5)?;
                 c.pop();
@@ -326,7 +326,7 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 continue;
             }
             let want = if bx == 6 { 0x3c } else { 0x16 };
-            let frame = c.word(g::HNM_FRAME_2);
+            let frame = c.video_state().fetched;
             let n = 3 + 3 + (bx != 6) as u32 + 2;
             c.run(0x48ab, if want != frame { n + 2 } else { n + 1 })?;
             c.pop();

@@ -279,18 +279,18 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
 pub fn hnm_wait_for_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xcad4)?;
     let mut c = Ctx::new(m);
-    let sync = c.word(g::HNM_SYNC);
+    let sync = c.video_state().voice_chunk;
     if sync == 0xffff {
-        let (now, tick) = (c.timer(), c.word(g::HNM_FRAME_TICK));
+        let (now, tick) = (c.timer(), c.video_state().frame_tick);
         let passed = now.wrapping_sub(tick);
-        let rate = c.byte(g::HNM_FRAME_TICKS);
+        let rate = c.video_state().frame_ticks;
         let early = passed >> 8 == 0 && (passed as u8) < rate;
         let n = 3 + 4 + if passed >> 8 != 0 { 1 } else { 2 + if early { 1 } else { 1 } };
         c.run(start, n)?;
         let ax = c.inc(W, sync);
         c.set_reg(AX, ax);
         let now = c.timer();
-        let tick = c.word(g::HNM_FRAME_TICK);
+        let tick = c.video_state().frame_tick;
         let p = c.sub(W, now, tick);
         c.set_reg(AX, p);
         c.or(B, p >> 8, p >> 8);
@@ -339,7 +339,7 @@ pub fn hnm_do_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_byte(g::HNM_FLAG_MSB, 0);
             return c.ret();
         }
-        let flags = c.byte(g::HNM_FLAGS);
+        let flags = c.video_state().flags;
         let high = flags & 0x80 != 0;
         c.run(0xca60, 5)?; // cmp; je; cmp; jns; then a call either way
         c.cmp(W, handle, 0);
@@ -358,7 +358,7 @@ pub fn hnm_do_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xca74, 2)?;
         c.call(code::HNM_WAIT_FOR_FRAME, 0xca7e)?;
         if !c.flag(CF) {
-            let pal = c.word(g::HNM_PAL_CHUNK);
+            let pal = c.video_state().palette_chunk;
             c.run(0xca7e, 5)?; // jb; mov; inc; je; then a call either way
             c.set_reg(AX, pal);
             let ax = c.inc(W, pal);
@@ -375,7 +375,7 @@ pub fn hnm_do_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xca7e, 1 + 4)?;
         }
         // CA8F.
-        let flags = c.byte(g::HNM_FLAGS);
+        let flags = c.video_state().flags;
         let msb = c.and(B, flags as u16, 0x80) as u8;
         c.set_reg8(r8::AL, msb);
         c.set_byte(g::HNM_FLAG_MSB, msb);

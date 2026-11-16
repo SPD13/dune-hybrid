@@ -71,7 +71,7 @@ pub fn intro_play_hnm_86_frames(m: &mut Machine, start: u16) -> Result<(), Bail>
             c.run(0x06b3, 2)?; // jb; ret
             return c.ret();
         }
-        let frame = c.word(g::HNM_FRAME);
+        let frame = c.video_state().frame;
         c.run(0x06b3, if frame == 0x56 { 4 } else { 3 })?;
         c.cmp(W, frame, 0x56);
         if frame == 0x56 {
@@ -178,7 +178,7 @@ pub fn sub_078d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(code::UPDATE_SCREEN_PALETTE, 0x0790)?;
     c.run(0x0790, 2)?;
-    c.set_byte(g::BYTE_DBE6, 6);
+    c.update_video_state(|t| t.delay = 6);
     c.call(code::SUB_C868, 0x0798)?;
     talking_head(&mut c)
 }
@@ -567,7 +567,7 @@ pub fn sound_at_frame_11(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4937)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
-    let ax = c.word(g::HNM_FRAME);
+    let ax = c.video_state().frame;
     c.set_reg(AX, ax);
     if ax & 0xff == 0x0b {
         c.call(0xac30, 0x4941)?;
@@ -707,7 +707,7 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x0911, 0x02aa)?;
     c.run(0x02aa, 6)?;
     c.set_byte(g::VOICE_LANGUAGE, 0);
-    c.set_byte(0xdbe6, 6);
+    c.update_video_state(|t| t.delay = 6);
     let v = c.byte(0x115);
     let v = c.inc(B, v as u16);
     c.set_byte(0x115, v as u8);

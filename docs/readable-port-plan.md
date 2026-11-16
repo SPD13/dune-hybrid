@@ -478,6 +478,14 @@ EFC7h) writes it some 5000 times a game: all counted apart, none
 unforeseen. Porting that tick would move those writes into Rust.
 `sound:` in the output.
 
+The video playing (`hand/video_state.rs`, 40h bytes at DBE6h, the
+longest record: the frame counters, the video asked for and open, the
+file's position and bytes left, where the frames start, the ring buffer
+the file is read ahead into (where data goes, the next chunk, the frame
+waiting, where it wrapped, the bytes buffered), the frame's voice and
+palette chunks, the timing). The 32-bit file offsets are `u32` fields.
+`video:` in the output.
+
 ## Tools in place
 
 | Tool | What it checks |

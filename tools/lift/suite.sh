@@ -72,7 +72,7 @@ echo "$CASES" | while read name seed lang save; do
         # unforeseen write of its words fails the case.
         ck=$(grep '^clock:' $S/run/$name.log | sed 's/^clock: //')
         case "$ck" in "0 sync-ins"*) dc="" ;; *) dc="clock [$ck]" ;; esac
-        for t in troops locations "text box" "dialogue text" conversation "map view" "map selection" flight "typed message" "screen buffers" "mouse" "sound"; do
+        for t in troops locations "text box" "dialogue text" conversation "map view" "map selection" flight "typed message" "screen buffers" "mouse" "sound" "video"; do
             tr=$(grep "^$t:" $S/run/$name.log | sed "s/^$t: //")
             case "$tr" in "0 sync-ins"*) ;; *) dc="$dc $t [$tr]" ;; esac
         done

@@ -116,7 +116,7 @@ pub fn get_hnm_resource_flag_name_ptr(m: &mut Machine, start: u16) -> Result<(),
 pub fn check_if_hnm_complete(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xcc85)?;
     let mut c = Ctx::new(m);
-    let state = c.byte(g::HNM_STATE);
+    let state = c.video_state().playing;
     c.run(start, if state == 0 { 3 } else { 4 })?;
     c.cmp(B, state as u16, 0);
     if state != 0 {
@@ -141,18 +141,13 @@ pub fn hnm_advance_read_ptr(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// The frame counters' reset values, from [`g::HNM_FRAME`] on.
-const HNM_FRAMES_RESET: [(u16, u16); 4] =
-    [(g::HNM_FRAME, 0), (g::HNM_FRAME_2, 0), (g::HNM_FRAME_3, 0xffff), (g::HNM_FRAME_4, 0xffff)];
 
 /// `hnm_reset_frame_counter` (CE01): all four frame counters.
 pub fn hnm_reset_frame_counter(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xce01)?;
     let mut c = Ctx::new(m);
     c.run(start, 5)?;
-    for (p, v) in HNM_FRAMES_RESET {
-        c.set_word(p, v);
-    }
+    c.update_video_state(|t| (t.frame, t.fetched, t.last_frame, t.stop_frame) = (0, 0, 0xffff, 0xffff));
     c.ret()
 }
 
@@ -161,9 +156,7 @@ pub fn hnm_reset_counters(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xce07)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
-    for (p, v) in &HNM_FRAMES_RESET[1..] {
-        c.set_word(*p, *v);
-    }
+    c.update_video_state(|t| (t.fetched, t.last_frame, t.stop_frame) = (0, 0xffff, 0xffff));
     c.ret()
 }
 
@@ -174,15 +167,17 @@ pub fn hnm_reset_buffers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 12)?;
     let fb2 = c.screen_buffers().second;
-    c.set_word(g::HNM_BUF_SEG, fb2);
-    c.set_word(g::HNM_BUF_SEG_2, fb2);
     let zero = pure::xor(W, fb2, fb2);
-    for p in [g::HNM_READ_PTR, g::HNM_DC10, g::HNM_READ_PTR_2, g::HNM_DC20, g::HNM_DC16] {
-        c.set_word(p, zero);
-    }
     let v = c.word(g::HNM_CE74);
     c.set_reg(AX, v);
-    c.set_word(g::HNM_DC18, v);
+    c.update_video_state(|t| {
+        t.fill = [zero, fb2];
+        t.next_chunk = [zero, fb2];
+        t.buffered = zero;
+        t.part_size = zero;
+        t.pending_frame[1] = zero;
+        t.wrapped_at = v;
+    });
     c.ret()
 }
 

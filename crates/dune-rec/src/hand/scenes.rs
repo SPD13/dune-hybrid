@@ -422,7 +422,7 @@ pub fn play_irul_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         let next = c.word(g::SUBTITLE_NEXT);
         let at = c.word(next);
-        let frame = c.word(g::HNM_FRAME);
+        let frame = c.video_state().frame;
         let due = at <= frame;
         c.run(0xcf22, 4 + 1)?;
         c.set_reg(SI, next);

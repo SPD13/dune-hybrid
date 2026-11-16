@@ -205,13 +205,13 @@ pub fn hnm_do_frame_and_check_if_frame_advanced(m: &mut Machine, start: u16) -> 
     entered(start, 0xc9f4)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let before = c.word(g::HNM_FRAME);
+    let before = c.video_state().frame;
     c.push(before);
     c.call(code::HNM_DO_FRAME, 0xc9fb)?;
     c.run(0xc9fb, 3)?;
     let before = c.pop();
     c.set_reg(AX, before);
-    let now = c.word(g::HNM_FRAME);
+    let now = c.video_state().frame;
     c.cmp(W, before, now);
     c.ret()
 }
@@ -229,7 +229,7 @@ pub fn hnm_read_header_size(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0xcd95, 4)?;
-    let (si, es) = (c.word(g::HNM_READ_PTR), c.word(g::HNM_READ_PTR + 2));
+    let (si, es) = (c.video_state().fill[0], c.video_state().fill[1]);
     c.set_reg(SI, si);
     c.set_sreg(ES, es);
     let size = c.word_in(ES, si.wrapping_sub(2));
@@ -243,9 +243,9 @@ pub fn hnm_handle_pal_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xce3b)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let es = c.word(g::HNM_READ_PTR + 2);
+    let es = c.video_state().fill[1];
     c.set_sreg(ES, es);
-    let si = c.word(g::HNM_PAL_CHUNK);
+    let si = c.video_state().palette_chunk;
     c.set_reg(SI, si);
     c.call(code::APPLY_PALETTE, 0xce46)?;
     c.interp(0xce46, 0xce4a)?;

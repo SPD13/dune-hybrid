@@ -44,35 +44,35 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     let video = c.reg(AX);
-    c.set_word(g::HNM_VIDEO, video);
+    c.update_video_state(|t| t.video = video);
     c.call(code::HNM_CLOSE_RESOURCE, 0xc931)?;
     c.run(0xc931, 1)?;
     c.call(code::HNM_RESET_BUFFERS, 0xc934)?;
     c.run(0xc934, 2)?;
-    c.set_byte(g::HNM_STATE, 0);
+    c.update_video_state(|t| t.playing = 0);
     c.call(code::HNM_RESET_FRAME_COUNTER, 0xc93c)?;
     c.run(0xc93c, 3)?;
-    let video = c.word(g::HNM_VIDEO);
+    let video = c.video_state().video;
     c.set_reg(AX, video);
-    c.set_word(g::HNM_VIDEO_2, video);
+    c.update_video_state(|t| t.video_open = video);
     c.call(code::HNM_FLAG_NAME_PTR, 0xc945)?;
     c.run(0xc945, 4)?;
     let bx = c.reg(BX);
     let flags = c.word(bx);
     c.set_reg(AX, flags);
-    c.set_word(g::HNM_FLAGS, flags);
+    c.update_video_state(|t| t.set_flags_word(flags));
     c.set_reg(DX, bx.wrapping_add(2));
     c.call(code::OPEN_RES_OR_FILE_OR_DIE, 0xc950)?;
     c.run(0xc950, 8)?;
     let (bx, ax, dx, cx, bp) = (c.reg(BX), c.reg(AX), c.reg(DX), c.reg(CX), c.reg(BP));
     c.set_word(g::HNM_FILE_HANDLE, bx);
-    c.set_word(g::HNM_FILE_OFFSET, ax);
-    c.set_word(g::HNM_FILE_OFFSET + 2, dx);
-    c.set_word(g::HNM_FILE_REMAIN, cx);
-    c.set_word(g::HNM_FILE_REMAIN + 2, bp);
-    let p2 = c.word(g::HNM_READ_PTR_2);
+    c.update_video_state(|t| {
+        t.file_offset = (dx as u32) << 16 | ax as u32;
+        t.file_left = (bp as u32) << 16 | cx as u32;
+    });
+    let p2 = c.video_state().buffered;
     c.push(p2);
-    let p = c.word(g::HNM_READ_PTR);
+    let p = c.video_state().fill[0];
     c.push(p);
     c.call(code::HNM_READ_HEADER_SIZE, 0xc96e)?;
 
@@ -89,7 +89,7 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
         c.run(0xc96e, 1 + if carry { 3 } else if reset { 5 } else { 4 } + 3)?;
         c.set_reg(SI, sum);
         if reset {
-            c.set_word(g::HNM_READ_PTR, 0);
+            c.update_video_state(|t| t.fill[0] = 0);
         }
         let n = ax.wrapping_sub(2);
         c.set_reg(AX, n);
@@ -100,16 +100,16 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
         failed
     };
     let p = c.pop();
-    c.set_word(g::HNM_READ_PTR, p);
+    c.update_video_state(|t| t.fill[0] = p);
     let p2 = c.pop();
-    c.set_word(g::HNM_READ_PTR_2, p2);
+    c.update_video_state(|t| t.buffered = p2);
     if failed {
         c.run(0xc9e7, 1)?; // ret
         return c.ret();
     }
 
     // C992: the palette at the read pointer.
-    let (si, es) = (c.word(g::HNM_READ_PTR), c.word(g::HNM_READ_PTR + 2));
+    let (si, es) = (c.video_state().fill[0], c.video_state().fill[1]);
     let size = c.word_at(es, si);
     let after = si.wrapping_add(2);
     let (sum, carry) = size.overflowing_add(after);
@@ -142,7 +142,7 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
     }
 
     // The body's offset in the header (at +10h with flag 4).
-    let flags = c.byte(g::HNM_FLAGS);
+    let flags = c.video_state().flags;
     let wide = flags & 4 != 0;
     c.run(0xc9b4, 3 + wide as u32 + 16)?;
     c.set_reg(BX, 0);
@@ -154,15 +154,10 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_reg(BX, high);
     // The body: its offset in the file and its size.
     let body = (high as u32) << 16 | low as u32;
-    let pos = (c.word(g::HNM_FILE_OFFSET + 2) as u32) << 16 | c.word(g::HNM_FILE_OFFSET) as u32;
-    let at = pos.wrapping_add(body);
-    c.set_word(g::HNM_BODY_OFFSET, at as u16);
-    c.set_word(g::HNM_BODY_OFFSET + 2, (at >> 16) as u16);
-    let left = (c.word(g::HNM_FILE_REMAIN + 2) as u32) << 16 | c.word(g::HNM_FILE_REMAIN) as u32;
-    let size = left.wrapping_sub(body);
-    c.set_word(g::HNM_BODY_SIZE, size as u16);
+    let v = c.video_state();
+    let (at, size) = (v.file_offset.wrapping_add(body), v.file_left.wrapping_sub(body));
+    c.update_video_state(|t| (t.body_offset, t.body_size) = (at, size));
     c.set_reg(AX, (size >> 16) as u16);
-    c.set_word(g::HNM_BODY_SIZE + 2, (size >> 16) as u16);
     c.set_flag(CF, false);
     c.ret()
 }
@@ -186,7 +181,7 @@ pub(super) fn load_first_frame(c: &mut Ctx) -> Result<(), Bail> {
     }
     c.run(0xca23, 6)?;
     c.set_byte(g::TRANSITION_ACTIVE, 0);
-    let (si, es) = (c.word(g::HNM_DC10), c.word(g::HNM_DC10 + 2));
+    let (si, es) = (c.video_state().next_chunk[0], c.video_state().next_chunk[1]);
     c.set_reg(SI, si);
     c.set_sreg(ES, es);
     c.lods(W, ES);
@@ -199,14 +194,14 @@ pub(super) fn load_first_frame(c: &mut Ctx) -> Result<(), Bail> {
     c.call(code::HNM_DECODE_VIDEO_FRAME, 0xca3d)?;
     c.run(0xca3d, 1)?;
     c.call(code::HNM_RESET_BUFFERS, 0xca40)?;
-    let flags = c.byte(g::HNM_FLAGS);
+    let flags = c.video_state().flags;
     let no_prefetch = flags & 0x40 != 0;
     c.run(0xca40, 4 + if no_prefetch { 3 } else { 3 })?;
-    for p in [g::HNM_FRAME, g::HNM_FRAME_2] {
-        let v = c.word(p);
-        let v = c.inc(W, v);
-        c.set_word(p, v);
-    }
+    let v = c.video_state().frame;
+    let frame = c.inc(W, v);
+    let v = c.video_state().fetched;
+    let fetched = c.inc(W, v);
+    c.update_video_state(|t| (t.frame, t.fetched) = (frame, fetched));
     c.test(B, flags as u16, 0x40);
     if !no_prefetch {
         c.set_reg(CX, PREFETCH_FRAMES);
@@ -226,7 +221,7 @@ pub(super) fn load_first_frame(c: &mut Ctx) -> Result<(), Bail> {
     }
     let now = c.timer();
     c.set_reg(AX, now);
-    c.set_word(g::HNM_FRAME_TICK, now);
+    c.update_video_state(|t| t.frame_tick = now);
     c.ret()
 }
 
@@ -256,10 +251,10 @@ pub fn hnm_open_at_body_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let di = c.sub(W, end, size);
     let di = c.sub(W, di, 2);
     c.set_reg(DI, di);
-    c.set_word(g::HNM_DC10, di);
+    c.update_video_state(|t| t.next_chunk[0] = di);
     c.stos(W);
     let di = c.reg(DI);
-    c.set_word(g::HNM_READ_PTR, di);
+    c.update_video_state(|t| t.fill[0] = di);
     c.set_reg(CX, size);
     let cx = c.sub(W, size, 2);
     c.set_reg(CX, cx);
@@ -454,25 +449,28 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc93c)?;
     let mut c = Ctx::new(m);
     c.run(0xc93c, 3)?;
-    let ax = c.word(g::HNM_VIDEO);
+    let ax = c.video_state().video;
     c.set_reg(AX, ax);
-    c.set_word(g::HNM_VIDEO_2, ax);
+    c.update_video_state(|t| t.video_open = ax);
     c.call(0xc921, 0xc945)?;
     c.run(0xc945, 4)?;
     let bx = c.reg(BX);
     let ax = c.word(bx);
     c.set_reg(AX, ax);
-    c.set_word(g::HNM_FLAGS, ax);
+    c.update_video_state(|t| t.set_flags_word(ax));
     c.set_reg(DX, bx.wrapping_add(2));
     c.call(0xf229, 0xc950)?;
     c.run(0xc950, 8)?;
-    for (r, at) in [(BX, 0x35a6u16), (AX, 0xdc04), (DX, 0xdc06), (CX, 0xdc08), (BP, 0xdc0a)] {
-        let v = c.reg(r);
-        c.set_word(at, v);
-    }
-    let a = c.word(g::HNM_READ_PTR_2);
+    let bx = c.reg(BX);
+    c.set_word(g::HNM_FILE_HANDLE, bx);
+    let [ax, dx, cx, bp] = [AX, DX, CX, BP].map(|r| c.reg(r));
+    c.update_video_state(|t| {
+        t.file_offset = (dx as u32) << 16 | ax as u32;
+        t.file_left = (bp as u32) << 16 | cx as u32;
+    });
+    let a = c.video_state().buffered;
     c.push(a);
-    let b = c.word(g::HNM_READ_PTR);
+    let b = c.video_state().fill[0];
     c.push(b);
     c.call(0xcd8f, 0xc96e)?;
     if !c.flag(CF) {
@@ -483,7 +481,7 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xc96e, 3 + if carry { 0 } else { 2 } + drop as u32 + 3)?;
         c.set_reg(SI, s);
         if drop {
-            c.set_word(g::HNM_READ_PTR, 0);
+            c.update_video_state(|t| t.fill[0] = 0);
         }
         let a = ax.wrapping_sub(2);
         c.set_reg(AX, a);
@@ -495,13 +493,13 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cf = c.flag(CF);
     c.run(0xc988, 3 + cf as u32)?;
     let v = c.pop();
-    c.set_word(g::HNM_READ_PTR, v);
+    c.update_video_state(|t| t.fill[0] = v);
     let v = c.pop();
-    c.set_word(g::HNM_READ_PTR_2, v);
+    c.update_video_state(|t| t.buffered = v);
     if cf {
         return c.ret();
     }
-    let (s0, e) = (c.word(g::HNM_READ_PTR), c.word(g::HNM_BUF_SEG));
+    let (s0, e) = (c.video_state().fill[0], c.video_state().fill[1]);
     let w = c.word_at(e, s0);
     let s1 = s0.wrapping_add(2);
     let (sum, carry) = w.overflowing_add(s1);
@@ -531,7 +529,7 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
             break;
         }
     }
-    let f = c.byte(g::HNM_FLAGS);
+    let f = c.video_state().flags;
     let two = f & 4 != 0;
     c.run(0xc9b4, 3 + two as u32 + 16)?;
     let o = if two { 0x10u16 } else { 0 };
@@ -541,18 +539,13 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx = c.word_in(ES, o.wrapping_add(si).wrapping_add(2));
     c.set_reg(BX, bx);
     // The data's start: the file's offset plus the frame's.
-    let off = (c.word(0xdc06) as u32) << 16 | c.word(g::HNM_FILE_OFFSET) as u32;
-    let at = off.wrapping_add((bx as u32) << 16 | cx as u32);
-    c.set_word(g::HNM_BODY_OFFSET, at as u16);
-    c.set_word(0xdbf8, (at >> 16) as u16);
+    let v = c.video_state();
+    let at = v.file_offset.wrapping_add((bx as u32) << 16 | cx as u32);
     // The bytes left (the exit's flags are the `sbb`'s).
-    let a = c.word(g::HNM_FILE_REMAIN);
-    let a = c.sub(W, a, cx);
-    c.set_word(g::HNM_BODY_SIZE, a);
-    let a = c.word(0xdc0a);
-    let a = c.sbb(W, a, bx);
-    c.set_word(0xdbfc, a);
-    c.set_reg(AX, a);
+    let low = c.sub(W, v.file_left as u16, cx);
+    let high = c.sbb(W, (v.file_left >> 16) as u16, bx);
+    c.update_video_state(|t| (t.body_offset, t.body_size) = (at, (high as u32) << 16 | low as u32));
+    c.set_reg(AX, high);
     c.set_flag(CF, false);
     c.ret()
 }
@@ -568,18 +561,19 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xcb1a)?;
     let mut c = Ctx::new(m);
     loop {
-        let cx = c.word(0xdc20);
+        let cx = c.video_state().part_size;
         if cx == 0 {
             c.run(0xcb1a, 2)?;
             c.set_reg(CX, 0);
-            let (a, b) = (c.word(g::HNM_FRAME_2), c.word(g::HNM_FRAME_4));
+            let (a, b) = (c.video_state().fetched, c.video_state().stop_frame);
             c.run(0xcb00, 3)?;
             c.set_reg(AX, a);
             if a == b {
                 c.m.cpu.ip = 0xcb61;
                 return Err(Bail);
             }
-            let (a, b) = (c.word(g::HNM_FILE_REMAIN), c.word(0xdc0a));
+            let left = c.video_state().file_left;
+            let (a, b) = (left as u16, (left >> 16) as u16);
             c.run(0xcb09, 3)?;
             c.set_reg(AX, a);
             let o = a | b;
@@ -597,9 +591,9 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(0xcc0c, 0xcb1a)?;
             continue;
         }
-        let f = c.byte(g::HNM_FLAGS);
+        let f = c.video_state().flags;
         let neg = f & 0x80 != 0;
-        let a = (c.word(g::HNM_FILE_OFFSET).wrapping_neg() & 0x7ff) + 0x800;
+        let a = ((c.video_state().file_offset as u16).wrapping_neg() & 0x7ff) + 0x800;
         let clip = !neg && a < cx;
         c.run(0xcb1a, 2 + 2 + if neg { 0 } else { 6 + clip as u32 } + 1)?;
         c.set_reg(CX, cx);
@@ -617,8 +611,7 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0xcb3b, 3)?;
         let cx = c.reg(CX);
-        let v = c.word(0xdc20).wrapping_sub(cx);
-        c.set_word(0xdc20, v);
+        c.update_video_state(|t| t.part_size = t.part_size.wrapping_sub(cx));
         return c.jump(0xcdbf);
     }
 }
@@ -635,18 +628,18 @@ pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{CS, DS};
     entered(start, 0xcc96)?;
     let mut c = Ctx::new(m);
-    let seg = c.word(0xdc16);
+    let seg = c.video_state().pending_frame[1];
     c.run(0xcc96, 6 + (seg == 0) as u32)?;
     let a = c.word(0x38fb);
     c.set_reg(AX, a);
     c.set_word_in(CS, 0xcc94, a);
-    c.set_word(0xdc16, 0);
+    c.update_video_state(|t| t.pending_frame[1] = 0);
     c.set_reg(BP, seg);
     if seg == 0 {
         return c.ret();
     }
-    let si = c.word(0xdc14);
-    let f = c.byte(g::HNM_FLAGS);
+    let si = c.video_state().pending_frame[0];
+    let f = c.video_state().flags;
     c.run(0xcca7, 4)?;
     c.set_reg(SI, si);
     c.set_reg8(r8::AL, f);
@@ -654,7 +647,7 @@ pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xccea, 3)?;
         return c.jump(if f & 0x20 != 0 { 0x4aeb } else { 0x4afd });
     }
-    let k = c.word(0xdc24);
+    let k = c.video_state().picture_tag;
     c.run(0xccb2, 3)?;
     let ds = c.sreg(DS);
     c.push(ds);
@@ -665,7 +658,7 @@ pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xccbb, 10)?;
     let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
-    let vid = c.word(g::HNM_VIDEO);
+    let vid = c.video_state().video;
     c.set_reg(BX, vid);
     c.set_sreg(DS, seg);
     let a = c.lods(W, DS);
@@ -723,8 +716,8 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let lim = c.word(0xce74);
     let zero = carry || sum > lim;
     c.run(0xccf4, 4 + if carry { 0 } else { 2 } + zero as u32)?;
-    c.set_word(g::HNM_SYNC, 0xffff);
-    c.set_word(g::HNM_PAL_CHUNK, 0xffff);
+    c.update_video_state(|t| t.voice_chunk = 0xffff);
+    c.update_video_state(|t| t.palette_chunk = 0xffff);
     let s = pure::add(W, ax, si);
     c.set_reg(AX, s);
     if zero {
@@ -742,7 +735,7 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xcd16, 1 + (!z) as u32 + 4)?;
             if !z {
                 let si = c.reg(SI);
-                c.set_word(g::HNM_SYNC, si);
+                c.update_video_state(|t| t.voice_chunk = si);
             }
             let n = c.lods(W, ES);
             let n = pure::sub(W, n, 4);
@@ -759,7 +752,7 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xcd25, 2 + 5)?;
             let n = c.lods(W, ES);
             let si = c.reg(SI);
-            c.set_word(g::HNM_PAL_CHUNK, si);
+            c.update_video_state(|t| t.palette_chunk = si);
             let n = pure::sub(W, n, 4);
             c.set_reg(AX, n);
             let s = pure::add(W, si, n);
@@ -803,9 +796,9 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_sreg(ES, b);
     }
     let es = c.sreg(ES);
-    c.set_word(0xdc16, es);
-    c.set_word(0xdc14, 0);
-    c.set_word(0xdc24, ax);
+    c.update_video_state(|t| t.pending_frame[1] = es);
+    c.update_video_state(|t| t.pending_frame[0] = 0);
+    c.update_video_state(|t| t.picture_tag = ax);
     let v = c.pop();
     c.set_sreg(DS, v);
     c.set_reg(CX, ax);
@@ -839,8 +832,8 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, seg);
     let v = c.pop();
     c.set_sreg(DS, v);
-    c.set_word(0xdc14, s);
-    c.set_word(0xdc16, seg);
+    c.update_video_state(|t| t.pending_frame[0] = s);
+    c.update_video_state(|t| t.pending_frame[1] = seg);
     c.ret()
 }
 

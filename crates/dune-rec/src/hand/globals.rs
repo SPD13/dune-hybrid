@@ -118,7 +118,6 @@ pub const SCREEN_BUFFER: u16 = 0xdbd8;
 pub const FRAMEBUFFER_ACTIVE: u16 = 0xdbda;
 pub const FRAMEBUFFER_2: u16 = 0xdbde;
 pub const BACKBUFFER: u16 = 0xdc32;
-pub const BYTE_DBE6: u16 = 0xdbe6;
 /// The resource the palette came from.
 pub const PALETTE_RESOURCE: u16 = 0xdbb4;
 /// MIDI driver function 5's BX (Cryogenic: `midiFunc5returnBx`).
@@ -127,20 +126,11 @@ pub const MIDI_FUNC5_BX: u16 = 0xdbce;
 pub const HNM_STATE: u16 = 0xdbe7;
 /// HNM frame counters.
 pub const HNM_FRAME: u16 = 0xdbe8;
-pub const HNM_FRAME_2: u16 = 0xdbea;
-pub const HNM_FRAME_3: u16 = 0xdbec;
 pub const HNM_FRAME_4: u16 = 0xdbee;
 /// HNM read pointers and buffers.
 pub const HNM_READ_PTR: u16 = 0xdc0c;
-pub const HNM_BUF_SEG: u16 = 0xdc0e;
 pub const HNM_DC10: u16 = 0xdc10;
-pub const HNM_BUF_SEG_2: u16 = 0xdc12;
-pub const HNM_DC16: u16 = 0xdc16;
-pub const HNM_DC18: u16 = 0xdc18;
 pub const HNM_READ_PTR_2: u16 = 0xdc1a;
-pub const HNM_DC20: u16 = 0xdc20;
-/// Offset of the palette chunk being played.
-pub const HNM_PAL_CHUNK: u16 = 0xdc1e;
 /// Map drawing: far pointer to its data, and the argument byte.
 pub const MAP_GFX_DATA: u16 = 0xdcfe;
 pub const MAP_GFX_ARG: u16 = 0xdd02;
@@ -258,7 +248,6 @@ pub const HNM_FILE_HANDLE: u16 = 0x35a6;
 /// The video's file offset and the bytes left, 32 bits each (Cryogenic:
 /// `hnmFileOffset`, `hnmFileRemain`).
 pub const HNM_FILE_OFFSET: u16 = 0xdc04;
-pub const HNM_FILE_REMAIN: u16 = 0xdc08;
 
 // --- The game screen ----------------------------------------------------------
 
@@ -368,7 +357,6 @@ pub const FRAME_TASKS_LAST_TICK: u16 = 0xdc68;
 /// ticks per frame; the video's flags (bit 80h).
 pub const HNM_SYNC: u16 = 0xdc1c;
 pub const HNM_FRAME_TICK: u16 = 0xdc22;
-pub const HNM_FRAME_TICKS: u16 = 0xdbff;
 pub const HNM_FLAGS: u16 = 0xdbfe;
 /// Cryogenic: `hnmFlagMsb`.
 pub const HNM_FLAG_MSB: u16 = 0xdbb5;
@@ -382,9 +370,7 @@ pub const CTRL_V_TABLE_END: u16 = 0x11bd;
 /// The video opened (twice), its body's offset in the file and its size
 /// (32 bits each).
 pub const HNM_VIDEO: u16 = 0xdc00;
-pub const HNM_VIDEO_2: u16 = 0xdc02;
 pub const HNM_BODY_OFFSET: u16 = 0xdbf6;
-pub const HNM_BODY_SIZE: u16 = 0xdbfa;
 
 // --- Scenes ----------------------------------------------------------------------
 

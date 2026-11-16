@@ -716,13 +716,13 @@ pub fn transfer_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     // The block's size (its first word, less the 4-byte header): the two
     // `rep` copies' iterations are counted in the `run`s.
-    let (p, seg) = (c.word(g::HNM_SYNC), c.screen_buffers().second);
+    let (p, seg) = (c.video_state().voice_chunk, c.screen_buffers().second);
     let block = c.word_at(seg, p).wrapping_sub(4);
     c.run(start, 9 + (block >> 1) as u32)?;
     let (si0, ds0) = (c.reg(SI), c.sreg(DS));
     c.push(si0);
     c.push(ds0);
-    let p = c.word(g::HNM_SYNC);
+    let p = c.video_state().voice_chunk;
     let seg = c.screen_buffers().second;
     c.set_reg(SI, p);
     c.set_sreg(DS, seg);
@@ -1481,7 +1481,7 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{DS, ES};
     entered(start, 0xaa0f)?;
     let mut c = Ctx::new(m);
-    let ax = c.word(g::HNM_SYNC);
+    let ax = c.video_state().voice_chunk;
     c.run(0xaa0f, if ax == 0xffff { 4 } else { 5 })?;
     c.set_reg(AX, ax.wrapping_add(1));
     if ax == 0xffff {

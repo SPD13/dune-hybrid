@@ -2391,11 +2391,11 @@ pub fn pick_mode_dc02(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx0 = c.reg(BX);
     let b = c.word(0x487e);
     let al = c.reg8(r8::AL);
-    let ax = c.word(g::HNM_VIDEO);
+    let ax = c.video_state().video;
     if b < 2 {
         c.run(start, 4 + 3)?;
         c.push(bx0);
-        c.set_word(g::HNM_VIDEO_2, b);
+        c.update_video_state(|t| t.video_open = b);
     } else if al & 0x0f < 8 {
         let n = if ax <= 2 { 2 } else if ax <= 4 { 5 } else { 7 };
         c.run(start, 8 + n + 3)?;
@@ -2410,7 +2410,7 @@ pub fn pick_mode_dc02(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_word(0x487e, 2);
             }
         }
-        c.set_word(g::HNM_VIDEO_2, v);
+        c.update_video_state(|t| t.video_open = v);
     } else {
         let n = if ax <= 2 { 3 } else if ax == 5 { 5 } else { 6 };
         c.run(start, 8 + n + 3)?;
@@ -2423,7 +2423,7 @@ pub fn pick_mode_dc02(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 v = 4;
             }
         }
-        c.set_word(g::HNM_VIDEO_2, v);
+        c.update_video_state(|t| t.video_open = v);
     }
     let bx = c.pop();
     c.set_reg(BX, bx);

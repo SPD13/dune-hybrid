@@ -42,6 +42,7 @@ pub mod typed_message;
 pub mod screen_buffers;
 pub mod mouse_state;
 pub mod sound_state;
+pub mod video_state;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1572,6 +1573,14 @@ impl Ctx<'_> {
     }
     /// The sound's state changed by `f` (written through).
     fn update_sound_state(&mut self, f: impl FnOnce(&mut sound_state::SoundState)) {
+        record_table::update_single(self, f)
+    }
+    /// The video playing (Rust state, see [`video_state`]), in step with the memory.
+    fn video_state(&mut self) -> video_state::VideoState {
+        record_table::single(self)
+    }
+    /// The video playing changed by `f` (written through).
+    fn update_video_state(&mut self, f: impl FnOnce(&mut video_state::VideoState)) {
         record_table::update_single(self, f)
     }
     /// The game time ([2]).

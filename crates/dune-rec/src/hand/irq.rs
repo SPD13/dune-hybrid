@@ -132,7 +132,7 @@ pub fn hnm_render_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail
     if c.flag(CF) || c.flag(ZF) {
         c.run(0xcedc, 1)?;
     } else {
-        let f = c.word(g::HNM_PAL_CHUNK).wrapping_add(1);
+        let f = c.video_state().palette_chunk.wrapping_add(1);
         c.run(0xcedc, 4 + (f == 0) as u32)?;
         c.set_reg(AX, f.wrapping_sub(1));
         let ax = c.inc(W, f.wrapping_sub(1));

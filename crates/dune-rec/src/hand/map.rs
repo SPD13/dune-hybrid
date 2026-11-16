@@ -6661,7 +6661,7 @@ fn speed_4e8e(c: &mut Ctx) -> Result<(), Bail> {
     let b1 = c.word_in(SS, sp.wrapping_add(2));
     let al = ((ax as u8).wrapping_add(b1 as u8)) >> 1;
     let kind = c.word(0x487e);
-    let zoom = c.word(g::HNM_VIDEO);
+    let zoom = c.video_state().video;
     let rough = al & 0x0f >= 8;
     let n = 8 + if kind < 2 {
         0
@@ -6706,7 +6706,7 @@ fn speed_4e8e(c: &mut Ctx) -> Result<(), Bail> {
         }
     }
     c.set_reg(BX, out);
-    c.set_word(g::HNM_VIDEO_2, out);
+    c.update_video_state(|t| t.video_open = out);
     let bx = c.pop();
     c.set_reg(BX, bx);
     ret_mouse(c)

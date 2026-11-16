@@ -6,8 +6,9 @@
 //! map's selection (`hand/map_selection.rs`), the flight
 //! (`hand/flight.rs`) and the message typed out
 //! (`hand/typed_message.rs`), the screen buffers
-//! (`hand/screen_buffers.rs`), the mouse (`hand/mouse_state.rs`) and the
-//! sound (`hand/sound_state.rs`), these ten tables of one,
+//! (`hand/screen_buffers.rs`), the mouse (`hand/mouse_state.rs`), the
+//! sound (`hand/sound_state.rs`) and the video playing
+//! (`hand/video_state.rs`), these eleven tables of one,
 //! kept with the machine ([`super::native`]).
 //!
 //! Each record is cached the first time it is used. The views
@@ -33,7 +34,7 @@ use pc::cpu::DS;
 use pc::{Machine, cpu::Bus};
 
 /// The longest record.
-pub const MAX: usize = 0x24;
+pub const MAX: usize = 0x40;
 
 /// The tables.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -62,10 +63,12 @@ pub enum Which {
     MouseState,
     /// The sound's state, 14h bytes at DBC0h.
     SoundState,
+    /// The HNM video playing, 40h bytes at DBE6h.
+    Video,
 }
 
 impl Which {
-    pub const ALL: [Which; 12] = [
+    pub const ALL: [Which; 13] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
@@ -78,6 +81,7 @@ impl Which {
         Which::ScreenBuffers,
         Which::MouseState,
         Which::SoundState,
+        Which::Video,
     ];
 
     pub fn name(self) -> &'static str {
@@ -94,6 +98,7 @@ impl Which {
             Which::ScreenBuffers => "screen buffers",
             Which::MouseState => "mouse",
             Which::SoundState => "sound",
+            Which::Video => "video",
         }
     }
     /// Where the table starts in the game's data segment.
@@ -111,6 +116,7 @@ impl Which {
             Which::ScreenBuffers => 0xdbd4,
             Which::MouseState => 0xdc34,
             Which::SoundState => 0xdbc0,
+            Which::Video => 0xdbe6,
         }
     }
     pub const fn size(self) -> u16 {
@@ -127,6 +133,7 @@ impl Which {
             Which::ScreenBuffers => 0x0c,
             Which::MouseState => 0x14,
             Which::SoundState => 0x14,
+            Which::Video => 0x40,
         }
     }
     pub const fn count(self) -> usize {
@@ -143,6 +150,7 @@ impl Which {
             Which::ScreenBuffers => 1,
             Which::MouseState => 1,
             Which::SoundState => 1,
+            Which::Video => 1,
         }
     }
     fn end(self) -> u16 {
@@ -182,6 +190,7 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::ScreenBuffers => &mut n.screen_buffers,
         Which::MouseState => &mut n.mouse_state,
         Which::SoundState => &mut n.sound_state,
+        Which::Video => &mut n.video_state,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];
@@ -271,7 +280,7 @@ pub(super) fn set(c: &mut Ctx, w: Which, i: usize, r: Bytes) {
 /// A table of one record with a typed view (the text box, the dialogue
 /// text, the conversation, the map view, the map's selection, the
 /// flight, the message typed out, the screen buffers, the mouse, the
-/// sound): the view
+/// sound, the video): the view
 /// to and from the record's bytes. [`single`], [`set_single`] and
 /// [`update_single`] keep it.
 pub(super) trait Single: Sized {

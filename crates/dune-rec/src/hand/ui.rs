@@ -1048,7 +1048,7 @@ pub fn show_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let k = c.byte(0x473e);
     if k == 0 {
-        let e = c.word(g::HNM_FRAME_2);
+        let e = c.video_state().fetched;
         if e == 0 {
             c.run(start, 7)?;
             c.set_reg(SI, 0x14ac);

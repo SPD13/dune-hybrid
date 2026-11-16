@@ -73,7 +73,8 @@ pub fn hnm_read_bytes(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xcdc8, 4)?;
         let cx = c.reg(CX);
         c.push(cx);
-        let (low, high) = (c.word(g::HNM_FILE_OFFSET), c.word(g::HNM_FILE_OFFSET + 2));
+        let offset = c.video_state().file_offset;
+        let (low, high) = (offset as u16, (offset >> 16) as u16);
         c.set_reg(CX, high);
         c.set_reg(DX, low);
         c.set_reg(AX, 0x4200);
@@ -83,7 +84,7 @@ pub fn hnm_read_bytes(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, cx);
         let ds = c.sreg(DS);
         c.push(ds);
-        let (buf, seg) = (c.word(g::HNM_READ_PTR), c.word(g::HNM_READ_PTR + 2));
+        let (buf, seg) = (c.video_state().fill[0], c.video_state().fill[1]);
         c.set_reg(DX, buf);
         c.set_sreg(DS, seg);
         c.set_reg8(r8::AH, 0x3f);
@@ -102,18 +103,15 @@ pub fn hnm_read_bytes(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(DS, ds);
     // The bytes left (32 bits) go down, the file offset up, and the two
     // read pointers (the exit's flags but CF are the last `add`'s).
-    let dword = |c: &mut Ctx, at: u16| (c.word(at + 2) as u32) << 16 | c.word(at) as u32;
-    let left = dword(&mut c, g::HNM_FILE_REMAIN).wrapping_sub(read as u32);
-    c.set_word(g::HNM_FILE_REMAIN, left as u16);
-    c.set_word(g::HNM_FILE_REMAIN + 2, (left >> 16) as u16);
-    let offset = dword(&mut c, g::HNM_FILE_OFFSET).wrapping_add(read as u32);
-    c.set_word(g::HNM_FILE_OFFSET, offset as u16);
-    c.set_word(g::HNM_FILE_OFFSET + 2, (offset >> 16) as u16);
-    let v = c.word(g::HNM_READ_PTR).wrapping_add(read);
-    c.set_word(g::HNM_READ_PTR, v);
-    let v = c.word(g::HNM_READ_PTR_2);
+    c.update_video_state(|t| {
+        t.file_left = t.file_left.wrapping_sub(read as u32);
+        t.file_offset = t.file_offset.wrapping_add(read as u32);
+    });
+    let v = c.video_state().fill[0].wrapping_add(read);
+    c.update_video_state(|t| t.fill[0] = v);
+    let v = c.video_state().buffered;
     let v = c.add(W, v, read);
-    c.set_word(g::HNM_READ_PTR_2, v);
+    c.update_video_state(|t| t.buffered = v);
     c.set_flag(CF, false);
     c.ret()
 }
@@ -125,7 +123,7 @@ pub fn hnm_reset_frame_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 3)?;
     let t = c.timer();
     c.set_reg(AX, t);
-    c.set_word(g::HNM_FRAME_TICK, t);
+    c.update_video_state(|v| v.frame_tick = t);
     c.ret()
 }
 
@@ -135,7 +133,7 @@ pub fn hnm_prefetch_flagged(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xca8f)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
-    let flags = c.byte(g::HNM_FLAGS);
+    let flags = c.video_state().flags;
     let msb = c.and(B, flags as u16, 0x80) as u8;
     c.set_reg8(r8::AL, msb);
     c.set_byte(g::HNM_FLAG_MSB, msb);
@@ -161,13 +159,13 @@ pub fn hnm_clear_flag_msb(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xcaa0)?;
     let mut c = Ctx::new(m);
-    let pending = c.word(g::HNM_DC16);
+    let pending = c.video_state().pending_frame[1];
     if pending > 0 {
         c.run(start, 3)?;
         c.cmp(W, pending, 0); // the exit's flags
         return c.ret();
     }
-    let read = c.word(g::HNM_READ_PTR_2);
+    let read = c.video_state().buffered;
     if read == 0 {
         c.run(start, 6)?;
         c.cmp(W, pending, 0); // likewise (ZF), with CF set
@@ -175,14 +173,14 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
         c.set_flag(CF, true);
         return c.ret();
     }
-    let (si, seg) = (c.word(g::HNM_DC10), c.word(g::HNM_DC10 + 2));
+    let (si, seg) = (c.video_state().next_chunk[0], c.video_state().next_chunk[1]);
     let size = c.word_at(seg, si);
     let tag = c.word_at(seg, si.wrapping_add(2));
     let no_video = tag == NO_VIDEO_TAG;
     if !no_video && read < size {
         c.run(start, 2 + 3 + 4 + 3)?;
     } else {
-        let back = c.byte(g::HNM_FLAGS) & 0x40 != 0;
+        let back = c.video_state().flags & 0x40 != 0;
         c.run(start, 2 + 3 + 4 + if no_video { 0 } else { 2 } + 3 + back as u32 + 1)?;
     }
     c.set_reg(CX, read);
@@ -197,7 +195,7 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
     }
     let front = c.screen_buffers().front;
     c.set_reg(BP, front);
-    let flags = c.byte(g::HNM_FLAGS);
+    let flags = c.video_state().flags;
     if flags & 0x40 != 0 {
         let back = c.word(g::BACKBUFFER);
         c.set_reg(BP, back);
@@ -212,8 +210,9 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
 
 /// `loc_0cc0c`: SI (a chunk's start) on by AX, its size; past the ring's
 /// end (or wrapping) the read pointer goes back to 0 and what it was is
-/// noted at [`g::HNM_DC18`]. Then [`g::HNM_DC20`] = AX - 2 and one more
-/// frame counted ([`g::HNM_FRAME_2`]).
+/// noted as the ring's used end (`wrapped_at`). Then the next part's size
+/// (`part_size`) = AX - 2 and one more
+/// frame counted.
 pub fn hnm_advance_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xcc0c)?;
     let mut c = Ctx::new(m);
@@ -225,17 +224,17 @@ pub fn hnm_advance_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let end = pure::add(W, si, ax);
     c.set_reg(SI, end);
     if wrap {
-        let old = c.word(g::HNM_READ_PTR);
-        c.set_word(g::HNM_READ_PTR, 0);
+        let old = c.video_state().fill[0];
+        c.update_video_state(|t| t.fill[0] = 0);
         c.set_reg(CX, old);
-        c.set_word(g::HNM_DC18, old);
+        c.update_video_state(|t| t.wrapped_at = old);
     }
     let size = pure::sub(W, ax, 2);
     c.set_reg(AX, size);
-    c.set_word(g::HNM_DC20, size);
-    let n = c.word(g::HNM_FRAME_2);
+    c.update_video_state(|t| t.part_size = size);
+    let n = c.video_state().fetched;
     let n = pure::inc(W, n);
-    c.set_word(g::HNM_FRAME_2, n);
+    c.update_video_state(|t| t.fetched = n);
     c.ret()
 }
 
@@ -244,7 +243,7 @@ pub fn hnm_advance_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn hnm_ring_has_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xcc2b)?;
     let mut c = Ctx::new(m);
-    let (w, r, cx) = (c.word(g::HNM_READ_PTR), c.word(g::HNM_DC10), c.reg(CX));
+    let (w, r, cx) = (c.video_state().fill[0], c.video_state().next_chunk[0], c.reg(CX));
     let below = w < r;
     if below {
         let need = w.wrapping_add(cx).wrapping_add(0x12);
@@ -257,7 +256,7 @@ pub fn hnm_ring_has_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
     }
-    let read = c.word(g::HNM_READ_PTR_2);
+    let read = c.video_state().buffered;
     let (_, carry) = read.wrapping_add(0x0a).overflowing_add(cx);
     c.run(start, 4 + if below { 4 } else { 0 } + 4 + if carry { 1 } else { 2 })?;
     c.set_reg(AX, w);
@@ -265,7 +264,7 @@ pub fn hnm_ring_has_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = c.add(W, read.wrapping_add(0x0a), cx); // a carry ends it
     c.set_reg(AX, a);
     if !carry {
-        let v = c.word(g::HNM_DC18);
+        let v = c.video_state().wrapped_at;
         c.cmp(W, v, a);
     }
     c.ret()
@@ -273,46 +272,46 @@ pub fn hnm_ring_has_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0cc4e`: past the chunk at the ring's read pointer: its size off
 /// what was read, the pointer on by it (back to 0 past the ring's end);
-/// the frame number on by one (to 1, and [`g::HNM_FRAME_3`] to FFFFh, after
+/// the frame number on by one (to 1, and the last frame to FFFFh, after
 /// the last).
 pub fn hnm_consume_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xcc4e)?;
     let mut c = Ctx::new(m);
-    let (si, seg) = (c.word(g::HNM_DC10), c.word(g::HNM_DC10 + 2));
+    let (si, seg) = (c.video_state().next_chunk[0], c.video_state().next_chunk[1]);
     let size = c.word_at(seg, si);
     let p = si.wrapping_add(2);
     let (end, carry) = p.overflowing_add(size);
     let limit = c.word(RING_END);
     let wrap = carry || end > limit;
-    let frame = c.word(g::HNM_FRAME).wrapping_add(1);
-    let last = c.word(g::HNM_FRAME_3);
+    let frame = c.video_state().frame.wrapping_add(1);
+    let last = c.video_state().last_frame;
     let over = frame > last;
     c.run(start, 5 + if carry { 0 } else { 2 } + if wrap { 3 } else { 0 } + 5 + if over { 2 } else { 0 } + 2)?;
     c.set_sreg(ES, seg);
     c.set_reg(SI, si);
     let size = c.lods(W, ES);
-    let read = c.word(g::HNM_READ_PTR_2);
+    let read = c.video_state().buffered;
     let read = pure::sub(W, read, size);
-    c.set_word(g::HNM_READ_PTR_2, read);
+    c.update_video_state(|t| t.buffered = read);
     let end = pure::add(W, p, size);
     c.set_reg(SI, end);
     let mut ax = size;
     if wrap {
         let v = pure::sub(W, size, 2);
-        c.set_word(g::HNM_DC10, v);
+        c.update_video_state(|t| t.next_chunk[0] = v);
         ax = pure::xor(W, v, v);
     }
-    let v = c.word(g::HNM_DC10);
+    let v = c.video_state().next_chunk[0];
     let v = pure::add(W, v, ax);
-    c.set_word(g::HNM_DC10, v);
-    let f = c.word(g::HNM_FRAME);
+    c.update_video_state(|t| t.next_chunk[0] = v);
+    let f = c.video_state().frame;
     let mut f = pure::inc(W, f);
     if over {
         f = 1;
-        c.set_word(g::HNM_FRAME_3, 0xffff);
+        c.update_video_state(|t| t.last_frame = 0xffff);
     }
     c.set_reg(AX, f);
-    c.set_word(g::HNM_FRAME, f);
+    c.update_video_state(|t| t.frame = f);
     c.ret()
 }
 
@@ -322,8 +321,8 @@ pub fn hnm_note_video_and_frame(m: &mut Machine, start: u16) -> Result<(), Bail>
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
     let (bx, ax) = (c.reg(BX), c.reg(AX));
-    c.set_word(g::HNM_VIDEO_2, bx);
-    c.set_word(g::HNM_FRAME_4, ax);
+    c.update_video_state(|t| t.video_open = bx);
+    c.update_video_state(|t| t.stop_frame = ax);
     c.ret()
 }
 
