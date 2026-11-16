@@ -251,7 +251,13 @@ pub const HNM_FILE_OFFSET: u16 = 0xdc04;
 
 // --- The game screen ----------------------------------------------------------
 
-pub const BYTE_00FB: u16 = 0x00fb;
+/// FFh while the map interface is up (`ui_transition_to_map_interface`,
+/// 5A3Dh), 0 in the room view; switched at 186Eh and 5A10h.
+pub const MAP_INTERFACE: u16 = 0x00fb;
+/// The book: 1 while it is open (AEE7h), with bits 2 and 4 for its
+/// pages' state (AF43h, B011h, cleared at B039h) and 80h while a
+/// phrase is said over it (B17Ah); 0 when closed (B193h).
+pub const BOOK: u16 = 0x00c6;
 /// Set: the talking head does not animate up.
 pub const HEAD_ANIMATION_BLOCKED: u16 = 0x11c9;
 pub const BYTE_11C8: u16 = 0x11c8;
@@ -311,7 +317,9 @@ pub const BYTE_28AE: u16 = 0x28ae;
 pub const CONDITIONS: u16 = 0xaa72;
 /// The resource open as the sprite sheet (Cryogenic: `resourceId`).
 pub const RESOURCE_ID: u16 = 0x2784;
-pub const BYTE_00EA: u16 = 0x00ea;
+/// The kind of the event being told (from [1191h]; 1: its phrase from
+/// [0EBh]), FFh for none (2B1Ah, 2C7Ah).
+pub const EVENT_KIND: u16 = 0x00ea;
 /// The voice file: its name (DOS form at 37DAh), the position and the
 /// bytes left (32 bits each), the parts read; the music loaded.
 pub const VOICE_FILE_NAME: u16 = 0x37da;

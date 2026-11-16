@@ -360,7 +360,7 @@ pub fn create_voc_file_name_from_bx(m: &mut Machine, start: u16) -> Result<(), B
     let bl = c.reg8(r8::BL);
     c.set_reg8(r8::AL, bl);
     c.call(code::HEX_DIGIT, 0xa8e0)?;
-    let (ea, b6, b4) = (c.byte(g::BYTE_00EA), c.byte(g::WORD_0006), c.byte(g::WORD_0004));
+    let (ea, b6, b4) = (c.byte(g::EVENT_KIND), c.byte(g::WORD_0006), c.byte(g::WORD_0004));
     let n = if (ea as i8) > 0 {
         4
     } else if b6 != 0x80 {
@@ -877,7 +877,7 @@ fn music_walk(c: &mut Ctx, write: bool) -> u32 {
         return fin(c, n + 2, ax, dx, bx);
     }
     ax = 0x0d;
-    for (addr, kind) in [(0x46d9u16, 0), (0xdd03, 0), (0xfb, 1), (0xc6, 0), (0xea, 2)] {
+    for (addr, kind) in [(0x46d9u16, 0), (0xdd03, 0), (g::MAP_INTERFACE, 1), (g::BOOK, 0), (g::EVENT_KIND, 2)] {
         let v = c.byte(addr);
         c.cmp(B, v as u16, 0);
         n += 3;
@@ -1638,7 +1638,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     let si = c.add(W, si, ax);
     c.set_reg(SI, si);
     c.call(0x9bee, 0x9e36)?;
-    let e = c.byte(0xea);
+    let e = c.byte(g::EVENT_KIND);
     let skip = (e as i8) > 0;
     c.run(0x9e36, 3 + skip as u32)?;
     c.set_reg(SI, 0x4608);

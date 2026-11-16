@@ -658,7 +658,7 @@ pub fn outline_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if size as u16 == 0 {
         return Err(Bail);
     }
-    let thin = c.byte(0xea) as i8 > 0;
+    let thin = c.byte(g::EVENT_KIND) as i8 > 0;
     c.run(start, 11 + thin as u32)?;
     let ds = c.sreg(DS);
     c.push(ds);
@@ -775,7 +775,7 @@ pub fn start_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, previous);
         return c.ret();
     }
-    let k = c.byte(0xea);
+    let k = c.byte(g::EVENT_KIND);
     let map_up = k as i8 > 0;
     c.run(0x992a, if map_up { 7 } else { 8 })?;
     c.update_dialogue_text(|t| t.shown = text);
@@ -2557,7 +2557,7 @@ pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0x8b11, 0xa032)?;
         c.run(0xa032, 1)?;
     } else {
-        let book = c.byte(0xc6) != 0;
+        let book = c.byte(g::BOOK) != 0;
         c.run(0xa034, if book { 2 } else { 3 })?;
         if !book {
             c.call(0x88af, 0xa03e)?;
@@ -2648,7 +2648,7 @@ pub(super) fn entry_said_a03f(c: &mut Ctx) -> Result<(), Bail> {
             let entry = c.pop();
             c.set_reg(SI, entry);
         }
-        let quiet = (c.byte(0xea) as i8) > 0;
+        let quiet = (c.byte(g::EVENT_KIND) as i8) > 0;
         c.run(0xa0c9, if quiet { 2 } else { 3 })?;
         if !quiet {
             c.call(0xe270, 0xa0d3)?;
@@ -2663,14 +2663,14 @@ pub(super) fn entry_said_a03f(c: &mut Ctx) -> Result<(), Bail> {
             c.call(0xe283, 0xa0e2)?;
         }
     }
-    let fb = c.byte(0xfb);
-    c.run(0xa0e2, if fb & 0x80 != 0 { 4 } else { 6 })?;
-    if fb & 0x80 == 0 {
+    let map_ui = c.byte(g::MAP_INTERFACE);
+    c.run(0xa0e2, if map_ui & 0x80 != 0 { 4 } else { 6 })?;
+    if map_ui & 0x80 == 0 {
         let screen = c.byte(0x28e8);
         c.set_reg8(r8::AL, screen);
         c.set_byte(MAP_SCREEN, screen);
     }
-    c.cmp(B, fb as u16, 0); // the exit's flags
+    c.cmp(B, map_ui as u16, 0); // the exit's flags
     c.set_flag(CF, false);
     c.ret()
 }
@@ -2862,11 +2862,11 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::CS;
     entered(start, 0xb039)?;
     let mut c = Ctx::new(m);
-    let mode = c.byte(0xc6);
+    let mode = c.byte(g::BOOK);
     let page = c.word(BOOK_PAGE);
     let entry = c.word_in(CS, page);
     c.run(start, 8)?;
-    c.set_byte(0xc6, mode & 0xf9);
+    c.set_byte(g::BOOK, mode & 0xf9);
     c.update_conversation(|t| t.append_at = TEXT_BUFFER);
     c.push(TEXT_BUFFER);
     c.set_reg(SI, entry);
@@ -2987,7 +2987,7 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let map_view = c.map_view().mode != 0;
     let talker = c.conversation().talker;
-    let book = c.byte(0xc6) != 0;
+    let book = c.byte(g::BOOK) != 0;
     let intro = c.byte(g::CINEMATIC) != 0;
     let screen = c.byte(MAP_SCREEN) != 0;
     if map_view {
@@ -4018,7 +4018,7 @@ fn show_text_88d2(c: &mut Ctx) -> Result<(), Bail> {
             c.m.cpu.ip = 0x88d9;
             return Err(Bail);
         }
-        let shown = !c.byte(0xfb) & 0x80;
+        let shown = !c.byte(g::MAP_INTERFACE) & 0x80;
         c.run(0x88d9, 21)?;
         let text = c.pop();
         c.set_reg(SI, text);
@@ -4363,7 +4363,7 @@ fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
     c.call(0xc085, 0x9022)?;
     // The `jmp`, then 8895h to its `ret`: 15 instructions.
     c.run(0x9022, 1 + 15)?;
-    let shown = !c.byte(0xfb) & 0x80;
+    let shown = !c.byte(g::MAP_INTERFACE) & 0x80;
     c.set_reg8(r8::AL, shown);
     c.set_byte(0x1c06, shown);
     let ds = c.sreg(DS);

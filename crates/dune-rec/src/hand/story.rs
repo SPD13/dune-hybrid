@@ -848,18 +848,18 @@ pub fn on_phase_change(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb17a)?;
     let mut c = Ctx::new(m);
     c.run(start, 5)?;
-    let v = c.byte(0xc6);
+    let v = c.byte(g::BOOK);
     c.set_reg8(r8::AL, v);
     let ax = c.reg(AX);
     c.push(ax);
     let v2 = pure::or(B, v as u16, 0x80) as u8;
     c.set_reg8(r8::AL, v2);
-    c.set_byte(0xc6, v2);
+    c.set_byte(g::BOOK, v2);
     c.call(code::DIALOGUE_STEP_AB84, 0xb186)?;
     c.run(0xb186, 3)?;
     let ax = c.pop();
     c.set_reg(AX, ax);
-    c.set_byte(0xc6, ax as u8);
+    c.set_byte(g::BOOK, ax as u8);
     c.ret()
 }
 
@@ -939,13 +939,13 @@ pub fn redraw_1c18(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let k = c.map_view().mode;
     if k & 0x80 == 0 {
-        let fb = c.byte(0xfb);
-        let n = if k != 0 { 4 } else if fb & 0x80 == 0 { 6 } else { 6 };
+        let map_ui = c.byte(g::MAP_INTERFACE);
+        let n = if k != 0 { 4 } else if map_ui & 0x80 == 0 { 6 } else { 6 };
         c.run(start, n)?;
         if k != 0 {
             return c.ret();
         }
-        if fb & 0x80 == 0 {
+        if map_ui & 0x80 == 0 {
             return c.ret();
         }
         c.call(0xbdbb, 0x1c45)?;
@@ -1259,14 +1259,14 @@ pub fn message_2b00(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x2b0d, 4)?;
     let ax = c.reg(AX);
-    c.set_byte(0xea, ax as u8);
+    c.set_byte(g::EVENT_KIND, ax as u8);
     c.xor(B, 0, 0);
     c.set_reg(AX, ax >> 8);
     c.call(0x96d8, 0x2b17)?;
     c.run(0x2b17, 1)?;
     c.call(0x9945, 0x2b1a)?;
     c.run(0x2b1a, 3)?;
-    c.set_byte(0xea, 0xff);
+    c.set_byte(g::EVENT_KIND, 0xff);
     c.set_reg8(r8::AL, 1);
     c.call(0x9ef1, 0x2b24)?;
     c.run(0x2b24, 2)?;
@@ -2837,13 +2837,13 @@ pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x2b0d, 4)?;
     let ax = c.reg(AX);
-    c.set_byte(0xea, ax as u8);
+    c.set_byte(g::EVENT_KIND, ax as u8);
     c.set_reg(AX, ax >> 8);
     c.call(0x96d8, 0x2b17)?;
     c.run(0x2b17, 1)?;
     c.call(0x9945, 0x2b1a)?;
     c.run(0x2b1a, 3)?;
-    c.set_byte(0xea, 0xff);
+    c.set_byte(g::EVENT_KIND, 0xff);
     c.set_reg8(r8::AL, 1);
     c.call(0x9ef1, 0x2b24)?;
     c.run(0x2b24, 2)?;
@@ -5093,7 +5093,7 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0b45)?;
     let mut c = Ctx::new(m);
     let t = c.byte(0x485d).wrapping_sub(1);
-    let day = c.byte(0xea);
+    let day = c.byte(g::EVENT_KIND);
     let pic = !((day as i8) > 0) && t <= 0x10;
     c.run(start, 4 + if (day as i8) > 0 { 0 } else { 3 } + if pic { 2 } else { 0 })?;
     c.set_reg(SI, 0x4856);
@@ -6463,25 +6463,25 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     if v == 0 {
         return clear_473b(c);
     }
-    let fb = c.byte(0xfb);
+    let map_ui = c.byte(g::MAP_INTERFACE);
     if v & 0x80 != 0 {
         c.run(0x1bd2, 1)?;
         c.call(0x1bb2, 0x1bd5)?;
-        let fb = c.byte(0xfb);
-        if fb & 0x80 != 0 {
+        let map_ui = c.byte(g::MAP_INTERFACE);
+        if map_ui & 0x80 != 0 {
             c.run(0x1bd5, 3)?;
-            c.cmp(B, fb as u16, 0);
+            c.cmp(B, map_ui as u16, 0);
             return super::map::refresh_map_view(c.m, 0x5d6d);
         }
         let da = c.byte(0x46da);
         if da != 0 {
             c.run(0x1bd5, 4)?;
-            c.cmp(B, fb as u16, 0);
+            c.cmp(B, map_ui as u16, 0);
             c.cmp(B, da as u16, 0);
             return clear_473b(c);
         }
         c.run(0x1bd5, 5)?;
-        c.cmp(B, fb as u16, 0);
+        c.cmp(B, map_ui as u16, 0);
         c.cmp(B, 0, 0);
         c.call(0xd2bd, 0x1be6)?;
         c.run(0x1be6, 1)?;
@@ -6493,20 +6493,20 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x0faf, 1)?;
         return super::screens::draw_gauges(c.m, 0xd763);
     }
-    if fb & 0x80 != 0 {
+    if map_ui & 0x80 != 0 {
         c.run(0x1bb8, 2)?;
-        c.cmp(B, fb as u16, 0);
+        c.cmp(B, map_ui as u16, 0);
         return clear_473b(c);
     }
     let da = c.byte(0x46da);
     if da != 0 {
         c.run(0x1bb8, 4)?;
-        c.cmp(B, fb as u16, 0);
+        c.cmp(B, map_ui as u16, 0);
         c.cmp(B, da as u16, 0);
         return clear_473b(c);
     }
     c.run(0x1bb8, 5)?;
-    c.cmp(B, fb as u16, 0);
+    c.cmp(B, map_ui as u16, 0);
     c.cmp(B, 0, 0);
     c.call(0xdbb2, 0x1bc9)?;
     c.run(0x1bc9, 1)?;
@@ -6635,8 +6635,8 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x2b3a, 3)?;
         return c.ret();
     }
-    let fb = c.byte(0xfb);
-    if fb & 0x80 != 0 {
+    let map_ui = c.byte(g::MAP_INTERFACE);
+    if map_ui & 0x80 != 0 {
         c.run(0x2b3a, 5)?;
         return c.ret();
     }
@@ -6666,7 +6666,7 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         loop {
             c.run(0x2bc4, 1)?;
             c.call(0x2b2a, 0x2bc7)?;
-            let e = c.byte(0xea);
+            let e = c.byte(g::EVENT_KIND);
             c.run(0x2bc7, 2 + (e == 0xff) as u32)?;
             if e == 0xff {
                 return c.ret();
@@ -6768,7 +6768,7 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
     let n = 4 + (al == 1) as u32 + 5 + if ah >= 0x10 { 0 } else if ah != 0x0e { 2 } else { 4 };
     c.run(0x2bf4, n + if skip { 1 } else if di != 0 { 4 } else { 3 })?;
     c.set_reg(AX, ev);
-    c.set_byte(0xea, al);
+    c.set_byte(g::EVENT_KIND, al);
     c.cmp(B, al as u16, 1);
     if al == 1 {
         c.set_byte(0xeb, al);
@@ -6799,7 +6799,7 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
             c.run(0x2c23, 2)?;
             c.cmp(W, p, 0x0e);
         } else {
-            let k = c.byte(0xea);
+            let k = c.byte(g::EVENT_KIND);
             let di = c.reg(DI);
             let f = c.byte(di.wrapping_add(9));
             let call = k == 0x0e || f != 0;
@@ -6850,7 +6850,7 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(AX, 0);
     c.update_text_box(|t| t.shown = 0);
     c.set_word(0x4540, 0);
-    c.set_byte(0xea, 0xff);
+    c.set_byte(g::EVENT_KIND, 0xff);
     c.set_byte(g::HEAD_ANIMATION_STEP, 0x0a);
     c.set_word(0xdc30, 0);
     c.set_reg8(r8::AL, 6);

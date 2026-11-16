@@ -203,7 +203,7 @@ pub fn load_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (cx, di) = (c.reg(CX), c.reg(DI));
     let n = cx.wrapping_sub(2);
     c.run(0xb3cd, 12 + n as u32)?;
-    let al = c.byte(0xfb);
+    let al = c.byte(g::MAP_INTERFACE);
     c.set_reg8(r8::AL, al);
     let ax = c.reg(AX);
     c.push(ax);
@@ -261,7 +261,7 @@ fn after_restore(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0xb400, 4 + 1)?;
         let ax = c.pop();
         c.set_reg(AX, ax);
-        c.set_byte(0xfb, fb);
+        c.set_byte(g::MAP_INTERFACE, fb);
         c.call(0xd2bd, 0xb41e)?;
         for (at, to) in [(0xb41eu16, 0x1a0fu16), (0xb421, 0xadbe)] {
             c.run(at, 1)?;
@@ -274,7 +274,7 @@ fn after_restore(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xb400, 4 + 2 + zoomed as u32)?;
     let ax = c.pop();
     c.set_reg(AX, ax);
-    c.set_byte(0xfb, fb);
+    c.set_byte(g::MAP_INTERFACE, fb);
     if zoomed {
         c.call(0xb915, 0xb412)?;
     }

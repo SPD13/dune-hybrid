@@ -724,7 +724,7 @@ pub fn ui_transition_to_map_interface(m: &mut Machine, start: u16) -> Result<(),
     entered(start, 0x5a3d)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_byte(g::BYTE_00FB, 0xff);
+    c.set_byte(g::MAP_INTERFACE, 0xff);
     c.call(0xc13b, 0x5a45)?;
     c.interp(0x5a45, 0x5a49)?;
     c.run(0x5a49, 4)?;
@@ -1575,9 +1575,9 @@ pub fn panel_with_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 fn panel_with_head_at(c: &mut Ctx, at: u16) -> Result<(), Bail> {
     c.run(at, 2)?;
-    let v = c.byte(0xc6);
+    let v = c.byte(g::BOOK);
     let v = c.or(B, v as u16, 2);
-    c.set_byte(0xc6, v as u8);
+    c.set_byte(g::BOOK, v as u8);
     c.call(0xc432, 0xaf4b)?;
     c.run(0xaf4b, 2)?;
     c.set_reg8(r8::AL, 0x32);

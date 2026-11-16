@@ -4355,17 +4355,17 @@ pub fn toggle_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn toggle_map_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.run(at, pre + 1)?;
     c.call(0xdaa3, 0x186e)?;
-    let v = c.byte(0xfb);
+    let v = c.byte(g::MAP_INTERFACE);
     let nv = v.wrapping_neg();
     if nv & 0x80 != 0 {
         c.run(0x186e, 3)?;
         let r = c.neg(B, v as u16);
-        c.set_byte(0xfb, r as u8);
+        c.set_byte(g::MAP_INTERFACE, r as u8);
         return open_map_screen(c.m, 0x5a1a);
     }
     c.run(0x186e, 3)?;
     let r = c.neg(B, v as u16);
-    c.set_byte(0xfb, r as u8);
+    c.set_byte(g::MAP_INTERFACE, r as u8);
     c.call(0xd2bd, 0x187a)?;
     c.run(0x187a, 1)?;
     c.call(0x5adf, 0x187d)?;

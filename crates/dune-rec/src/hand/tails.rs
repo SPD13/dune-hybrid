@@ -378,7 +378,7 @@ pub fn b18b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xadbe, 0xb18e)?;
     c.run(0xb18e, 4)?;
     c.update_clock(|k| k.start());
-    c.set_byte(0xc6, 0);
+    c.set_byte(g::BOOK, 0);
     c.set_byte(0x1c30, 0);
     c.call(0xca01, 0xb1a0)?;
     c.run(0xb1a0, 1)?;
@@ -554,7 +554,7 @@ pub fn book_aed6(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(to, ret)?;
     }
     c.run(0xaee7, 2)?;
-    c.set_byte(0xc6, 1);
+    c.set_byte(g::BOOK, 1);
     c.call(0xb2b9, 0xaeef)?;
     c.run(0xaeef, 1)?;
     c.call(0xd95b, 0xaef2)?;
@@ -1135,7 +1135,7 @@ pub fn book_afc7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::ZF;
     entered(start, 0xafc7)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0xc6);
+    let f = c.byte(g::BOOK);
     if f & 2 != 0 {
         c.run(0xafc7, 3)?;
         return c.ret();
@@ -1175,14 +1175,14 @@ pub fn book_afc7(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xaff1, 3)?;
         return c.jump(0xb024);
     }
-    let f = c.byte(0xc6);
+    let f = c.byte(g::BOOK);
     if f & 4 != 0 {
         c.run(0xaff1, 5 + 1)?;
         return c.ret();
     }
     c.run(0xaff1, 5 + 2)?;
     let f = pure::or(B, f as u16, 4);
-    c.set_byte(0xc6, f as u8);
+    c.set_byte(g::BOOK, f as u8);
     c.call(0x09f5, 0xb019)?;
     c.run(0xb019, 2)?;
     c.set_reg(DX, 0);
@@ -1333,7 +1333,7 @@ pub fn script_1707(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x1755, 1)?;
     c.call(0xb2be, 0x1758)?;
-    let f = c.byte(0xfb);
+    let f = c.byte(g::MAP_INTERFACE);
     if f & 0x80 == 0 {
         c.run(0x1758, 3)?;
         return c.jump(0x0fa7);
@@ -2177,12 +2177,12 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, 0);
         return c.ret();
     }
-    let fb = c.byte(0xfb);
+    let map_ui = c.byte(g::MAP_INTERFACE);
     c.run(0x0d8e, 2 + 3 + 4 + 1)?;
     c.set_reg(AX, 0);
     c.set_byte(0x473b, 0);
     c.update_map_view(|t| t.changes = 0);
-    if fb & 0x80 != 0 {
+    if map_ui & 0x80 != 0 {
         c.call(0xdbb2, 0x0dad)?;
         c.run(0x0dad, 1)?;
         return c.jump(0x186b);
