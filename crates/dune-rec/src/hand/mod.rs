@@ -41,6 +41,7 @@ pub mod flight;
 pub mod typed_message;
 pub mod screen_buffers;
 pub mod mouse_state;
+pub mod sound_state;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1563,6 +1564,14 @@ impl Ctx<'_> {
     }
     /// The mouse and its cursor changed by `f` (written through).
     fn update_mouse_state(&mut self, f: impl FnOnce(&mut mouse_state::MouseState)) {
+        record_table::update_single(self, f)
+    }
+    /// The sound's state (Rust state, see [`sound_state`]), in step with the memory.
+    fn sound_state(&mut self) -> sound_state::SoundState {
+        record_table::single(self)
+    }
+    /// The sound's state changed by `f` (written through).
+    fn update_sound_state(&mut self, f: impl FnOnce(&mut sound_state::SoundState)) {
         record_table::update_single(self, f)
     }
     /// The game time ([2]).

@@ -470,6 +470,14 @@ where the cursor was drawn, the hide count, hidden for a rect) the same
 way; the driver's callback writes it (counted with the generated
 code). `mouse:` in the output.
 
+The sound's state (`hand/sound_state.rs`, 14h bytes at DBC0h: the voice
+file's position and bytes left, the settings, the music loaded, playing
+and asked for, the MIDI driver's returns, when the music was picked).
+The music driver's tick in the timer interrupt (generated code, AE28h,
+EFC7h) writes it some 5000 times a game: all counted apart, none
+unforeseen. Porting that tick would move those writes into Rust.
+`sound:` in the output.
+
 ## Tools in place
 
 | Tool | What it checks |

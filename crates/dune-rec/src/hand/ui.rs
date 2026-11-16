@@ -692,7 +692,7 @@ fn music_step(c: &mut Ctx) -> Result<(), Bail> {
         c.test(B, settings as u16, 1);
         return c.ret();
     }
-    let state = c.byte(g::IS_SOUND_PRESENT);
+    let state = c.sound_state().present;
     let ready = state & 0x80 == 0 || state & 0x40 != 0;
     c.run(0xae07, if state & 0x80 == 0 { 6 } else { 8 })?;
     c.test(B, settings as u16, 1);
@@ -859,7 +859,7 @@ fn draw_counter_at(c: &mut Ctx) -> Result<(), Bail> {
 pub fn draw_counters(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa47d)?;
     let mut c = Ctx::new(m);
-    let f = c.word(g::SOUND_SETTINGS);
+    let f = c.sound_state().settings;
     if f & 8 != 0 {
         c.run(start, 4)?;
         c.set_reg(SI, 0x28a6);
@@ -867,7 +867,7 @@ pub fn draw_counters(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(start, 2)?;
     }
-    let f = c.word(g::SOUND_SETTINGS);
+    let f = c.sound_state().settings;
     if f & 0x800 == 0 {
         c.run(0xa48b, 3)?;
         return c.ret();

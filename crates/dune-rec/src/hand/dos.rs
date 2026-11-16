@@ -1135,7 +1135,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.interp(0xe781, 0xe785)?;
         c.run(0xe785, 2)?;
         let bx = c.reg(BX);
-        c.set_word(0xdbc8, bx);
+        c.update_sound_state(|t| t.settings = bx);
         c.call(0xa637, 0xe78c)?;
         c.run(0xe78c, 1)?;
         c.call(0xae54, 0xe78f)?;
@@ -1155,7 +1155,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(0x2944, f & 0xf);
         c.set_reg(AX, 0);
         c.set_word(0x3813, 0);
-        c.set_byte(0xdbc8, 0);
+        c.update_sound_state(|t| t.settings &= 0xff00);
         let v = c.word(0x398b).wrapping_add(0x10);
         c.set_reg(AX, v);
         c.set_word(0x39b9, v);
@@ -1182,9 +1182,9 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, v);
         c.interp(0xe7e0, 0xe7e4)?;
         c.run(0xe7e4, 2)?;
-        let v = c.word(0xdbc8);
+        let v = c.sound_state().settings;
         let bx = c.reg(BX);
-        c.set_word(0xdbc8, v | bx);
+        c.update_sound_state(|t| t.settings = v | bx);
         c.call(0xa650, 0xe7eb)?;
         c.run(0xe7eb, 1)?;
         c.call(0xae3f, 0xe7ee)?;
@@ -1203,7 +1203,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(0x2944, f & 0xf0);
         c.set_reg(AX, 0);
         c.set_word(0xdbb8, 0);
-        c.set_byte(0xdbc9, 0);
+        c.update_sound_state(|t| t.settings &= 0x00ff);
         let v = c.word(0x396f).wrapping_add(0x10);
         c.set_reg(AX, v);
         c.set_word(0x39b9, v);

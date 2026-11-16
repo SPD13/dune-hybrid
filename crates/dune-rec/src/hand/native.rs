@@ -20,6 +20,7 @@ pub struct Native {
     pub typed_message: super::record_table::RecordTable,
     pub screen_buffers: super::record_table::RecordTable,
     pub mouse_state: super::record_table::RecordTable,
+    pub sound_state: super::record_table::RecordTable,
 }
 
 /// The machine's Rust state (made on first use).

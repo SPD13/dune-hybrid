@@ -265,12 +265,12 @@ fn play_logo(c: &mut Ctx, entry: u16, music: bool) -> Result<(), Bail> {
         c.run(at(0xb), 2)?;
         c.call(more::GFX_COPY_WHOLE_FRAMEBUF_TO_SCREEN, at(0x10))?;
         let check = if music {
-            let ready = c.word(g::MIDI_FUNC5_BX);
+            let ready = c.sound_state().midi_bx;
             if ready < 8 {
                 c.run(0x0635, 2)?;
                 c.cmp(W, ready, 8);
             } else {
-                let flag = c.byte(g::CURRENT_MUSIC);
+                let flag = c.sound_state().current_music;
                 c.run(0x0635, if flag == 0 { 4 } else { 5 })?;
                 c.cmp(W, ready, 8);
                 c.cmp(super::B, flag as u16, 0);

@@ -164,7 +164,7 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
 pub fn wait_for_pcm_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xddf0)?;
     let mut c = Ctx::new(m);
-    let v = c.byte(g::IS_SOUND_PRESENT);
+    let v = c.sound_state().present;
     c.run(0xddf0, 2)?;
     c.cmp(B, v as u16, 0);
     if v & 0x80 != 0 {

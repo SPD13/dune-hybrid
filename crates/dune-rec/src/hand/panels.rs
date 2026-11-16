@@ -672,7 +672,7 @@ pub fn settings_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn settings_apply_music_volume(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa637)?;
     let mut c = Ctx::new(m);
-    let settings = c.word(g::SOUND_SETTINGS);
+    let settings = c.sound_state().settings;
     let off = settings & 4 == 0;
     c.run(start, if off { 5 } else { 4 })?;
     c.test(W, settings, 4);
@@ -692,7 +692,7 @@ pub fn settings_apply_music_volume(m: &mut Machine, start: u16) -> Result<(), Ba
 pub fn settings_apply_sound_volume(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa650)?;
     let mut c = Ctx::new(m);
-    let settings = c.word(g::SOUND_SETTINGS);
+    let settings = c.sound_state().settings;
     let off = settings & 0x400 == 0;
     let v = if off { 0xff } else { c.byte(SLIDERS[1]) };
     c.run(start, 2 + if off { 3 } else { 0 } + 4 + (v < 4) as u32)?;
@@ -795,7 +795,7 @@ pub fn settings_ui_draw_volume_sliders(m: &mut Machine, start: u16) -> Result<()
         c.run(0xa4c9, 3)?;
         c.set_reg(SI, g::SLIDER_VOICE);
         c.call(code::SETTINGS_UI_DRAW_SLIDER, 0xa4d1)?;
-        let s = c.word(g::SOUND_SETTINGS);
+        let s = c.sound_state().settings;
         c.run(0xa4d1, if s & 4 != 0 { 3 } else { 4 })?;
         if s & 4 == 0 {
             c.set_byte(g::SLIDER_VOICE + 1, 0);
@@ -812,7 +812,7 @@ pub fn settings_ui_draw_volume_sliders(m: &mut Machine, start: u16) -> Result<()
     c.run(0xa4e9, 2)?;
     c.set_reg(SI, g::SLIDER_MUSIC_2);
     c.call(code::SETTINGS_UI_DRAW_SLIDER, 0xa4ef)?;
-    let s = c.word(g::SOUND_SETTINGS);
+    let s = c.sound_state().settings;
     let on = s & 0x400 != 0;
     c.run(0xa4ef, if on { 3 } else { 5 })?;
     if !on {

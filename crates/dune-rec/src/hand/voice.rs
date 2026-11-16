@@ -35,7 +35,7 @@ pub fn music_enabled(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xae28)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let s = c.word(g::SOUND_SETTINGS);
+    let s = c.sound_state().settings;
     c.test(W, s, 0x100);
     c.ret()
 }
@@ -69,14 +69,14 @@ fn read_part(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xa93f, 4)?;
     let dx = c.reg(DX);
     c.push(dx);
-    let (low, high) = (c.word(g::VOICE_FILE_POS), c.word(g::VOICE_FILE_POS + 2));
+    let pos = c.sound_state().voice_pos;
+    let (low, high) = (pos as u16, (pos >> 16) as u16);
     c.set_reg(DX, low);
     c.set_reg(CX, high);
     c.set_reg(AX, 0x4200);
     c.interp(0xa94b, 0xa94d)?; // DOS seek
-    let left = c.word(g::VOICE_FILE_LEFT);
-    let left_high = c.word(g::VOICE_FILE_LEFT + 2);
-    let last = (left_high as u32) << 16 | left as u32;
+    let last = c.sound_state().voice_left;
+    let (left, left_high) = (last as u16, (last >> 16) as u16);
     let short = last < PART as u32;
     c.run(0xa94d, 8 + if short { 2 } else { 0 } + 3)?;
     let dx = c.pop();
@@ -87,9 +87,8 @@ fn read_part(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(CX, PART);
     c.set_reg(AX, left);
     let l = c.sub(W, left, PART);
-    c.set_word(g::VOICE_FILE_LEFT, l);
     let h = c.sbb(W, left_high, 0);
-    c.set_word(g::VOICE_FILE_LEFT + 2, h);
+    c.update_sound_state(|t| t.voice_left = (h as u32) << 16 | l as u32);
     if short {
         let n = c.inc(W, left);
         c.set_reg(CX, n);
@@ -115,16 +114,14 @@ fn read_part(c: &mut Ctx) -> Result<(), Bail> {
     }
     let part = c.byte(g::VOICE_PART);
     let counted = part < 0x3f;
-    let remaining_high = c.word(g::VOICE_FILE_LEFT + 2);
+    let remaining_high = (c.sound_state().voice_left >> 16) as u16;
     let more = remaining_high & 0x8000 == 0;
     c.run(0xa96a, 11 + if counted { 2 } else { 0 } + 4 + if more { 1 } else { 1 })?;
     c.set_word(si.wrapping_add(4), read);
-    let p = c.word(g::VOICE_FILE_POS);
-    let p = c.add(W, p, read);
-    c.set_word(g::VOICE_FILE_POS, p);
-    let p = c.word(g::VOICE_FILE_POS + 2);
-    let p = c.adc(W, p, 0);
-    c.set_word(g::VOICE_FILE_POS + 2, p);
+    let pos = c.sound_state().voice_pos;
+    let low = c.add(W, pos as u16, read);
+    let high = c.adc(W, (pos >> 16) as u16, 0);
+    c.update_sound_state(|t| t.voice_pos = (high as u32) << 16 | low as u32);
     c.set_byte(g::VOC_LOADED, 0xff);
     c.set_byte(si.wrapping_add(6), 1);
     c.set_reg8(r8::BL, part);
@@ -183,11 +180,11 @@ pub fn open_pcm_voice_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bp = c.reg(BP);
     let bp = c.sbb(W, bp, 0);
     c.set_reg(BP, bp);
-    c.set_word(g::VOICE_FILE_LEFT, cx);
-    c.set_word(g::VOICE_FILE_LEFT + 2, bp);
     let (ax, dx) = (c.reg(AX), c.reg(DX));
-    c.set_word(g::VOICE_FILE_POS, ax);
-    c.set_word(g::VOICE_FILE_POS + 2, dx);
+    c.update_sound_state(|t| {
+        t.voice_left = (bp as u32) << 16 | cx as u32;
+        t.voice_pos = (dx as u32) << 16 | ax as u32;
+    });
     c.set_reg(SI, g::VOC_BUFFER);
     let (dx, es) = (c.word(g::VOC_BUFFER), c.word(g::VOC_BUFFER + 2));
     c.set_reg(DX, dx);
@@ -253,7 +250,7 @@ pub fn load_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xae62)?;
     let mut c = Ctx::new(m);
     let music = c.reg8(r8::AL);
-    let loaded = c.byte(g::MUSIC_LOADED);
+    let loaded = c.sound_state().music_loaded;
     if music == loaded {
         c.run(start, 3)?;
         return c.ret();
@@ -265,7 +262,7 @@ pub fn load_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let direct = es < end;
     c.run(0xae6b, if direct { 9 } else { 8 })?;
     let music = c.reg8(r8::AL);
-    c.set_byte(g::MUSIC_LOADED, music);
+    c.update_sound_state(|t| t.music_loaded = music);
     let ax = c.reg(AX);
     c.push(ax);
     let resource = pure::add(W, ax, MUSIC_RESOURCES);
@@ -462,10 +459,10 @@ pub fn while_voice_playing(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn play_requested_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xad43)?;
     let mut c = Ctx::new(m);
-    let al = c.byte(0xdbcc);
+    let al = c.sound_state().requested_music;
     c.run(start, if al == 0 { 5 } else { 4 })?;
     c.set_reg8(r8::AL, al);
-    c.set_byte(g::CURRENT_MUSIC, 0);
+    c.update_sound_state(|t| t.current_music = 0);
     c.or(B, al as u16, al as u16);
     if al == 0 {
         return c.ret();
@@ -486,7 +483,7 @@ pub fn music_driver_397d(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let set = c.byte(g::MUSIC_SETTINGS);
-    let present = c.byte(g::IS_SOUND_PRESENT);
+    let present = c.sound_state().present;
     let n = if set & 1 != 0 { 4 } else if present & 0x40 != 0 { 6 } else { 8 };
     c.run(0xadc1, n)?;
     c.test(B, set as u16, 1);
@@ -505,7 +502,7 @@ pub fn music_driver_397d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.interp(0xadd7, 0xaddb)?;
     c.run(0xaddb, 3)?;
     let al = c.reg8(r8::AL);
-    c.set_byte(g::IS_SOUND_PRESENT, al);
+    c.update_sound_state(|t| t.present = al);
     let bx = c.pop();
     c.set_reg(BX, bx);
     c.ret()
@@ -984,27 +981,27 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xad3a, 2)?;
             return c.ret();
         }
-        let s = c.byte(g::IS_SOUND_PRESENT);
+        let s = c.sound_state().present;
         if s & 0x80 != 0 {
             c.run(0xad3a, 4)?;
             return c.ret();
         }
-        let al = c.byte(0xdbcc);
+        let al = c.sound_state().requested_music;
         c.run(0xad3a, 7 + if al == 0 { 1 } else { 0 })?;
         c.set_reg8(r8::AL, al);
-        c.set_byte(g::CURRENT_MUSIC, 0);
+        c.update_sound_state(|t| t.current_music = 0);
         if al == 0 {
             return c.ret();
         }
         return music_start_at(&mut c, 0xad95, 0);
     }
     let night = c.byte(g::MAP_VIEW_FLAG);
-    let s = c.byte(g::IS_SOUND_PRESENT);
+    let s = c.sound_state().present;
     if night != 0 || s & 0x80 != 0 {
         c.run(0xace9, 3 + 2 + if night != 0 { 1 } else { 3 })?;
         return c.ret();
     }
-    let t0 = c.word(g::MUSIC_DBD2);
+    let t0 = c.sound_state().picked_at;
     let now = c.timer();
     let base = if t0 == 0 { now } else { t0 };
     let el = now.wrapping_sub(base);
@@ -1017,7 +1014,7 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, t0);
     if t0 == 0 {
         c.set_reg(AX, now);
-        c.set_word(g::MUSIC_DBD2, now);
+        c.update_sound_state(|t| t.picked_at = now);
     }
     let a = pure::sub(W, base, now);
     let a = pure::neg(W, a);
@@ -1067,7 +1064,7 @@ fn music_start_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
         return c.ret();
     }
     let al = c.reg8(r8::AL);
-    let cur = c.byte(g::CURRENT_MUSIC);
+    let cur = c.sound_state().current_music;
     if al == cur {
         c.run(0xad9a, 4)?;
         c.cmp(B, al as u16, cur as u16);
@@ -1078,7 +1075,7 @@ fn music_start_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.call(0xae62, 0xada5)?;
     c.run(0xada5, 4)?;
     let al = c.reg8(r8::AL);
-    c.set_byte(g::CURRENT_MUSIC, al);
+    c.update_sound_state(|t| t.current_music = al);
     let (si, es) = (c.word(g::MUSIC_DATA), c.word(0xdbb8));
     c.set_reg(SI, si);
     c.set_sreg(ES, es);
@@ -1088,10 +1085,10 @@ fn music_start_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.interp(0xadb1, 0xadb5)?;
     c.run(0xadb5, 4)?;
     let al = c.reg8(r8::AL);
-    c.set_byte(g::IS_SOUND_PRESENT, al);
+    c.update_sound_state(|t| t.present = al);
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
-    c.set_word(g::MUSIC_DBD2, 0);
+    c.update_sound_state(|t| t.picked_at = 0);
     c.ret()
 }
 
@@ -1113,7 +1110,7 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xaa96, 0xad66)?;
     let f = c.byte(g::MUSIC_SETTINGS);
     if f != 0 {
-        let s = c.byte(g::IS_SOUND_PRESENT);
+        let s = c.sound_state().present;
         if s & 0x80 != 0 {
             c.run(0xad66, 5)?;
             c.cmp(B, s as u16, 0); // the exit's flags
@@ -1140,18 +1137,18 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, 0x375c);
         c.set_reg8(r8::AL, v);
         c.or(B, v as u16, v as u16);
-        c.set_byte(0xdbcc, v);
+        c.update_sound_state(|t| t.requested_music = v);
         c.interp(0xad84, 0xad88)?;
         c.run(0xad88, 1)?;
         return c.ret();
     }
     let a = v & 0x3f;
-    let cur = c.byte(g::CURRENT_MUSIC);
+    let cur = c.sound_state().current_music;
     c.run(0xad66, 2 + 4 + 2 + 4 + if a == cur { 1 } else { 0 })?;
     // A marked one, through `music_driver_397d` when it changes.
     c.set_reg(BX, 0x375c);
     c.set_reg8(r8::AL, a);
-    c.set_byte(0xdbcc, a);
+    c.update_sound_state(|t| t.requested_music = a);
     c.cmp(B, a as u16, cur as u16); // the exit's flags
     if a == cur {
         return c.ret();

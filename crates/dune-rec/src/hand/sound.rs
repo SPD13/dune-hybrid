@@ -148,11 +148,11 @@ pub fn midi_func_2_0(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 2)?;
     let ax = c.reg(AX);
     c.push(ax);
-    c.set_byte(g::CURRENT_MUSIC, 0);
+    c.update_sound_state(|t| t.current_music = 0);
     c.interp(0xaebd, 0xaec1)?;
     c.run(0xaec1, 3)?;
     let present = c.reg8(r8::AL);
-    c.set_byte(g::IS_SOUND_PRESENT, present);
+    c.update_sound_state(|t| t.present = present);
     let ax = c.pop();
     c.set_reg(AX, ax);
     c.ret()
@@ -167,7 +167,7 @@ pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{BX, DX, SI};
     entered(start, 0xde0c)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(g::IS_SOUND_PRESENT);
+    let f = c.sound_state().present;
     if f & 0x80 == 0 {
         c.run(0xde0c, 6)?;
         let ax = c.reg(AX);
@@ -186,14 +186,14 @@ pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         c.run(0xde20, 14)?;
         c.set_reg(AX, 0x60);
-        let t = c.word(g::MIDI_FUNC5_CX);
+        let t = c.sound_state().midi_cx;
         // The target: [0DBCEh] * 16 + (60h - [0DBD0h]) / 6.
         let a = 0x60u16.wrapping_sub(t) & 0xff;
         let (q, r) = (a / 6, a % 6);
         let al = q as u8 & 0xf;
         c.set_reg(AX, (r << 8) | al as u16);
         c.set_reg8(r8::DL, 6);
-        let dx = (c.word(g::MIDI_FUNC5_BX) << 4) | al as u16;
+        let dx = (c.sound_state().midi_bx << 4) | al as u16;
         c.set_reg(DX, dx);
         let bx = c.reg(BX);
         if bx <= dx {

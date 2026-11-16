@@ -218,7 +218,7 @@ fn play(c: &mut Ctx) -> Result<(), Bail> {
         return c.ret();
     }
     let music = c.reg8(r8::AL);
-    let current = c.byte(g::CURRENT_MUSIC);
+    let current = c.sound_state().current_music;
     c.run(0xad9a, 4)?;
     c.cmp(B, music as u16, current as u16);
     if music == current {
@@ -227,7 +227,7 @@ fn play(c: &mut Ctx) -> Result<(), Bail> {
     c.call(code::STOP_MUSIC, 0xada5)?;
     c.run(0xada5, 4)?;
     let music = c.reg8(r8::AL);
-    c.set_byte(g::CURRENT_MUSIC, music);
+    c.update_sound_state(|t| t.current_music = music);
     let (si, seg) = (c.word(g::MUSIC_DATA), c.word(g::MUSIC_DATA + 2));
     c.set_reg(SI, si);
     c.set_sreg(ES, seg);
@@ -237,11 +237,11 @@ fn play(c: &mut Ctx) -> Result<(), Bail> {
     c.interp(0xadb1, 0xadb5)?;
     c.run(0xadb5, 4)?;
     let present = c.reg8(r8::AL);
-    c.set_byte(g::IS_SOUND_PRESENT, present);
+    c.update_sound_state(|t| t.present = present);
     let ax = c.reg(AX);
     let zero = c.xor(W, ax, ax);
     c.set_reg(AX, zero);
-    c.set_word(g::MUSIC_DBD2, 0);
+    c.update_sound_state(|t| t.picked_at = 0);
     c.ret()
 }
 
@@ -290,9 +290,9 @@ pub fn pit_timer_callback_midi(m: &mut Machine, start: u16) -> Result<(), Bail> 
         c.interp(0xefc3, 0xefc7)?;
         c.run(0xefc7, 6)?;
         let (al, bx, cx) = (c.reg8(r8::AL), c.reg(BX), c.reg(CX));
-        c.set_byte(g::IS_SOUND_PRESENT, al);
-        c.set_word(g::MIDI_FUNC5_BX, bx);
-        c.set_word(g::MIDI_FUNC5_CX, cx);
+        c.update_sound_state(|t| t.present = al);
+        c.update_sound_state(|t| t.midi_bx = bx);
+        c.update_sound_state(|t| t.midi_cx = cx);
         let cx = c.pop();
         c.set_reg(CX, cx);
     }
