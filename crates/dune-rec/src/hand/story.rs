@@ -1146,12 +1146,12 @@ pub fn grade_be(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0272f`: the first word of the list at 1179h dropped (the 9 after it
-/// moved down, a 0 after), when [0C8h] counts any.
-pub fn shift_list_1179(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0272f`: the oldest of the [`g::MESSAGES`] dropped (the 9 after
+/// it moved down, a 0 after), when [`g::MESSAGE_COUNT`] counts any.
+pub fn drop_oldest_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x272f)?;
     let mut c = Ctx::new(m);
-    let n = c.byte(0xc8);
+    let n = c.byte(g::MESSAGE_COUNT);
     if n == 0 {
         c.run(start, 4)?;
         c.set_reg(CX, 0);
@@ -1159,11 +1159,11 @@ pub fn shift_list_1179(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, 11 + 9)?; // the `rep` iterations too
     c.set_reg(CX, n as u16);
-    c.set_reg(SI, 0x1179);
+    c.set_reg(SI, g::MESSAGES);
     let v = pure::dec(B, n as u16);
-    c.set_byte(0xc8, v as u8);
-    c.set_reg(DI, 0x1179);
-    let si = pure::add(W, 0x1179, 2);
+    c.set_byte(g::MESSAGE_COUNT, v as u8);
+    c.set_reg(DI, g::MESSAGES);
+    let si = pure::add(W, g::MESSAGES, 2);
     c.set_reg(SI, si);
     let ds = c.sreg(pc::cpu::DS);
     c.push(ds);
@@ -2572,25 +2572,26 @@ pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_026da`: the event AX added to the list of [0C8h] words at 1179h
-/// unless there (registers kept): with 10 already, the oldest dropped
-/// (`loc_0272f`) first; [0C8h], [0C9h] counted; from phase 38h, out of
-/// room 8 ([0Bh]), `loc_029ee` with AX 201h.
-pub fn note_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_026da`: the message AX (a phrase) added to the
+/// [`g::MESSAGES`] unless there (registers kept): with 10 already, the
+/// oldest dropped (`loc_0272f`) first; [`g::MESSAGE_COUNT`] and
+/// [`g::UNREAD_MESSAGES`] counted; from phase 38h, out of room 8
+/// ([0Bh]), `loc_029ee` with AX 201h.
+pub fn add_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x26da)?;
     let mut c = Ctx::new(m);
-    note_event_at(&mut c)
+    add_message_in(&mut c)
 }
 
-fn note_event_at(c: &mut Ctx) -> Result<(), Bail> {
+fn add_message_in(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x26da, 1)?;
     c.call(0xe270, 0x26dd)?;
     let ax = c.reg(AX);
-    let n0 = c.byte(0xc8) as u16;
+    let n0 = c.byte(g::MESSAGE_COUNT) as u16;
     let mut found = false;
     let mut k = 0u16;
     while k < n0 {
-        if c.word(0x1179 + 2 * k) == ax {
+        if c.word(g::MESSAGES + 2 * k) == ax {
             found = true;
             break;
         }
@@ -2606,9 +2607,9 @@ fn note_event_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(CX, n0);
     c.xor(B, 0, 0);
     if n0 != 0 {
-        c.set_reg(SI, 0x1179);
+        c.set_reg(SI, g::MESSAGES);
         for i in 0..=k.min(n0.saturating_sub(1)) {
-            let p = 0x1179 + 2 * i;
+            let p = g::MESSAGES + 2 * i;
             let w = c.word(p);
             c.cmp(W, ax, w);
             if found && i == k {
@@ -2623,11 +2624,11 @@ fn note_event_at(c: &mut Ctx) -> Result<(), Bail> {
         }
         c.set_reg(CX, 0);
     }
-    let cl = c.byte(0xc8);
+    let cl = c.byte(g::MESSAGE_COUNT);
     let full = cl >= 0x0a;
     c.run(0x26f1, 4 + if full { 2 } else { 0 })?;
     c.set_reg8(r8::CL, cl);
-    c.set_reg(SI, 0x1179);
+    c.set_reg(SI, g::MESSAGES);
     c.cmp(B, cl as u16, 0x0a);
     let mut cl = cl;
     if full {
@@ -2636,7 +2637,7 @@ fn note_event_at(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x2701, 3)?;
         cl = 9;
         c.set_reg8(r8::CL, 9);
-        c.set_reg(SI, 0x1179);
+        c.set_reg(SI, g::MESSAGES);
         let a = c.pop();
         c.set_reg(AX, a);
     }
@@ -2647,16 +2648,16 @@ fn note_event_at(c: &mut Ctx) -> Result<(), Bail> {
     let d = c.add(B, cl as u16, cl as u16);
     c.xor(B, 0, 0);
     c.set_reg(CX, d);
-    let si = c.add(W, 0x1179, d);
+    let si = c.add(W, g::MESSAGES, d);
     c.set_reg(SI, si);
     let ax = c.reg(AX);
     c.set_word(si, ax);
-    let v = c.byte(0xc8);
+    let v = c.byte(g::MESSAGE_COUNT);
     let v = c.inc(B, v as u16);
-    c.set_byte(0xc8, v as u8);
-    let v = c.byte(0xc9);
+    c.set_byte(g::MESSAGE_COUNT, v as u8);
+    let v = c.byte(g::UNREAD_MESSAGES);
     let v = c.inc(B, v as u16);
-    c.set_byte(0xc9, v as u8);
+    c.set_byte(g::UNREAD_MESSAGES, v as u8);
     c.cmp(B, ph as u16, 0x38);
     if ph >= 0x38 {
         c.cmp(B, room as u16, 8);
@@ -2671,8 +2672,8 @@ fn note_event_at(c: &mut Ctx) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_1045`: record FD8h's byte 0 = 5, `loc_0101b`, then event 10Bh
-/// ([`note_event`]).
+/// `sub_1045`: record FD8h's byte 0 = 5, `loc_0101b`, then message 10Bh
+/// ([`add_message`]).
 pub fn event_10b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1045)?;
     let mut c = Ctx::new(m);
@@ -2681,10 +2682,10 @@ pub fn event_10b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x101b, 0x104d)?;
     c.run(0x104d, 2)?;
     c.set_reg(AX, 0x10b);
-    note_event_at(&mut c)
+    add_message_in(&mut c)
 }
 
-/// `sub_1103`: `loc_029ee` with AX 4, then event 1409h ([`note_event`]).
+/// `sub_1103`: `loc_029ee` with AX 4, then message 1409h ([`add_message`]).
 pub fn event_1409(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1103)?;
     let mut c = Ctx::new(m);
@@ -2693,7 +2694,7 @@ pub fn event_1409(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x29ee, 0x1109)?;
     c.run(0x1109, 2)?;
     c.set_reg(AX, 0x1409);
-    note_event_at(&mut c)
+    add_message_in(&mut c)
 }
 
 /// `loc_03950`: [46D7h] = 0 and the frame task 3916h removed.
@@ -3211,7 +3212,7 @@ pub fn set_current_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `sub_110f`: record FD8h's byte 10h set to 0Ah (word 12h 180h) unless
-/// it is 8; then event 280Ah ([`note_event`]).
+/// it is 8; then message 280Ah ([`add_message`]).
 pub fn event_280a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x110f)?;
     let mut c = Ctx::new(m);
@@ -3222,7 +3223,7 @@ pub fn event_280a(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.update_character(1, |t| t.y = 0x180);
     }
     c.set_reg(AX, 0x280a);
-    note_event_at(&mut c)
+    add_message_in(&mut c)
 }
 
 /// `loc_029ee`: [`note_pair`] with DI 0.
@@ -3649,7 +3650,7 @@ pub fn sal_read_position_markers(m: &mut Machine, start: u16) -> Result<(), Bail
 /// `location_kind_check` and no troops counted by `loc_05098` (DX), the
 /// one with the largest y (word 4, above -64h; 100h for none) becomes
 /// record 1048h's place (its coordinates, `location_coords`, DL 3) and
-/// [0F2h] its name; then event 2B0Ah ([`note_event`]).
+/// [0F2h] its name; then message 2B0Ah ([`add_message`]).
 pub fn event_2b0a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x11e6)?;
     let mut c = Ctx::new(m);
@@ -3717,7 +3718,7 @@ pub fn event_2b0a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = (c.byte(di) as u16) << 8 | c.byte(di.wrapping_add(1)) as u16;
     c.set_word(0xf2, ax);
     c.set_reg(AX, 0x2b0a);
-    note_event_at(&mut c)
+    add_message_in(&mut c)
 }
 
 /// `loc_00a23`: one step of the scene's video: in a cinematic ([227Dh])
@@ -4042,8 +4043,8 @@ pub fn buttons_after_1259(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_02090`: the next spice demand: [118Dh] = the day; [0BCh] =
 /// ([0C3h], counted, ·96h + 64h) · (E0h + a random 0..3Fh) / 256, for
 /// [0BEh] below 80h scaled by (100h + ~(2·[0BEh]))/256; FFFFh on any
-/// overflow. [0CFh] 0, [0BFh] |= 90h, then event 20Bh (30Bh for [0BEh]
-/// below 80h) ([`note_event`]).
+/// overflow. [0CFh] 0, [0BFh] |= 90h, then message 20Bh (30Bh for [`g::SHIPMENT_RATIO`]
+/// below 80h) ([`add_message`]).
 pub fn next_demand(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2090)?;
     let mut c = Ctx::new(m);
@@ -4151,7 +4152,7 @@ fn demand_tail(c: &mut Ctx, out: bool) -> Result<(), Bail> {
         let ah = c.inc(B, 2);
         c.set_reg(AX, ah << 8 | 0x0b);
     }
-    note_event_at(c)
+    add_message_in(c)
 }
 
 /// `loc_02170`: the 9 people records from FD8h updated (registers
@@ -4981,7 +4982,7 @@ pub fn spice_demand_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.set_reg(AX, (code as u16) << 8 | 0x0b);
-    note_event(c.m, 0x26da)
+    add_message(c.m, 0x26da)
 }
 
 /// `loc_020d2` (after the day test, at 20AEh): the new demand.
@@ -5074,7 +5075,7 @@ fn new_demand(c: &mut Ctx, ax: u16, day: u16, f: u8) -> Result<(), Bail> {
         ax = h << 8 | 0x0b;
     }
     c.set_reg(AX, ax);
-    note_event(c.m, 0x26da)
+    add_message(c.m, 0x26da)
 }
 
 /// `sub_0b45`: the scene's frame step for the creatures and particles.

@@ -554,7 +554,14 @@ demanded), [BFh] the shipment's bits, [C3h] `DEMANDS` made, [118Dh]
 `SHIPMENT_DUE` (a day), [CFh] the days left, [1158h] `SHIPMENT_READY`.
 The port of `loc_02566`, once `endgame_2566`, is the shipment
 (`ship_spice_2566`): it runs when the player is in room 8 with
-character 3 present and an amount chosen. The music driver's tick runs as generated code when the timer
+character 3 present and an amount chosen.
+
+The messages: `loc_026da` (`add_message`, once `note_event`) keeps up
+to ten phrases at 1179h (`MESSAGES`, the oldest dropped when full,
+`loc_0272f`), [C8h] `MESSAGE_COUNT`, [C9h] `UNREAD_MESSAGES`; the two
+entries offered for them (new, old) are off without unread ones and
+when all are unread. A comment there once took them for a sietch's
+troops. The music driver's tick runs as generated code when the timer
 interrupt comes inside generated code; that is where most of the
 sound's counted writes come from.
 

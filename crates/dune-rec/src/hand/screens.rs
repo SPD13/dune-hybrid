@@ -1451,26 +1451,27 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     copy(&mut c, 0x21f0, 2);
                 }
             } else {
-                let c8 = c.byte(0xc8);
-                if c8 == 0 {
+                let count = c.byte(g::MESSAGE_COUNT);
+                if count == 0 {
                     c.run(0x2f58, 6)?;
                 } else {
-                    // A sietch's troops: the first entry off without any
-                    // there ([0C9h]; its phrase 26h then, 28h in a call),
-                    // the second once they're all there.
-                    let here = c.byte(0xc9);
+                    // The messages: the first entry (the new ones) off
+                    // without unread ones (its phrase 26h then, 28h in a
+                    // call), the second (the old ones) off when all are
+                    // unread.
+                    let unread = c.byte(g::UNREAD_MESSAGES);
                     let calling = c.conversation().caller != 0;
                     c.run(0x2f58, 15 + calling as u32 + 11 + 2)?;
                     c.set_reg(SI, 0x21e8);
                     let v = c.lods(W, DS);
-                    c.set_reg8(r8::CL, here);
-                    let none = here < 1;
+                    c.set_reg8(r8::CL, unread);
+                    let none = unread < 1;
                     let phrase = if calling { 0x28 } else if none { 0x26 } else { 0x27 };
                     c.set_reg8(r8::CH, phrase);
                     c.set_byte(0x1248, phrase);
                     flagged(&mut c, v, none);
                     let v = c.lods(W, DS);
-                    flagged(&mut c, v, here >= c8);
+                    flagged(&mut c, v, unread >= count);
                 }
             }
         }

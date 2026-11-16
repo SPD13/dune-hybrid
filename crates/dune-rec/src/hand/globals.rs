@@ -71,6 +71,15 @@ pub const SPICE_SHIPPED: u16 = 0x1172;
 /// The day the shipment is due (2093h; put back by a good one,
 /// 25BDh).
 pub const SHIPMENT_DUE: u16 = 0x118d;
+/// The messages kept (ten words from 1179h, the oldest first, the
+/// newest last: an event's phrase, `loc_026da` adding one unless it is
+/// there, dropping the oldest when full).
+pub const MESSAGES: u16 = 0x1179;
+/// How many of [`MESSAGES`] there are.
+pub const MESSAGE_COUNT: u16 = 0x00c8;
+/// How many of them are unread (up as one comes, 2713h; down as one
+/// is read, 2941h).
+pub const UNREAD_MESSAGES: u16 = 0x00c9;
 /// Sietches discovered.
 pub const SIETCHES_FOUND: u16 = 0x0027;
 /// How many have joined you ([28h]).
