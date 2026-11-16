@@ -262,8 +262,12 @@ pub const SAL_FLAGS: u16 = 0x4732;
 pub const SAL_BUFFER: u16 = 0xbc6e;
 /// The clip rectangle of the sun and moon.
 pub const SKY_CLIP_RECT: u16 = 0x1efe;
-/// Set when the map view is up (no lower palette rows).
-pub const MAP_VIEW_FLAG: u16 = 0x227d;
+/// Counted up while a full-screen sequence plays without the game's
+/// screen: the intro (from 168Eh; cleared when the game starts, 029Dh),
+/// the end video (47BDh..47C5h) and the scenes `loc_00d45` and
+/// `loc_01566` play. Meanwhile no head is drawn, the music is not
+/// changed, and text goes in the subtitle colour.
+pub const CINEMATIC: u16 = 0x227d;
 /// Set by `set_sky_palette`.
 pub const SKY_PALETTE_SET: u16 = 0x46df;
 /// The talking head's zooms: the tick last seen, the start, the interval

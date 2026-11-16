@@ -94,7 +94,7 @@ pub fn wait_interruptable(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xddb0, 1)?;
     c.call(0xe270, 0xddb3)?;
-    let k = c.byte(g::MAP_VIEW_FLAG);
+    let k = c.byte(g::CINEMATIC);
     c.run(0xddb3, 4 + (k == 0) as u32)?;
     let ax = c.reg(AX);
     c.push(ax);

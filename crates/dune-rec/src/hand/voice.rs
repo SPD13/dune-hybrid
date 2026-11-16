@@ -652,11 +652,11 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // The scene's place (27B6h, 4 bytes a scene): none, no sound.
     let p = sc << 2;
     let (dx, bx) = (c.word(p.wrapping_add(0x27b6)), c.word(p.wrapping_add(0x27b8)));
-    let night = c.byte(g::MAP_VIEW_FLAG);
+    let cinematic = c.byte(g::CINEMATIC);
     if dx | bx == 0 {
         c.run(0xc86b, 12)?;
     } else {
-        c.run(0xc86b, 11 + 3 + if night == 0 { 3 } else { 0 })?;
+        c.run(0xc86b, 11 + 3 + if cinematic == 0 { 3 } else { 0 })?;
     }
     c.set_reg(SI, p);
     c.set_reg(DX, dx);
@@ -666,7 +666,7 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.set_reg(SI, 0x2792);
-    if night == 0 {
+    if cinematic == 0 {
         c.push(bx);
         c.set_reg(BX, 1);
         c.call(0xe3b7, 0xc89a)?;
@@ -995,10 +995,10 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         return music_start_at(&mut c, 0xad95, 0);
     }
-    let night = c.byte(g::MAP_VIEW_FLAG);
+    let cinematic = c.byte(g::CINEMATIC);
     let s = c.sound_state().present;
-    if night != 0 || s & 0x80 != 0 {
-        c.run(0xace9, 3 + 2 + if night != 0 { 1 } else { 3 })?;
+    if cinematic != 0 || s & 0x80 != 0 {
+        c.run(0xace9, 3 + 2 + if cinematic != 0 { 1 } else { 3 })?;
         return c.ret();
     }
     let t0 = c.sound_state().picked_at;
@@ -1794,7 +1794,7 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
         let bl = if big { 0xe } else { bx & 0xff };
         let bx1 = (bx & 0xff00) | bl;
         let f = c.byte(0x47dc);
-        let intro = c.byte(g::MAP_VIEW_FLAG);
+        let intro = c.byte(g::CINEMATIC);
         let mut n = 2 + 3 + big as u32 + 3;
         if f != 0 {
             n += 3;

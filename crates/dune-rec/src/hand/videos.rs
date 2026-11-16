@@ -116,9 +116,9 @@ pub fn repeat_1566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1566)?;
     let mut c = Ctx::new(m);
     c.run(0x1566, 1)?;
-    let v = c.byte(g::MAP_VIEW_FLAG);
+    let v = c.byte(g::CINEMATIC);
     let v = pure::inc(B, v as u16);
-    c.set_byte(g::MAP_VIEW_FLAG, v as u8);
+    c.set_byte(g::CINEMATIC, v as u8);
     loop {
         c.run(0x156a, 3)?;
         c.set_reg(BP, 0x1556);
@@ -130,9 +130,9 @@ pub fn repeat_1566(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let n = pure::dec(B, n as u16);
         c.set_byte(g::FRAME_TASKS_ACTIVE, n as u8);
         if last {
-            let v = c.byte(g::MAP_VIEW_FLAG);
+            let v = c.byte(g::CINEMATIC);
             let v = pure::dec(B, v as u16);
-            c.set_byte(g::MAP_VIEW_FLAG, v as u8);
+            c.set_byte(g::CINEMATIC, v as u8);
             return c.ret();
         }
     }

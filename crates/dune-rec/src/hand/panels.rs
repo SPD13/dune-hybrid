@@ -54,7 +54,7 @@ mod code {
 
 /// `loc_00b21`: PCM driver function 5; the on-map resource back to 25h
 /// (patched into `open_onmap_resource`); task B45h removed; [3CBEh] = 0
-/// unless outside the map view with the sign of [FBh] set.
+/// unless, outside a cinematic ([227Dh]), the sign of [FBh] is set.
 pub fn sub_0b21(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0b21)?;
     let mut c = Ctx::new(m);
@@ -64,10 +64,10 @@ pub fn sub_0b21(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.m.cpu.write8(&mut c.m.hw, CS, 0xc13c, 0x25);
     c.set_reg(SI, 0x0b45);
     c.call(code::REMOVE_FRAME_TASK, 0x0b30)?;
-    let view = c.byte(g::MAP_VIEW_FLAG);
+    let cinematic = c.byte(g::CINEMATIC);
     let fb = c.byte(g::BYTE_00FB);
-    let skip = view == 0 && fb & 0x80 != 0;
-    c.run(0x0b30, if view != 0 { 4 } else if skip { 5 } else { 6 })?;
+    let skip = cinematic == 0 && fb & 0x80 != 0;
+    c.run(0x0b30, if cinematic != 0 { 4 } else if skip { 5 } else { 6 })?;
     if !skip {
         c.set_word(g::WORD_3CBE, 0);
     }

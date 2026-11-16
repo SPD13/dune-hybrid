@@ -2343,9 +2343,9 @@ pub fn sky_flash(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0d4b, 1)?;
     c.call(0x39b9, 0x0d4e)?;
     c.run(0x0d4e, 2)?;
-    let v = c.byte(g::MAP_VIEW_FLAG);
+    let v = c.byte(g::CINEMATIC);
     let v = pure::inc(B, v as u16);
-    c.set_byte(g::MAP_VIEW_FLAG, v as u8);
+    c.set_byte(g::CINEMATIC, v as u8);
     c.set_reg(CX, 3);
     loop {
         c.run(0x0d55, 3)?;
@@ -2390,9 +2390,9 @@ pub fn sky_flash(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x0d82, 4)?;
         break;
     }
-    let v = c.byte(g::MAP_VIEW_FLAG);
+    let v = c.byte(g::CINEMATIC);
     let v = pure::dec(B, v as u16);
-    c.set_byte(g::MAP_VIEW_FLAG, v as u8);
+    c.set_byte(g::CINEMATIC, v as u8);
     c.ret()
 }
 
@@ -3720,14 +3720,14 @@ pub fn event_2b0a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     note_event_at(&mut c)
 }
 
-/// `loc_00a23`: one step of the scene's video: at night to the back
-/// buffer and [`hnm_do_frame`]; else on the front buffer
+/// `loc_00a23`: one step of the scene's video: in a cinematic ([227Dh])
+/// straight to the screen and [`hnm_do_frame`]; else on the front buffer
 /// `hnm_do_frame_and_check_if_frame_advanced`, and on a new frame
 /// `sub_c4dd` and the mouse ([`draw_mouse`]); CF clear when none.
 pub fn video_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0a23)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(g::MAP_VIEW_FLAG);
+    let k = c.byte(g::CINEMATIC);
     if k != 0 {
         c.run(start, 3)?;
         c.call(0xc08e, 0x0a2d)?;

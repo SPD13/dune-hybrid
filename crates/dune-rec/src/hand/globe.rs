@@ -1569,7 +1569,7 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if c.flag(pc::cpu::DF) {
         return Err(Bail);
     }
-    let k = c.byte(g::MAP_VIEW_FLAG);
+    let k = c.byte(g::CINEMATIC);
     c.run(0xbaf2, 4)?;
     c.set_reg(DX, 0);
     if k != 0 {

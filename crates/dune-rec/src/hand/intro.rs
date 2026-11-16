@@ -702,7 +702,7 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x029a, 1)?;
     c.call(0xac14, 0x029d)?;
     c.run(0x029d, 3)?;
-    c.set_byte(g::MAP_VIEW_FLAG, 0);
+    c.set_byte(g::CINEMATIC, 0);
     c.set_byte(0xc5, 0);
     c.call(0x0911, 0x02aa)?;
     c.run(0x02aa, 6)?;

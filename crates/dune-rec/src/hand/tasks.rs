@@ -215,7 +215,7 @@ pub fn task_391d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     c.push(ax);
     c.interp(0x3934, 0x3938)?;
-    let video = c.byte(g::MAP_VIEW_FLAG);
+    let video = c.byte(g::CINEMATIC);
     c.run(0x3938, if video != 0 { 3 } else { 5 })?;
     let ax = c.pop();
     c.set_reg(AX, ax);

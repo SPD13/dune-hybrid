@@ -186,13 +186,13 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// From C4FB: the rectangle (DX, BX) to (BP, AX) to the screen
 /// (`particles_update_screen_rect`), the talking head redrawn first
-/// (`sub_1797`) outside the map view when the rectangle reaches it (from
+/// (`sub_1797`) outside a cinematic ([227Dh]) when the rectangle reaches it (from
 /// x < C2h, to x ≥ 7Eh, y ≥ 89h).
 fn update_with_head(c: &mut Ctx, at: u16) -> Result<(), Bail> {
-    let view = c.byte(g::MAP_VIEW_FLAG);
+    let cinematic = c.byte(g::CINEMATIC);
     let (dx, bp, ax) = (c.reg(DX), c.reg(BP), c.reg(AX));
     let lt = |a: u16, b: u16| (a as i16) < (b as i16);
-    let n = if view != 0 {
+    let n = if cinematic != 0 {
         2
     } else if lt(ax, 0x89) {
         4
@@ -204,7 +204,7 @@ fn update_with_head(c: &mut Ctx, at: u16) -> Result<(), Bail> {
         13
     };
     c.run(at, n)?;
-    c.cmp(B, view as u16, 0);
+    c.cmp(B, cinematic as u16, 0);
     if n >= 4 {
         c.cmp(W, ax, 0x89);
     }

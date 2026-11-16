@@ -487,15 +487,15 @@ fn sky_rows_at(c: &mut Ctx, base: u16) -> Result<(), Bail> {
     }
     c.push(cx);
     c.interp(at(0x39cd), at(0x39d1))?;
-    let flag = c.byte(g::MAP_VIEW_FLAG);
-    c.run(at(0x39d1), if flag != 0 { 5 } else { 6 })?;
+    let cinematic = c.byte(g::CINEMATIC);
+    c.run(at(0x39d1), if cinematic != 0 { 5 } else { 6 })?;
     let cx = c.pop();
     c.set_reg(CX, cx);
     let dx = c.reg(DX);
     let dx = c.add(W, dx, cx);
     c.set_reg(DX, dx);
-    c.cmp(B, flag as u16, 0);
-    if flag != 0 {
+    c.cmp(B, cinematic as u16, 0);
+    if cinematic != 0 {
         return c.ret();
     }
     c.set_reg(CX, 0x30);
@@ -1016,12 +1016,12 @@ pub fn sky_fade_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     c.push(ax);
     c.interp(0x3934, 0x3938)?;
-    let night = c.byte(g::MAP_VIEW_FLAG);
-    c.run(0x3938, 3 + if night == 0 { 2 } else { 0 })?;
+    let cinematic = c.byte(g::CINEMATIC);
+    c.run(0x3938, 3 + if cinematic == 0 { 2 } else { 0 })?;
     let a = c.pop();
     c.set_reg(AX, a);
-    c.cmp(B, night as u16, 0); // the second far call sees these
-    if night == 0 {
+    c.cmp(B, cinematic as u16, 0); // the second far call sees these
+    if cinematic == 0 {
         c.set_reg(CX, 0x30);
         c.set_reg(BX, 0x2d0);
         c.interp(0x3946, 0x394a)?;

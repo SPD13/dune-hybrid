@@ -451,7 +451,7 @@ pub fn intro_09f5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x09ef, 0x09f8)?;
     c.run(0x09f8, 1)?;
     c.call(0xc0f4, 0x09fb)?;
-    let f = c.byte(g::MAP_VIEW_FLAG);
+    let f = c.byte(g::CINEMATIC);
     let v = c.byte(g::MUSIC_SETTINGS);
     let skip = f == 0 && v & 1 != 0;
     c.run(0x09fb, 2 + if f == 0 { 2 } else { 0 } + (!skip) as u32)?;
@@ -2504,10 +2504,10 @@ pub fn night_4795(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, 0x4913);
     c.call(0xc108, 0x47bd)?;
     c.run(0x47bd, 2)?;
-    c.set_byte(g::MAP_VIEW_FLAG, 1);
+    c.set_byte(g::CINEMATIC, 1);
     c.call(0x491c, 0x47c5)?;
     c.run(0x47c5, 2)?;
-    c.set_byte(g::MAP_VIEW_FLAG, 0);
+    c.set_byte(g::CINEMATIC, 0);
     c.jump(0xac14)
 }
 

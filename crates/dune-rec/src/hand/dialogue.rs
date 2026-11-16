@@ -2988,7 +2988,7 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let map_view = c.map_view().mode != 0;
     let talker = c.conversation().talker;
     let book = c.byte(0xc6) != 0;
-    let intro = c.byte(g::MAP_VIEW_FLAG) != 0;
+    let intro = c.byte(g::CINEMATIC) != 0;
     let screen = c.byte(MAP_SCREEN) != 0;
     if map_view {
         let described = c.map_selection().selected != 0;

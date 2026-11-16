@@ -228,10 +228,10 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
     let ticks = c.pop();
     c.set_reg(BP, ticks);
     loop {
-        let view = c.byte(g::MAP_VIEW_FLAG);
-        if view != 0 {
+        let cinematic = c.byte(g::CINEMATIC);
+        if cinematic != 0 {
             c.run(0xe35c, 2 + 8)?;
-            c.cmp(B, view as u16, 0);
+            c.cmp(B, cinematic as u16, 0);
             for r in [BX, CX, DX, SI, DI, BP] {
                 let v = c.reg(r);
                 c.push(v);
