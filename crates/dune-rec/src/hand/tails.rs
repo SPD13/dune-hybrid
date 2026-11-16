@@ -271,9 +271,9 @@ pub fn intro_06d8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x38a2, 0x06e5)?;
     c.run(0x06e5, 4)?;
     c.set_reg(AX, 0x12);
-    let v = c.word(g::FRAMEBUFFER_ACTIVE);
+    let v = c.screen_buffers().active;
     let v = pure::add(W, v, 0x1e0);
-    c.set_word(g::FRAMEBUFFER_ACTIVE, v);
+    c.update_screen_buffers(|t| t.active = v);
     c.jump(0xca1b)
 }
 
@@ -623,7 +623,7 @@ pub fn intro_25_sting_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x088c, 3)?;
     c.set_reg(SI, 0x1470);
     c.set_reg8(r8::AL, 0xde);
-    let es = c.word(g::FRAMEBUFFER_ACTIVE);
+    let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
     c.interp(0x0895, 0x0899)?;
     c.run(0x0899, 2)?;
@@ -1026,7 +1026,7 @@ pub fn intro_night_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xc07c, 0x0adf)?;
     c.run(0x0adf, 4)?;
     c.set_reg(SI, 0x1582);
-    let es = c.word(g::FRAMEBUFFER_ACTIVE);
+    let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
     c.set_reg(AX, 2);
     c.call(0xc370, 0x0aec)?;
@@ -1381,7 +1381,7 @@ pub fn palace_plan_18ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1912, 3)?;
     c.set_reg(SI, 0x143c);
     c.set_reg8(r8::AL, 0xf1);
-    let es = c.word(g::FRAMEBUFFER_ACTIVE);
+    let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
     c.interp(0x191b, 0x191f)?;
     c.run(0x191f, 3)?;

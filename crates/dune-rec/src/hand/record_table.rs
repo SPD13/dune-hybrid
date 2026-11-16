@@ -5,7 +5,8 @@
 //! (`hand/conversation.rs`), the map view (`hand/map_view.rs`), the
 //! map's selection (`hand/map_selection.rs`), the flight
 //! (`hand/flight.rs`) and the message typed out
-//! (`hand/typed_message.rs`), these seven tables of one,
+//! (`hand/typed_message.rs`) and the screen buffers
+//! (`hand/screen_buffers.rs`), these eight tables of one,
 //! kept with the machine ([`super::native`]).
 //!
 //! Each record is cached the first time it is used. The views
@@ -54,10 +55,12 @@ pub enum Which {
     Flight,
     /// The message typed out on the message line, 0Ah bytes at 473Fh.
     TypedMessage,
+    /// The screen buffers' segments, 0Ch bytes at DBD4h.
+    ScreenBuffers,
 }
 
 impl Which {
-    pub const ALL: [Which; 9] = [
+    pub const ALL: [Which; 10] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
@@ -67,6 +70,7 @@ impl Which {
         Which::MapSelection,
         Which::Flight,
         Which::TypedMessage,
+        Which::ScreenBuffers,
     ];
 
     pub fn name(self) -> &'static str {
@@ -80,6 +84,7 @@ impl Which {
             Which::MapSelection => "map selection",
             Which::Flight => "flight",
             Which::TypedMessage => "typed message",
+            Which::ScreenBuffers => "screen buffers",
         }
     }
     /// Where the table starts in the game's data segment.
@@ -94,6 +99,7 @@ impl Which {
             Which::MapSelection => 0x46ef,
             Which::Flight => 0x4727,
             Which::TypedMessage => 0x473f,
+            Which::ScreenBuffers => 0xdbd4,
         }
     }
     pub const fn size(self) -> u16 {
@@ -107,6 +113,7 @@ impl Which {
             Which::MapSelection => 0x0f,
             Which::Flight => 6,
             Which::TypedMessage => 0x0a,
+            Which::ScreenBuffers => 0x0c,
         }
     }
     pub const fn count(self) -> usize {
@@ -120,6 +127,7 @@ impl Which {
             Which::MapSelection => 1,
             Which::Flight => 1,
             Which::TypedMessage => 1,
+            Which::ScreenBuffers => 1,
         }
     }
     fn end(self) -> u16 {
@@ -156,6 +164,7 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::MapSelection => &mut n.map_selection,
         Which::Flight => &mut n.flight,
         Which::TypedMessage => &mut n.typed_message,
+        Which::ScreenBuffers => &mut n.screen_buffers,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];
@@ -244,7 +253,7 @@ pub(super) fn set(c: &mut Ctx, w: Which, i: usize, r: Bytes) {
 
 /// A table of one record with a typed view (the text box, the dialogue
 /// text, the conversation, the map view, the map's selection, the
-/// flight, the message typed out): the view
+/// flight, the message typed out, the screen buffers): the view
 /// to and from the record's bytes. [`single`], [`set_single`] and
 /// [`update_single`] keep it.
 pub(super) trait Single: Sized {

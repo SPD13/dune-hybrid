@@ -499,7 +499,7 @@ pub fn blit_dialogue_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0x140);
     let sheet = c.word(0x22fc);
     c.set_reg(SI, sheet);
-    let back = c.word(g::FRAMEBUFFER_ACTIVE);
+    let back = c.screen_buffers().active;
     c.set_sreg(ES, back);
     c.set_reg(BP, 0xd834);
     c.interp(0x90b8, 0x90bc)?;
@@ -1113,7 +1113,7 @@ fn close_box_at(c: &mut Ctx) -> Result<(), Bail> {
         // The map picture back under the box (the driver's far [391Dh]).
         c.set_reg(BP, 0x1be2);
         c.set_reg(SI, 0x4c60);
-        let es = c.word(g::FRAMEBUFFER_2);
+        let es = c.screen_buffers().second;
         c.set_sreg(ES, es);
         c.interp(0x8ca9, 0x8cad)?;
         c.run(0x8cad, 3)?;
@@ -4185,7 +4185,7 @@ pub fn draw_talking_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let y = c.lods(B, DS).wrapping_add(c.word(g::HEAD_ORIGIN_Y));
         c.set_reg(BX, y);
         c.save(&[SI]);
-        let back = c.word(g::FRAMEBUFFER_ACTIVE);
+        let back = c.screen_buffers().active;
         c.set_sreg(ES, back);
         let (table, sheet) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
         c.set_sreg(DS, sheet);
@@ -4283,14 +4283,14 @@ pub fn draw_speech_bubble(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word_in(SS, 0x1bea, 0x80);
     c.set_word(0x1c06, 0x80);
     c.set_word_in(SS, 0x1bee, 0x9468);
-    let parchment = c.word(g::FRAMEBUFFER_2);
+    let parchment = c.screen_buffers().second;
     c.set_sreg(ES, parchment);
     c.interp(0x8fbb, 0x8fbf)?;
     c.run(0x8fbf, 1)?;
     c.call(0xc137, 0x8fc2)?;
     c.run(0x8fc2, 4)?;
     c.set_reg(SI, 0x1be2);
-    let screen = c.word(g::FRAMEBUFFER_FRONT);
+    let screen = c.screen_buffers().front;
     c.set_sreg(ES, screen);
     c.set_reg(AX, 0x1c);
     c.call(0xc370, 0x8fcf)?;
@@ -4314,7 +4314,7 @@ fn frame_8fd1(c: &mut Ctx) -> Result<(), Bail> {
     c.set_word(0x1be4, v);
     let al = c.byte(0x18f2);
     c.set_reg8(r8::AL, al);
-    let es = c.word(g::FRAMEBUFFER_ACTIVE);
+    let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
     c.interp(0x8fea, 0x8fee)?;
     c.run(0x8fee, 3)?;
@@ -4336,7 +4336,7 @@ fn book_8ff5(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x8ffc, 4)?;
     c.set_reg(AX, 3);
     c.set_reg(SI, 0x2265);
-    let es = c.word(g::FRAMEBUFFER_FRONT);
+    let es = c.screen_buffers().front;
     c.set_sreg(ES, es);
     c.call(0xc370, 0x9009)?;
     c.run(0x9009, 2)?;

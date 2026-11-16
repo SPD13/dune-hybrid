@@ -71,7 +71,7 @@ pub fn gfx_call_3961(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, y);
     c.set_reg(SI, 0xaa);
     c.set_reg(CX, 0x6c);
-    let screen = c.word(super::globals::SCREEN_BUFFER);
+    let screen = c.screen_buffers().screen;
     c.set_sreg(ES, screen);
     c.interp(0x5997, 0x599b)?;
     c.run(0x599b, 1)?;
@@ -566,7 +566,7 @@ pub fn gfx_draw_1be2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(r + 2, y);
     let al = c.byte(0x18f2);
     c.set_reg8(r8::AL, al);
-    let fb = c.word(super::globals::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.set_sreg(ES, fb);
     c.interp(0x8fea, 0x8fee)?;
     c.run(0x8fee, 3)?;
@@ -594,7 +594,7 @@ pub fn gfx_call_38c9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0x140);
     let si = c.word(0x22fc);
     c.set_reg(SI, si);
-    let fb = c.word(super::globals::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.set_sreg(ES, fb);
     c.set_word(0x4782, top);
     c.interp(0x9041, 0x9045)?;
@@ -2183,7 +2183,7 @@ fn draw_map_points_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x4a5a, 1)?;
     c.call(0xc137, 0x4a5d)?;
     c.run(0x4a5d, 2)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(0xc085, 0x4a64)?;
     c.run(0x4a64, 1)?;
@@ -2265,7 +2265,7 @@ fn draw_map_points_at(c: &mut Ctx) -> Result<(), Bail> {
         }
     }
     let fb = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.update_screen_buffers(|t| t.active = fb);
     c.ret()
 }
 
@@ -3027,7 +3027,7 @@ pub fn map_header_by_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x575b, 3)?;
     c.cmp(B, 0, 0); // the driver's far call sees these flags
-    let es = c.word(g::SCREEN_BUFFER);
+    let es = c.screen_buffers().screen;
     c.set_sreg(ES, es);
     c.interp(0x5766, 0x576a)?;
     let al = c.reg8(r8::AL);
@@ -3246,7 +3246,7 @@ pub fn clear_map_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let di = c.reg(DI);
     c.set_reg(SI, di.wrapping_sub(8));
     c.set_reg8(r8::AL, 0xf5);
-    let es = c.word(g::FRAMEBUFFER_ACTIVE);
+    let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
     c.interp(0x562c, 0x5630)?;
     c.run(0x5630, 2)?;
@@ -4485,7 +4485,7 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(bx);
         c.push(dx);
         c.push(di);
-        let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+        let fb = c.screen_buffers().active;
         c.push(fb);
         c.call(0xdbb2, 0x5c61)?;
         c.run(0x5c61, 1)?;
@@ -4494,7 +4494,7 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0x5692, 0x5c67)?;
         c.run(0x5c67, 4)?;
         let v = c.pop();
-        c.set_word(g::FRAMEBUFFER_ACTIVE, v);
+        c.update_screen_buffers(|t| t.active = v);
         for r in [DI, DX, BX] {
             let v = c.pop();
             c.set_reg(r, v);
@@ -5528,7 +5528,7 @@ pub fn route_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(CX, cx);
             c.set_reg(BX, bx);
         }
-        let es = c.word(g::FRAMEBUFFER_ACTIVE);
+        let es = c.screen_buffers().active;
         c.set_sreg(ES, es);
         c.set_reg8(r8::AL, 0x0c);
         c.set_reg(BP, 0x5555);
@@ -6363,7 +6363,7 @@ pub fn place_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, y);
     c.set_reg(SI, 0xaa);
     c.set_reg(CX, 0x6c);
-    let es = c.word(g::SCREEN_BUFFER);
+    let es = c.screen_buffers().screen;
     c.set_sreg(ES, es);
     c.interp(0x5997, 0x599b)?;
     c.run(0x599b, 1)?;

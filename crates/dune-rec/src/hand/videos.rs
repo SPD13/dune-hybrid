@@ -258,8 +258,8 @@ pub fn frame_wait_c8c1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, y);
     let ds = c.sreg(DS);
     c.push(ds);
-    let es = c.word(g::SCREEN_BUFFER);
-    let ds2 = c.word(g::FRAMEBUFFER_FRONT);
+    let es = c.screen_buffers().screen;
+    let ds2 = c.screen_buffers().front;
     c.set_sreg(ES, es);
     c.set_sreg(DS, ds2);
     c.interp(0xc8e6, 0xc8eb)?;
@@ -538,7 +538,7 @@ pub fn endgame_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x261f, 3)?;
     c.set_reg(SI, 0x4c60);
     c.set_reg(BP, 0x15aa);
-    let es = c.word(g::FRAMEBUFFER_FRONT);
+    let es = c.screen_buffers().front;
     c.set_sreg(ES, es);
     c.interp(0x2629, 0x262d)?;
     c.run(0x262d, 2)?;

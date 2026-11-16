@@ -39,6 +39,7 @@ pub mod map_view;
 pub mod map_selection;
 pub mod flight;
 pub mod typed_message;
+pub mod screen_buffers;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1544,6 +1545,15 @@ impl Ctx<'_> {
     }
     /// The message typed out changed by `f` (written through).
     fn update_typed_message(&mut self, f: impl FnOnce(&mut typed_message::TypedMessage)) {
+        record_table::update_single(self, f)
+    }
+    /// The screen buffers (Rust state, see [`screen_buffers`]), in step
+    /// with the memory.
+    fn screen_buffers(&mut self) -> screen_buffers::ScreenBuffers {
+        record_table::single(self)
+    }
+    /// The screen buffers changed by `f` (written through).
+    fn update_screen_buffers(&mut self, f: impl FnOnce(&mut screen_buffers::ScreenBuffers)) {
         record_table::update_single(self, f)
     }
     /// The game time ([2]).

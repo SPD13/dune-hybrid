@@ -56,7 +56,7 @@ fn select_framebuffer(m: &mut Machine, start: u16, entry: u16, from: u16) -> Res
     c.run(start, 3)?;
     let segment = c.word(from);
     c.below_sp(1, segment);
-    c.set_word(g::FRAMEBUFFER_ACTIVE, segment);
+    c.update_screen_buffers(|t| t.active = segment);
     c.ret()
 }
 
@@ -173,7 +173,7 @@ pub fn hnm_reset_buffers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xce1a)?;
     let mut c = Ctx::new(m);
     c.run(start, 12)?;
-    let fb2 = c.word(g::FRAMEBUFFER_2);
+    let fb2 = c.screen_buffers().second;
     c.set_word(g::HNM_BUF_SEG, fb2);
     c.set_word(g::HNM_BUF_SEG_2, fb2);
     let zero = pure::xor(W, fb2, fb2);

@@ -195,7 +195,7 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
             return c.ret();
         }
     }
-    let front = c.word(g::FRAMEBUFFER_FRONT);
+    let front = c.screen_buffers().front;
     c.set_reg(BP, front);
     let flags = c.byte(g::HNM_FLAGS);
     if flags & 0x40 != 0 {
@@ -353,7 +353,7 @@ pub fn irulx_draw_or_clear_subtitle(m: &mut Machine, start: u16) -> Result<(), B
         return super::draw::draw_sprite_clobbering_bx_dx(c.m, 0xc22f);
     }
     c.set_reg(DI, 0xed80);
-    let es = c.word(g::SCREEN_BUFFER);
+    let es = c.screen_buffers().screen;
     c.set_sreg(pc::cpu::ES, es);
     c.set_reg(AX, 0);
     c.set_reg(CX, 0xb40);

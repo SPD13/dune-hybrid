@@ -457,6 +457,13 @@ not the game's, they use the bytes there). Adding one is a `Which`
 variant, a field on `Native`, the view, two `Ctx` methods and the name
 in `suite.sh`'s loop.
 
+Outside the map's block: the screen buffers (`hand/screen_buffers.rs`,
+0Ch bytes at DBD4h: the front buffer's far pointer, the screen's
+segment, the segment drawn to, the second buffer's far pointer; the
+back buffer [DC32h] apart). The most used word of all the ports
+(`active`, [DBDAh]); the generated code switches it often (counted
+apart). `screen buffers:` in the output.
+
 ## Tools in place
 
 | Tool | What it checks |

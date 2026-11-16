@@ -178,7 +178,7 @@ pub fn draw_moon_and_sun(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(ds);
     let es = c.sreg(ES);
     c.push(es);
-    let screen = c.word(g::SCREEN_BUFFER);
+    let screen = c.screen_buffers().screen;
     c.set_sreg(ES, screen);
     let sheet = c.pop();
     c.set_sreg(DS, sheet);
@@ -824,7 +824,7 @@ pub fn draw_counter(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 fn draw_counter_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xa49c, 2)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(0xc08e, 0xa4a3)?;
     c.run(0xa4a3, 2)?;
@@ -850,7 +850,7 @@ fn draw_counter_at(c: &mut Ctx) -> Result<(), Bail> {
     c.call(0xc22f, 0xa4c1)?;
     c.run(0xa4c1, 2)?;
     let fb = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.update_screen_buffers(|t| t.active = fb);
     c.ret()
 }
 
@@ -979,7 +979,7 @@ pub fn redraw_head_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.set_reg(BP, 0x1e76);
         c.set_reg(SI, 0xcd9e);
-        let es = c.word(g::FRAMEBUFFER_FRONT);
+        let es = c.screen_buffers().front;
         c.set_sreg(ES, es);
         c.interp(0x17db, 0x17df)?;
         c.run(0x17df, 1)?;
@@ -1112,11 +1112,11 @@ pub fn chankiss(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1445, 1)?;
     c.call(0x37b2, 0x1448)?;
     c.run(0x1448, 6)?;
-    let es = c.word(g::FRAMEBUFFER_2);
+    let es = c.screen_buffers().second;
     c.set_sreg(ES, es);
     let ds = c.sreg(DS);
     c.push(ds);
-    let nds = c.word(g::FRAMEBUFFER_ACTIVE);
+    let nds = c.screen_buffers().active;
     c.set_sreg(DS, nds);
     c.xor(W, 0, 0);
     c.set_reg(DX, 0);
@@ -1185,11 +1185,11 @@ pub fn bring_portrait(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, x.min(0xf0));
     c.set_reg(BX, y.min(0x71));
     c.cmp(W, y, 0x71); // the driver's far call sees these flags
-    let es = c.word(g::FRAMEBUFFER_2);
+    let es = c.screen_buffers().second;
     c.set_sreg(ES, es);
     let ds = c.sreg(DS);
     c.push(ds);
-    let nds = c.word(g::FRAMEBUFFER_ACTIVE);
+    let nds = c.screen_buffers().active;
     c.set_sreg(DS, nds);
     c.set_reg(BP, 6);
     c.interp(0x3b4f, 0x3b54)?;
@@ -1273,7 +1273,7 @@ pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x43bc, 3)?;
         c.set_reg(SI, 0x14a4);
         c.set_reg8(r8::AL, 0xf5);
-        let es = c.word(g::FRAMEBUFFER_ACTIVE);
+        let es = c.screen_buffers().active;
         c.set_sreg(ES, es);
         c.interp(0x43c5, 0x43c9)?;
         c.run(0x43c9, 1)?;
@@ -1669,7 +1669,7 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd48a)?;
     let mut c = Ctx::new(m);
     c.run(0xd48a, 2)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(0xc08e, 0xd491)?;
     let k = c.byte(g::TRANSITION_ACTIVE);
@@ -1740,11 +1740,11 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0xdcef, b);
     let bg = c.byte(0xdbe5);
     c.set_reg8(r8::AL, bg);
-    let es = c.word(g::FRAMEBUFFER_ACTIVE);
+    let es = c.screen_buffers().active;
     c.set_sreg(pc::cpu::ES, es);
     c.interp(0xd506, 0xd50a)?;
     c.run(0xd50a, 2)?;
     let v = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, v);
+    c.update_screen_buffers(|t| t.active = v);
     c.ret()
 }

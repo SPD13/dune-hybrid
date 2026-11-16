@@ -719,14 +719,14 @@ pub fn transfer_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     // The block's size (its first word, less the 4-byte header): the two
     // `rep` copies' iterations are counted in the `run`s.
-    let (p, seg) = (c.word(g::HNM_SYNC), c.word(g::FRAMEBUFFER_2));
+    let (p, seg) = (c.word(g::HNM_SYNC), c.screen_buffers().second);
     let block = c.word_at(seg, p).wrapping_sub(4);
     c.run(start, 9 + (block >> 1) as u32)?;
     let (si0, ds0) = (c.reg(SI), c.sreg(DS));
     c.push(si0);
     c.push(ds0);
     let p = c.word(g::HNM_SYNC);
-    let seg = c.word(g::FRAMEBUFFER_2);
+    let seg = c.screen_buffers().second;
     c.set_reg(SI, p);
     c.set_sreg(DS, seg);
     // The block less its 4-byte header: words, then the odd byte
@@ -1669,7 +1669,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(SI, 0xd834);
     c.call(0xdb74, 0x9e5d)?;
     c.run(0x9e5d, 2)?;
-    let v = c.word(g::FRAMEBUFFER_ACTIVE);
+    let v = c.screen_buffers().active;
     c.push(v);
     c.call(0xc08e, 0x9e64)?;
     c.run(0x9e64, 2)?;
@@ -1679,7 +1679,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     c.call(0x908c, 0x9e6d)?;
     c.run(0x9e6d, 2)?;
     let v = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, v);
+    c.update_screen_buffers(|t| t.active = v);
     c.jump(0xdb67)
 }
 

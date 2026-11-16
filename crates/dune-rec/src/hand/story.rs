@@ -2097,7 +2097,7 @@ pub fn message_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, 0x14a4);
         c.call(0xdb74, 0x46ca)?;
         c.run(0x46ca, 2)?;
-        let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+        let fb = c.screen_buffers().active;
         c.push(fb);
         c.call(0xc08e, 0x46d1)?;
         c.run(0x46d1, 3)?;
@@ -2123,7 +2123,7 @@ pub fn message_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let ax = c.pop();
         c.set_reg(AX, ax);
         let fb = c.pop();
-        c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+        c.update_screen_buffers(|t| t.active = fb);
         c.call(0xdb67, 0x46fe)?;
         let al = c.reg8(r8::AL);
         c.run(0x46fe, if al == 0x20 { 2 } else { 3 })?;
@@ -2251,7 +2251,7 @@ pub fn draw_scene_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(si);
     c.set_reg(BP, 0x15aa);
     c.set_reg(SI, 0x4c60);
-    let es = c.word(g::FRAMEBUFFER_FRONT);
+    let es = c.screen_buffers().front;
     c.set_sreg(pc::cpu::ES, es);
     c.interp(0x26b7, 0x26bb)?;
     let step = c.string_step(W);
@@ -2291,8 +2291,8 @@ pub fn draw_scene_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.cmp(W, h, 0x1ad6); // the driver's far call sees these flags
     let ds = c.sreg(pc::cpu::DS);
     c.push(ds);
-    let es = c.word(g::SCREEN_BUFFER);
-    let nds = c.word(g::FRAMEBUFFER_FRONT);
+    let es = c.screen_buffers().screen;
+    let nds = c.screen_buffers().front;
     c.set_sreg(pc::cpu::ES, es);
     c.set_sreg(pc::cpu::DS, nds);
     c.interp(0xc537, 0xc53c)?;
@@ -4282,7 +4282,7 @@ pub fn redraw_message_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x45de)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(0xc08e, 0x45e5)?;
     c.run(0x45e5, 1)?;
@@ -4360,7 +4360,7 @@ pub fn redraw_message_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x464f, 1)?;
     }
     let fb = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.update_screen_buffers(|t| t.active = fb);
     super::mouse::draw_mouse(c.m, 0xdbec)
 }
 
@@ -5649,7 +5649,7 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0xc4cd, 0x2e52)?;
         return refresh_at(&mut c);
     }
-    let (x, y) = (c.word(g::FRAMEBUFFER_FRONT), c.word(g::SCREEN_BUFFER));
+    let (x, y) = (c.screen_buffers().front, c.screen_buffers().screen);
     c.run(0x2e29, if x == y { 8 } else { 11 })?;
     swap(&mut c);
     c.set_reg(AX, x);
@@ -7077,7 +7077,7 @@ pub fn draw_sal(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.lods(W, DS);
                 c.cmp(B, w >> 8, 0xc0);
                 c.push(w);
-                let es = c.word(g::FRAMEBUFFER_ACTIVE);
+                let es = c.screen_buffers().active;
                 c.set_sreg(ES, es);
                 let dx = c.lods(W, DS);
                 c.set_reg(DX, dx);
@@ -7251,7 +7251,7 @@ pub fn sal_polygon(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let style = c.byte(0x47ec);
     let dither = style & 0x3e != 0;
     c.run(0x3c7c, 11 + dither as u32 + 6)?;
-    let es = c.word(g::FRAMEBUFFER_ACTIVE);
+    let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
     let si = c.reg(SI);
     c.push(si);

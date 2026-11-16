@@ -307,7 +307,7 @@ pub fn draw_rect_2458(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.set_reg(SI, 0x2458);
-    let screen = c.word(g::SCREEN_BUFFER);
+    let screen = c.screen_buffers().screen;
     c.set_sreg(ES, screen);
     c.set_reg8(r8::AL, 0xf0);
     c.interp(0xd755, 0xd759)?;
@@ -639,7 +639,7 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(cx);
         let t = c.timer();
         c.push(t);
-        let si = c.word(g::FRAMEBUFFER_2);
+        let si = c.screen_buffers().second;
         c.set_reg(SI, si);
         c.set_reg8(r8::AL, 0x18);
         c.call(0xc0d5, 0xd2a3)?;
@@ -1000,7 +1000,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte(0x4751);
     let v = pure::inc(B, v as u16);
     c.set_byte(0x4751, v as u8);
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(0xc08e, 0x44b6)?;
     c.run(0x44b6, 1)?;
@@ -1041,7 +1041,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x4507, 2)?;
     let fb = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.update_screen_buffers(|t| t.active = fb);
     super::mouse::draw_mouse_cursor_if_needed(c.m, 0xdb67)
 }
 

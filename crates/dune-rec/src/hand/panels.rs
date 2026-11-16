@@ -88,7 +88,7 @@ pub fn ui_draw_date_and_time_indicator(m: &mut Machine, start: u16) -> Result<()
         return c.ret();
     }
     c.run(start, 4)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x1a42)?;
     c.run(0x1a42, 9)?;
@@ -133,7 +133,7 @@ pub fn ui_draw_date_and_time_indicator(m: &mut Machine, start: u16) -> Result<()
     c.call(draw, 0x1a96)?;
     c.run(0x1a96, 2)?;
     let fb = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.update_screen_buffers(|t| t.active = fb);
     c.ret()
 }
 
@@ -452,7 +452,7 @@ pub fn draw_talking_head_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> 
         c.set_reg(BX, y);
         let si = c.reg(SI);
         c.push(si);
-        let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+        let fb = c.screen_buffers().active;
         c.set_sreg(ES, fb);
         let (sheet, seg) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
         c.set_sreg(DS, seg);
@@ -507,7 +507,7 @@ pub fn settings_ui_draw_language_buttons(m: &mut Machine, start: u16) -> Result<
 fn lit_button(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
     c.run(at, prefix + 2)?;
     ops(c);
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xa43c)?;
     c.run(0xa43c, 2)?;
@@ -522,7 +522,7 @@ fn lit_button(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> 
     c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0xa447)?;
     c.run(0xa447, 2)?;
     let fb = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.update_screen_buffers(|t| t.active = fb);
     c.ret()
 }
 
@@ -739,7 +739,7 @@ pub fn settings_ui_draw_slider(m: &mut Machine, start: u16) -> Result<(), Bail> 
     entered(start, 0xa502)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xa509)?;
     c.run(0xa509, 3)?;
@@ -777,7 +777,7 @@ pub fn settings_ui_draw_slider(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0xa53c)?;
     c.run(0xa53c, 2)?;
     let fb = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.update_screen_buffers(|t| t.active = fb);
     c.ret()
 }
 
@@ -935,9 +935,9 @@ pub fn sub_c0d5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 4)?;
     let ds = c.sreg(DS);
     c.push(ds);
-    let screen = c.word(g::SCREEN_BUFFER);
+    let screen = c.screen_buffers().screen;
     c.set_sreg(ES, screen);
-    let front = c.word(g::FRAMEBUFFER_FRONT);
+    let front = c.screen_buffers().front;
     c.set_sreg(DS, front);
     c.set_reg(BP, g::TIMER);
     c.interp(0xc0e1, 0xc0e6)?;
@@ -1174,7 +1174,7 @@ pub fn settings_ui_draw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa3f9)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(0xc08e, 0xa400)?;
     c.run(0xa400, 2)?;
@@ -1188,7 +1188,7 @@ pub fn settings_ui_draw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xc22f, 0xa413)?;
     c.run(0xa413, 2)?;
     let fb = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.update_screen_buffers(|t| t.active = fb);
     c.call(0xa4c6, 0xa41a)?;
     for (at, to) in [(0xa41au16, 0xa47du16), (0xa41d, 0xa42c), (0xa420, 0xa44c), (0xa423, 0xac3a)] {
         c.run(at, 1)?;

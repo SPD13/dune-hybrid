@@ -416,7 +416,7 @@ pub fn play_irul_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xcf1b)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xcf22)?;
     loop {
@@ -458,7 +458,7 @@ pub fn play_irul_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let flags = c.pop();
     c.m.cpu.set_flags(flags);
     let fb = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.update_screen_buffers(|t| t.active = fb);
     c.ret()
 }
 
@@ -497,7 +497,7 @@ fn glyph(c: &mut Ctx, entry: u16, rows: u16, table: u16, widths: u16, height: u8
     c.set_reg8(r8::CH, height);
     let colour = c.word(g::TEXT_COLOUR);
     c.set_reg(AX, colour);
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.set_sreg(ES, fb);
     c.interp(entry + 0x2e, entry + 0x32)?;
     c.run(entry + 0x32, 9)?;

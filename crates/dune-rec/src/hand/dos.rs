@@ -1028,7 +1028,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.interp(0xe5ee, 0xe5f2)?;
     c.run(0xe5f2, 2)?;
     let ax = c.reg(AX);
-    c.set_word(0xdbd8, ax);
+    c.update_screen_buffers(|t| t.screen = ax);
     c.call(0xc08e, 0xe5f8)?;
     c.run(0xe5f8, 3)?;
     let cx = c.reg(CX);
@@ -1037,7 +1037,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xf0f6, 0xe602)?;
     let bp = c.reg(BP);
     c.run(0xe602, 3 + if bp == 0 { 2 } else { 0 })?;
-    c.set_word(0xdbd6, bp);
+    c.update_screen_buffers(|t| t.front = bp);
     c.or(W, bp, bp); // the driver's far call sees the flags
     if bp == 0 {
         c.set_reg(DI, 0xdbd4);

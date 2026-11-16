@@ -45,7 +45,7 @@ pub fn draw_sprite_clobbering_bx_dx(m: &mut Machine, start: u16) -> Result<(), B
     let ax = c.reg(AX);
     let colour = c.m.cpu.read8(&mut c.m.hw, CS, SPRITE_COLOUR_OVERRIDE);
     c.run(start, 16 + if colour != 0 { 1 } else { 0 } + 3)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.set_sreg(ES, fb);
     let (sheet, seg) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
     c.set_reg(SI, sheet);
@@ -128,7 +128,7 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd200)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xd207)?;
     let si = c.reg(SI);
@@ -137,7 +137,7 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xd207, 5)?;
         c.push(si);
         c.test(B, flags as u16, 0x40);
-        let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+        let fb = c.screen_buffers().active;
         c.set_sreg(ES, fb);
         c.push(si);
         c.interp(0xd213, 0xd217)?;
@@ -180,7 +180,7 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.pop();
     c.set_reg(SI, si);
     let fb = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.update_screen_buffers(|t| t.active = fb);
     c.ret()
 }
 

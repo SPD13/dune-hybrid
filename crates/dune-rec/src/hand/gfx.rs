@@ -37,7 +37,7 @@ pub fn gfx_clear_active_framebuffer(m: &mut Machine, start: u16) -> Result<(), B
     entered(start, 0xc0ad)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.set_sreg(ES, fb);
     c.interp(0xc0b1, 0xc0b5)?;
     c.run(0xc0b5, 1)?;
@@ -50,7 +50,7 @@ pub fn gfx_clear_active_framebuffer(m: &mut Machine, start: u16) -> Result<(), B
 pub fn update_screen_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc0f4)?;
     let mut c = Ctx::new(m);
-    let (front, screen) = (c.word(g::FRAMEBUFFER_FRONT), c.word(g::SCREEN_BUFFER));
+    let (front, screen) = (c.screen_buffers().front, c.screen_buffers().screen);
     c.run(start, if front == screen { 4 } else { 3 })?;
     c.set_reg(AX, front);
     c.cmp(W, front, screen);
@@ -69,17 +69,17 @@ pub fn gfx_call_bp_with_front_buffer_as_screen(m: &mut Machine, start: u16) -> R
     c.run(start, 1)?;
     c.call(code::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0xc09a)?;
     c.run(0xc09a, 4)?;
-    let screen = c.word(g::SCREEN_BUFFER);
+    let screen = c.screen_buffers().screen;
     c.push(screen);
-    let front = c.word(g::FRAMEBUFFER_FRONT);
+    let front = c.screen_buffers().front;
     c.push(front);
     let v = c.pop();
-    c.set_word(g::SCREEN_BUFFER, v);
+    c.update_screen_buffers(|t| t.screen = v);
     let target = c.reg(BP);
     c.call(target, 0xc0a8)?;
     c.run(0xc0a8, 2)?;
     let screen = c.pop();
-    c.set_word(g::SCREEN_BUFFER, screen);
+    c.update_screen_buffers(|t| t.screen = screen);
     c.ret()
 }
 
@@ -155,7 +155,7 @@ pub fn clear_game_area(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     c.set_reg(SI, g::GAME_AREA_RECT);
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.set_sreg(ES, fb);
     c.interp(0xc439, 0xc43d)?;
     c.run(0xc43d, 1)?;
@@ -169,7 +169,7 @@ pub fn map_func_gfx(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
     c.set_reg(BP, g::TRIG_TABLE);
-    let front = c.word(g::FRAMEBUFFER_FRONT);
+    let front = c.screen_buffers().front;
     c.set_sreg(ES, front);
     let al = c.byte(g::MAP_GFX_ARG);
     c.set_reg8(super::r8::AL, al);
@@ -329,7 +329,7 @@ pub fn gfx_call_30(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc0e8)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let screen = c.word(g::SCREEN_BUFFER);
+    let screen = c.screen_buffers().screen;
     c.set_sreg(ES, screen);
     c.set_reg(BP, g::TIMER);
     c.interp(0xc0ef, 0xc0f3)?;
@@ -344,7 +344,7 @@ pub fn draw_sprite_centred(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc343)?;
     let mut c = Ctx::new(m);
     c.run(start, 16)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.set_sreg(ES, fb);
     let (sheet, seg) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
     c.set_reg(SI, sheet);
@@ -396,7 +396,7 @@ fn line(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(BP, bp);
     let colour = c.byte(g::TEXT_COLOUR);
     c.set_reg8(super::r8::AL, colour);
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.set_sreg(ES, fb);
     c.interp(0xc54c, 0xc550)
 }
@@ -506,7 +506,7 @@ pub fn gfx_call_25(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 3)?;
     c.set_reg(SI, 0xcd9e);
     c.set_reg(BP, 0x1e76);
-    let front = c.word(g::FRAMEBUFFER_FRONT);
+    let front = c.screen_buffers().front;
     c.set_sreg(ES, front);
     c.interp(0x183e, 0x1842)?;
     c.run(0x1842, 1)?;
@@ -518,7 +518,7 @@ pub fn gfx_call_25(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn gfx_call_18(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4b16)?;
     let mut c = Ctx::new(m);
-    let (screen, front) = (c.word(g::SCREEN_BUFFER), c.word(g::FRAMEBUFFER_FRONT));
+    let (screen, front) = (c.screen_buffers().screen, c.screen_buffers().front);
     c.run(start, if screen == front { 5 } else { 6 })?;
     c.set_reg(AX, screen);
     c.set_reg(SI, front);
@@ -757,7 +757,7 @@ pub fn fill_and_outline(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7b1b)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let es = c.word(g::FRAMEBUFFER_ACTIVE);
+    let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
     let si = c.reg(SI);
     let al = c.byte(si.wrapping_add(9));

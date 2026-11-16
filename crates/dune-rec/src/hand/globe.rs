@@ -82,7 +82,7 @@ pub fn globe_fill_blue_background(m: &mut Machine, start: u16) -> Result<(), Bai
     c.run(start, 1)?;
     c.call(code::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0xb84d)?;
     c.run(0xb84d, 3)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.set_sreg(ES, fb);
     c.set_reg(SI, g::GAME_AREA_RECT);
     c.set_reg8(super::r8::AL, 0xf0);
@@ -1133,7 +1133,7 @@ pub fn globe_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb9ae)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    let es = c.word(g::FRAMEBUFFER_FRONT);
+    let es = c.screen_buffers().front;
     c.set_sreg(ES, es);
     c.interp(0xb9b2, 0xb9b6)?;
     if !c.flag(CF) {
@@ -1862,7 +1862,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DI, di);
         c.set_sreg(ES, es);
         c.set_reg(SI, 0x4c60);
-        let bx = c.word(g::FRAMEBUFFER_ACTIVE);
+        let bx = c.screen_buffers().active;
         c.set_reg(BX, bx);
         c.interp(0xb70f, 0xb713)?;
         c.run(0xb713, 1)?;
@@ -1965,7 +1965,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let f = c.map_view().mode;
     c.run(0xb7ae, 9 + (f & 0x40 != 0) as u32)?;
-    let es = c.word(g::FRAMEBUFFER_ACTIVE);
+    let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
     let di = c.word(0xdcf2);
     c.set_reg(DI, di);

@@ -551,12 +551,12 @@ pub fn keep_framebuffer_0a23(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0a16)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(0x0a23, 0x0a1d)?;
     c.run(0x0a1d, 3)?;
     let fb = c.pop();
-    c.set_word(g::FRAMEBUFFER_ACTIVE, fb);
+    c.update_screen_buffers(|t| t.active = fb);
     c.set_flag(CF, false);
     c.ret()
 }
@@ -696,7 +696,7 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.run(0x0292, 1)?;
-    let es = c.word(g::SCREEN_BUFFER);
+    let es = c.screen_buffers().screen;
     c.set_sreg(ES, es);
     c.interp(0x0296, 0x029a)?;
     c.run(0x029a, 1)?;

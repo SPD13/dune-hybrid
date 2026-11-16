@@ -189,7 +189,7 @@ fn intro_end(c: &mut Ctx) -> Result<(), Bail> {
     c.push(f);
     c.call(0x9985, 0x0601)?;
     c.run(0x0601, 1)?;
-    let es = c.word(g::SCREEN_BUFFER);
+    let es = c.screen_buffers().screen;
     c.set_sreg(ES, es);
     c.interp(0x0605, 0x0609)?;
     c.run(0x0609, 3)?;

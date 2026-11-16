@@ -66,7 +66,7 @@ fn copy_rect_to_fb1(c: &mut Ctx, at: u16, prefix: u32, from: u16) -> Result<(), 
     c.set_reg(CX, fb2);
     let (empty, _) = load_rect(c, si);
     if !empty {
-        let front = c.word(g::FRAMEBUFFER_FRONT);
+        let front = c.screen_buffers().front;
         c.set_sreg(ES, front);
         c.push(si);
         let ds = c.sreg(DS);
@@ -125,11 +125,11 @@ fn copy_rect_fb1_to_fb2(c: &mut Ctx) -> Result<(), Bail> {
     if empty {
         return c.ret();
     }
-    let fb2 = c.word(g::FRAMEBUFFER_2);
+    let fb2 = c.screen_buffers().second;
     c.set_sreg(ES, fb2);
     let ds = c.sreg(DS);
     c.push(ds);
-    let front = c.word(g::FRAMEBUFFER_FRONT);
+    let front = c.screen_buffers().front;
     c.set_sreg(DS, front);
     c.interp(0xc493, 0xc498)?;
     c.run(0xc498, 2)?;
@@ -159,7 +159,7 @@ pub fn copy_game_rect_from_fb2_to_fb1(m: &mut Machine, start: u16) -> Result<(),
 fn rect_to_screen(c: &mut Ctx, call_at: u16, front_first: bool) -> Result<(), Bail> {
     let ds = c.sreg(DS);
     c.push(ds);
-    let (front, screen) = (c.word(g::FRAMEBUFFER_FRONT), c.word(g::SCREEN_BUFFER));
+    let (front, screen) = (c.screen_buffers().front, c.screen_buffers().screen);
     // C4AA loads ES = front, DS = screen; C51E ES = screen, DS = front.
     let (es, ds) = if front_first { (front, screen) } else { (screen, front) };
     c.set_sreg(ES, es);
@@ -237,11 +237,11 @@ fn transition(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     let ds = c.sreg(DS);
     c.push(ds);
-    let fb2 = c.word(g::FRAMEBUFFER_2);
+    let fb2 = c.screen_buffers().second;
     c.set_reg(SI, fb2);
-    let screen = c.word(g::SCREEN_BUFFER);
+    let screen = c.screen_buffers().screen;
     c.set_sreg(ES, screen);
-    let front = c.word(g::FRAMEBUFFER_FRONT);
+    let front = c.screen_buffers().front;
     c.set_sreg(DS, front);
     c.set_reg(BP, g::TIMER);
     c.interp(0xc124, 0xc129)?;
@@ -313,7 +313,7 @@ pub fn draw_sprite_clipped_clobbering(m: &mut Machine, start: u16) -> Result<(),
     entered(start, 0xc30d)?;
     let mut c = Ctx::new(m);
     c.run(start, 11)?;
-    let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+    let fb = c.screen_buffers().active;
     c.set_sreg(ES, fb);
     let (sheet, seg) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
     c.set_reg(SI, sheet);
@@ -440,9 +440,9 @@ pub fn copy_rect_clipped(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if y1 <= y0 {
         return c.ret();
     }
-    let front = c.word(g::FRAMEBUFFER_FRONT);
+    let front = c.screen_buffers().front;
     c.set_sreg(ES, front);
-    let screen = c.word(g::SCREEN_BUFFER);
+    let screen = c.screen_buffers().screen;
     c.set_sreg(DS, screen);
     c.interp(0xc81f, 0xc824)?;
     c.run(0xc824, 3)?;

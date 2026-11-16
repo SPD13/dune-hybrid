@@ -448,7 +448,7 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::CH, 9);
         let col = c.word(g::TEXT_COLOUR);
         c.set_reg(AX, col);
-        let fb = c.word(g::FRAMEBUFFER_ACTIVE);
+        let fb = c.screen_buffers().active;
         c.set_sreg(ES, fb);
         c.interp(0xd0c4, 0xd0c8)?;
         c.run(0xd0c8, 9)?;

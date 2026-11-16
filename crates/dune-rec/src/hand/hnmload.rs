@@ -190,7 +190,7 @@ pub(super) fn load_first_frame(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(SI, si);
     c.set_sreg(ES, es);
     c.lods(W, ES);
-    let fb2 = c.word(g::FRAMEBUFFER_2);
+    let fb2 = c.screen_buffers().second;
     c.set_reg(BP, fb2);
     c.call(code::HNM_DECODE_TYPED_CHUNK, 0xca37)?;
     c.run(0xca37, 1)?;
@@ -663,7 +663,7 @@ pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let w1 = c.word_at(seg, si.wrapping_add(2));
     c.run(0xccbb, 10)?;
-    let es = c.word(g::FRAMEBUFFER_ACTIVE);
+    let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
     let vid = c.word(g::HNM_VIDEO);
     c.set_reg(BX, vid);
@@ -799,7 +799,7 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, bp);
     c.set_reg(DI, 0);
     if big {
-        let b = c.word(g::FRAMEBUFFER_ACTIVE);
+        let b = c.screen_buffers().active;
         c.set_sreg(ES, b);
     }
     let es = c.sreg(ES);
