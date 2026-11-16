@@ -24,6 +24,7 @@ pub struct Native {
     pub video_state: super::record_table::RecordTable,
     pub travel: super::record_table::RecordTable,
     pub font_pen: super::record_table::RecordTable,
+    pub voice_buffers: super::record_table::RecordTable,
 }
 
 /// The machine's Rust state (made on first use).

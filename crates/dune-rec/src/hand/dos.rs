@@ -1154,7 +1154,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // That one failed: the next.
         c.set_byte(0x2944, f & 0xf);
         c.set_reg(AX, 0);
-        c.set_word(0x3813, 0);
+        c.update_voice_buffer(0, |b| b.data[1] = 0);
         c.update_sound_state(|t| t.settings &= 0xff00);
         let v = c.word(0x398b).wrapping_add(0x10);
         c.set_reg(AX, v);
@@ -1162,9 +1162,9 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word(0x3cbc, 0x3624);
     }
     c.run(0xe7bc, 3)?;
-    let v = c.word(0x3813);
+    let v = c.voice_buffer(0).data[1];
     c.set_reg(AX, v);
-    c.set_word(0x381b, v);
+    c.update_voice_buffer(1, |b| b.data[1] = v);
     c.call(0xa87e, 0xe7c5)?;
     loop {
         c.run(0xe7c5, 6)?;

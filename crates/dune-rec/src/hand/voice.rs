@@ -161,9 +161,9 @@ pub fn open_pcm_voice_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     let zero = c.xor(W, ax, ax);
     c.set_reg(AX, zero);
-    c.set_word(g::VOC_BUFFER, 0);
-    c.set_word(g::PCM_STATE, 0);
-    c.set_word(g::PCM_STATE_2, 0);
+    c.update_voice_buffer(0, |b| b.data[0] = 0);
+    c.update_voice_buffer(0, |b| b.set_state_word(0));
+    c.update_voice_buffer(1, |b| b.set_state_word(0));
     c.set_byte(g::VOICE_PART, 0);
     c.call(code::OPEN_RES_OR_FILE, 0xa91f)?;
     if c.flag(CF) {
@@ -186,7 +186,7 @@ pub fn open_pcm_voice_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
         t.voice_pos = (dx as u32) << 16 | ax as u32;
     });
     c.set_reg(SI, g::VOC_BUFFER);
-    let (dx, es) = (c.word(g::VOC_BUFFER), c.word(g::VOC_BUFFER + 2));
+    let [dx, es] = c.voice_buffer(0).data;
     c.set_reg(DX, dx);
     c.set_sreg(ES, es);
     read_part(&mut c)
@@ -204,8 +204,8 @@ pub fn refill_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xa9bc, 2)?;
         return c.ret();
     }
-    let first = c.byte(g::PCM_STATE);
-    let second = c.byte(g::PCM_STATE_2);
+    let first = c.voice_buffer(0).state;
+    let second = c.voice_buffer(1).state;
     if first != 0 && second != 0 {
         c.run(0xa9bc, 7)?;
         c.set_reg(SI, g::VOC_BUFFER);
@@ -810,9 +810,9 @@ fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
     c.call(0xa90b, 0xab73)?;
     if !c.flag(CF) {
         c.run(0xab73, 3)?;
-        let v = c.word(g::VOC_BUFFER);
+        let v = c.voice_buffer(0).data[0];
         let v = c.add(W, v, 0x1a);
-        c.set_word(g::VOC_BUFFER, v);
+        c.update_voice_buffer(0, |b| b.data[0] = v);
         c.call(0xa9b9, 0xab7d)?;
         c.run(0xab7d, 3)?;
         c.set_reg(SI, 0xab92);
@@ -1433,7 +1433,7 @@ fn feed_a9b9(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0xa9bc, 2)?;
         return c.ret();
     }
-    let (a, b) = (c.byte(g::PCM_STATE), c.byte(g::PCM_STATE_2));
+    let (a, b) = (c.voice_buffer(0).state, c.voice_buffer(1).state);
     if a != 0 && b != 0 {
         c.run(0xa9bc, 7)?;
         c.set_reg(SI, 0x3811);
@@ -1491,20 +1491,20 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xac14, 0xaa1d)?;
     c.run(0xaa1d, 7)?;
     c.set_reg(AX, 0);
-    c.set_word(g::VOC_BUFFER, 0);
-    c.set_word(g::PCM_STATE, 0);
-    c.set_word(g::PCM_STATE_2, 0);
+    c.update_voice_buffer(0, |b| b.data[0] = 0);
+    c.update_voice_buffer(0, |b| b.set_state_word(0));
+    c.update_voice_buffer(1, |b| b.set_state_word(0));
     c.set_reg(SI, 0x3811);
-    let (d, e) = (c.word(g::VOC_BUFFER), c.word(g::LIPSYNC_SEG));
+    let [d, e] = c.voice_buffer(0).data;
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
     c.call(0xaa70, 0xaa30)?;
     // (The `rep movsb` iterations counted in the `run`.)
-    let v = c.word(g::VOC_SIZE).wrapping_sub(0x20);
+    let v = c.voice_buffer(0).size.wrapping_sub(0x20);
     let moved = v.wrapping_add(6);
     c.run(0xaa30, 7 + moved as u32)?;
-    c.set_word(g::VOC_SIZE, v);
-    c.set_word(0x381d, v);
+    c.update_voice_buffer(0, |b| b.size = v);
+    c.update_voice_buffer(1, |b| b.size = v);
     c.set_reg(CX, moved);
     c.set_reg(SI, 0x1a);
     let di = c.reg(DI);
@@ -1513,16 +1513,16 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let counted = c.m.cpu.instructions;
     c.m.cpu.string_op(&mut c.m.hw, 0xa4, Some(ES), 0xf3);
     c.m.cpu.instructions = counted;
-    let filled = c.word(g::VOC_SIZE);
+    let filled = c.voice_buffer(0).size;
     c.run(0xaa48, 9 + filled as u32)?; // the `rep stosb` iterations too
-    let (d, e) = (c.word(0x3819), c.word(0x381b));
+    let [d, e] = c.voice_buffer(1).data;
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
-    let n = c.word(g::VOC_SIZE);
+    let n = c.voice_buffer(0).size;
     c.set_reg(CX, n);
     let ds = c.sreg(DS);
     c.push(ds);
-    let (s, sg) = (c.word(g::VOC_BUFFER), c.word(g::LIPSYNC_SEG));
+    let [s, sg] = c.voice_buffer(0).data;
     c.set_reg(SI, s);
     c.set_sreg(DS, sg);
     c.movs(W);

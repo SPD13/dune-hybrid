@@ -893,7 +893,7 @@ pub fn voc_get_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_flag(CF, false);
         return c.ret();
     }
-    let (buf, seg) = (c.word(g::VOC_BUFFER), c.word(g::VOC_BUFFER + 2));
+    let [buf, seg] = c.voice_buffer(0).data;
     let mut di = buf.wrapping_add(0x1a);
     let kind = c.m.cpu.phys(seg, di);
     let text = c.m.hw.read8(kind) == 5;
@@ -917,10 +917,10 @@ pub fn voc_get_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail> {
         di = c.add(W, di, len);
         c.set_reg(DI, di);
     }
-    c.set_word(g::VOC_BUFFER, di);
-    let size = c.word(g::VOC_SIZE);
+    c.update_voice_buffer(0, |b| b.data[0] = di);
+    let size = c.voice_buffer(0).size;
     let size = c.sub(W, size, di);
-    c.set_word(g::VOC_SIZE, size);
+    c.update_voice_buffer(0, |b| b.size = size);
     c.call(code::SUB_A9B9, 0xa87c)?;
     c.run(0xa87c, 2)?;
     c.set_flag(CF, true);

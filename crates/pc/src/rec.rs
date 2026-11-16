@@ -103,10 +103,12 @@ pub struct Rec {
     pub stats: BTreeMap<u32, ShadowStats>,
     /// `On` mode: entries into Rust (calls and resumptions), and bails.
     pub calls: u64,
-    /// Runs of the generated code (a routine or block without a hand port
-    /// taken, from the run loop or a call): the subsystems kept in Rust
-    /// (dune-rec's `hand/native.rs`) take the memory's values after one
-    /// without counting them as unforeseen.
+    /// Runs of the original's code other than the hand ports: the
+    /// generated code (a routine or block without a hand port taken, from
+    /// the run loop or a call) and each step of the interpreter (the
+    /// drivers, loaded at run time, and what the ports leave to it). The
+    /// subsystems kept in Rust (dune-rec's `hand/native.rs`) take the
+    /// memory's values after one without counting them as unforeseen.
     pub generated_runs: u64,
     /// The next `rec_call` is a hand port's (`Ctx::call`): its return goes
     /// back to Rust written by hand, not to the generated code.
@@ -382,6 +384,7 @@ impl Rec {
         self.interp_seg[cs as usize] += n;
         *self.interp_at.entry((cs, ip)).or_default() += n;
         self.in_interp = true;
+        self.generated_runs += 1;
     }
 }
 
@@ -603,7 +606,9 @@ impl Machine {
                     return false;
                 };
                 let rec = self.rec.as_mut().unwrap();
-                if space == 0 && rec.generated[ip as usize].is_some_and(|g| g as usize == f as usize) {
+                // A driver's lifted code, or seg000's generated code (not a
+                // hand port).
+                if space != 0 || rec.generated[ip as usize].is_some_and(|g| g as usize == f as usize) {
                     rec.generated_runs += 1;
                 }
                 rec.in_interp = false;
@@ -1246,7 +1251,11 @@ impl Machine {
                 && let Some(g) = self.rec_routine(here, self.cpu.ip, false)
             {
                 let at = self.cpu.ip;
-                self.rec.as_mut().unwrap().calls += 1;
+                let rec = self.rec.as_mut().unwrap();
+                rec.calls += 1;
+                if here != LOAD_SEG || rec.generated[at as usize].is_some_and(|x| x as usize == g as usize) {
+                    rec.generated_runs += 1;
+                }
                 just_bailed = g(self, at).is_err();
                 if just_bailed {
                     self.rec.as_mut().unwrap().bails += 1;

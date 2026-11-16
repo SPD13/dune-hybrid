@@ -497,6 +497,29 @@ fraction). `travel:` in the output.
 The font's pen (`hand/font_pen.rs`, 8 bytes at D82Ch: where the next
 character goes, where the line started). `font pen:` in the output.
 
+The two voice buffers (`hand/voice_buffers.rs`, 8 bytes each at 3811h:
+the data's far pointer, its size, the PCM driver's state, the voice
+file's part) are the first table of more than one with a typed view:
+`record_table::nth` / `update_nth` keep record `i` (and `single` is
+`nth(0)`); `Ctx::voice_buffer(i)` / `update_voice_buffer(i, f)`. The
+ports that reach a buffer through SI still write its bytes (followed).
+`voice buffers:` in the output. The PCM driver's interrupt sets the
+states; its lifted code (a driver's space, not seg000) did not count as
+the original's code, so its writes showed as unforeseen. `Rec::
+generated_runs` now counts the drivers' lifted code and each step of
+the interpreter as well (nothing but the hand ports is left out).
+
+Left, needing names before any grouping: the story state (DS:0-FFh: [0]
+the random seed, [4]/[6] the player's place and position, [8]/[9] the
+room, [0Ah] event bits, [23h] the talker's dialogue stage, [2Ah] the
+game phase; [2Bh] is called `IN_DIALOGUE` but is set from the room when
+the player is in a place, cleared on leaving, counted up at 5058h, and
+read as "night" by one port: it needs a study before renaming) and
+1140h-11BFh. DCE4h-DCFFh, 4710h-476Fh and 4770h-4783h / 47D4h-47EFh are
+mixes. The music driver's tick runs as generated code when the timer
+interrupt comes inside generated code; that is where most of the
+sound's counted writes come from.
+
 ## Tools in place
 
 | Tool | What it checks |

@@ -10,6 +10,7 @@
 //! sound (`hand/sound_state.rs`), the video playing
 //! (`hand/video_state.rs`), the player's travel (`hand/travel.rs`) and
 //! the font's pen (`hand/font_pen.rs`), these thirteen tables of one,
+//! and the two voice buffers (`hand/voice_buffers.rs`),
 //! kept with the machine ([`super::native`]).
 //!
 //! Each record is cached the first time it is used. The views
@@ -23,8 +24,10 @@
 //!   writes tell the table, [`follow`]), not counted;
 //! - a save loaded and the tools' own stepping are told ([`outside`]);
 //! - the generated code (the original's code in Rust, finishing a port
-//!   that gave up at a stop) is counted apart ([`after_generated`]) when
-//!   it ran since the record was last verified (`Rec::generated_runs`);
+//!   that gave up at a stop) and the interpreter (the drivers, loaded at
+//!   run time, and what the ports leave to it) are counted apart
+//!   ([`after_generated`]) when they ran since the record was last
+//!   verified (`Rec::generated_runs`);
 //! - anything else is unforeseen ([`syncs`]; the suite wants none).
 //!
 //! `TROOPS_TRACE=1` prints each sync-in with the offsets that differed,
@@ -70,10 +73,12 @@ pub enum Which {
     Travel,
     /// The font's pen, 8 bytes at D82Ch.
     FontPen,
+    /// The two voice buffers, 8 bytes each at 3811h.
+    VoiceBuffers,
 }
 
 impl Which {
-    pub const ALL: [Which; 15] = [
+    pub const ALL: [Which; 16] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
@@ -89,6 +94,7 @@ impl Which {
         Which::Video,
         Which::Travel,
         Which::FontPen,
+        Which::VoiceBuffers,
     ];
 
     pub fn name(self) -> &'static str {
@@ -108,6 +114,7 @@ impl Which {
             Which::Video => "video",
             Which::Travel => "travel",
             Which::FontPen => "font pen",
+            Which::VoiceBuffers => "voice buffers",
         }
     }
     /// Where the table starts in the game's data segment.
@@ -128,6 +135,7 @@ impl Which {
             Which::Video => 0xdbe6,
             Which::Travel => 0x11c1,
             Which::FontPen => 0xd82c,
+            Which::VoiceBuffers => 0x3811,
         }
     }
     pub const fn size(self) -> u16 {
@@ -147,6 +155,7 @@ impl Which {
             Which::Video => 0x40,
             Which::Travel => 0x0d,
             Which::FontPen => 8,
+            Which::VoiceBuffers => 8,
         }
     }
     pub const fn count(self) -> usize {
@@ -166,6 +175,7 @@ impl Which {
             Which::Video => 1,
             Which::Travel => 1,
             Which::FontPen => 1,
+            Which::VoiceBuffers => 2,
         }
     }
     fn end(self) -> u16 {
@@ -208,6 +218,7 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::Video => &mut n.video_state,
         Which::Travel => &mut n.travel,
         Which::FontPen => &mut n.font_pen,
+        Which::VoiceBuffers => &mut n.voice_buffers,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];
@@ -294,12 +305,13 @@ pub(super) fn set(c: &mut Ctx, w: Which, i: usize, r: Bytes) {
     }
 }
 
-/// A table of one record with a typed view (the text box, the dialogue
-/// text, the conversation, the map view, the map's selection, the
-/// flight, the message typed out, the screen buffers, the mouse, the
-/// sound, the video, the travel, the font's pen): the view
-/// to and from the record's bytes. [`single`], [`set_single`] and
-/// [`update_single`] keep it.
+/// A table with a typed view of its records (the tables of one: the text
+/// box, the dialogue text, the conversation, the map view, the map's
+/// selection, the flight, the message typed out, the screen buffers, the
+/// mouse, the sound, the video, the travel, the font's pen; and the voice
+/// buffers): the view to and from a record's bytes. [`single`] and
+/// [`update_single`] keep a table of one; [`nth`],
+/// [`set_nth`] and [`update_nth`] record `i` of a longer one.
 pub(super) trait Single: Sized {
     /// Its table.
     const WHICH: Which;
@@ -307,46 +319,56 @@ pub(super) trait Single: Sized {
     fn to_bytes(&self) -> Bytes;
 }
 
-/// The bytes of `w`'s record at DS (another data segment than the
+/// The bytes of record `i` of `w` at DS (another data segment than the
 /// game's: not the table's).
-fn at_ds(c: &mut Ctx, w: Which) -> Bytes {
+fn at_ds(c: &mut Ctx, w: Which, i: usize) -> Bytes {
     let mut b = [0; MAX];
     for (k, v) in b.iter_mut().enumerate().take(w.size() as usize) {
-        *v = c.byte(w.base() + k as u16);
+        *v = c.byte(record_offset(w, i) + k as u16);
     }
     b
 }
 
-/// The one record of `T`'s table, in step with the memory (with DS not
-/// the game's, the bytes there).
-pub(super) fn single<T: Single>(c: &mut Ctx) -> T {
+/// Record `i` of `T`'s table, in step with the memory (with DS not the
+/// game's, the bytes there).
+pub(super) fn nth<T: Single>(c: &mut Ctx, i: usize) -> T {
     if c.sreg(DS) != g::GAME_DS {
-        return T::from_bytes(&at_ds(c, T::WHICH));
+        return T::from_bytes(&at_ds(c, T::WHICH, i));
     }
-    T::from_bytes(&get(c, T::WHICH, 0))
+    T::from_bytes(&get(c, T::WHICH, i))
 }
 
-/// The one record of `T`'s table changed to `t`: kept, and its changed
-/// bytes written through.
-pub(super) fn set_single<T: Single>(c: &mut Ctx, t: T) {
+/// Record `i` of `T`'s table changed to `t`: kept, and its changed bytes
+/// written through.
+pub(super) fn set_nth<T: Single>(c: &mut Ctx, i: usize, t: T) {
     let w = T::WHICH;
     if c.sreg(DS) != g::GAME_DS {
-        let (old, new) = (at_ds(c, w), t.to_bytes());
+        let (old, new) = (at_ds(c, w, i), t.to_bytes());
         for k in 0..w.size() as usize {
             if old[k] != new[k] {
-                c.set_byte(w.base() + k as u16, new[k]);
+                c.set_byte(record_offset(w, i) + k as u16, new[k]);
             }
         }
         return;
     }
-    set(c, w, 0, t.to_bytes());
+    set(c, w, i, t.to_bytes());
+}
+
+/// Record `i` of `T`'s table changed by `f`.
+pub(super) fn update_nth<T: Single>(c: &mut Ctx, i: usize, f: impl FnOnce(&mut T)) {
+    let mut t = nth(c, i);
+    f(&mut t);
+    set_nth(c, i, t);
+}
+
+/// The one record of `T`'s table.
+pub(super) fn single<T: Single>(c: &mut Ctx) -> T {
+    nth(c, 0)
 }
 
 /// The one record of `T`'s table changed by `f`.
 pub(super) fn update_single<T: Single>(c: &mut Ctx, f: impl FnOnce(&mut T)) {
-    let mut t = single(c);
-    f(&mut t);
-    set_single(c, t);
+    update_nth(c, 0, f)
 }
 
 /// Byte `field` of record `i` of `w`.

@@ -65,12 +65,12 @@ pub fn close_pcm_voice_file_handle(m: &mut Machine, start: u16) -> Result<(), Ba
 /// header), state 8101h (to play).
 fn open_voc(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xabe9, 8)?;
-    c.set_word(g::VOC_BUFFER, 0);
-    let seg = c.word(g::VOC_BUFFER + 2);
+    c.update_voice_buffer(0, |b| b.data[0] = 0);
+    let seg = c.voice_buffer(0).data[1];
     c.set_reg(DI, 0);
     c.set_sreg(ES, seg);
     let v = c.add(W, 0, VOC_HEADER);
-    c.set_word(g::VOC_BUFFER, v);
+    c.update_voice_buffer(0, |b| b.data[0] = v);
     let ah = c.reg8(r8::AH);
     c.xor(B, ah as u16, ah as u16);
     c.set_reg8(r8::AH, 0);
@@ -83,8 +83,8 @@ fn open_voc(c: &mut Ctx) -> Result<(), Bail> {
     let size = c.reg(CX);
     let size = c.sub(W, size, VOC_HEADER);
     c.set_reg(CX, size);
-    c.set_word(g::VOC_SIZE, size);
-    c.set_word(g::PCM_STATE, 0x8101);
+    c.update_voice_buffer(0, |b| b.size = size);
+    c.update_voice_buffer(0, |b| b.set_state_word(0x8101));
     c.ret()
 }
 
@@ -172,7 +172,7 @@ pub fn audio_start_voc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if voc == loaded {
         c.run(0xab23, 4)?; // cmp; je; les di; mov si
         c.cmp(B, voc as u16, loaded as u16);
-        let (di, seg) = (c.word(g::VOC_BUFFER), c.word(g::VOC_BUFFER + 2));
+        let [di, seg] = c.voice_buffer(0).data;
         c.set_reg(DI, di);
         c.set_sreg(ES, seg);
     } else {
