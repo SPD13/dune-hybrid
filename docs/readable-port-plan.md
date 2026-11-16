@@ -455,7 +455,9 @@ The tables of one share their code: a typed view implements
 `record_table::single` / `set_single` / `update_single` keep it (with DS
 not the game's, they use the bytes there). Adding one is a `Which`
 variant, a field on `Native`, the view, two `Ctx` methods and the name
-in `suite.sh`'s loop.
+in `suite.sh`'s loop: `tools/lift/add_table.py SPEC.json` does all but
+the view (see its notes), and `tools/lift/drop_consts.py` drops the
+globals left unused.
 
 Outside the map's block: the screen buffers (`hand/screen_buffers.rs`,
 0Ch bytes at DBD4h: the front buffer's far pointer, the screen's
@@ -486,6 +488,12 @@ waiting, where it wrapped, the bytes buffered), the frame's voice and
 palette chunks, the timing). The 32-bit file offsets are `u32` fields.
 `video:` in the output.
 
+The player's travel on the map (`hand/travel.rs`, 0Dh bytes at 11C1h,
+named from the listing: a position kept, the location flown to, the
+heading (a byte angle), no target to home on, the screen kind, the
+travel held (a call, a dialogue), the heading kept, the step's carried
+fraction). `travel:` in the output.
+
 ## Tools in place
 
 | Tool | What it checks |
@@ -495,6 +503,7 @@ palette chunks, the timing). The 32-bit file offsets are `u32` fields.
 | `tools/lift/hashcmp.sh` | One game, plain emulation against `--rec on`, the whole memory every 10 s (`STATE_HASH=1`). |
 | `tools/lift/suite.sh record\|check` | Seven games from the start and from the saves, against a stored reference (states, screens and a save written near the end). |
 | `tools/lift/flags_used.py` | Which routines' returned flags any caller reads. |
+| `tools/lift/add_table.py`, `drop_consts.py` | Not checks: add a table of one and route the ports' accesses to it; drop the globals left unused. |
 | `--save FILE` + event `T:load:1` | Real play from any point of the game (the test saves, Day 1 to 23). |
 | event `T:save:N` | The game's state as it serialises it (`DUNE37SN.SAV` in the output folder). |
 

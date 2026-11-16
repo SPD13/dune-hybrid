@@ -142,7 +142,7 @@ pub fn screen_b2aa(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn frieze_1860(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1860)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let f = c.travel().screen_kind;
     c.run(0x1860, 3)?;
     if f != 0 {
         return c.ret();
@@ -208,9 +208,9 @@ pub fn map_5406(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5406)?;
     let mut c = Ctx::new(m);
     c.run(0x5406, 5)?;
-    let dx = c.word(0x11c1);
+    let dx = c.travel().kept[0];
     c.set_reg(DX, dx);
-    let bx = c.word(0x11c3);
+    let bx = c.travel().kept[1];
     c.set_reg(BX, bx);
     c.set_word(0x4710, dx);
     c.set_word(0x4712, bx);
@@ -542,7 +542,7 @@ pub fn steps_47fb(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn book_aed6(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xaed6)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let f = c.travel().screen_kind;
     c.run(0xaed6, 3)?;
     if f != 0 {
         return c.ret();
@@ -1215,8 +1215,8 @@ pub fn dialogue_941d(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x9433, 1)?;
         return c.jump(0x0eb9);
     }
-    let f = c.byte(g::HEAD_ANIMATION_BLOCKED);
-    let g = c.byte(0x11ca);
+    let f = c.travel().screen_kind;
+    let g = c.travel().held;
     let book = f & 3 != 0 && g == 0;
     let open = c.text_box().shown;
     c.run(0x942a, 2 + 2 + if f & 3 != 0 { 2 } else { 0 } + if book { 1 } else { 2 + if open != 0 { 1 } else { 3 } })?;
@@ -2197,7 +2197,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_clock(|k| k.time = 0x16c5);
     c.call(0x0e66, 0x0dc5)?;
     c.run(0x0dc5, 2)?;
-    c.set_byte(0x11ca, 1);
+    c.update_travel(|t| t.held = 1);
     c.call(0x9f40, 0x0dcd)?;
     c.run(0x0dcd, 7)?;
     c.update_conversation(|t| t.talker = 0xffff);

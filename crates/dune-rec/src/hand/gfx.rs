@@ -737,7 +737,7 @@ pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_word(0x487e, 1);
     c.set_byte(0x473e, 0);
-    c.set_byte(g::HEAD_ANIMATION_BLOCKED, 8);
+    c.update_travel(|t| t.screen_kind = 8);
     let p = c.code_word(0x167);
     let q = c.code_word(p);
     let si = pure::add(W, p, q);

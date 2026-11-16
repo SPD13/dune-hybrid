@@ -66,7 +66,7 @@ pub fn gfx_call_3961(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(code::SAVE_REGS, 0x5985)?;
     c.run(0x5985, 5)?;
-    let (x, y) = (c.word(0x11c1), c.word(0x11c3));
+    let (x, y) = (c.travel().kept[0], c.travel().kept[1]);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     c.set_reg(SI, 0xaa);
@@ -622,7 +622,7 @@ fn draw_zoomed_map(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)
     c.call(0xc137, 0x49b4)?;
     c.run(0x49b4, 1)?;
     c.call(0x5dce, 0x49b7)?;
-    let si = c.word(0x11c5);
+    let si = c.travel().target;
     c.run(0x49b7, 3 + (si != 0) as u32 + if si == 0 { 2 } else { 0 })?;
     c.set_reg(SI, si);
     c.or(W, si, si);
@@ -835,11 +835,11 @@ pub fn nearest_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn heading_51cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x51cb)?;
     let mut c = Ctx::new(m);
-    let (a, b) = (c.byte(0x11cb), c.byte(0x11c8));
+    let (a, b) = (c.travel().keep_heading, c.travel().no_target);
     let bx = c.reg(BX);
     if a == 0 && b == 0 {
         c.run(start, 4 + 4)?;
-        let di = c.word(0x11c5);
+        let di = c.travel().target;
         c.set_reg(DI, di);
         let dx = c.reg(DX);
         c.push(bx);
@@ -853,7 +853,7 @@ pub fn heading_51cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, bx);
         if !cf {
             let al = c.reg8(r8::AL);
-            c.set_byte(g::HEADING, al);
+            c.update_travel(|t| t.heading = al);
         }
         return c.ret();
     }
@@ -862,14 +862,14 @@ pub fn heading_51cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if near {
         c.run(start, pre + 4 + 1)?;
     } else {
-        let h = c.byte(g::HEADING);
+        let h = c.travel().heading;
         let same = (h.wrapping_sub(0x40) ^ (bx >> 8) as u8) & 0x80 != 0;
         c.run(start, pre + if (bx as i16) < -0x4d { 2 } else { 4 } + if same { 6 } else { 10 })?;
     }
     if near {
         return c.ret();
     }
-    let al = c.byte(g::HEADING);
+    let al = c.travel().heading;
     let ah = pure::sub(B, al as u16, 0x40);
     let ah = pure::xor(B, ah, bx >> 8);
     c.set_reg(AX, ah << 8 | al as u16);
@@ -879,7 +879,7 @@ pub fn heading_51cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = pure::and(B, al as u16, 0x80);
     let v = pure::or(B, v, 0x40);
     c.set_reg(AX, ah << 8 | v);
-    c.set_byte(g::HEADING, v as u8);
+    c.update_travel(|t| t.heading = v as u8);
     c.ret()
 }
 
@@ -2296,7 +2296,7 @@ pub fn map_point_moved(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, k);
     c.call(0x557b, 0x59ac)?;
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    let (x, y) = (c.word(0x11c1), c.word(0x11c3));
+    let (x, y) = (c.travel().kept[0], c.travel().kept[1]);
     if dx == x && bx == y {
         c.run(0x59ac, 4)?;
         return gfx_call_3961(c.m, 0x5982);
@@ -2784,7 +2784,7 @@ pub fn note_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 fn note_shown_at(c: &mut Ctx) -> Result<(), Bail> {
-    let k = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let k = c.travel().screen_kind;
     c.run(0x5d44, if k & 3 != 0 { 3 } else { 2 })?;
     c.test(B, k as u16, 3);
     if k & 3 != 0 {
@@ -3827,7 +3827,7 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x40f9)?;
     let mut c = Ctx::new(m);
-    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let mode = c.travel().screen_kind;
     if mode & 3 == 0 {
         c.run(start, 3)?;
         return c.ret();
@@ -3900,7 +3900,7 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'one;
             }
             let al = c.reg8(r8::AL);
-            let dir = c.byte(g::HEADING);
+            let dir = c.travel().heading;
             let v = al.wrapping_sub(dir).wrapping_add(0x60);
             if v >= 0xc0 {
                 c.run(0x4138, 5)?;
@@ -4004,7 +4004,7 @@ pub fn location_ahead(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     // A column of cells ahead when facing within 20h of north or south,
     // else a row.
-    let dir = c.byte(g::HEADING);
+    let dir = c.travel().heading;
     let a = dir.wrapping_add(0x20);
     let col = a & 0x40 == 0;
     c.run(start, 8 + (!col) as u32 + 1)?;
@@ -4780,7 +4780,7 @@ pub fn move_map_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 5)?;
     c.call(0x5982, 0x59d1)?;
     let (di, cx) = (c.reg(DI), c.reg(CX));
-    let (x, y) = (c.word(0x11c1), c.word(0x11c3));
+    let (x, y) = (c.travel().kept[0], c.travel().kept[1]);
     let clamp = |v: u16, lim: u16, d: u16| -> (u16, u32) {
         let a = v.wrapping_add(d).wrapping_sub(5);
         if a < lim {
@@ -4797,14 +4797,14 @@ pub fn move_map_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x11c1);
     c.set_reg(DI, d1);
     let nx = x.wrapping_add(d1);
-    c.set_word(0x11c1, nx);
+    c.update_travel(|t| t.kept[0] = nx);
     // AX: the y overshoot as the clamp computed it.
     let a = y.wrapping_add(cx).wrapping_sub(5);
     let overshoot = if e2 == 3 { a.wrapping_sub(0x18) } else { a };
     c.set_reg(CX, d2);
     c.set_reg(AX, overshoot);
     let ny = pure::add(W, y, d2);
-    c.set_word(0x11c3, ny);
+    c.update_travel(|t| t.kept[1] = ny);
     gfx_call_3961(c.m, 0x5982)
 }
 
@@ -4823,7 +4823,7 @@ pub fn heading_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (bx0, dx0) = (c.reg(BX), c.reg(DX));
     let neg = bx0 & 0x4000 != 0;
     c.run(0x5209, 7 + neg as u32)?;
-    let h = c.byte(g::HEADING);
+    let h = c.travel().heading;
     c.set_reg8(r8::AL, h);
     c.push(dx0);
     c.push(bx0);
@@ -4845,7 +4845,7 @@ pub fn heading_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let (q1, q2) = (q1 as u16, q2 as u16);
     let neg2 = q2 & 0x8000 != 0;
-    let frac = c.word(0x11cc);
+    let frac = c.travel().carry;
     let s = (if neg2 { q2.wrapping_neg() } else { q2 }).wrapping_add(frac);
     let big = s >> 8 > 1;
     if big {
@@ -4890,7 +4890,7 @@ pub fn heading_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DX, q3);
         c.set_reg(AX, 0x100);
     }
-    c.set_byte(0x11cc, ax as u8);
+    c.update_travel(|t| t.carry = t.carry & 0xff00 | ax & 0xff);
     c.set_reg(AX, (ax >> 8) as u8 as i8 as i16 as u16);
     if neg2 {
         c.set_reg(AX, v);
@@ -4905,9 +4905,9 @@ pub fn heading_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let t = pure::add(W, nb, 0x60);
     c.set_reg(AX, t);
     if pole {
-        let h = c.byte(g::HEADING);
+        let h = c.travel().heading;
         let h = pure::add(B, h as u16, 0x80);
-        c.set_byte(g::HEADING, h as u8);
+        c.update_travel(|t| t.heading = h as u8);
         nd = pure::add(W, nd, 0x8000);
     }
     c.set_reg(DX, nd);
@@ -6358,7 +6358,7 @@ pub fn place_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(g::CURSOR_PLAIN, 1);
     c.call(0xe270, 0x5985)?;
     c.run(0x5985, 5)?;
-    let (x, y) = (c.word(0x11c1), c.word(0x11c3));
+    let (x, y) = (c.travel().kept[0], c.travel().kept[1]);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     c.set_reg(SI, 0xaa);
@@ -6476,7 +6476,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         _ => return Err(Bail),
     }
     let f = c.flight().flying;
-    let stop = c.byte(0x11ca);
+    let stop = c.travel().held;
     if f == 0 || stop != 0 {
         c.run(0x4f0c, if f == 0 { 3 } else { 5 })?;
         return c.ret();
@@ -6503,7 +6503,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(at, 1)?;
         c.call(to, at + 3)?;
     }
-    let si = c.word(0x11c5);
+    let si = c.travel().target;
     let di = c.reg(DI);
     let w = c.word(si.wrapping_add(6));
     if di == w {
@@ -6569,7 +6569,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.update_flight(|t| t.marker = 1);
         return speed_4e8e(&mut c);
     }
-    let stop = c.byte(0x11ca);
+    let stop = c.travel().held;
     if stop != 0 {
         c.run(0x4f76, n + 3)?;
         test_box(&mut c, dx, bx);
@@ -6632,7 +6632,7 @@ fn speed_4e8e(c: &mut Ctx) -> Result<(), Bail> {
     let bx = c.word(6);
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
-    let h = c.word(0x11cc);
+    let h = c.travel().carry;
     c.push(h);
     c.call(0x5206, 0x4e9d)?;
     for at in [0x4e9du16, 0x4ea0, 0x4ea3, 0x4ea6, 0x4ea9] {
@@ -6649,7 +6649,7 @@ fn speed_4e8e(c: &mut Ctx) -> Result<(), Bail> {
     let a = c.pop();
     c.set_reg(AX, a);
     let h = c.pop();
-    c.set_word(0x11cc, h);
+    c.update_travel(|t| t.carry = h);
     c.push(a);
     c.call(0xb532, 0x4ebc)?;
     c.run(0x4ebc, 2)?;

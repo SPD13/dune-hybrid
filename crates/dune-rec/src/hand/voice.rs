@@ -901,7 +901,7 @@ fn music_walk(c: &mut Ctx, write: bool) -> u32 {
         n += 2;
     }
     if !at_place || dx & 0xff == 1 {
-        let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
+        let mode = c.travel().screen_kind;
         let b = c.and(B, mode as u16, 3);
         bx = bx & 0xff00 | b;
         n += 3;

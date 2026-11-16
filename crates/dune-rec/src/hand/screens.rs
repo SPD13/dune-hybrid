@@ -436,7 +436,7 @@ pub fn set_buttons_for_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd717)?;
     let mut c = Ctx::new(m);
     let kinds = c.map_view().mode;
-    let f = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let f = c.travel().screen_kind;
     let prefix = if kinds != 0 { 4 } else if f & 3 == 0 { 5 } else { 6 };
     set_buttons(&mut c, start, prefix, |c| {
         c.cmp(B, kinds as u16, 0);
@@ -1071,8 +1071,8 @@ pub fn panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_02ffb` after `pre` instructions from `at` (with `ops`).
 pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
     let dlg = c.byte(g::IN_DIALOGUE);
-    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
-    let (ca, cb) = (c.byte(0x11ca), c.byte(0x11cb));
+    let mode = c.travel().screen_kind;
+    let (ca, cb) = (c.travel().held, c.travel().keep_heading);
     if dlg != 0 || mode & 3 != 0 {
         let (n, si) = if dlg != 0 {
             (4, 0x1d1e)
@@ -1343,7 +1343,7 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x2e98, 0x2ed0)?;
     c.run(0x2ed0, 1)?;
     c.call(0x2efb, 0x2ed3)?;
-    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let mode = c.travel().screen_kind;
     c.run(0x2ed3, if mode == 0 { 3 } else { 2 })?;
     c.cmp(B, mode as u16, 0);
     if mode == 0 {
@@ -1478,7 +1478,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         copy(&mut c, 0x21f4, 2);
         return end_2ff7(&mut c);
     }
-    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let mode = c.travel().screen_kind;
     if mode & 3 == 0 {
         c.run(0x2faa, 13)?;
         copy(&mut c, 0x220c, 2);
@@ -1495,7 +1495,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         copy(&mut c, 0x21f4, 2);
         return end_2ff7(&mut c);
     }
-    let cb = c.byte(0x11cb);
+    let cb = c.travel().keep_heading;
     let p = c.byte(g::GAME_PHASE);
     let n = if cb == 0 { 3 } else if p < 0x32 { 6 } else { 9 };
     c.run(0x2faa, 2 + n + 5)?;

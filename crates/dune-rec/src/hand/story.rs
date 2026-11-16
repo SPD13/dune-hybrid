@@ -267,6 +267,33 @@ pub fn set_flag_4727(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// `loc_04ac4`: the travel no longer held ([11CAh] 0).
+pub fn clear_flag_11ca(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4ac4)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.update_travel(|t| t.held = 0);
+    c.ret()
+}
+
+/// `loc_04aca`: the travel held ([11CAh] 1).
+pub fn set_flag_11ca(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4aca)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.update_travel(|t| t.held = 1);
+    c.ret()
+}
+
+/// `loc_050be`: the flight steers again ([11CBh] 0).
+pub fn clear_flag_11cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x50be)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.update_travel(|t| t.keep_heading = 0);
+    c.ret()
+}
+
 /// `sub_a1d6`: the conversation's [47A5h] 0.
 pub fn clear_flag_47a5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1d6)?;
@@ -335,18 +362,6 @@ set_flag!(
 set_flag!(
     /// `loc_0215f`: [46D9h] = 7.
     set_46d9_to_7, 0x215f, 0x46d9, 7
-);
-set_flag!(
-    /// `loc_04ac4`: [11CAh] = 0.
-    clear_flag_11ca, 0x4ac4, 0x11ca, 0
-);
-set_flag!(
-    /// `loc_04aca`: [11CAh] = 1.
-    set_flag_11ca, 0x4aca, 0x11ca, 1
-);
-set_flag!(
-    /// `loc_050be`: [11CBh] = 0.
-    clear_flag_11cb, 0x50be, 0x11cb, 0
 );
 set_word!(
     /// `loc_01392`: the handler at [2220h] = 1FBAh.
@@ -736,10 +751,10 @@ pub fn remove_task_46b5(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn add_11c7(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
     c.run(at, prefix + 3)?;
     ops(c);
-    let (v, al) = (c.byte(g::HEADING), c.reg8(r8::AL));
+    let (v, al) = (c.travel().heading, c.reg8(r8::AL));
     let v = c.add(B, v as u16, al as u16);
-    c.set_byte(g::HEADING, v as u8);
-    c.set_word(0x11cc, 0x80);
+    c.update_travel(|t| t.heading = v as u8);
+    c.update_travel(|t| t.carry = 0x80);
     c.ret()
 }
 
@@ -761,9 +776,9 @@ pub fn start_11c5(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let z = pure::xor(W, cx, cx);
         c.set_reg(CX, z);
         let di = c.reg(DI);
-        c.set_word(0x11c5, di);
-        c.set_byte(0x11c8, 0);
-        c.set_byte(g::HEADING, 0);
+        c.update_travel(|t| t.target = di);
+        c.update_travel(|t| t.no_target = 0);
+        c.update_travel(|t| t.heading = 0);
     })
 }
 
@@ -1803,15 +1818,15 @@ pub fn place_4944(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let z = pure::xor(W, cx, cx);
             c.set_reg(CX, z);
             let di = c.reg(DI);
-            c.set_word(0x11c5, di);
-            c.set_byte(0x11c8, 0);
-            c.set_byte(g::HEADING, 0);
+            c.update_travel(|t| t.target = di);
+            c.update_travel(|t| t.no_target = 0);
+            c.update_travel(|t| t.heading = 0);
         });
     }
     c.run(0x4947, 4)?;
-    let v = c.byte(0x11cb);
+    let v = c.travel().keep_heading;
     let v = pure::dec(B, v as u16);
-    c.set_byte(0x11cb, v as u8);
+    c.update_travel(|t| t.keep_heading = v as u8);
     c.call(0xb5f9, 0x4953)?;
     c.run(0x4953, 3)?;
     let (bx, dx) = (c.reg(BX), c.reg(DX));
@@ -1824,9 +1839,9 @@ pub fn place_4944(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let di = c.word(0x1150);
         c.set_reg(DI, di);
         c.set_reg8(r8::CL, 1);
-        c.set_word(0x11c5, di);
-        c.set_byte(0x11c8, 1);
-        c.set_byte(g::HEADING, 0);
+        c.update_travel(|t| t.target = di);
+        c.update_travel(|t| t.no_target = 1);
+        c.update_travel(|t| t.heading = 0);
     })
 }
 
@@ -1922,12 +1937,12 @@ pub fn show_screen_368b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(code::SAVE_REGS, 0x368e)?;
-    let k = c.byte(g::HEAD_ANIMATION_BLOCKED) & 3;
+    let k = c.travel().screen_kind & 3;
     c.run(0x368e, if k == 2 { 6 } else if k == 1 { 12 } else { 8 })?;
     let v = c.flight().marker;
     let v = c.or(B, v as u16, 1);
     c.update_flight(|t| t.marker = v as u8);
-    let bl = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let bl = c.travel().screen_kind;
     let bl = c.and(B, bl as u16, 3) as u8;
     c.set_reg8(r8::BL, bl);
     c.cmp(B, bl as u16, 2);
@@ -2054,10 +2069,10 @@ pub fn leave_hotspot_mode(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(t, at + 3)?;
         at += 3;
     }
-    let place = c.word(0x11c5);
+    let place = c.travel().target;
     c.run(0x443b, 2 + (place == 0) as u32 + 1)?;
     if place == 0 {
-        c.set_byte(g::HEAD_ANIMATION_BLOCKED, 0);
+        c.update_travel(|t| t.screen_kind = 0);
     }
     c.call(0xd95b, 0x444a)?;
     c.run(0x444a, 1)?;
@@ -2494,7 +2509,7 @@ pub fn records_here_40e6(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4182)?;
     let mut c = Ctx::new(m);
-    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let mode = c.travel().screen_kind;
     let al = (mode & 3).wrapping_sub(1);
     if al != 0 {
         c.run(start, 5)?;
@@ -2504,7 +2519,7 @@ pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::AL, a as u8);
         return c.ret();
     }
-    let k = c.byte(0x11cb);
+    let k = c.travel().keep_heading;
     c.run(start, if k == 0 { 8 } else { 7 })?;
     c.set_reg8(r8::AL, mode);
     let a = pure::and(B, mode as u16, 3);
@@ -2517,7 +2532,7 @@ pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
         note_21fd_al(c.m, 0x41cc)
     };
     if k == 0 {
-        let di = c.word(0x11c5);
+        let di = c.travel().target;
         c.set_reg(DI, di);
         c.call(0x5d36, 0x4199)?;
         if c.flag(pc::cpu::CF) {
@@ -4472,7 +4487,7 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn map_pick_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x450e)?;
     let mut c = Ctx::new(m);
-    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let mode = c.travel().screen_kind;
     if mode & 0x0f == 0 {
         c.run(start, 3)?;
         return c.ret();
@@ -4483,7 +4498,7 @@ pub fn map_pick_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(dx);
     c.call(0x4586, 0x451a)?;
     let di = c.map_selection().subject;
-    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let mode = c.travel().screen_kind;
     let cur = c.word(g::MAP_POSITION_RECORD);
     let ops = |c: &mut Ctx| {
         let d = c.pop();
@@ -4585,14 +4600,14 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x4706, 1)?;
     c.call(0x38e1, 0x4709)?;
     c.run(0x4709, 6)?;
-    let m0 = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let m0 = c.travel().screen_kind;
     c.set_reg8(r8::AL, m0);
     let ax = c.reg(AX);
     c.push(ax);
     let a = c.shr1(B, m0 as u16, 2);
     c.set_reg8(r8::AL, a as u8);
     let v = c.or(B, m0 as u16, a);
-    c.set_byte(g::HEAD_ANIMATION_BLOCKED, v as u8);
+    c.update_travel(|t| t.screen_kind = v as u8);
     c.call(0xad5e, 0x4718)?;
     let t = c.byte(g::IN_DIALOGUE);
     c.run(0x4718, if t != 0 { 4 } else { 3 })?;
@@ -4620,7 +4635,7 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     c.update_flight(|t| t.steps = 0);
     c.push(a);
     c.call(0x41c5, 0x473c)?;
-    let m1 = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let m1 = c.travel().screen_kind;
     let d = (m1 & 3).wrapping_sub(1);
     c.run(0x473c, 5)?;
     let a = c.and(B, m1 as u16, 3);
@@ -4636,7 +4651,7 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x474e, 4)?;
     let a = c.pop();
     c.set_reg(AX, a);
-    let h = c.byte(g::HEADING);
+    let h = c.travel().heading;
     c.set_reg8(r8::BL, h);
     let bx = c.reg(BX);
     c.push(bx);
@@ -4644,7 +4659,7 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x4757, 4)?;
     let a = c.pop();
     c.set_reg(AX, a);
-    c.set_byte(g::HEADING, a as u8);
+    c.update_travel(|t| t.heading = a as u8);
     c.set_byte(8, 0xff);
     c.call(0x4b3b, 0x4763)?;
     let v = c.map_view().mode;
@@ -4658,7 +4673,7 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x4779, 1)?;
     }
     c.call(0x4ab8, 0x477c)?;
-    let m2 = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let m2 = c.travel().screen_kind;
     let d = (m2 & 3).wrapping_sub(1);
     if d != 0 {
         c.run(0x477c, 4)?;
@@ -5263,7 +5278,7 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x35ad)?;
     let mut c = Ctx::new(m);
-    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let mode = c.travel().screen_kind;
     let was = c.conversation().scene_flags;
     if mode == 0 {
         if was != 0 {
@@ -5439,7 +5454,7 @@ fn refresh_at(c: &mut Ctx) -> Result<(), Bail> {
         }
         return super::ui::ui_head_animate_up(c.m, 0x17e6);
     }
-    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let mode = c.travel().screen_kind;
     if mode != 0 {
         c.run(0x2e55, 12)?;
         head(c);
@@ -5624,7 +5639,7 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(at, 1)?;
         c.call(to, at + 3)?;
     }
-    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let mode = c.travel().screen_kind;
     c.run(0x2e16, 2 + (mode & 3 == 0) as u32)?;
     if mode & 3 == 0 {
         c.call(0xc412, 0x2e20)?;
@@ -6001,7 +6016,7 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.call(0x3ae9, 0x37df)?;
-    let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
+    let mode = c.travel().screen_kind;
     let v = c.conversation().line_state;
     if mode & 3 == 0 {
         c.run(0x37df, 4)?;
@@ -6606,7 +6621,7 @@ fn scene_record_3551(c: &mut Ctx) -> Result<(), Bail> {
 pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2b2a)?;
     let mut c = Ctx::new(m);
-    let (a, b, d) = (c.byte(0x46d9), c.byte(g::KEYBOARD_CURSOR), c.byte(g::HEAD_ANIMATION_BLOCKED));
+    let (a, b, d) = (c.byte(0x46d9), c.byte(g::KEYBOARD_CURSOR), c.travel().screen_kind);
     // Not in a scene, a talk or with the head held.
     c.run(0x2b2a, 5)?;
     c.set_reg8(r8::AL, a | b | d);

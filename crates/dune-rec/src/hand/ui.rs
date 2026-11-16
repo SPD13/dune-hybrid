@@ -89,7 +89,7 @@ pub fn ui_head_animate_up(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x17e6)?;
     let mut c = Ctx::new(m);
     loop {
-        let blocked = c.byte(g::HEAD_ANIMATION_BLOCKED);
+        let blocked = c.travel().screen_kind;
         if blocked != 0 {
             c.run(0x17e6, 3)?;
             c.cmp(B, blocked as u16, 0);
@@ -669,7 +669,7 @@ pub fn sub_4ad7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !set {
         return c.ret();
     }
-    c.set_byte(g::BYTE_11C8, 1);
+    c.update_travel(|t| t.no_target = 1);
     c.set_reg8(r8::AL, 4);
     c.call(0x5119, 0x4aea)?;
     c.run(0x4aea, 1)?;

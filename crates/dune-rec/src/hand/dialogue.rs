@@ -2273,7 +2273,7 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x97d2, 3)?;
         return c.ret();
     }
-    let held = c.byte(g::HEAD_ANIMATION_BLOCKED) != 0;
+    let held = c.travel().screen_kind != 0;
     let speaker = c.conversation().speaker;
     let bits = c.byte(speaker.wrapping_add(0x0f));
     c.run(0x97d2, 9)?;
@@ -2288,8 +2288,8 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BP, 0x98b2);
         c.call(0xc097, 0x97fb)?;
         c.run(0x97fb, 4)?;
-        let buttons = c.byte(0x11ca);
-        c.set_byte(0x11ca, 0);
+        let buttons = c.travel().held;
+        c.update_travel(|t| t.held = 0);
         let ax = c.reg(AX) & 0xff00 | buttons as u16;
         c.set_reg(AX, ax);
         c.push(ax);
@@ -2297,12 +2297,12 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x9805, 4)?;
         let ax = c.pop();
         c.set_reg(AX, ax);
-        c.set_byte(0x11ca, ax as u8);
+        c.update_travel(|t| t.held = ax as u8);
         c.call(0x37f4, 0x4ac1)?;
         c.run(0x4ac1, 1)?;
         c.call(0xc4dd, 0x4ac4)?;
         c.run(0x4ac4, 2)?;
-        c.set_byte(0x11ca, 0);
+        c.update_travel(|t| t.held = 0);
         return c.ret();
     }
     let state = c.conversation().line_state;
@@ -2413,7 +2413,7 @@ fn line_end_9858(c: &mut Ctx) -> Result<(), Bail> {
 fn view_back_9879(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x9879, 1)?;
     c.call(0x2efb, 0x987c)?;
-    let held = c.byte(g::HEAD_ANIMATION_BLOCKED) != 0;
+    let held = c.travel().screen_kind != 0;
     c.run(0x987c, 3)?;
     if !held {
         c.call(0x3090, 0x9886)?;
@@ -3329,7 +3329,7 @@ pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xd41b, 0x9218)?;
     let list = c.reg(BP);
     if list == 0x1f0e {
-        let held = c.byte(g::HEAD_ANIMATION_BLOCKED);
+        let held = c.travel().screen_kind;
         c.run(0x9218, 5)?;
         if held != 0 {
             c.cmp(B, held as u16, 0); // the exit's flags

@@ -503,7 +503,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
     } else {
         c.call(0xd41b, 0xd526)?;
         let bp = c.reg(BP);
-        let mode = c.byte(g::HEAD_ANIMATION_BLOCKED);
+        let mode = c.travel().screen_kind;
         if bp != 0x1f0e || mode != 0 {
             c.run(0xd526, if bp != 0x1f0e { 2 } else { 4 })?;
             if bp == 0x1f0e {

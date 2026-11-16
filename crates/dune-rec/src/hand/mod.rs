@@ -43,6 +43,7 @@ pub mod screen_buffers;
 pub mod mouse_state;
 pub mod sound_state;
 pub mod video_state;
+pub mod travel;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1581,6 +1582,14 @@ impl Ctx<'_> {
     }
     /// The video playing changed by `f` (written through).
     fn update_video_state(&mut self, f: impl FnOnce(&mut video_state::VideoState)) {
+        record_table::update_single(self, f)
+    }
+    /// The player's travel (Rust state, see [`travel`]), in step with the memory.
+    fn travel(&mut self) -> travel::Travel {
+        record_table::single(self)
+    }
+    /// The player's travel changed by `f` (written through).
+    fn update_travel(&mut self, f: impl FnOnce(&mut travel::Travel)) {
         record_table::update_single(self, f)
     }
     /// The game time ([2]).

@@ -52,7 +52,7 @@ pub fn tail_4abe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x4ac1, 1)?;
     c.call(0xc4dd, 0x4ac4)?;
     c.run(0x4ac4, 2)?;
-    c.set_byte(0x11ca, 0);
+    c.update_travel(|t| t.held = 0);
     c.ret()
 }
 
