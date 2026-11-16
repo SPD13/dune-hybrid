@@ -434,7 +434,7 @@ pub fn intro_palace_equipment_room(m: &mut Machine, start: u16) -> Result<(), Ba
     c.call(more::GFX_CLEAR_ACTIVE_FRAMEBUFFER, 0x0975)?;
     c.run(0x0975, 3)?; // mov dx; mov word [12h], 0; mov bx
     c.set_reg(DX, 0x2002);
-    c.set_word(g::INTRO_0012, 0);
+    c.set_word(g::PRESENT, 0);
     c.set_reg(BX, 0x0180);
     draw_room(&mut c)
 }
@@ -444,7 +444,7 @@ pub fn intro_lady_jessica_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x098a)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?; // mov word [12h], 2; mov dx; jmp 097Eh; mov bx
-    c.set_word(g::INTRO_0012, 2);
+    c.set_word(g::PRESENT, 2);
     c.set_reg(DX, 0x2004);
     c.set_reg(BX, 0x0180);
     draw_room(&mut c)
@@ -543,7 +543,7 @@ pub fn setup_and_copy_097e(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_00978`: [12h] cleared, then [`setup_and_copy`].
 pub fn setup_and_copy_0978(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0978)?;
-    setup_and_copy(&mut Ctx::new(m), start, 1, |c| c.set_word(g::INTRO_0012, 0))
+    setup_and_copy(&mut Ctx::new(m), start, 1, |c| c.set_word(g::PRESENT, 0))
 }
 
 /// `loc_00a16`: `loc_00a23` with the active framebuffer kept; CF clear.

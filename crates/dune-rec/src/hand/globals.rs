@@ -14,8 +14,17 @@ pub const GAME_TIME: u16 = 0x0002;
 pub const WORD_0004: u16 = 0x0004;
 pub const BYTE_0005: u16 = 0x0005;
 pub const WORD_0006: u16 = 0x0006;
-/// The intro's current room character (0 or 2).
-pub const INTRO_0012: u16 = 0x0012;
+/// Bit sets over the characters (bit = a character's number, its byte
+/// 0Eh): those ever spoken to (93EFh).
+pub const MET: u16 = 0x000e;
+/// Those in the party, following the player (joined at 9616h: their
+/// flag 40h and join time set; left at 9568h).
+pub const PARTY: u16 = 0x0010;
+/// Those at the player's place, shown in the room (rebuilt at 30A1h;
+/// the intro sets its own).
+pub const PRESENT: u16 = 0x0012;
+/// Those spoken to in this room (cleared on arriving, 2E07h).
+pub const TALKED_HERE: u16 = 0x0014;
 /// Sietches discovered.
 pub const SIETCHES_FOUND: u16 = 0x0027;
 /// How many have joined you ([28h]).

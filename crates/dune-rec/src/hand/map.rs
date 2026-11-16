@@ -3832,7 +3832,7 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 3)?;
         return c.ret();
     }
-    if c.word(0x10) == 0 {
+    if c.word(g::PARTY) == 0 {
         c.run(start, 5)?;
         return c.ret();
     }

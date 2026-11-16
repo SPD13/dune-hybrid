@@ -475,7 +475,7 @@ pub fn is_4_in_phases_15_to_1f(m: &mut Machine, start: u16) -> Result<(), Bail> 
 pub fn check_record_1048(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1d9f)?;
     let mut c = Ctx::new(m);
-    let w = c.word(g::INTRO_0012);
+    let w = c.word(g::PRESENT);
     if w & 0x80 != 0 {
         c.run(start, 3)?;
         return c.ret();
@@ -1488,7 +1488,7 @@ fn setup_3093(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx) -> R
         c.cmp(W, w, 0);
     }
     c.set_reg(DI, d);
-    c.set_word(g::INTRO_0012, 0);
+    c.set_word(g::PRESENT, 0);
     let ds = c.sreg(pc::cpu::DS);
     c.push(ds);
     let es = c.pop();
@@ -2453,7 +2453,7 @@ pub fn phase_30_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let ph = c.byte(g::GAME_PHASE);
     let al = ph.wrapping_sub(0x2d);
-    let w = c.word(0x10);
+    let w = c.word(g::PARTY);
     let di = c.word(0x473c);
     let n = if al >= 3 { 5 } else if w & 0x10 != 0 { 7 } else if di == 0 { 10 } else { 0 };
     if n != 0 {
@@ -2795,10 +2795,10 @@ pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2ad8)?;
     let mut c = Ctx::new(m);
     let ev = c.word(0x1191);
-    let w12 = c.word(g::INTRO_0012);
+    let present = c.word(g::PRESENT);
     let cl = (ev >> 8) as u8;
     let sh = (cl & 0x1f) as u32;
-    let bit = sh < 16 && (w12 >> sh) & 1 != 0;
+    let bit = sh < 16 && (present >> sh) & 1 != 0;
     let di = c.word(0x1193);
     let here = c.word(g::MAP_POSITION_RECORD);
     let tell = bit && (cl != 0x0f || di == here);
@@ -2809,7 +2809,7 @@ pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ev);
     c.set_reg8(r8::CL, cl);
     // The event's bit of [12h] (`shr bx, cl; shr bx, 1`: CF).
-    let bits = if sh < 16 { w12 >> sh } else { 0 };
+    let bits = if sh < 16 { present >> sh } else { 0 };
     c.set_reg(BX, bits >> 1);
     if bit {
         c.set_reg(DI, di);
@@ -3573,14 +3573,14 @@ pub fn sal_read_position_markers(m: &mut Machine, start: u16) -> Result<(), Bail
     } else {
         let si = c.reg(SI);
         let cl = c.byte(si);
-        let (w12, w10) = (c.word(g::INTRO_0012), c.word(0x10));
+        let (present, party) = (c.word(g::PRESENT), c.word(g::PARTY));
         let pre = if k == 0 { 3 } else { 6 };
         c.run(0x3d91, pre + 5 + if cl != 0 { 3 } else { 0 })?;
         c.set_reg(DI, di);
         if k != 0 {
             c.set_reg(AX, list);
         }
-        let dx = pure::xor(W, w12, w10);
+        let dx = pure::xor(W, present, party);
         c.set_reg(DX, dx);
         c.set_reg8(r8::CL, cl);
         if cl != 0 {
@@ -5288,7 +5288,7 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let k = c.byte(g::CURRENT_ROOM);
         let f = c.word(0xc0) & c.word(0x1158);
-        let t = c.word(g::INTRO_0012);
+        let t = c.word(g::PRESENT);
         let call = k == 8 && f != 0 && t & 8 != 0;
         let n = 11 + if k != 8 { 0 } else if f == 0 { 3 } else { 5 } + call as u32;
         c.run(start, n)?;
@@ -5633,7 +5633,7 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x2e05, 4)?;
     c.set_reg(AX, 0);
-    c.set_word(0x14, 0);
+    c.set_word(g::TALKED_HERE, 0);
     c.set_byte(g::SKY_PALETTE_SET, 0);
     c.call(0xc07c, 0x2e10)?;
     for (at, to) in [(0x2e10u16, 0x5ba0u16), (0x2e13, 0x37b2)] {
@@ -6649,10 +6649,10 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let last = c.word(0xdc5a);
     if h == 0x14 {
-        let w10 = c.word(0x10);
+        let party = c.word(g::PARTY);
         let b8 = c.byte(8);
         let dt = t.wrapping_sub(last);
-        let n = if w10 != 0 { 2 } else if b8 != 0xff { 4 } else if dt < 0x3e8 { 7 } else { 9 };
+        let n = if party != 0 { 2 } else if b8 != 0xff { 4 } else if dt < 0x3e8 { 7 } else { 9 };
         c.run(0x2b3a, 8 + n + (n < 9) as u32)?;
         c.set_reg(AX, if n >= 7 { dt } else { t });
         if n < 9 {

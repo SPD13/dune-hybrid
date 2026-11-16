@@ -194,10 +194,10 @@ pub fn intro_somebody_in_sietch(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.run(0x07c6, 4)?;
     c.set_reg(BX, 0x1080);
     c.set_reg(DX, 0x802);
-    c.set_word(g::INTRO_0012, 0x100);
+    c.set_word(g::PRESENT, 0x100);
     c.call(0x0981, 0x07d5)?;
     c.run(0x07d5, 3)?;
-    c.set_word(g::INTRO_0012, 0);
+    c.set_word(g::PRESENT, 0);
     c.set_reg8(r8::AL, 5);
     c.jump(0x099d)
 }
@@ -1245,7 +1245,7 @@ pub fn dialogue_941d(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn jessica_0f08(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0f08)?;
     let mut c = Ctx::new(m);
-    let f = c.word(0x10);
+    let f = c.word(g::PARTY);
     if f & 0x80 == 0 {
         c.run(0x0f08, 3)?;
         return c.jump(0x0960);

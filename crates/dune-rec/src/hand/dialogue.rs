@@ -189,8 +189,8 @@ pub fn release_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // `rol ax,cl` of FFFEh (the 8086 rotates by the count mod 16).
     let mask = 0xfffeu16.rotate_left((bit & 0x1f) as u32 % 16);
     c.set_reg(AX, mask);
-    let v = c.word(0x10) & mask;
-    c.set_word(0x10, v);
+    let v = c.word(g::PARTY) & mask;
+    c.set_word(g::PARTY, v);
     c.ret()
 }
 
@@ -211,8 +211,8 @@ pub fn stamp_record_time(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if ago >= 2 {
         c.set_reg(AX, now);
         match characters::index(record) {
-            Some(i) if which == 0 => c.update_character(i, |t| t.time_08 = now),
-            Some(i) if which == 2 => c.update_character(i, |t| t.time_0a = now),
+            Some(i) if which == 0 => c.update_character(i, |t| t.joined_at = now),
+            Some(i) if which == 2 => c.update_character(i, |t| t.left_at = now),
             _ => c.set_word(which.wrapping_add(record).wrapping_add(8), now),
         }
     }
@@ -574,7 +574,7 @@ pub fn start_speaker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // `shl ax,cl` of 1 (the count mod 32).
     let shift = speaker & 0x1f;
     let bit = if shift < 16 { 1u16 << shift } else { 0 };
-    for at in [0x0e, 0x14] {
+    for at in [g::MET, g::TALKED_HERE] {
         let v = c.word(at) | bit;
         c.set_word(at, v);
     }
@@ -1330,8 +1330,8 @@ fn speaker_entries_at(c: &mut Ctx, at: u16, pre: u32, head: impl FnOnce(&mut Ctx
     // `shl ax,cl` of 1 (the count mod 32).
     let shift = speaker & 0x1f;
     let bit = if shift < 16 { 1u16 << shift } else { 0 };
-    let v = c.word(g::INTRO_0012) | bit;
-    c.set_word(g::INTRO_0012, v);
+    let v = c.word(g::PRESENT) | bit;
+    c.set_word(g::PRESENT, v);
     c.set_reg(AX, place);
     c.stos(W);
     if speaker != 0x0f {
@@ -3269,7 +3269,7 @@ pub fn speaker_list_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let record = c.reg(SI);
     let speaker = c.byte(record.wrapping_add(0x0e));
     let flags = c.byte(record.wrapping_add(0x0f));
-    let special = speaker != 0x0c && c.word(g::INTRO_0012) & 0x1000 != 0;
+    let special = speaker != 0x0c && c.word(g::PRESENT) & 0x1000 != 0;
     let (mut phrase, mut handler) = (c.reg(BX), c.reg(DX));
     let mut by_flags = false;
     let mut cost = 3 + if speaker != 0x0c { 2 } else { 0 };

@@ -40,18 +40,19 @@ pub struct Character {
     pub on_click: u16,
     /// +6.
     pub word_06: u16,
-    /// +8: a game time noted (the speaker's mood counts from it with bit
-    /// 40h of [`Self::flags`]).
-    pub time_08: u16,
-    /// +0Ah: a game time noted (the mood counts from it without bit 40h).
-    pub time_0a: u16,
+    /// +8: when it joined the party (9608h; in the party the speaker's
+    /// mood counts from it).
+    pub joined_at: u16,
+    /// +0Ah: when it left the party (9556h; out of it the mood counts
+    /// from it).
+    pub left_at: u16,
     /// +0Ch.
     pub word_0c: u16,
-    /// +0Eh: tested by `loc_0127c` when the characters at the player's
-    /// place are listed (196Ah).
-    pub byte_0e: u8,
-    /// +0Fh: bits. 40h: its gauge shown; 20h: set when a line ends
-    /// (with 4 cleared).
+    /// +0Eh: its number, its bit in the sets [`g::MET`], [`g::PARTY`],
+    /// [`g::PRESENT`] and [`g::TALKED_HERE`] (0Eh: none).
+    pub number: u8,
+    /// +0Fh: bits. 40h: in the party (its gauge shown); 20h: set when a
+    /// line ends (with 4 cleared).
     pub flags: u8,
 }
 
@@ -65,21 +66,21 @@ impl Single for Character {
             position: w(2),
             on_click: w(4),
             word_06: w(6),
-            time_08: w(8),
-            time_0a: w(0x0a),
+            joined_at: w(8),
+            left_at: w(0x0a),
             word_0c: w(0x0c),
-            byte_0e: b[0x0e],
+            number: b[0x0e],
             flags: b[0x0f],
         }
     }
 
     fn to_bytes(&self) -> record_table::Bytes {
         let mut b = [0; record_table::MAX];
-        let words = [self.place, self.position, self.on_click, self.word_06, self.time_08, self.time_0a, self.word_0c];
+        let words = [self.place, self.position, self.on_click, self.word_06, self.joined_at, self.left_at, self.word_0c];
         for (k, v) in words.into_iter().enumerate() {
             b[2 * k..2 * k + 2].copy_from_slice(&v.to_le_bytes());
         }
-        b[0x0e] = self.byte_0e;
+        b[0x0e] = self.number;
         b[0x0f] = self.flags;
         b
     }
