@@ -560,6 +560,10 @@ the spice owed (`SMUGGLER_DEBT`: a purchase is on credit,
 goes through it; the other ports reach a smuggler through SI or DI
 (followed).
 
+[114Eh], once `MAP_POSITION_RECORD`, is `PLACE`: the record of the
+location the player is in (set on arriving, 0 outside one); [1150h]
+`LAST_PLACE` is set with it and kept after leaving.
+
 The spice and the Emperor's demands are named too: [A0h] `SPICE` in
 stock, [A6h]/[AEh] the spice gained this phase and the one before,
 [1170h] the stock when the phase began, [1172h] `SPICE_PAID` (to the Emperor or a smuggler) this

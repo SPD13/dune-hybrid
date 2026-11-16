@@ -1604,7 +1604,7 @@ pub fn pick_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if al0 < 0x0d {
             n += 3;
         } else if al0 == 0x0d {
-            let d = c.word(g::MAP_POSITION_RECORD);
+            let d = c.word(g::PLACE);
             di = Some(d);
             ah = (c.byte(d) >> 1).wrapping_add(1);
             n += 1 + 5 + 3;

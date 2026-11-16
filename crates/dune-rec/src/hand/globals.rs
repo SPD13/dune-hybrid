@@ -149,9 +149,13 @@ pub const FLAG_0FFB: u16 = 0x0ffb;
 /// The troops: 68 records of 1Bh bytes.
 pub const TROOPS: u16 = 0x08aa;
 pub const TROOPS_END: u16 = 0x0fbb;
-/// Pointer to the record whose position `get_map_position` reports when
-/// the map y is 80h (a marker).
-pub const MAP_POSITION_RECORD: u16 = 0x114e;
+/// The record of the location the player is in (set on arriving, 4024h;
+/// 0 outside one, 4763h); `get_map_position` reports its position when
+/// the map y is 80h.
+pub const PLACE: u16 = 0x114e;
+/// The record of the last location the player was in (set with
+/// [`PLACE`], kept after leaving).
+pub const LAST_PLACE: u16 = 0x1150;
 
 // --- Tables ---------------------------------------------------------------
 

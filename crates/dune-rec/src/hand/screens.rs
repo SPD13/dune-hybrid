@@ -1135,7 +1135,7 @@ pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ct
     c.cmp(B, dx >> 8, 0x21);
     c.call(0x3efe, 0x3035)?;
     let si = c.reg(SI).wrapping_add(1);
-    let here = c.word(g::MAP_POSITION_RECORD);
+    let here = c.word(g::PLACE);
     let dl = c.reg8(r8::DL);
     let step = c.string_step(B);
     let mut n = 5 + (here == 0x100) as u32 + 3 + if dl == 1 { 2 } else { 0 } + 4;
@@ -1338,7 +1338,7 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, 4)?;
     c.cmp(B, 0, 0);
-    let di = c.word(g::MAP_POSITION_RECORD);
+    let di = c.word(g::PLACE);
     c.set_reg(DI, di);
     c.call(0x2e98, 0x2ed0)?;
     c.run(0x2ed0, 1)?;
@@ -1428,7 +1428,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.run(0x2f1d, 5)?;
                 let di = c.reg(DI);
                 c.push(di);
-                let p = c.word(g::MAP_POSITION_RECORD);
+                let p = c.word(g::PLACE);
                 c.set_reg(DI, p);
                 c.call(0x7f27, 0x2f45)?;
                 c.run(0x2f45, 9)?;

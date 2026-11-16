@@ -908,7 +908,7 @@ pub fn place_1bec(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(start, 4)?;
-    let di = c.word(g::MAP_POSITION_RECORD);
+    let di = c.word(g::PLACE);
     c.set_reg(DI, di);
     c.call(0x503c, 0x1bfa)?;
     let f = c.byte(g::COMM_CALLER);
@@ -1127,7 +1127,7 @@ pub fn buy_from_smuggler_23e6(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let b = c.byte(at);
     let b = pure::dec(B, b as u16);
     c.set_byte(at, b as u8);
-    let si = c.word(g::MAP_POSITION_RECORD);
+    let si = c.word(g::PLACE);
     c.set_reg(SI, si);
     let at = i.wrapping_add(si).wrapping_add(0x14);
     let b = c.byte(at);
@@ -1443,7 +1443,7 @@ pub fn reset_records_3127(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !at {
         return c.ret();
     }
-    let di = c.word(g::MAP_POSITION_RECORD);
+    let di = c.word(g::PLACE);
     c.set_reg(DI, di);
     let dx = c.player().x;
     c.set_reg(DX, dx);
@@ -1531,7 +1531,7 @@ pub fn mark_records_at_location(m: &mut Machine, start: u16) -> Result<(), Bail>
     entered(start, 0x3385)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
-    let skip = di == c.word(0x1150);
+    let skip = di == c.word(g::LAST_PLACE);
     if skip {
         c.run(start, 4)?;
         c.set_byte(0xf7, 0);
@@ -1841,7 +1841,7 @@ pub fn place_4944(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x495a, 1)?;
     c.call(0x5133, 0x495d)?;
     add_11c7(&mut c, 0x495d, 7, |c| {
-        let di = c.word(0x1150);
+        let di = c.word(g::LAST_PLACE);
         c.set_reg(DI, di);
         c.set_reg8(r8::CL, 1);
         c.update_travel(|t| t.target = di);
@@ -2806,7 +2806,7 @@ pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let sh = (cl & 0x1f) as u32;
     let bit = sh < 16 && (present >> sh) & 1 != 0;
     let di = c.word(0x1193);
-    let here = c.word(g::MAP_POSITION_RECORD);
+    let here = c.word(g::PLACE);
     let tell = bit && (cl != 0x0f || di == here);
     let n = 7 + if bit { 3 + if cl == 0x0f { 2 } else { 0 } } else { 0 };
     c.run(start, n + if tell { 2 } else { 3 })?;
@@ -3212,7 +3212,7 @@ pub fn set_current_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     let ax = pure::add(W, ax, 0xe4);
     c.set_reg(AX, ax);
-    c.set_word(g::MAP_POSITION_RECORD, ax);
+    c.set_word(g::PLACE, ax);
     super::ui::open_sal_resource(c.m, 0x2d74)
 }
 
@@ -4411,7 +4411,7 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x3530, 5)?;
         let s = c.pop();
         c.set_reg(SI, s);
-        let (ax, di) = (c.conversation().talker, c.word(g::MAP_POSITION_RECORD));
+        let (ax, di) = (c.conversation().talker, c.word(g::PLACE));
         c.set_reg(AX, ax);
         c.set_reg(DI, di);
         c.call(0x2aaf, 0x353d)?;
@@ -4427,7 +4427,7 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, s);
     }
     c.run(0x3542, 3)?;
-    let (ax, di) = (c.conversation().talker, c.word(g::MAP_POSITION_RECORD));
+    let (ax, di) = (c.conversation().talker, c.word(g::PLACE));
     c.set_reg(AX, ax);
     c.set_reg(DI, di);
     c.call(0x2a51, 0x354c)?;
@@ -4505,7 +4505,7 @@ pub fn map_pick_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x4586, 0x451a)?;
     let di = c.map_selection().subject;
     let mode = c.travel().screen_kind;
-    let cur = c.word(g::MAP_POSITION_RECORD);
+    let cur = c.word(g::PLACE);
     let ops = |c: &mut Ctx| {
         let d = c.pop();
         c.set_reg(DX, d);
@@ -4671,7 +4671,7 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     let v = c.map_view().mode;
     let neg = v & 0x80 != 0;
     c.run(0x4763, if neg { 5 } else { 5 })?;
-    c.set_word(g::MAP_POSITION_RECORD, 0);
+    c.set_word(g::PLACE, 0);
     c.update_flight(|t| t.last_move = 0);
     c.cmp(B, v as u16, 0);
     if !neg {
@@ -4692,7 +4692,7 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     let a = c.and(B, m2 as u16, 3);
     let a = c.dec(B, a);
     c.set_reg8(r8::AL, a as u8);
-    let di = c.word(0x1150);
+    let di = c.word(g::LAST_PLACE);
     c.set_reg(DI, di);
     let v = c.byte(di.wrapping_add(0x15));
     let v = c.dec(B, v as u16);
@@ -5551,7 +5551,7 @@ fn travel_step(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(BP, 0x1a0f);
     c.call(0xc097, 0x3771)?;
     c.run(0x3771, 4)?;
-    let si = c.word(0x1150);
+    let si = c.word(g::LAST_PLACE);
     c.set_reg(SI, si);
     c.update_conversation(|t| t.scene_flags = 0xff);
     c.set_reg(BP, 0x401f);
@@ -5812,7 +5812,7 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x3f6a, 6)?;
         pick(&mut c);
     }
-    let si = c.word(g::MAP_POSITION_RECORD);
+    let si = c.word(g::PLACE);
     let t = c.byte(si.wrapping_add(0x0a));
     if t & 0x10 != 0 {
         c.run(0x3f84, 3)?;
@@ -5880,8 +5880,8 @@ fn leave_place(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(DX, n);
     c.set_reg(BP, n);
     c.xor(W, 0, 0);
-    let si = c.word(g::MAP_POSITION_RECORD);
-    c.set_word(g::MAP_POSITION_RECORD, 0);
+    let si = c.word(g::PLACE);
+    c.set_word(g::PLACE, 0);
     c.set_reg(SI, si);
     let dx = c.word(si.wrapping_add(2));
     let bx = c.word(si.wrapping_add(4));
@@ -5951,8 +5951,8 @@ fn step_3ff5(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(AX, x);
     c.set_reg(BX, x);
     c.set_byte(0x4735, 0);
-    c.set_word(g::MAP_POSITION_RECORD, si);
-    c.set_word(0x1150, si);
+    c.set_word(g::PLACE, si);
+    c.set_word(g::LAST_PLACE, si);
     c.set_reg(DI, si);
     c.call(0x503c, 0x4031)?;
     c.run(0x4031, 3)?;
@@ -6055,7 +6055,7 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_04bdf`, `loc_0c412`) and past [4733h] the alarm (`loc_0ab15`
 /// with 5, `loc_04d57` with AH 0, the task 4BB9h every 10h).
 fn enemy_watch_4d06(c: &mut Ctx) -> Result<(), Bail> {
-    let di = c.word(0x1150);
+    let di = c.word(g::LAST_PLACE);
     let dx = c.word(di.wrapping_add(2));
     let here = c.player().x;
     let ax = c.word(0x4733);
@@ -6187,7 +6187,7 @@ fn room_scene_39ec(c: &mut Ctx) -> Result<(), Bail> {
     }
     if redo {
         let mut v = c.pop();
-        let di = c.word(g::MAP_POSITION_RECORD);
+        let di = c.word(g::PLACE);
         c.set_reg(DI, di);
         v = (v & 0xff00) | c.byte(di) as u16;
         c.set_reg(AX, v);
@@ -6454,7 +6454,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     if e != 0 {
         c.call(0x5d6d, 0x1ba1)?;
     }
-    let di = c.word(g::MAP_POSITION_RECORD);
+    let di = c.word(g::PLACE);
     if di == 0 {
         c.run(0x1ba1, 3)?;
         c.set_reg(DI, 0);
@@ -6549,7 +6549,7 @@ fn scene_record_3542(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x3542, 3)?;
     let ax = c.conversation().talker;
     c.set_reg(AX, ax);
-    let di = c.word(g::MAP_POSITION_RECORD);
+    let di = c.word(g::PLACE);
     c.set_reg(DI, di);
     c.call(0x2a51, 0x354c)?;
     c.run(0x354c, 1)?;

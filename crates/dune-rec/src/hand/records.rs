@@ -132,7 +132,7 @@ pub fn get_orni_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `get_map_position` (407E): a map position in (DX, BX): the words at 4
 /// and 6, BX sign-extended from its low byte. When that byte is 80h, the
-/// position of the record at [`g::MAP_POSITION_RECORD`] instead (and SI
+/// position of the record at [`g::PLACE`] instead (and SI
 /// points to it).
 /// Flags from the `cmp`.
 pub fn get_map_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -143,7 +143,7 @@ pub fn get_map_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let y = c.player().y;
     c.cmp(B, y & 0xff, 0x80);
     if y & 0xff == 0x80 {
-        let si = c.word(g::MAP_POSITION_RECORD);
+        let si = c.word(g::PLACE);
         c.set_reg(SI, si);
         let x = c.word(si.wrapping_add(2));
         let y = c.word(si.wrapping_add(4));

@@ -405,7 +405,7 @@ pub fn comm_animate_incoming_call(m: &mut Machine, start: u16) -> Result<(), Bai
 pub fn open_sal_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2d74)?;
     let mut c = Ctx::new(m);
-    let si = c.word(g::MAP_POSITION_RECORD);
+    let si = c.word(g::PLACE);
     if si < 0x100 {
         c.run(start, 4)?;
         c.set_reg(SI, si);

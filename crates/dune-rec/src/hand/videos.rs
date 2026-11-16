@@ -299,7 +299,7 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x488a, 3)?;
     c.set_reg(AX, 6);
-    let loc = c.word(g::MAP_POSITION_RECORD);
+    let loc = c.word(g::PLACE);
     c.set_reg(SI, loc);
     c.call(0x5e4f, 0x4894)?;
     let al = c.reg(AX) & 0xff;

@@ -2805,7 +2805,7 @@ pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x74b6)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
-    let here = c.word(g::MAP_POSITION_RECORD);
+    let here = c.word(g::PLACE);
     if di == here {
         c.run(start, 5)?;
         let v = c.byte(di.wrapping_add(0x0a));
@@ -6060,7 +6060,7 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, ax);
         let di = c.reg(DI);
         c.push(di);
-        let p = c.word(g::MAP_POSITION_RECORD);
+        let p = c.word(g::PLACE);
         c.set_reg(DI, p);
         c.call(0x7f27, 0x87b2)?;
         let k = c.byte(0x46ff);
@@ -6087,7 +6087,7 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let e = c.word(g::PARTICLES);
         n += 4 + if e == 0 { 1 } else { 0 };
     } else {
-        let di = c.word(g::MAP_POSITION_RECORD);
+        let di = c.word(g::PLACE);
         n += 4;
         if di != 0 {
             let tr = c.byte(di.wrapping_add(9));
@@ -6121,7 +6121,7 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word_in(SS, 0x20f8, a);
     } else {
         c.set_word_in(SS, 0x20f8, 0x4093);
-        let di = c.word(g::MAP_POSITION_RECORD);
+        let di = c.word(g::PLACE);
         c.set_reg(DI, di);
         if di != 0 {
             let tr = c.byte(di.wrapping_add(9));

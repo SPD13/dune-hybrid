@@ -1551,7 +1551,7 @@ pub fn sky_380c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(g::SKY_VARIANT, 1);
     c.call(0x388d, 0x3814)?;
     c.run(0x3814, 3)?;
-    let si = c.word(0x1150);
+    let si = c.word(g::LAST_PLACE);
     c.set_reg(SI, si);
     c.set_reg(AX, 0x1972);
     c.call(0x5e4f, 0x381e)?;
@@ -1608,7 +1608,7 @@ pub fn sky_380c(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::AL, 0);
     }
     // 384Ah: the light's range by the place.
-    let di = c.word(0x1150);
+    let di = c.word(g::LAST_PLACE);
     let f = c.byte(di.wrapping_add(0xa));
     let (bx, cx) = if f & 1 != 0 {
         c.run(0x384a, 3 + 2)?;

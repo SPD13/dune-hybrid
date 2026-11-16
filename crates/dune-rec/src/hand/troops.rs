@@ -1546,7 +1546,7 @@ pub fn for_location_troops_8403(m: &mut Machine, start: u16) -> Result<(), Bail>
 /// `loc_077d7`: the troop shown (`shown_troop`) takes the skill BX at its
 /// location: the needs worked out (`skill_needs_46fe`; BX, SI kept), and
 /// when the need for BX is at least 1 (2 for skill 1 at the location
-/// [`PLACE_1150`]): [`LAST_SKILLS`] = its byte 19h, which gets bit 80h >>
+/// [`g::LAST_PLACE`]): [`LAST_SKILLS`] = its byte 19h, which gets bit 80h >>
 /// BX; CF clear. Else CF set. AL that least need, or the bit.
 pub fn troop_take_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x77d7)?;
@@ -1560,7 +1560,7 @@ pub fn troop_take_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x7f27, 0x77e2)?;
     c.restore(&[BX, SI]);
     let (troop, skill, place) = (Troop(c.reg(SI)), c.reg(BX), c.reg(DI));
-    let two = skill == 1 && place == c.word(PLACE_1150);
+    let two = skill == 1 && place == c.word(g::LAST_PLACE);
     let least = 1 + two as u8;
     let ok = c.byte(NEEDS_46FE.wrapping_add(skill)) >= least;
     c.run(0x77e2, 8 + if skill == 1 { 2 + two as u32 } else { 0 } + if ok { 7 } else { 0 })?;
@@ -1580,8 +1580,6 @@ pub fn troop_take_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// A location `troop_take_skill` asks two of skill 1 for ([1150h]).
-const PLACE_1150: u16 = 0x1150;
 /// Where `skill_needs_46fe` puts a location's needs.
 const NEEDS_46FE: u16 = 0x46fe;
 /// The troop's skill bits before `troop_take_skill` changed them ([3Dh]).
@@ -2203,7 +2201,7 @@ pub fn troop_bit_10_by_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_08018`: the need BX at [`NEEDS_4C60`] one lower (unless 0 or 80h
 /// and up) for each troop travelling to DI and moving (job bits 3)
 /// to elsewhere (word 0Ch) with BL in byte 0Eh; then, at the location
-/// [`PLACE_1150`] before phase 50h, need 1 one lower the same way. AL as
+/// [`g::LAST_PLACE`] before phase 50h, need 1 one lower the same way. AL as
 /// the last troop's tests left it.
 pub fn lower_needs_by_movers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8018)?;
@@ -2244,7 +2242,7 @@ pub fn lower_needs_by_movers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x801b, 3)?;
     c.set_reg(SI, g::TROOPS_END);
-    if place != c.word(PLACE_1150) {
+    if place != c.word(g::LAST_PLACE) {
         c.run(0x804c, 3)?;
         return c.ret();
     }

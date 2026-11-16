@@ -292,7 +292,7 @@ pub fn game_time(c: &mut Ctx) -> u16 {
 
 /// The location the player is at ([114Eh]: a [`Location`] record).
 pub fn here(c: &mut Ctx) -> u16 {
-    c.word(g::MAP_POSITION_RECORD)
+    c.word(g::PLACE)
 }
 
 /// A location (sietch, palace, ...): a 1Ch-byte record in the table at
