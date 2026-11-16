@@ -80,10 +80,12 @@ pub enum Which {
     Characters,
     /// Where the player is, 4 bytes at DS:4.
     Player,
+    /// Six smugglers of 11h bytes at 10D8h.
+    Smugglers,
 }
 
 impl Which {
-    pub const ALL: [Which; 18] = [
+    pub const ALL: [Which; 19] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
@@ -102,6 +104,7 @@ impl Which {
         Which::VoiceBuffers,
         Which::Characters,
         Which::Player,
+        Which::Smugglers,
     ];
 
     pub fn name(self) -> &'static str {
@@ -124,6 +127,7 @@ impl Which {
             Which::VoiceBuffers => "voice buffers",
             Which::Characters => "characters",
             Which::Player => "player",
+            Which::Smugglers => "smugglers",
         }
     }
     /// Where the table starts in the game's data segment.
@@ -147,6 +151,7 @@ impl Which {
             Which::VoiceBuffers => 0x3811,
             Which::Characters => 0x0fd8,
             Which::Player => 0x0004,
+            Which::Smugglers => g::SMUGGLERS,
         }
     }
     pub const fn size(self) -> u16 {
@@ -169,6 +174,7 @@ impl Which {
             Which::VoiceBuffers => 8,
             Which::Characters => 0x10,
             Which::Player => 4,
+            Which::Smugglers => 0x11,
         }
     }
     pub const fn count(self) -> usize {
@@ -191,6 +197,7 @@ impl Which {
             Which::VoiceBuffers => 2,
             Which::Characters => 0x10,
             Which::Player => 1,
+            Which::Smugglers => 6,
         }
     }
     fn end(self) -> u16 {
@@ -236,6 +243,7 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::VoiceBuffers => &mut n.voice_buffers,
         Which::Characters => &mut n.characters,
         Which::Player => &mut n.player,
+        Which::Smugglers => &mut n.smugglers,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];

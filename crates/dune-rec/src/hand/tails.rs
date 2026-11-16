@@ -1760,8 +1760,15 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     c.set_reg(BX, bx);
                     let a = pure::and(B, bx & 0xff, 3);
                     c.set_reg8(r8::AL, a as u8);
-                    let p = bp.wrapping_add(si).wrapping_add(4);
-                    c.m.cpu.write8(&mut c.m.hw, SS, p, a as u8);
+                    // SS is DS here: the smuggler's stock of kind BP.
+                    match super::smugglers::index(si) {
+                        Some(i) => c.update_smuggler(i, |s| s.stock[bp as usize] = a as u8),
+                        None => {
+                            let p = bp.wrapping_add(si).wrapping_add(4);
+                            c.m.cpu.write8(&mut c.m.hw, SS, p, a as u8);
+                            c.wrote(SS, p, 1);
+                        }
+                    }
                 }
                 bp = pure::dec(W, bp);
                 c.set_reg(BP, bp);

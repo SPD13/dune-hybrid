@@ -48,6 +48,7 @@ pub mod font_pen;
 pub mod voice_buffers;
 pub mod characters;
 pub mod player;
+pub mod smugglers;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -554,7 +555,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x1d9f, story::check_record_1048, "loc_01d9f"),
     (0x1ebe, story::phase_64_for_record, "loc_01ebe"),
     (0x23d5, story::haggle_23d5, "loc_023d5"),
-    (0x2524, story::move_a0_to_1172, "loc_02524"),
+    (0x2524, story::pay_spice_2524, "loc_02524"),
     (0x3310, story::al_sixteenth_plus_d1, "loc_03310"),
     (0x33be, story::reset_and_measure_9c, "loc_033be"),
     (0x366f, story::pick_1152, "loc_0366f"),
@@ -1629,6 +1630,15 @@ impl Ctx<'_> {
     /// Where the player is changed by `f` (written through).
     fn update_player(&mut self, f: impl FnOnce(&mut player::PlayerAt)) {
         record_table::update_single(self, f)
+    }
+    /// Smuggler `i` (Rust state, see [`smugglers`]), in step with the
+    /// memory.
+    fn smuggler(&mut self, i: usize) -> smugglers::Smuggler {
+        record_table::nth(self, i)
+    }
+    /// Smuggler `i` changed by `f` (written through).
+    fn update_smuggler(&mut self, i: usize, f: impl FnOnce(&mut smugglers::Smuggler)) {
+        record_table::update_nth(self, i, f)
     }
     /// The game time ([2]).
     fn game_time(&mut self) -> u16 {

@@ -533,8 +533,9 @@ pub fn haggle_23d5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_02524`: AX moved from [0A0h] to [1172h].
-pub fn move_a0_to_1172(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_02524`: AX spice paid (to the Emperor or a smuggler): taken from
+/// [`g::SPICE`], added to [`g::SPICE_PAID`].
+pub fn pay_spice_2524(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2524)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;

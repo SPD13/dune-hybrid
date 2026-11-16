@@ -553,7 +553,12 @@ with them: [9Dh] `SMUGGLER_PRICE` (an eighth off each haggle,
 smuggler's bits, patience, days since the last visit, days in debt and
 the spice owed (`SMUGGLER_DEBT`: a purchase is on credit,
 `buy_from_smuggler_23e6`), [22h] `DEBTS`, [1141h] `ITEMS_OFFERED`
-(index 0 of `CHANCES`).
+(index 0 of `CHANCES`). The smugglers are a table too
+(`hand/smugglers.rs`, `Ctx::smuggler(i)` / `update_smuggler(i, f)`:
+`location`, `patience`, `flags`, `visited_on`, `stock`, `prices`,
+`debt`, `debt_since`; `smugglers:` in the output). The daily restock
+goes through it; the other ports reach a smuggler through SI or DI
+(followed).
 
 The spice and the Emperor's demands are named too: [A0h] `SPICE` in
 stock, [A6h]/[AEh] the spice gained this phase and the one before,
