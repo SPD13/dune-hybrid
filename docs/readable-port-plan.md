@@ -443,6 +443,20 @@ fifth (`Ctx::map_selection` / `update_map_selection`; `map selection:`
 in the output). The bytes after it (46FEh-470Fh) are scratch of the
 troop panel's computations, left in memory.
 
+Two more from the map's block: the flight (`hand/flight.rs`, 6 bytes at
+4727h: flying, the map marker's state, the tick the ring of points last
+moved, the steps flown) and the message typed out on the message line
+(`hand/typed_message.rs`, 0Ah bytes at 473Fh: the far pointer to its
+next character, the pen, the colour; the frame task `sub_46b5` types
+it). `flight:` and `typed message:` in the output.
+
+The tables of one share their code: a typed view implements
+`record_table::Single` (its `Which`, `from_bytes`, `to_bytes`) and
+`record_table::single` / `set_single` / `update_single` keep it (with DS
+not the game's, they use the bytes there). Adding one is a `Which`
+variant, a field on `Native`, the view, two `Ctx` methods and the name
+in `suite.sh`'s loop.
+
 ## Tools in place
 
 | Tool | What it checks |

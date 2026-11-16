@@ -546,7 +546,7 @@ pub fn clear_points_ring(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let n = ((POINTS_RING_END - POINTS_RING) / 4) as u32;
     c.run(start, 5 + 4 * n + 1)?;
-    c.set_byte(0x4728, 0);
+    c.update_flight(|t| t.marker = 0);
     let cs = c.sreg(pc::cpu::CS);
     c.push(cs);
     let es = c.pop();
@@ -650,7 +650,7 @@ pub fn draw_resource_22(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn draw_last_ring_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4a1a)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0x4728);
+    let f = c.flight().marker;
     c.run(start, if f & 0x80 != 0 { 3 } else { 4 })?;
     if f & 0x80 != 0 {
         return c.ret();

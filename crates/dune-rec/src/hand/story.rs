@@ -258,6 +258,15 @@ pub fn increase_charisma_by_al(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.ret()
 }
 
+/// `loc_04ab8`: the flight started ([4727h] FFh).
+pub fn set_flag_4727(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x4ab8)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    c.update_flight(|t| t.flying = 0xff);
+    c.ret()
+}
+
 /// `sub_a1d6`: the conversation's [47A5h] 0.
 pub fn clear_flag_47a5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1d6)?;
@@ -326,10 +335,6 @@ set_flag!(
 set_flag!(
     /// `loc_0215f`: [46D9h] = 7.
     set_46d9_to_7, 0x215f, 0x46d9, 7
-);
-set_flag!(
-    /// `loc_04ab8`: [4727h] = FFh.
-    set_flag_4727, 0x4ab8, 0x4727, 0xff
 );
 set_flag!(
     /// `loc_04ac4`: [11CAh] = 0.
@@ -709,13 +714,13 @@ pub fn clear_21fd(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn remove_task_46b5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x469b)?;
     let mut c = Ctx::new(m);
-    let v = c.word(0x473f);
+    let v = c.typed_message().next[0];
     if v == 0 {
         c.run(start, 3)?;
         return c.ret();
     }
     c.run(start, 4)?;
-    c.set_word(0x473f, 0);
+    c.update_typed_message(|t| t.next[0] = 0);
     c.call(code::SAVE_REGS, 0x46ab)?;
     c.run(0x46ab, 2)?;
     c.set_reg(SI, 0x46b5);
@@ -768,12 +773,12 @@ pub fn start_11c5(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn tick_472b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4b3b)?;
     let mut c = Ctx::new(m);
-    let n = c.word(0x472b).wrapping_add(1);
+    let n = c.flight().steps.wrapping_add(1);
     let tick = n & 0x0f == 0;
     c.run(start, if tick { 5 } else { 4 })?;
-    let v = c.word(0x472b);
+    let v = c.flight().steps;
     let v = pure::inc(W, v);
-    c.set_word(0x472b, v);
+    c.update_flight(|t| t.steps = v);
     if tick {
         c.set_reg(CX, 1);
         c.call(0x0fd9, 0x4b4d)?;
@@ -1873,7 +1878,7 @@ pub fn place_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn start_message_57(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4658)?;
     let mut c = Ctx::new(m);
-    let v = c.word(0x473f);
+    let v = c.typed_message().next[0];
     c.run(start, 3)?;
     if v != 0 {
         return c.ret();
@@ -1885,10 +1890,10 @@ pub fn start_message_57(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(0x473e);
     c.run(0x4668, 7 + if f != 0 { 2 } else { 0 } + 5)?;
     let es = c.sreg(pc::cpu::ES);
-    c.set_word(0x4741, es);
+    c.update_typed_message(|t| t.next[1] = es);
     let si = c.reg(SI);
-    c.set_word(0x473f, si);
-    c.set_word(0x4743, 0x55);
+    c.update_typed_message(|t| t.next[0] = si);
+    c.update_typed_message(|t| t.pen[0] = 0x55);
     let mut cx = 0xf561u16;
     let mut ax = 0x22u16;
     if f != 0 {
@@ -1897,8 +1902,8 @@ pub fn start_message_57(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg(CX, cx);
     c.set_reg(AX, ax);
-    c.set_word(0x4745, ax);
-    c.set_word(0x4747, cx);
+    c.update_typed_message(|t| t.pen[1] = ax);
+    c.update_typed_message(|t| t.colour = cx);
     c.set_reg(SI, 0x46b5);
     c.set_reg(BP, 0x18);
     c.call(code::ADD_FRAME_TASK, 0x4697)?;
@@ -1919,9 +1924,9 @@ pub fn show_screen_368b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::SAVE_REGS, 0x368e)?;
     let k = c.byte(g::HEAD_ANIMATION_BLOCKED) & 3;
     c.run(0x368e, if k == 2 { 6 } else if k == 1 { 12 } else { 8 })?;
-    let v = c.byte(0x4728);
+    let v = c.flight().marker;
     let v = c.or(B, v as u16, 1);
-    c.set_byte(0x4728, v as u8);
+    c.update_flight(|t| t.marker = v as u8);
     let bl = c.byte(g::HEAD_ANIMATION_BLOCKED);
     let bl = c.and(B, bl as u16, 3) as u8;
     c.set_reg8(r8::BL, bl);
@@ -2059,7 +2064,7 @@ pub fn leave_hotspot_mode(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xd717, 0x444d)?;
     c.run(0x444d, 1)?;
     c.call(0x2ffb, 0x4450)?;
-    let f = c.byte(0x4728);
+    let f = c.flight().marker;
     let pos = (f as i8) > 0;
     c.run(0x4450, 2 + pos as u32 + if pos { 0 } else { 1 })?;
     if pos {
@@ -2076,7 +2081,7 @@ pub fn message_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x46b5)?;
     let mut c = Ctx::new(m);
     loop {
-        let (si, seg) = (c.word(0x473f), c.word(0x4741));
+        let [si, seg] = c.typed_message().next;
         let ch = c.byte_at_seg(seg, si);
         let end = ch & 0x80 != 0;
         c.run(0x46b5, if end { 5 } else { 7 })?;
@@ -2086,9 +2091,9 @@ pub fn message_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if end {
             return c.ret();
         }
-        let p = c.word(0x473f);
+        let p = c.typed_message().next[0];
         let p = pure::inc(W, p);
-        c.set_word(0x473f, p);
+        c.update_typed_message(|t| t.next[0] = p);
         c.set_reg(SI, 0x14a4);
         c.call(0xdb74, 0x46ca)?;
         c.run(0x46ca, 2)?;
@@ -2096,12 +2101,12 @@ pub fn message_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(fb);
         c.call(0xc08e, 0x46d1)?;
         c.run(0x46d1, 3)?;
-        let (x, y) = (c.word(0x4743), c.word(0x4745));
+        let [x, y] = c.typed_message().pen;
         c.set_reg(DX, x);
         c.set_reg(BX, y);
         c.call(0xd04e, 0x46dc)?;
         c.run(0x46dc, 3)?;
-        let colour = c.word(0x4747);
+        let colour = c.typed_message().colour;
         c.set_reg(CX, colour);
         c.set_word(g::TEXT_COLOUR, colour);
         c.call(0xd075, 0x46e7)?;
@@ -2113,8 +2118,8 @@ pub fn message_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0xd05f, 0x46ee)?;
         c.run(0x46ee, 5)?;
         let (dx, bx) = (c.reg(DX), c.reg(BX));
-        c.set_word(0x4743, dx);
-        c.set_word(0x4745, bx);
+        c.update_typed_message(|t| t.pen[0] = dx);
+        c.update_typed_message(|t| t.pen[1] = bx);
         let ax = c.pop();
         c.set_reg(AX, ax);
         let fb = c.pop();
@@ -4612,7 +4617,7 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     let a = c.pop();
     c.set_reg(AX, a);
     c.test(B, a & 0xff, 3);
-    c.set_word(0x472b, 0);
+    c.update_flight(|t| t.steps = 0);
     c.push(a);
     c.call(0x41c5, 0x473c)?;
     let m1 = c.byte(g::HEAD_ANIMATION_BLOCKED);
@@ -4646,7 +4651,7 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     let neg = v & 0x80 != 0;
     c.run(0x4763, if neg { 5 } else { 5 })?;
     c.set_word(g::MAP_POSITION_RECORD, 0);
-    c.set_word(0x4729, 0);
+    c.update_flight(|t| t.last_move = 0);
     c.cmp(B, v as u16, 0);
     if !neg {
         c.call(0x2dbf, 0x4779)?;
@@ -6009,7 +6014,7 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x37df, 5)?;
     c.update_conversation(|t| t.line_state = v | 1);
-    c.set_byte(0x4728, 0);
+    c.update_flight(|t| t.marker = 0);
     c.call(0x4988, 0x37fc)?;
     c.run(0x37fc, 1)?;
     c.call(0x4a5a, 0x37ff)?;

@@ -96,7 +96,7 @@ pub fn room_37f4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x37f4)?;
     let mut c = Ctx::new(m);
     c.run(0x37f4, 2)?;
-    c.set_byte(0x4728, 0);
+    c.update_flight(|t| t.marker = 0);
     c.call(0x4988, 0x37fc)?;
     c.run(0x37fc, 1)?;
     c.call(0x4a5a, 0x37ff)?;
@@ -309,7 +309,7 @@ pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, bx);
         c.call(0xdbb2, 0x489d)?;
         c.run(0x489d, 3)?;
-        c.set_byte(0x4728, 0x80);
+        c.update_flight(|t| t.marker = 0x80);
         loop {
             let bx = c.reg(BX);
             c.push(bx);

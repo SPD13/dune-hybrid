@@ -2788,9 +2788,9 @@ fn note_shown_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x5d44, if k & 3 != 0 { 3 } else { 2 })?;
     c.test(B, k as u16, 3);
     if k & 3 != 0 {
-        let v = c.byte(0x4728);
+        let v = c.flight().marker;
         let v = c.or(B, v as u16, 1);
-        c.set_byte(0x4728, v as u8);
+        c.update_flight(|t| t.marker = v as u8);
     }
     count_shown_location(c.m, 0x5d50)
 }
@@ -6475,7 +6475,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         0x4f0c => {}
         _ => return Err(Bail),
     }
-    let f = c.byte(0x4727);
+    let f = c.flight().flying;
     let stop = c.byte(0x11ca);
     if f == 0 || stop != 0 {
         c.run(0x4f0c, if f == 0 { 3 } else { 5 })?;
@@ -6487,7 +6487,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(0xdbec);
     c.call(0xca60, 0x4f27)?;
     let t = c.timer();
-    let last = c.word(0x4729);
+    let last = c.flight().last_move;
     let d = t.wrapping_sub(last);
     c.run(0x4f27, if d < 0x300 { 5 } else { 4 })?;
     c.set_reg(AX, t);
@@ -6497,7 +6497,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x4f34, 3)?;
     c.set_reg(AX, t);
-    c.set_word(0x4729, t);
+    c.update_flight(|f| f.last_move = t);
     c.call(0x4b3b, 0x4f3d)?;
     for (at, to) in [(0x4f3du16, 0x4a1au16), (0x4f40, 0x407e), (0x4f43, 0x4a00), (0x4f46, 0xb58b)] {
         c.run(at, 1)?;
@@ -6518,14 +6518,14 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x4f55, 3)?;
         return ret_mouse(&mut c);
     }
-    let mk = c.byte(0x4728);
+    let mk = c.flight().marker;
     if mk & 0x80 != 0 {
         c.run(0x4f55, 5)?;
         return speed_4e8e(&mut c);
     }
     if mk != 0 {
         c.run(0x4f55, 7)?;
-        c.set_byte(0x4728, 0);
+        c.update_flight(|t| t.marker = 0);
         c.call(0x5b5d, 0x4f6d)?;
         c.run(0x4f6d, 1)?;
         c.call(0x49d9, 0x4f70)?;
@@ -6566,7 +6566,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !inside {
         c.run(0x4f76, n + 3)?;
         test_box(&mut c, dx, bx);
-        c.set_byte(0x4728, 1);
+        c.update_flight(|t| t.marker = 1);
         return speed_4e8e(&mut c);
     }
     let stop = c.byte(0x11ca);

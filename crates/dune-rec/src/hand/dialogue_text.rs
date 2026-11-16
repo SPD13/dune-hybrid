@@ -9,11 +9,11 @@
 //! as the checked mirror); [`DialogueText`] is its typed view. Code that
 //! reads it through SS (the same segment in the game) reads the mirror.
 
-use super::record_table::{self, Which};
-use super::{Ctx, DS, globals as g};
+use super::record_table::{self, Single, Which};
+use super::globals as g;
 
 /// Where the record starts in the data segment.
-pub const AT: u16 = 0x47c6;
+pub const AT: u16 = Which::DialogueText.base();
 
 /// The dialogue's text being played.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -39,7 +39,9 @@ pub struct DialogueText {
     pub sentences_last: u16,
 }
 
-impl DialogueText {
+impl Single for DialogueText {
+    const WHICH: Which = Which::DialogueText;
+
     fn from_bytes(b: &[u8]) -> DialogueText {
         let w = |i: usize| b[i] as u16 | (b[i + 1] as u16) << 8;
         DialogueText {
@@ -70,46 +72,6 @@ impl DialogueText {
         b[0x0b] = self.flags;
         b
     }
-
-    /// The record's bytes at DS (another data segment than the game's:
-    /// not the table's).
-    fn raw(c: &mut Ctx) -> DialogueText {
-        let mut b = [0; record_table::MAX];
-        for (k, v) in b.iter_mut().enumerate().take(Which::DialogueText.size() as usize) {
-            *v = c.byte(AT + k as u16);
-        }
-        DialogueText::from_bytes(&b)
-    }
 }
 
 const _: () = assert!(g::HEAD_FRAME_TABLE == AT + 6);
-
-/// The dialogue's text, in step with the memory.
-pub(super) fn get(c: &mut Ctx) -> DialogueText {
-    if c.sreg(DS) != g::GAME_DS {
-        return DialogueText::raw(c);
-    }
-    DialogueText::from_bytes(&record_table::get(c, Which::DialogueText, 0))
-}
-
-/// The dialogue's text changed to `t`: kept, and its changed bytes
-/// written through.
-pub(super) fn set(c: &mut Ctx, t: DialogueText) {
-    if c.sreg(DS) != g::GAME_DS {
-        let (old, new) = (DialogueText::raw(c).to_bytes(), t.to_bytes());
-        for k in 0..Which::DialogueText.size() as usize {
-            if old[k] != new[k] {
-                c.set_byte(AT + k as u16, new[k]);
-            }
-        }
-        return;
-    }
-    record_table::set(c, Which::DialogueText, 0, t.to_bytes());
-}
-
-/// The dialogue's text changed by `f`.
-pub(super) fn update(c: &mut Ctx, f: impl FnOnce(&mut DialogueText)) {
-    let mut t = get(c);
-    f(&mut t);
-    set(c, t);
-}

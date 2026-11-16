@@ -2250,7 +2250,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0e22, 1)?;
     c.call(0xc4cd, 0x0e25)?;
     c.run(0x0e25, 2)?;
-    c.set_byte(0x4727, 0);
+    c.update_flight(|t| t.flying = 0);
     c.call(0xd741, 0x0e2d)?;
     c.run(0x0e2d, 4)?;
     c.update_conversation(|t| t.scene_count = 1);

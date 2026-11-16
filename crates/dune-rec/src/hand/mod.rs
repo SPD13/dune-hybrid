@@ -37,6 +37,8 @@ pub mod dialogue_text;
 pub mod conversation;
 pub mod map_view;
 pub mod map_selection;
+pub mod flight;
+pub mod typed_message;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1485,47 +1487,64 @@ impl Ctx<'_> {
     /// The text box's layout (Rust state, see [`text_box`]), in step
     /// with the memory.
     fn text_box(&mut self) -> text_box::TextBox {
-        text_box::get(self)
+        record_table::single(self)
     }
     /// The text box changed by `f` (written through to the memory).
     fn update_text_box(&mut self, f: impl FnOnce(&mut text_box::TextBox)) {
-        text_box::update(self, f)
+        record_table::update_single(self, f)
     }
     /// The dialogue's text being played (Rust state, see
     /// [`dialogue_text`]), in step with the memory.
     fn dialogue_text(&mut self) -> dialogue_text::DialogueText {
-        dialogue_text::get(self)
+        record_table::single(self)
     }
     /// The dialogue's text changed by `f` (written through).
     fn update_dialogue_text(&mut self, f: impl FnOnce(&mut dialogue_text::DialogueText)) {
-        dialogue_text::update(self, f)
+        record_table::update_single(self, f)
     }
     /// The conversation and scene state (Rust state, see
     /// [`conversation`]), in step with the memory.
     fn conversation(&mut self) -> conversation::Conversation {
-        conversation::get(self)
+        record_table::single(self)
     }
     /// The conversation changed by `f` (written through).
     fn update_conversation(&mut self, f: impl FnOnce(&mut conversation::Conversation)) {
-        conversation::update(self, f)
+        record_table::update_single(self, f)
     }
     /// The map view (Rust state, see [`map_view`]), in step with the
     /// memory.
     fn map_view(&mut self) -> map_view::MapView {
-        map_view::get(self)
+        record_table::single(self)
     }
     /// The map view changed by `f` (written through).
     fn update_map_view(&mut self, f: impl FnOnce(&mut map_view::MapView)) {
-        map_view::update(self, f)
+        record_table::update_single(self, f)
     }
     /// The map's selection (Rust state, see [`map_selection`]), in step
     /// with the memory.
     fn map_selection(&mut self) -> map_selection::MapSelection {
-        map_selection::get(self)
+        record_table::single(self)
     }
     /// The map's selection changed by `f` (written through).
     fn update_map_selection(&mut self, f: impl FnOnce(&mut map_selection::MapSelection)) {
-        map_selection::update(self, f)
+        record_table::update_single(self, f)
+    }
+    /// The flight (Rust state, see [`flight`]), in step with the memory.
+    fn flight(&mut self) -> flight::Flight {
+        record_table::single(self)
+    }
+    /// The flight changed by `f` (written through).
+    fn update_flight(&mut self, f: impl FnOnce(&mut flight::Flight)) {
+        record_table::update_single(self, f)
+    }
+    /// The message typed out on the message line (Rust state, see
+    /// [`typed_message`]), in step with the memory.
+    fn typed_message(&mut self) -> typed_message::TypedMessage {
+        record_table::single(self)
+    }
+    /// The message typed out changed by `f` (written through).
+    fn update_typed_message(&mut self, f: impl FnOnce(&mut typed_message::TypedMessage)) {
+        record_table::update_single(self, f)
     }
     /// The game time ([2]).
     fn game_time(&mut self) -> u16 {

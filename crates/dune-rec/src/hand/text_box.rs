@@ -7,11 +7,11 @@
 //! in the generic record tables (`hand/record_table.rs`, which keep the
 //! memory as the checked mirror); [`TextBox`] is its typed view.
 
-use super::record_table::{self, Which};
-use super::{Ctx, DS, globals as g};
+use super::record_table::{self, Single, Which};
+use super::globals as g;
 
 /// Where the record starts in the data segment.
-pub const AT: u16 = 0x4784;
+pub const AT: u16 = Which::TextBox.base();
 
 /// The text box's layout.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -46,7 +46,9 @@ pub struct TextBox {
     pub shown: u16,
 }
 
-impl TextBox {
+impl Single for TextBox {
+    const WHICH: Which = Which::TextBox;
+
     fn from_bytes(b: &[u8]) -> TextBox {
         let w = |i: usize| b[i] as u16 | (b[i + 1] as u16) << 8;
         TextBox {
@@ -85,46 +87,6 @@ impl TextBox {
         b[0x15] = self.style;
         b
     }
-
-    /// The record's bytes in the memory at DS (another data segment than
-    /// the game's: not the table's).
-    fn raw(c: &mut Ctx) -> TextBox {
-        let mut b = [0; record_table::MAX];
-        for (k, v) in b.iter_mut().enumerate() {
-            *v = c.byte(AT + k as u16);
-        }
-        TextBox::from_bytes(&b)
-    }
 }
 
 const _: () = assert!(g::BOX_SHOWN == AT + 0x1a);
-
-/// The text box, in step with the memory.
-pub(super) fn get(c: &mut Ctx) -> TextBox {
-    if c.sreg(DS) != g::GAME_DS {
-        return TextBox::raw(c);
-    }
-    TextBox::from_bytes(&record_table::get(c, Which::TextBox, 0))
-}
-
-/// The text box changed to `t`: kept, and its changed bytes written
-/// through.
-pub(super) fn set(c: &mut Ctx, t: TextBox) {
-    if c.sreg(DS) != g::GAME_DS {
-        let (old, new) = (TextBox::raw(c).to_bytes(), t.to_bytes());
-        for k in 0..Which::TextBox.size() as usize {
-            if old[k] != new[k] {
-                c.set_byte(AT + k as u16, new[k]);
-            }
-        }
-        return;
-    }
-    record_table::set(c, Which::TextBox, 0, t.to_bytes());
-}
-
-/// The text box changed by `f`.
-pub(super) fn update(c: &mut Ctx, f: impl FnOnce(&mut TextBox)) {
-    let mut t = get(c);
-    f(&mut t);
-    set(c, t);
-}

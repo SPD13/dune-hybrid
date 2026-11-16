@@ -9,11 +9,11 @@
 //! fields are only partly understood; their names say what the ports
 //! found them doing.
 
-use super::record_table::{self, Which};
-use super::{Ctx, DS, globals as g};
+use super::record_table::{self, Single, Which};
+use super::globals as g;
 
 /// Where the record starts in the data segment.
-pub const AT: u16 = 0x47a2;
+pub const AT: u16 = Which::Conversation.base();
 
 /// The conversation and scene state.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -79,6 +79,10 @@ impl Conversation {
         self.mode = v as u8;
         self.two_heads = (v >> 8) as u8;
     }
+}
+
+impl Single for Conversation {
+    const WHICH: Which = Which::Conversation;
 
     fn from_bytes(b: &[u8]) -> Conversation {
         let w = |i: usize| b[i] as u16 | (b[i + 1] as u16) << 8;
@@ -135,46 +139,6 @@ impl Conversation {
         b[0x21] = self.two_heads;
         b
     }
-
-    /// The record's bytes at DS (another data segment than the game's:
-    /// not the table's).
-    fn raw(c: &mut Ctx) -> Conversation {
-        let mut b = [0; record_table::MAX];
-        for (k, v) in b.iter_mut().enumerate().take(Which::Conversation.size() as usize) {
-            *v = c.byte(AT + k as u16);
-        }
-        Conversation::from_bytes(&b)
-    }
 }
 
 const _: () = assert!(g::TALKER == AT + 0x22);
-
-/// The conversation, in step with the memory.
-pub(super) fn get(c: &mut Ctx) -> Conversation {
-    if c.sreg(DS) != g::GAME_DS {
-        return Conversation::raw(c);
-    }
-    Conversation::from_bytes(&record_table::get(c, Which::Conversation, 0))
-}
-
-/// The conversation changed to `t`: kept, and its changed bytes written
-/// through.
-pub(super) fn set(c: &mut Ctx, t: Conversation) {
-    if c.sreg(DS) != g::GAME_DS {
-        let (old, new) = (Conversation::raw(c).to_bytes(), t.to_bytes());
-        for k in 0..Which::Conversation.size() as usize {
-            if old[k] != new[k] {
-                c.set_byte(AT + k as u16, new[k]);
-            }
-        }
-        return;
-    }
-    record_table::set(c, Which::Conversation, 0, t.to_bytes());
-}
-
-/// The conversation changed by `f`.
-pub(super) fn update(c: &mut Ctx, f: impl FnOnce(&mut Conversation)) {
-    let mut t = get(c);
-    f(&mut t);
-    set(c, t);
-}

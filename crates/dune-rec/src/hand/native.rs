@@ -16,6 +16,8 @@ pub struct Native {
     pub conversation: super::record_table::RecordTable,
     pub map_view: super::record_table::RecordTable,
     pub map_selection: super::record_table::RecordTable,
+    pub flight: super::record_table::RecordTable,
+    pub typed_message: super::record_table::RecordTable,
 }
 
 /// The machine's Rust state (made on first use).

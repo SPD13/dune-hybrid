@@ -583,7 +583,7 @@ pub fn add_task_3916(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn cursor_over_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4b2b)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0x4728);
+    let f = c.flight().marker;
     if f & 0x80 != 0 {
         c.run(start, 3)?;
     } else {

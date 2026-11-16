@@ -10,11 +10,10 @@
 //! (a location's needs and spread bits, the nearest location), not part
 //! of it.
 
-use super::record_table::{self, Which};
-use super::{Ctx, DS, globals as g};
+use super::record_table::{self, Single, Which};
 
 /// Where the record starts in the data segment.
-pub const AT: u16 = 0x46ef;
+pub const AT: u16 = Which::MapSelection.base();
 
 /// The map's selection.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -45,7 +44,9 @@ pub struct MapSelection {
     pub subject: u16,
 }
 
-impl MapSelection {
+impl Single for MapSelection {
+    const WHICH: Which = Which::MapSelection;
+
     fn from_bytes(b: &[u8]) -> MapSelection {
         let w = |i: usize| b[i] as u16 | (b[i + 1] as u16) << 8;
         MapSelection {
@@ -80,44 +81,5 @@ impl MapSelection {
         b[8] = self.caption_kind;
         b
     }
-
-    /// The record's bytes at DS (another data segment than the game's:
-    /// not the table's).
-    fn raw(c: &mut Ctx) -> MapSelection {
-        let mut b = [0; record_table::MAX];
-        for (k, v) in b.iter_mut().enumerate().take(Which::MapSelection.size() as usize) {
-            *v = c.byte(AT + k as u16);
-        }
-        MapSelection::from_bytes(&b)
-    }
 }
 
-/// The map's selection, in step with the memory.
-pub(super) fn get(c: &mut Ctx) -> MapSelection {
-    if c.sreg(DS) != g::GAME_DS {
-        return MapSelection::raw(c);
-    }
-    MapSelection::from_bytes(&record_table::get(c, Which::MapSelection, 0))
-}
-
-/// The map's selection changed to `t`: kept, and its changed bytes
-/// written through.
-pub(super) fn set(c: &mut Ctx, t: MapSelection) {
-    if c.sreg(DS) != g::GAME_DS {
-        let (old, new) = (MapSelection::raw(c).to_bytes(), t.to_bytes());
-        for k in 0..Which::MapSelection.size() as usize {
-            if old[k] != new[k] {
-                c.set_byte(AT + k as u16, new[k]);
-            }
-        }
-        return;
-    }
-    record_table::set(c, Which::MapSelection, 0, t.to_bytes());
-}
-
-/// The map's selection changed by `f`.
-pub(super) fn update(c: &mut Ctx, f: impl FnOnce(&mut MapSelection)) {
-    let mut t = get(c);
-    f(&mut t);
-    set(c, t);
-}

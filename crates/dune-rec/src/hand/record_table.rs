@@ -2,8 +2,10 @@
 //! `docs/readable-port-plan.md`): the troops (`hand/troop_table.rs`),
 //! the locations, the text box (`hand/text_box.rs`) and the dialogue's
 //! text (`hand/dialogue_text.rs`), the conversation
-//! (`hand/conversation.rs`), the map view (`hand/map_view.rs`) and the
-//! map's selection (`hand/map_selection.rs`), these five tables of one,
+//! (`hand/conversation.rs`), the map view (`hand/map_view.rs`), the
+//! map's selection (`hand/map_selection.rs`), the flight
+//! (`hand/flight.rs`) and the message typed out
+//! (`hand/typed_message.rs`), these seven tables of one,
 //! kept with the machine ([`super::native`]).
 //!
 //! Each record is cached the first time it is used. The views
@@ -25,6 +27,7 @@
 //! and each write a port makes into a table without its view.
 
 use super::{Ctx, globals as g};
+use pc::cpu::DS;
 use pc::{Machine, cpu::Bus};
 
 /// The longest record.
@@ -47,10 +50,14 @@ pub enum Which {
     MapView,
     /// The map's selection, 0Fh bytes at 46EFh.
     MapSelection,
+    /// The flight, 6 bytes at 4727h.
+    Flight,
+    /// The message typed out on the message line, 0Ah bytes at 473Fh.
+    TypedMessage,
 }
 
 impl Which {
-    pub const ALL: [Which; 7] = [
+    pub const ALL: [Which; 9] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
@@ -58,6 +65,8 @@ impl Which {
         Which::Conversation,
         Which::MapView,
         Which::MapSelection,
+        Which::Flight,
+        Which::TypedMessage,
     ];
 
     pub fn name(self) -> &'static str {
@@ -69,9 +78,12 @@ impl Which {
             Which::Conversation => "conversation",
             Which::MapView => "map view",
             Which::MapSelection => "map selection",
+            Which::Flight => "flight",
+            Which::TypedMessage => "typed message",
         }
     }
-    const fn base(self) -> u16 {
+    /// Where the table starts in the game's data segment.
+    pub const fn base(self) -> u16 {
         match self {
             Which::Troops => g::TROOPS,
             Which::Locations => 0x100,
@@ -80,6 +92,8 @@ impl Which {
             Which::Conversation => 0x47a2,
             Which::MapView => 0x46e3,
             Which::MapSelection => 0x46ef,
+            Which::Flight => 0x4727,
+            Which::TypedMessage => 0x473f,
         }
     }
     pub const fn size(self) -> u16 {
@@ -91,6 +105,8 @@ impl Which {
             Which::Conversation => 0x24,
             Which::MapView => 0x0c,
             Which::MapSelection => 0x0f,
+            Which::Flight => 6,
+            Which::TypedMessage => 0x0a,
         }
     }
     pub const fn count(self) -> usize {
@@ -102,6 +118,8 @@ impl Which {
             Which::Conversation => 1,
             Which::MapView => 1,
             Which::MapSelection => 1,
+            Which::Flight => 1,
+            Which::TypedMessage => 1,
         }
     }
     fn end(self) -> u16 {
@@ -136,6 +154,8 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::Conversation => &mut n.conversation,
         Which::MapView => &mut n.map_view,
         Which::MapSelection => &mut n.map_selection,
+        Which::Flight => &mut n.flight,
+        Which::TypedMessage => &mut n.typed_message,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];
@@ -220,6 +240,60 @@ pub(super) fn set(c: &mut Ctx, w: Which, i: usize, r: Bytes) {
             c.m.hw.write8(a, r[k]);
         }
     }
+}
+
+/// A table of one record with a typed view (the text box, the dialogue
+/// text, the conversation, the map view, the map's selection, the
+/// flight, the message typed out): the view
+/// to and from the record's bytes. [`single`], [`set_single`] and
+/// [`update_single`] keep it.
+pub(super) trait Single: Sized {
+    /// Its table.
+    const WHICH: Which;
+    fn from_bytes(b: &[u8]) -> Self;
+    fn to_bytes(&self) -> Bytes;
+}
+
+/// The bytes of `w`'s record at DS (another data segment than the
+/// game's: not the table's).
+fn at_ds(c: &mut Ctx, w: Which) -> Bytes {
+    let mut b = [0; MAX];
+    for (k, v) in b.iter_mut().enumerate().take(w.size() as usize) {
+        *v = c.byte(w.base() + k as u16);
+    }
+    b
+}
+
+/// The one record of `T`'s table, in step with the memory (with DS not
+/// the game's, the bytes there).
+pub(super) fn single<T: Single>(c: &mut Ctx) -> T {
+    if c.sreg(DS) != g::GAME_DS {
+        return T::from_bytes(&at_ds(c, T::WHICH));
+    }
+    T::from_bytes(&get(c, T::WHICH, 0))
+}
+
+/// The one record of `T`'s table changed to `t`: kept, and its changed
+/// bytes written through.
+pub(super) fn set_single<T: Single>(c: &mut Ctx, t: T) {
+    let w = T::WHICH;
+    if c.sreg(DS) != g::GAME_DS {
+        let (old, new) = (at_ds(c, w), t.to_bytes());
+        for k in 0..w.size() as usize {
+            if old[k] != new[k] {
+                c.set_byte(w.base() + k as u16, new[k]);
+            }
+        }
+        return;
+    }
+    set(c, w, 0, t.to_bytes());
+}
+
+/// The one record of `T`'s table changed by `f`.
+pub(super) fn update_single<T: Single>(c: &mut Ctx, f: impl FnOnce(&mut T)) {
+    let mut t = single(c);
+    f(&mut t);
+    set_single(c, t);
 }
 
 /// Byte `field` of record `i` of `w`.
