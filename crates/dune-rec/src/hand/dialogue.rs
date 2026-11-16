@@ -3,7 +3,7 @@
 
 use super::globals as g;
 use super::pure;
-use super::{B, Ctx, W, entered, game, r8};
+use super::{B, Ctx, W, characters, entered, game, r8};
 use pc::{
     Machine,
     cpu::{AX, BP, BX, CX, DI, DS, DX, ES, SI, SP, SS, ZF},
@@ -210,7 +210,11 @@ pub fn stamp_record_time(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ago);
     if ago >= 2 {
         c.set_reg(AX, now);
-        c.set_word(which.wrapping_add(record).wrapping_add(8), now);
+        match characters::index(record) {
+            Some(i) if which == 0 => c.update_character(i, |t| t.time_08 = now),
+            Some(i) if which == 2 => c.update_character(i, |t| t.time_0a = now),
+            _ => c.set_word(which.wrapping_add(record).wrapping_add(8), now),
+        }
     }
     c.ret()
 }
@@ -2278,7 +2282,11 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bits = c.byte(speaker.wrapping_add(0x0f));
     c.run(0x97d2, 9)?;
     c.set_reg(SI, speaker);
-    c.set_byte(speaker.wrapping_add(0x0f), (bits | 0x20) & 0xfb);
+    let bits = (bits | 0x20) & 0xfb;
+    match characters::index(speaker) {
+        Some(i) => c.update_character(i, |t| t.flags = bits),
+        None => c.set_byte(speaker.wrapping_add(0x0f), bits),
+    }
     c.set_word(NUMBER_PART, 0);
     c.call(0x8c8a, if held { 0x97f5 } else { 0x980f })?;
     if held {

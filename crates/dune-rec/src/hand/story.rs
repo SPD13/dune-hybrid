@@ -1417,10 +1417,11 @@ pub fn find_in_list_1190(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_03127`: the four records at 109Ah.. reset (word 7F80h), [476Ah],
-/// [476Bh] cleared; at a location ([6] low byte 80h): `loc_06603` with
-/// BP = 316Eh, and in a palace (kind 21h) the record at 10A8h set to the
-/// player's place and made current (`loc_02318`); then `loc_0331e`.
+/// `loc_03127`: the positions of characters 0Ch..0Fh reset (7F80h),
+/// [476Ah], [476Bh] cleared; at a location ([6] low byte 80h):
+/// `loc_06603` with BP = 316Eh, and in a palace (kind 21h) character
+/// 0Dh's place and position set to the player's and made current
+/// (`loc_02318`); then `loc_0331e`.
 pub fn reset_records_3127(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3127)?;
     let mut c = Ctx::new(m);
@@ -1430,8 +1431,8 @@ pub fn reset_records_3127(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0x476b, 0);
     c.set_byte(0x476a, 0);
     c.set_reg(AX, 0x7f80);
-    for a in [0x10ca, 0x10ba, 0x10aa, 0x109a] {
-        c.set_word(a, 0x7f80);
+    for i in [15, 14, 13, 12] {
+        c.update_character(i, |t| t.position = 0x7f80);
     }
     c.set_reg(BX, bx);
     if !at {
@@ -1450,8 +1451,7 @@ pub fn reset_records_3127(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x3157, 6)?;
         let (dx, bx) = (c.reg(DX), c.reg(BX));
-        c.update_character(13, |t| t.place = dx);
-        c.update_character(13, |t| t.position = bx);
+        c.update_character(13, |t| (t.place, t.position) = (dx, bx));
         c.push(di);
         c.call(0x2318, 0x3169)?;
         c.run(0x3169, 2)?;
