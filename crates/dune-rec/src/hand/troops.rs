@@ -1670,7 +1670,7 @@ pub fn update_troop_83bc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x83e2, 3)?;
         return c.ret();
     }
-    let want = 1 + (c.byte(g::IN_DIALOGUE) == 0) as u8;
+    let want = 1 + (c.byte(g::HARKONNEN_PLACE) == 0) as u8;
     let have = c.byte(g::CURRENT_ROOM);
     let hit = have == want;
     c.run(0x83e2, 8 + hit as u32)?;

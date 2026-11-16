@@ -512,9 +512,9 @@ the interpreter as well (nothing but the hand ports is left out).
 Left, needing names before any grouping: the story state (DS:0-FFh: [0]
 the random seed, [4]/[6] the player's place and position, [8]/[9] the
 room, [0Ah] event bits, [23h] the talker's dialogue stage, [2Ah] the
-game phase; [2Bh] is called `IN_DIALOGUE` but is set from the room when
-the player is in a place, cleared on leaving, counted up at 5058h, and
-read as "night" by one port: it needs a study before renaming) and
+game phase; [2Bh], once `IN_DIALOGUE`, is `HARKONNEN_PLACE`: the
+player is at a place the Harkonnens hold or occupy, from the listing:
+location bit 2 is what `sub_1dd7` sets when they take one) and
 1140h-11BFh. DCE4h-DCFFh, 4710h-476Fh and 4770h-4783h / 47D4h-47EFh are
 mixes. The music driver's tick runs as generated code when the timer
 interrupt comes inside generated code; that is where most of the

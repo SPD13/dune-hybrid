@@ -433,8 +433,9 @@ impl Location {
     /// Byte 0Ah: bits. 80h: not on the map yet (`region_colours` skips
     /// it; a talk with person 0Ch clears it for the place at [11CEh]);
     /// 40h: the map colours its region by its spice; 8: taken, freed by
-    /// `troop_day_update`; 4: cleared by `clear_location_4`; 2: tested
-    /// for its troops' sprites and facing.
+    /// `troop_day_update`; 4: cleared by `clear_location_4`; 2: held by the
+    /// Harkonnens (`sub_1dd7` sets it; the player there: [`g::HARKONNEN_PLACE`]),
+    /// tested for its troops' sprites and facing.
     pub fn byte_0a(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x0a)
     }

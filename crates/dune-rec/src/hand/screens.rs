@@ -1070,11 +1070,11 @@ pub fn panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_02ffb` after `pre` instructions from `at` (with `ops`).
 pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
-    let dlg = c.byte(g::IN_DIALOGUE);
+    let harkonnen = c.byte(g::HARKONNEN_PLACE);
     let mode = c.travel().screen_kind;
     let (ca, cb) = (c.travel().held, c.travel().keep_heading);
-    if dlg != 0 || mode & 3 != 0 {
-        let (n, si) = if dlg != 0 {
+    if harkonnen != 0 || mode & 3 != 0 {
+        let (n, si) = if harkonnen != 0 {
             (4, 0x1d1e)
         } else if ca != 0 {
             (8, 0x1d1e)
@@ -1085,8 +1085,8 @@ pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ct
         };
         return set_buttons(c, at, pre + n, |c| {
             ops(c);
-            c.cmp(B, dlg as u16, 0);
-            if dlg == 0 {
+            c.cmp(B, harkonnen as u16, 0);
+            if harkonnen == 0 {
                 c.test(B, mode as u16, 3);
                 c.cmp(B, ca as u16, 0);
                 if ca == 0 {
@@ -1414,9 +1414,9 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x2f13, 5)?;
         copy(&mut c, 0x220c, 2);
         if dx as u8 == 1 {
-            let t = c.byte(g::IN_DIALOGUE);
+            let t = c.byte(g::HARKONNEN_PLACE);
             if t != 0 {
-                // In a dialogue: the talk entries, the last one off from
+                // At a Harkonnen place: the talk entries, the last one off from
                 // phase 4Fh.
                 c.run(0x2f1d, 15)?;
                 copy(&mut c, 0x2218, 4);

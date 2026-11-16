@@ -408,8 +408,14 @@ pub const TALKER: u16 = 0x47c4;
 /// The text being shown (cleared when done).
 pub const TEXT_PTR: u16 = 0x1bea;
 
-/// Set during a dialogue scene.
-pub const IN_DIALOGUE: u16 = 0x2b;
+/// Set while the player is at a place the Harkonnens hold or occupy:
+/// counted up on entering one (`loc_0503c`, 5058h: its location's byte
+/// 0Ah bit 2, or a kind `location_kind_check` does not pass with troops
+/// there), set when the Harkonnens take the place the player is at
+/// (`sub_1dd7`, 200Dh), cleared on leaving (4718h). Its picture is shown
+/// instead of the room (`loc_06144`, 2Fh..33h by kind): no sky, and
+/// dialogue lines redraw their text.
+pub const HARKONNEN_PLACE: u16 = 0x2b;
 
 /// The game's stage (64h to 73h: a wait after each line).
 pub const STAGE: u16 = 0x23;

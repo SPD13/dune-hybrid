@@ -2261,7 +2261,7 @@ pub fn two_heads_text_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// redrawn on the front buffer and its buttons ([11CAh] 0 meanwhile),
 /// `loc_037f4`, `loc_0c4dd`, [11CAh] 0. Else by the line state: bit 7
 /// ends the dialogue (the speaker's gauge off with bit 40h of +0Fh, then
-/// [`line_end_9858`]); else the gauge, and in a dialogue ([`g::IN_DIALOGUE`])
+/// [`line_end_9858`]); else the gauge, and at a Harkonnen place ([`g::HARKONNEN_PLACE`])
 /// the text redrawn ([`text_redraw_9840`]), or with bit 0 of
 /// the line state clear the view and head back up ([`view_back_9879`]).
 pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -2317,17 +2317,17 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         return line_end_9858(&mut c);
     }
-    let talk = c.byte(g::IN_DIALOGUE) != 0;
-    c.run(0x980f, if talk { 10 } else { 8 })?;
+    let harkonnen = c.byte(g::HARKONNEN_PLACE) != 0;
+    c.run(0x980f, if harkonnen { 10 } else { 8 })?;
     c.set_reg(SI, speaker);
-    if talk {
+    if harkonnen {
         // The gauge's or `loc_09655`'s return comes back to the text
         // redraw.
         c.set_reg(AX, 0x9840);
         c.push(0x9840);
     }
     if gauge {
-        if !talk {
+        if !harkonnen {
             return add_speaker_gauge(c.m, 0x9673);
         }
         c.pop();
@@ -2335,17 +2335,17 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return text_redraw_9840(&mut c);
     }
     c.call(0x9655, 0x9831)?;
-    let talk_now = c.byte(g::IN_DIALOGUE) != 0;
+    let harkonnen_now = c.byte(g::HARKONNEN_PLACE) != 0;
     let keep_view = c.conversation().line_state & 1 != 0;
-    if talk_now || keep_view {
-        c.run(0x9831, if talk_now { 3 } else { 5 })?;
-        if !talk {
+    if harkonnen_now || keep_view {
+        c.run(0x9831, if harkonnen_now { 3 } else { 5 })?;
+        if !harkonnen {
             return c.ret();
         }
         c.pop();
         return text_redraw_9840(&mut c);
     }
-    if talk {
+    if harkonnen {
         // To the view with 9840h still pushed: left to the original.
         c.m.cpu.ip = 0x9831;
         return Err(Bail);
@@ -3342,7 +3342,7 @@ pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let room = c.byte(g::CURRENT_ROOM);
             let y = c.reg(BX);
             let place = c.byte(8);
-            let talk = c.byte(g::IN_DIALOGUE);
+            let harkonnen = c.byte(g::HARKONNEN_PLACE);
             let cost = if room != 1 {
                 4
             } else if y >= 0x98 {
@@ -3358,8 +3358,8 @@ pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 4 => c.cmp(B, room as u16, 1),
                 6 => c.cmp(W, y, 0x98),
                 8 => c.cmp(B, place as u16, 0x21),
-                _ if talk == 0 => return super::story::room_move(c.m, 0x3f15),
-                _ => c.cmp(B, talk as u16, 0),
+                _ if harkonnen == 0 => return super::story::room_move(c.m, 0x3f15),
+                _ => c.cmp(B, harkonnen as u16, 0),
             };
             return c.ret();
         }

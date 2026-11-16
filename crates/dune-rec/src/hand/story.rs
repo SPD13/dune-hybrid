@@ -895,13 +895,13 @@ pub fn find_in_2426(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_01bec`: in a place ([2Bh]): `loc_0503c` on location [114Eh];
-/// [46D9h] to 6 when set; and when the place is left by it, `loc_00b21`
-/// and bit 0 of [473Bh].
+/// `loc_01bec`: at a place the Harkonnens hold ([2Bh]): the place
+/// entered again (`loc_0503c` on location [114Eh]); [46D9h] to 6 when
+/// set; and when it is no longer held, `loc_00b21` and bit 0 of [473Bh].
 pub fn place_1bec(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1bec)?;
     let mut c = Ctx::new(m);
-    let v = c.byte(g::IN_DIALOGUE);
+    let v = c.byte(g::HARKONNEN_PLACE);
     if v == 0 {
         c.run(start, 3)?;
         return c.ret();
@@ -911,7 +911,7 @@ pub fn place_1bec(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, di);
     c.call(0x503c, 0x1bfa)?;
     let f = c.byte(0x46d9);
-    let still = c.byte(g::IN_DIALOGUE);
+    let still = c.byte(g::HARKONNEN_PLACE);
     c.run(0x1bfa, 2 + (f != 0) as u32 + 2 + if still != 0 { 1 } else { 2 })?;
     if f != 0 {
         c.set_byte(0x46d9, 6);
@@ -1987,7 +1987,7 @@ pub fn show_screen_368b(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0503c`: entering the location at DI: [0FDh], [2Bh] cleared; a
-/// place to show ([2Bh] set, `loc_06144`, [11DDh] = its picture 2Fh..33h
+/// place the Harkonnens hold or occupy ([2Bh] set, `loc_06144`, [11DDh] = its picture 2Fh..33h
 /// by kind) when it has bit 2 of byte 0Ah or is of a kind not passed by
 /// `location_kind_check` with troops counted (`loc_05098`, DX); else with
 /// CX, [46D9h] = 4.
@@ -1998,7 +1998,7 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(di.wrapping_add(0x0a));
     c.run(start, if f & 2 != 0 { 4 } else { 5 })?;
     c.set_byte(0xfd, 0);
-    c.set_byte(g::IN_DIALOGUE, 0);
+    c.set_byte(g::HARKONNEN_PLACE, 0);
     if f & 2 == 0 {
         c.call(0x5d36, 0x504f)?;
         if c.flag(pc::cpu::CF) {
@@ -2018,9 +2018,9 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x5054, 2)?;
     }
     c.run(0x5058, 2)?;
-    let v = c.byte(g::IN_DIALOGUE);
+    let v = c.byte(g::HARKONNEN_PLACE);
     let v = pure::inc(B, v as u16);
-    c.set_byte(g::IN_DIALOGUE, v as u8);
+    c.set_byte(g::HARKONNEN_PLACE, v as u8);
     c.call(0x6144, 0x505f)?;
     let di = c.reg(DI);
     let kind = c.byte(di.wrapping_add(8));
@@ -4609,11 +4609,11 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     let v = c.or(B, m0 as u16, a);
     c.update_travel(|t| t.screen_kind = v as u8);
     c.call(0xad5e, 0x4718)?;
-    let t = c.byte(g::IN_DIALOGUE);
+    let t = c.byte(g::HARKONNEN_PLACE);
     c.run(0x4718, if t != 0 { 4 } else { 3 })?;
     c.cmp(B, t as u16, 0);
     if t != 0 {
-        c.set_byte(g::IN_DIALOGUE, 0);
+        c.set_byte(g::HARKONNEN_PLACE, 0);
         c.call(0x0b21, 0x4727)?;
         c.run(0x4727, 1)?;
     }
@@ -4889,7 +4889,7 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte(0x473b);
     let v = pure::or(B, v as u16, al as u16);
     c.set_byte(0x473b, v as u8);
-    c.set_byte(g::IN_DIALOGUE, al);
+    c.set_byte(g::HARKONNEN_PLACE, al);
     c.call(0x6144, 0x2013)?;
     c.run(0x2013, 1)?;
     c.ret()
@@ -5577,8 +5577,9 @@ fn travel_step(c: &mut Ctx) -> Result<(), Bail> {
 
 /// `loc_02db1` / `loc_02dbf`: the arrival in a room (from `loc_02db1`
 /// the handler D717h, `loc_0d95b` and [47A6h] FFh first): `loc_02d74`,
-/// the speaker and its flags dropped, the handler 2EB2h; at night ([2Bh])
-/// the night view (`loc_00acd`) and the head raised; else the room drawn
+/// the speaker and its flags dropped, the handler 2EB2h; at a place the
+/// Harkonnens hold ([2Bh]) its view (`loc_00acd`) and the head raised;
+/// else the room drawn
 /// (`loc_05ba0`, `loc_037b2`, `loc_0c412` outside the map modes), with
 /// the light changed ([46DFh] to [46E0h]) a fade (10h, F66h) unless the
 /// palettes match, and the scene refreshed (`loc_02e52`).
@@ -5608,7 +5609,7 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BP, 0x2eb2);
         c.call(0xc097, 0x2dd3)?;
     }
-    let k = c.byte(g::IN_DIALOGUE);
+    let k = c.byte(g::HARKONNEN_PLACE);
     if k != 0 {
         c.run(0x2dd3, 4)?;
         c.set_byte(g::SAL_FLAGS, 0);
@@ -6609,8 +6610,9 @@ fn scene_record_3551(c: &mut Ctx) -> Result<(), Bail> {
 /// or a map mode; the list 1F0Eh current, [0FBh] not negative): AX the
 /// time [0CE7Ah]. Past the hour 14h ([2Ah]) with events ([1190h]) and
 /// 32h since [0DC5Ah]: an event to tell (`loc_02ad8`, CF) starts its
-/// scene (`loc_03542`, stage 0); else by day the light dims (28h from
-/// 96h, 26h from 15Eh) and from 1C2h (or at night) the next event is
+/// scene (`loc_03542`, stage 0); else (not at a Harkonnen place, [2Bh])
+/// the light dims (28h from 96h, 26h from 15Eh) and from 1C2h (or at
+/// one) the next event is
 /// shown. At 14h exactly, outside a place and with [10h] 0, every 3E8h
 /// the time moves on 3B6h (`loc_01071`, `loc_0b17a`) and the clock steps
 /// again until [0EAh] is FFh. An event ([1191h]): its kind in [0EAh]
@@ -6689,9 +6691,9 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(g::STAGE, 0);
         return scene_record(c.m, 0x3542);
     }
-    let night = c.byte(g::IN_DIALOGUE);
+    let harkonnen = c.byte(g::HARKONNEN_PLACE);
     let ax = c.reg(AX);
-    if night == 0 {
+    if harkonnen == 0 {
         // The dimming steps: 28h from 96h, 26h from 15Eh, both below
         // the next.
         let (n, bl) = if ax < 0x96 {

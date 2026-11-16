@@ -1148,7 +1148,7 @@ pub fn chankiss(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn bring_portrait(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3af9)?;
     let mut c = Ctx::new(m);
-    if c.byte(g::IN_DIALOGUE) != 0 {
+    if c.byte(g::HARKONNEN_PLACE) != 0 {
         c.run(start, 3)?;
         return super::screen::copy_game_area_to_screen_fb2_to_fb1(c.m, 0xc43e);
     }
@@ -1279,7 +1279,7 @@ pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x43c9, 1)?;
         return super::draw::sub_c4dd(c.m, 0xc4dd);
     }
-    let d = c.byte(g::IN_DIALOGUE);
+    let d = c.byte(g::HARKONNEN_PLACE);
     c.run(0x43a2, 4 + if d == 0 { 1 } else { 2 })?;
     if d == 0 {
         c.call(0x38b4, 0x43d6)?;
