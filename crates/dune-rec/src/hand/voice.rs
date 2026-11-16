@@ -360,7 +360,7 @@ pub fn create_voc_file_name_from_bx(m: &mut Machine, start: u16) -> Result<(), B
     let bl = c.reg8(r8::BL);
     c.set_reg8(r8::AL, bl);
     c.call(code::HEX_DIGIT, 0xa8e0)?;
-    let (ea, b6, b4) = (c.byte(g::EVENT_KIND), c.byte(g::WORD_0006), c.byte(g::WORD_0004));
+    let (ea, b6, b4) = (c.byte(g::EVENT_KIND), (c.player().y as u8), (c.player().x as u8));
     let n = if (ea as i8) > 0 {
         4
     } else if b6 != 0x80 {
@@ -892,8 +892,8 @@ fn music_walk(c: &mut Ctx, write: bool) -> u32 {
         ax = if addr == g::COMM_CALLER { 1 } else { c.inc(W, ax) };
     }
     n += 5;
-    dx = c.word(4);
-    bx = c.word(6);
+    dx = c.player().x;
+    bx = c.player().y;
     c.cmp(B, bx & 0xff, 0x80);
     let at_place = bx & 0xff == 0x80;
     if at_place {

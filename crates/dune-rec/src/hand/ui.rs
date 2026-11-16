@@ -1061,7 +1061,7 @@ pub fn show_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(start, 5)?;
     } else {
-        let p = c.byte(6);
+        let p = c.player().y as u8;
         if p == 0x80 {
             c.run(start, 5)?;
             c.call(0x388d, 0x4406)?;
@@ -1321,7 +1321,7 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0xfd8);
     c.set_reg(DI, tab);
     c.set_reg(CX, 0x10);
-    let place = c.byte(7);
+    let place = (c.player().y >> 8) as u8;
     c.set_reg8(r8::DH, place);
     for i in 0..0x10u16 {
         let si = 0xfd8 + 0x10 * i;
@@ -1364,10 +1364,10 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, 0x0f - i);
         let _ = more;
     }
-    let p4 = c.byte(4);
+    let p4 = c.player().x as u8;
     let low = p4 <= 0x0c;
     c.run(0x1985, 4 + if low { 2 } else { 0 } + 3)?;
-    let w4 = c.word(4);
+    let w4 = c.player().x;
     let mut bx = w4 & 0xff;
     let di = c.reg(DI);
     if low {

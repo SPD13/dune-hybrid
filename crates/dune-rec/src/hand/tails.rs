@@ -352,7 +352,7 @@ pub fn script_13c8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x13c8, 8)?;
     let a = c.lods(B, CS);
-    c.set_byte(4, a as u8);
+    c.update_player(|p| p.x = p.x & 0xff00 | (a as u8) as u16);
     let si = c.reg(SI);
     c.set_word(0x4778, si);
     let n = c.lods(B, CS);
@@ -1098,9 +1098,9 @@ pub fn people_6dbb(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, s2);
         c.set_reg(CX, 0xb - k);
     }
-    let p = c.word(6);
+    let p = c.player().y;
     let hit = p == bx;
-    let v = c.word(4);
+    let v = c.player().x;
     let one = v & 0xff == 1;
     c.run(0x6ddb, 2 + if hit { 5 + (!one) as u32 + 3 } else { 0 } + 3)?;
     if hit {
@@ -1113,7 +1113,7 @@ pub fn people_6dbb(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg8(r8::AL, 2);
         }
         let ax = c.reg(AX);
-        c.set_word(4, ax);
+        c.update_player(|p| p.x = ax);
         c.set_byte(g::CURRENT_ROOM, ax as u8);
         c.set_byte(8, (ax >> 8) as u8);
     }
@@ -1324,7 +1324,7 @@ pub fn script_1707(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x173c, 7 + (ph != 0x48) as u32)?;
     let ax = c.word(0x4776);
     c.set_reg(AX, ax);
-    c.set_byte(4, ax as u8);
+    c.update_player(|p| p.x = p.x & 0xff00 | (ax as u8) as u16);
     c.set_byte(0x46e0, (ax >> 8) as u8);
     c.set_reg8(r8::AL, 0);
     c.set_byte(g::KEYBOARD_CURSOR, 0);
@@ -1364,7 +1364,7 @@ pub fn palace_plan_18ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x18f1, 3)?;
         return c.jump(0xd2e2);
     }
-    let ax = c.word(4);
+    let ax = c.player().x;
     let (al, ah) = (ax as u8, (ax >> 8) as u8);
     let go = ah == 0x20 && al != 1;
     c.run(0x18f1, 2 + 3 + if ah == 0x20 { 2 } else { 0 } + if go { 2 } else { 1 })?;
@@ -1556,7 +1556,7 @@ pub fn sky_380c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x1972);
     c.call(0x5e4f, 0x381e)?;
     let ax = c.reg(AX);
-    let (dx, w6) = (c.word(4), c.word(6));
+    let (dx, w6) = (c.player().x, c.player().y);
     let si = c.reg(SI);
     let p2 = c.word(si.wrapping_add(2));
     let al6 = w6 as u8;
@@ -1652,10 +1652,10 @@ pub fn sky_380c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     c.set_reg(CX, cx);
     c.run(0x3878, 9)?;
-    let w6 = c.word(6);
+    let w6 = c.player().y;
     c.set_reg(AX, w6);
     let a = w6.swap_bytes();
-    let w4 = c.word(4);
+    let w4 = c.player().x;
     let a = pure::xor(W, a, w4);
     let a = pure::inc(W, a);
     c.set_reg(AX, a);

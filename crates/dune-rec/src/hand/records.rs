@@ -121,7 +121,7 @@ pub fn sub_01e0(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn get_orni_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3a95)?;
     let mut c = Ctx::new(m);
-    let x_high = c.byte(g::BYTE_0005);
+    let x_high = (c.player().x >> 8) as u8;
     let far = x_high >= 0x20;
     c.run(start, if far { 7 } else { 5 })?;
     let (dx, bx) = if far { (0xca, 0x49) } else { (0x95, 0x39) };
@@ -139,8 +139,8 @@ pub fn get_map_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x407e)?;
     let mut c = Ctx::new(m);
     c.run(start, 8)?;
-    let x = c.word(g::WORD_0004);
-    let y = c.word(g::WORD_0006);
+    let x = c.player().x;
+    let y = c.player().y;
     c.cmp(B, y & 0xff, 0x80);
     if y & 0xff == 0x80 {
         let si = c.word(g::MAP_POSITION_RECORD);

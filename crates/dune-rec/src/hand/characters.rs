@@ -30,12 +30,13 @@ pub fn index(offset: u16) -> Option<usize> {
 /// A character.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Character {
-    /// +0: where it is (byte 0 a place's room, 1..; byte 1 its state,
-    /// set from DH when its place changes hands, `loc_06dbb`).
-    pub place: u16,
-    /// +2: the position of its place (compared with the player's [6]; 80h
-    /// in its low byte: at a location, whose index is the high byte).
-    pub position: u16,
+    /// +0, +2: where it is, as the player's [4], [6] ([`g::PLAYER_X`]):
+    /// a map position (x, y), or with 80h in y's low byte at the location
+    /// whose index is y's high byte, x's low byte then its room (1..) and
+    /// its high byte a state (set from DH when the place changes hands,
+    /// `loc_06dbb`).
+    pub x: u16,
+    pub y: u16,
     /// +4: where a click on it goes (`jmp [si+4]`, 923Dh).
     pub on_click: u16,
     /// +6.
@@ -62,8 +63,8 @@ impl Single for Character {
     fn from_bytes(b: &[u8]) -> Character {
         let w = |i: usize| b[i] as u16 | (b[i + 1] as u16) << 8;
         Character {
-            place: w(0),
-            position: w(2),
+            x: w(0),
+            y: w(2),
             on_click: w(4),
             word_06: w(6),
             joined_at: w(8),
@@ -76,7 +77,7 @@ impl Single for Character {
 
     fn to_bytes(&self) -> record_table::Bytes {
         let mut b = [0; record_table::MAX];
-        let words = [self.place, self.position, self.on_click, self.word_06, self.joined_at, self.left_at, self.word_0c];
+        let words = [self.x, self.y, self.on_click, self.word_06, self.joined_at, self.left_at, self.word_0c];
         for (k, v) in words.into_iter().enumerate() {
             b[2 * k..2 * k + 2].copy_from_slice(&v.to_le_bytes());
         }

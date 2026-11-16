@@ -8,12 +8,13 @@
 /// Game time (Cryogenic: `GameElapsedTime`): the low nibble is the time of
 /// day (16 slots a day), bits 4..6 select the sky's palette group.
 pub const GAME_TIME: u16 = 0x0002;
-/// Not understood yet: `get_map_position` returns the words at 4 and 6 as
-/// a position (DX, BX); `add_room_frame_task` checks byte 4 for 4 and byte
-/// 5 below 20h; `get_orni_position` byte 5 against 20h.
-pub const WORD_0004: u16 = 0x0004;
-pub const BYTE_0005: u16 = 0x0005;
-pub const WORD_0006: u16 = 0x0006;
+/// Where the player is (`hand/player.rs`): the map x, or at a location
+/// its room (low byte) and a state (high byte; `get_orni_position` tests
+/// it against 20h).
+pub const PLAYER_X: u16 = 0x0004;
+/// The map y; 80h in its low byte: at the location whose index is its
+/// high byte.
+pub const PLAYER_Y: u16 = 0x0006;
 /// Bit sets over the characters (bit = a character's number, its byte
 /// 0Eh): those ever spoken to (93EFh).
 pub const MET: u16 = 0x000e;

@@ -3081,7 +3081,7 @@ pub fn place_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if near {
         c.call(0x409a, 0x4e30)?;
         let zf = c.flag(ZF);
-        let six = c.byte(6);
+        let six = c.player().y as u8;
         let (si, dx) = (c.reg(SI), c.reg(DX));
         let d = c.word(si.wrapping_add(2)).wrapping_sub(dx).wrapping_add(4);
         let go = zf && six != 0x80 && d < 8;
@@ -6628,8 +6628,8 @@ fn ret_mouse(c: &mut Ctx) -> Result<(), Bail> {
 /// (3 at zoom 5 or up to 2).
 fn speed_4e8e(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x4e8e, 4)?;
-    let dx = c.word(4);
-    let bx = c.word(6);
+    let dx = c.player().x;
+    let bx = c.player().y;
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
     let h = c.travel().carry;

@@ -176,7 +176,7 @@ pub fn add_room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(0x39e6, 0x3a7f)?;
-    let place = c.word(g::WORD_0004);
+    let place = c.player().x;
     let (low, high) = (place & 0xff, place >> 8);
     let animated = low == 4 && high < 0x20;
     c.run(0x3a7f, if low != 4 { 4 } else if !animated { 6 } else { 8 })?;

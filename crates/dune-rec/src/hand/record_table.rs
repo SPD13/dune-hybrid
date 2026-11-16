@@ -78,10 +78,12 @@ pub enum Which {
     VoiceBuffers,
     /// 10h characters of 10h bytes at FD8h.
     Characters,
+    /// Where the player is, 4 bytes at DS:4.
+    Player,
 }
 
 impl Which {
-    pub const ALL: [Which; 17] = [
+    pub const ALL: [Which; 18] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
@@ -99,6 +101,7 @@ impl Which {
         Which::FontPen,
         Which::VoiceBuffers,
         Which::Characters,
+        Which::Player,
     ];
 
     pub fn name(self) -> &'static str {
@@ -120,6 +123,7 @@ impl Which {
             Which::FontPen => "font pen",
             Which::VoiceBuffers => "voice buffers",
             Which::Characters => "characters",
+            Which::Player => "player",
         }
     }
     /// Where the table starts in the game's data segment.
@@ -142,6 +146,7 @@ impl Which {
             Which::FontPen => 0xd82c,
             Which::VoiceBuffers => 0x3811,
             Which::Characters => 0x0fd8,
+            Which::Player => 0x0004,
         }
     }
     pub const fn size(self) -> u16 {
@@ -163,6 +168,7 @@ impl Which {
             Which::FontPen => 8,
             Which::VoiceBuffers => 8,
             Which::Characters => 0x10,
+            Which::Player => 4,
         }
     }
     pub const fn count(self) -> usize {
@@ -184,6 +190,7 @@ impl Which {
             Which::FontPen => 1,
             Which::VoiceBuffers => 2,
             Which::Characters => 0x10,
+            Which::Player => 1,
         }
     }
     fn end(self) -> u16 {
@@ -228,6 +235,7 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::FontPen => &mut n.font_pen,
         Which::VoiceBuffers => &mut n.voice_buffers,
         Which::Characters => &mut n.characters,
+        Which::Player => &mut n.player,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];

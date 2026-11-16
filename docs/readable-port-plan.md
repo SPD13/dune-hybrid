@@ -519,6 +519,17 @@ gone) go through it. Most ports still reach a record through SI
 (followed). Fields at +6, +0Ch and +0Eh are not understood yet.
 `characters:` in the output.
 
+Further reading of the listing named more of it: a character's byte
+0Eh is its number, its bit in four sets over the characters at DS:0Eh
+(`MET`, ever spoken to), 10h (`PARTY`, following the player: flag 40h,
+`joined_at` +8, `left_at` +0Ah), 12h (`PRESENT`, at the player's
+place) and 14h (`TALKED_HERE`, spoken to in this room). Its +0/+2
+(`x`, `y`) are where it is in the same form as the player's [4]/[6]: a
+map position, or with 80h in y's low byte the location y's high byte
+indexes (x's low byte then the room). The player's own pair is a table
+of one (`hand/player.rs`, `Ctx::player` / `update_player`; `player:`
+in the output).
+
 Left, needing names before any grouping: the story state (DS:0-FFh: [0]
 the random seed, [4]/[6] the player's place and position, [8]/[9] the
 room, [0Ah] event bits, [23h] the talker's dialogue stage, [2Ah] the

@@ -1096,8 +1096,8 @@ pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ct
             c.set_reg(SI, si);
         });
     }
-    let bx = c.word(6);
-    let dx = c.word(4);
+    let bx = c.player().y;
+    let dx = c.player().x;
     let place = bx & 0xff == 0x80 && dx >> 8 != 0x21;
     if !place {
         let n = 4 + 3 + if bx & 0xff == 0x80 { 3 } else { 0 } + 4 + 4 * 5 + 1;
@@ -1385,7 +1385,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if c.flag(pc::cpu::DF) {
         return Err(Bail);
     }
-    let (bx, dx) = (c.word(6), c.word(4));
+    let (bx, dx) = (c.player().y, c.player().x);
     let place = bx as u8 == 0x80;
     c.run(start, if place { 9 } else { 10 })?;
     let ds = c.sreg(DS);

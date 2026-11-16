@@ -115,7 +115,7 @@ pub fn sub_1053(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1053)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.update_character(0, |t| t.place = t.place & 0xff00 | 0x0a);
+    c.update_character(0, |t| t.x = t.x & 0xff00 | 0x0a);
     c.set_reg(SI, 0x1069);
     discover_list(&mut c)
 }
@@ -129,11 +129,11 @@ pub fn sub_10be(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let time = c.game_time();
     c.set_reg(AX, time);
     c.set_word(g::WORD_1154, time);
-    c.update_character(4, |t| t.place = 0x2006);
-    c.update_character(2, |t| t.place = 0x2008);
-    c.update_character(2, |t| t.position = 0x0180);
-    c.update_character(1, |t| t.place = t.place & 0xff00 | 0x0a);
-    c.update_character(1, |t| t.position = 0x0180);
+    c.update_character(4, |t| t.x = 0x2006);
+    c.update_character(2, |t| t.x = 0x2008);
+    c.update_character(2, |t| t.y = 0x0180);
+    c.update_character(1, |t| t.x = t.x & 0xff00 | 0x0a);
+    c.update_character(1, |t| t.y = 0x0180);
     c.set_word(g::WORD_1201, 0x0109);
     c.set_reg8(r8::AL, 0x14);
     c.call(code::INCREASE_CHARISMA_BY_AL, 0x10ec)?;

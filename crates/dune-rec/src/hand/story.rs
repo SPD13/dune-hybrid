@@ -145,7 +145,7 @@ pub fn sub_1011(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `mov byte [0FE8h], 9; ret` (101B).
 fn set_0fe8(c: &mut Ctx) -> Result<(), Bail> {
-    c.update_character(1, |t| t.place = t.place & 0xff00 | 9);
+    c.update_character(1, |t| t.x = t.x & 0xff00 | 9);
     c.ret()
 }
 
@@ -169,7 +169,7 @@ pub fn sub_11b3(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x11b3)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    c.update_character(6, |t| t.place = t.place & 0xff00 | 5);
+    c.update_character(6, |t| t.x = t.x & 0xff00 | 5);
     let v = c.byte(g::BYTE_11D0);
     let v = pure::add(B, v as u16, 0x0c) as u8;
     c.set_byte(g::BYTE_11D0, v);
@@ -394,8 +394,8 @@ pub fn go_to_phase_60(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x11db, 4)?;
     c.set_reg8(r8::DL, 2);
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    c.update_character(7, |t| t.place = dx);
-    c.update_character(7, |t| t.position = bx);
+    c.update_character(7, |t| t.x = dx);
+    c.update_character(7, |t| t.y = bx);
     c.ret()
 }
 
@@ -806,8 +806,8 @@ pub fn tick_472b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x40c3, 0x4b56)?;
     c.run(0x4b56, 3)?;
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    c.set_word(4, dx);
-    c.set_word(6, bx);
+    c.update_player(|p| p.x = dx);
+    c.update_player(|p| p.y = bx);
     c.ret()
 }
 
@@ -1425,14 +1425,14 @@ pub fn find_in_list_1190(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn reset_records_3127(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3127)?;
     let mut c = Ctx::new(m);
-    let bx = c.word(6);
+    let bx = c.player().y;
     let at = bx & 0xff == 0x80;
     c.run(start, if at { 14 } else { 11 })?;
     c.set_byte(0x476b, 0);
     c.set_byte(0x476a, 0);
     c.set_reg(AX, 0x7f80);
     for i in [15, 14, 13, 12] {
-        c.update_character(i, |t| t.position = 0x7f80);
+        c.update_character(i, |t| t.y = 0x7f80);
     }
     c.set_reg(BX, bx);
     if !at {
@@ -1440,7 +1440,7 @@ pub fn reset_records_3127(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let di = c.word(g::MAP_POSITION_RECORD);
     c.set_reg(DI, di);
-    let dx = c.word(4);
+    let dx = c.player().x;
     c.set_reg(DX, dx);
     c.set_reg(BP, 0x316e);
     c.call(code::FOR_EACH_TROOP_3127, 0x3157)?;
@@ -1451,7 +1451,7 @@ pub fn reset_records_3127(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x3157, 6)?;
         let (dx, bx) = (c.reg(DX), c.reg(BX));
-        c.update_character(13, |t| (t.place, t.position) = (dx, bx));
+        c.update_character(13, |t| (t.x, t.y) = (dx, bx));
         c.push(di);
         c.call(0x2318, 0x3169)?;
         c.run(0x3169, 2)?;
@@ -1726,7 +1726,7 @@ fn for_records_here(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx
     c.push(dx);
     c.set_reg(SI, 0x0fd8);
     c.set_reg(CX, 0x10);
-    let (y, x) = (c.word(6), c.word(4));
+    let (y, x) = (c.player().y, c.player().x);
     c.set_reg(BX, y);
     c.set_reg(DX, x);
     let mut tail = 0;
@@ -1766,7 +1766,7 @@ fn for_records_here(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx
             c.set_reg(SI, si);
             let cx = c.pop();
             c.set_reg(CX, cx);
-            let (y, x) = (c.word(6), c.word(4));
+            let (y, x) = (c.player().y, c.player().x);
             c.set_reg(BX, y);
             c.set_reg(DX, x);
         }
@@ -2677,7 +2677,7 @@ pub fn event_10b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1045)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.update_character(0, |t| t.place = t.place & 0xff00 | 5);
+    c.update_character(0, |t| t.x = t.x & 0xff00 | 5);
     c.call(0x101b, 0x104d)?;
     c.run(0x104d, 2)?;
     c.set_reg(AX, 0x10b);
@@ -3028,7 +3028,7 @@ pub fn start_task_176b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1781, 1)?;
     c.call(0xad5e, 0x1784)?;
     c.run(0x1784, 6)?;
-    let lo = c.byte(4);
+    let lo = c.player().x as u8;
     let hi = c.byte(0x46e0);
     let ax = (hi as u16) << 8 | lo as u16;
     c.set_reg(AX, ax);
@@ -3198,8 +3198,8 @@ pub fn set_current_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_conversation(|t| t.line_state = 0);
     c.set_byte(g::SKY_PALETTE_SET, 0);
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    c.set_word(4, dx);
-    c.set_word(6, bx);
+    c.update_player(|p| p.x = dx);
+    c.update_player(|p| p.y = bx);
     c.set_byte(8, (dx >> 8) as u8);
     c.set_reg8(r8::AL, 0x1c);
     c.mul8((bx >> 8) as u8);
@@ -3215,11 +3215,11 @@ pub fn set_current_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn event_280a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x110f)?;
     let mut c = Ctx::new(m);
-    let k = c.character(1).place as u8;
+    let k = c.character(1).x as u8;
     c.run(start, if k == 8 { 4 } else { 6 })?;
     if k != 8 {
-        c.update_character(1, |t| t.place = t.place & 0xff00 | 0x0a);
-        c.update_character(1, |t| t.position = 0x180);
+        c.update_character(1, |t| t.x = t.x & 0xff00 | 0x0a);
+        c.update_character(1, |t| t.y = 0x180);
     }
     c.set_reg(AX, 0x280a);
     note_event_at(&mut c)
@@ -3243,8 +3243,8 @@ pub fn event_105(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte(0x1141);
     let v = pure::inc(B, v as u16);
     c.set_byte(0x1141, v as u8);
-    c.update_character(1, |t| t.place = t.place & 0xff00 | 2);
-    c.update_character(1, |t| t.position = 0x180);
+    c.update_character(1, |t| t.x = t.x & 0xff00 | 2);
+    c.update_character(1, |t| t.y = 0x180);
     c.set_reg(AX, 0x105);
     note_pair_0(c.m, 0x29ee)
 }
@@ -3344,10 +3344,10 @@ pub fn start_phase_15(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 8)?;
     c.set_byte(g::PHASE_CHANGED_FLAG, 0);
     c.set_byte(g::GAME_PHASE, 0x15);
-    c.update_character(0, |t| t.position = t.position & 0x00ff | 1 << 8);
-    c.update_character(4, |t| t.place = 0x200b);
-    c.update_character(4, |t| t.position = 0x180);
-    c.update_character(1, |t| t.place = t.place & 0xff00 | 0x0a);
+    c.update_character(0, |t| t.y = t.y & 0x00ff | 1 << 8);
+    c.update_character(4, |t| t.x = 0x200b);
+    c.update_character(4, |t| t.y = 0x180);
+    c.update_character(1, |t| t.x = t.x & 0xff00 | 0x0a);
     c.set_byte(0xd5, 0xff);
     c.call(0x2090, 0x1099)?;
     c.run(0x1099, 3)?;
@@ -3712,8 +3712,8 @@ pub fn event_2b0a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (dx, bx, di) = (c.reg(DX), c.reg(BX), c.reg(DI));
     let dx = dx & 0xff00 | 3;
     c.set_reg(DX, dx);
-    c.update_character(7, |t| t.place = dx);
-    c.update_character(7, |t| t.position = bx);
+    c.update_character(7, |t| t.x = dx);
+    c.update_character(7, |t| t.y = bx);
     let ax = (c.byte(di) as u16) << 8 | c.byte(di.wrapping_add(1)) as u16;
     c.set_word(0xf2, ax);
     c.set_reg(AX, 0x2b0a);
@@ -4867,7 +4867,7 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(bx);
     c.push(dx);
     c.call(0x71b2, 0x1ff8)?;
-    let cur = c.word(6);
+    let cur = c.player().y;
     let bx = c.word_in(SS, c.reg(SP).wrapping_add(2));
     if bx != cur {
         c.run(0x1ff8, 5)?;
@@ -4882,7 +4882,7 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, d);
     let b = c.pop();
     c.set_reg(BX, b);
-    c.set_word(4, d);
+    c.update_player(|p| p.x = d);
     let al = d as u8;
     c.set_reg8(r8::AL, al);
     c.set_byte(g::CURRENT_ROOM, al);
@@ -5550,8 +5550,8 @@ fn travel_step(c: &mut Ctx) -> Result<(), Bail> {
     c.update_conversation(|t| t.scene_flags = 0xff);
     c.set_reg(BP, 0x401f);
     c.call(0xc097, 0x3780)?;
-    let dx = c.word(4);
-    let bx = c.word(6);
+    let dx = c.player().x;
+    let bx = c.player().y;
     let dh = (dx >> 8) as u8;
     c.run(0x3780, 4 + if dh < 0x21 { 3 + (dh == 0x20) as u32 } else { 0 } + 4)?;
     c.set_reg(DX, dx);
@@ -5702,12 +5702,12 @@ fn enter_room_at(c: &mut Ctx) -> Result<(), Bail> {
         return Err(Bail);
     }
     c.run(0x405a, if f & 0x80 != 0 { 8 } else { 10 })?;
-    c.set_word(4, dx);
+    c.update_player(|p| p.x = dx);
     let old = c.byte(g::CURRENT_ROOM);
     c.set_byte(g::CURRENT_ROOM, dx as u8);
     c.set_reg8(r8::AL, old);
     c.set_byte(0x0d, old);
-    c.set_word(6, bx);
+    c.update_player(|p| p.y = bx);
     c.cmp(B, f as u16, 0);
     if f & 0x80 != 0 {
         return c.ret();
@@ -5747,8 +5747,8 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xac30, 0x3f2e)?;
     c.run(0x3f2e, 1)?;
     c.call(0xa7a5, 0x3f31)?;
-    let dx = c.word(4);
-    let bx = c.word(6);
+    let dx = c.player().x;
+    let bx = c.player().y;
     let start_ops = |c: &mut Ctx| {
         let bp = c.pop();
         c.set_reg(BP, bp);
@@ -6003,7 +6003,7 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x37c4, 5)?;
         c.set_reg(AX, 0xffff);
-        let dx = c.word(4);
+        let dx = c.player().x;
         c.set_reg(DX, dx);
         c.call(0x3efe, 0x37d4)?;
         let ah = c.reg8(r8::AH);
@@ -6051,10 +6051,10 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn enemy_watch_4d06(c: &mut Ctx) -> Result<(), Bail> {
     let di = c.word(0x1150);
     let dx = c.word(di.wrapping_add(2));
-    let here = c.word(4);
+    let here = c.player().x;
     let ax = c.word(0x4733);
     let ah = (ax >> 8) as u8;
-    let bx = c.word(6);
+    let bx = c.player().y;
     let b4 = c.byte(di.wrapping_add(4));
     let bh = (bx >> 8) as u8;
     let n = if dx != here {
@@ -6140,7 +6140,7 @@ fn room_scene_39ec(c: &mut Ctx) -> Result<(), Bail> {
     let ax = c.reg(AX);
     c.push(ax);
     c.call(0x3ae9, 0x39f5)?;
-    let r = c.word(4);
+    let r = c.player().x;
     let mut n = 3u32;
     let mut redo = false;
     let mut sky = false;
@@ -6205,7 +6205,7 @@ fn room_scene_39ec(c: &mut Ctx) -> Result<(), Bail> {
 
 fn figures_3a24(c: &mut Ctx) -> Result<(), Bail> {
     let lit = c.byte(g::SKY_PALETTE_SET);
-    let r = c.byte(4);
+    let r = c.player().x as u8;
     if lit == 0 || r != 1 {
         c.run(0x3a24, if lit == 0 { 3 } else { 5 })?;
         c.cmp(B, lit as u16, 0);
@@ -6213,7 +6213,7 @@ fn figures_3a24(c: &mut Ctx) -> Result<(), Bail> {
             c.cmp(B, r as u16, 1);
         }
         c.call(0x39e6, 0x3a7f)?;
-        let ax = c.word(4);
+        let ax = c.player().x;
         let (al, ah) = (ax as u8, (ax >> 8) as u8);
         let go = al == 4 && ah < 0x20;
         c.run(0x3a7f, if al != 4 { 4 } else if !go { 6 } else { 8 })?;
