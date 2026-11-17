@@ -579,7 +579,7 @@ pub fn gfx_draw_1be2(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_09025`: the driver's function at 38C9h on the active framebuffer:
 /// 140h wide from (0, 92h - [4793h]), [4793h] high (CH = FFh), the image
-/// at [22FCh]; the top noted at [4782h].
+/// at [`g::TEXT_SHEET`]; the top noted at [4782h].
 pub fn gfx_call_38c9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9025)?;
     let mut c = Ctx::new(m);
@@ -592,7 +592,7 @@ pub fn gfx_call_38c9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, 0);
     c.set_reg8(r8::CH, 0xff);
     c.set_reg(DI, 0x140);
-    let si = c.word(0x22fc);
+    let si = c.word(g::TEXT_SHEET);
     c.set_reg(SI, si);
     let fb = c.screen_buffers().active;
     c.set_sreg(ES, fb);

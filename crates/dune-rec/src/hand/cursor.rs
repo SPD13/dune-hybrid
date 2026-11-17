@@ -22,8 +22,6 @@ mod code {
     pub const RECT_HOTSPOT: u16 = 0xe159;
 }
 
-/// The pointer to the current list of UI elements.
-const UI_ELEMENTS_PTR: u16 = 0x21da;
 /// One list of UI elements, and the extra points it comes with (x, y
 /// words, FFFFh at the end).
 const UI_ELEMENTS_WITH_POINTS: u16 = 0x201a;
@@ -77,7 +75,7 @@ pub fn current_ui_elements(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd41b)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let p = c.word(UI_ELEMENTS_PTR);
+    let p = c.word(g::UI_STACK_TOP);
     let list = c.word_in(SS, p); // [bp]: SS
     c.set_reg(BP, list);
     c.ret()
@@ -815,7 +813,7 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
                 c.m.cpu.ip = 0xd33a;
                 return Err(Bail);
             }
-            let si = c.word(0x21da);
+            let si = c.word(g::UI_STACK_TOP);
             let di = c.word(si);
             let bp = c.reg(BP);
             let lv = c.byte_in(SS, bp);
@@ -829,17 +827,17 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
                 break;
             }
             if lv < top {
-                let full = si == 0x21d6;
+                let full = si == g::UI_STACK_LAST;
                 c.run(0xd33a, 8 + if full { 0 } else { 2 })?;
                 c.set_reg(SI, si);
                 c.set_reg(DI, di);
                 c.set_reg8(r8::AL, lv);
                 c.cmp(B, lv as u16, top as u16);
-                c.cmp(W, si, 0x21d6);
+                c.cmp(W, si, g::UI_STACK_LAST);
                 if !full {
                     let s = c.add(W, si, 4);
                     c.set_reg(SI, s);
-                    c.set_word(0x21da, s);
+                    c.set_word(g::UI_STACK_TOP, s);
                 }
                 break;
             }
@@ -856,9 +854,9 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
             c.set_reg(AX, h);
             c.call(h, 0xd351)?;
             c.run(0xd351, 5)?;
-            let t = c.word(0x21da);
+            let t = c.word(g::UI_STACK_TOP);
             let t = c.sub(W, t, 4);
-            c.set_word(0x21da, t);
+            c.set_word(g::UI_STACK_TOP, t);
             let v = c.pop();
             c.set_reg(CX, v);
             let v = c.pop();
@@ -873,7 +871,7 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
     }
     if from <= 1 {
         c.run(0xd36d, 4)?;
-        let si = c.word(0x21da);
+        let si = c.word(g::UI_STACK_TOP);
         let bp = c.reg(BP);
         c.set_reg(SI, si);
         c.set_word(si, bp);
@@ -924,7 +922,7 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
     // D397h: the slots.
     c.run(0xd397, 11)?;
     c.set_byte(g::HOVERED_ITEM, 0xff);
-    let t = c.word(0x21da);
+    let t = c.word(g::UI_STACK_TOP);
     let l = c.word(t);
     let si = c.inc(W, l);
     c.set_reg(SI, si);

@@ -358,6 +358,13 @@ pub const TEXT_COLOUR: u16 = 0xdbe4;
 pub const MAP_CLICK_HANDLER: u16 = 0x2570;
 /// 80h while a transition runs.
 pub const TRANSITION_ACTIVE: u16 = 0xdce6;
+/// The stack of UI screens: 4-byte entries (a list of UI elements, its
+/// click handler) from here up to [`UI_STACK_LAST`]; `hand/screens.rs`.
+pub const UI_STACK: u16 = 0x21be;
+/// The stack's last entry (a list pushed there replaces it, 21D6h).
+pub const UI_STACK_LAST: u16 = 0x21d6;
+/// Points at the stack's current entry, the screen on top.
+pub const UI_STACK_TOP: u16 = 0x21da;
 /// The slot of the current UI list that shows the "more" mark (A0h),
 /// when the list has more items than its four slots (FFh for none;
 /// D3D5h, D3F9h); `item_place` puts it at A0h.
@@ -590,6 +597,10 @@ pub const TEXT_BOX: u16 = 0x1be2;
 /// The text box's flags (word 8): 80h while a text is up, the box then
 /// taking clicks (D57Eh); cleared when it is closed (`loc_098f5`).
 pub const TEXT_BOX_FLAGS: u16 = 0x1bea;
+/// The text box's pixels: a sheet in the text buffer the text is laid
+/// out into (4C60h, 9017h; or its 2A80h bytes moved up to end at A5BFh,
+/// A2D4h), blitted to the screen from it (9035h, 90ADh).
+pub const TEXT_SHEET: u16 = 0x22fc;
 /// The talking head's UI element's flags (word 8 of the element at
 /// [`HEAD_ORIGIN_X`]): 80h while it takes clicks (D53Ah), cleared with
 /// the text (`loc_098f5`, 98CEh).

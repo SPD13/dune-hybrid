@@ -480,7 +480,7 @@ pub fn skip_strings(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0908c`: when [0D83Ah] (AX) is past [4782h] and [479Eh] is 223Ch,
-/// the driver's blit (far [38CDh]) of [22FCh] at x 140h to the back
+/// the driver's blit (far [38CDh]) of [`g::TEXT_SHEET`] at x 140h to the back
 /// buffer ([0DBDAh]), 92h - [4793h] rows (CH FFh, BP D834h).
 pub fn blit_dialogue_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x908c)?;
@@ -503,7 +503,7 @@ pub fn blit_dialogue_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, 0);
     c.set_reg(CX, 0xff00 | rows & 0xff);
     c.set_reg(DI, 0x140);
-    let sheet = c.word(0x22fc);
+    let sheet = c.word(g::TEXT_SHEET);
     c.set_reg(SI, sheet);
     let back = c.screen_buffers().active;
     c.set_sreg(ES, back);
@@ -652,7 +652,7 @@ pub fn say_phrase_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// `loc_09046`: in the picture [22FCh] ([4793h] × [2240h] bytes; ES = DS)
+/// `loc_09046`: in the picture [`g::TEXT_SHEET`] ([4793h] × [2240h] bytes; ES = DS)
 /// each 0 next to a 0Fh (left, right, above, below; 140h a row) becomes
 /// F0h (08h with [0EAh] above 0). The 0Fh found by `repne scasb`, whose
 /// flags are returned at the end. Bails at entry for an empty picture.
@@ -672,7 +672,7 @@ pub fn outline_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, es);
     c.set_reg(DX, (size >> 16) as u16);
     c.set_reg(CX, size as u16);
-    let picture = c.word(0x22fc);
+    let picture = c.word(g::TEXT_SHEET);
     c.set_reg(DI, picture);
     let colour: u8 = if thin { 8 } else { 0xf0 };
     c.set_reg(AX, (colour as u16) << 8 | 0x0f);
@@ -4353,7 +4353,7 @@ fn book_8ff5(c: &mut Ctx) -> Result<(), Bail> {
     c.ret()
 }
 
-/// 900Bh: the text buffer 4C60h (5960h bytes) cleared, [22FCh] 4C60h,
+/// 900Bh: the text buffer 4C60h (5960h bytes) cleared, [`g::TEXT_SHEET`] 4C60h,
 /// `loc_0c085`; then the box at 1BE2h reset (8895h: [1C06h] the
 /// inverse of [0FBh]'s bit 7).
 fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
@@ -4369,7 +4369,7 @@ fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
     c.rep_counted(0xaa);
     c.run(0x9017, 4)?;
     c.set_reg(AX, 0x4c60);
-    c.set_word(0x22fc, 0x4c60);
+    c.set_word(g::TEXT_SHEET, 0x4c60);
     c.call(0xc085, 0x9022)?;
     // The `jmp`, then 8895h to its `ret`: 15 instructions.
     c.run(0x9022, 1 + 15)?;
@@ -4412,7 +4412,7 @@ pub fn dialogue_state_a172(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`g::TALKER`] 0Eh and up [0DC30h] = `loc_0456c` for the person [47E6h].
 /// Unless the map screen is in mode 1 or the person is where the player
 /// is: [47A4h] 0, resource 21h opened, `loc_0c21b` with 22E4h, the
-/// picture's 2A80h bytes moved up to end at A5BFh ([22FCh] their new
+/// picture's 2A80h bytes moved up to end at A5BFh ([`g::TEXT_SHEET`] their new
 /// start), the person's mark (`loc_05b55`), then with [`g::MAP_MODE`] 1
 /// meanwhile `loc_05b99` (22F4h, 46E3h), `loc_05b93`, `loc_0b6c3`,
 /// `loc_0c137`, `loc_05dce`, `loc_062fe` (SI the person); last
@@ -4450,7 +4450,7 @@ pub fn portrait_a28e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xc21b, 0xa2c1)?;
     c.run(0xa2c1, 8 + 0x2a80)?; // the `rep` iterations too
     // `std; rep movsb`: the picture moved up, from its end down.
-    let picture = c.word(0x22fc);
+    let picture = c.word(g::TEXT_SHEET);
     c.set_reg(SI, picture.wrapping_add(0x2a80));
     c.set_reg(CX, 0x2a80);
     c.set_reg(DI, 0xa5bf);
@@ -4464,7 +4464,7 @@ pub fn portrait_a28e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_flag(pc::cpu::DF, false);
     let moved = c.reg(DI).wrapping_add(1);
     c.set_reg(DI, moved);
-    c.set_word(0x22fc, moved);
+    c.set_word(g::TEXT_SHEET, moved);
     let person = c.word(0x47e6);
     c.set_reg(DI, person);
     c.push(person);

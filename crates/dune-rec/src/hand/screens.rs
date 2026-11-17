@@ -21,8 +21,8 @@ mod code {
     pub const DRAW_UI_ELEMENTS_LIST: u16 = 0xd1f2;
 }
 
-const TOP: u16 = 0x21da;
-const BOTTOM: u16 = 0x21be;
+const TOP: u16 = g::UI_STACK_TOP;
+const BOTTOM: u16 = g::UI_STACK;
 /// Bit 7: drawing for a transition; bit 0: redraw asked.
 const TRANSITION: u16 = g::TRANSITION_ACTIVE;
 /// The cursor's UI element (its sprite at +2).
