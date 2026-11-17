@@ -394,7 +394,7 @@ pub fn b18b(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0189a`: the room redrawn: directly (`draw_room_game_screen`)
 /// with [46D9h]; else by transition AL (DX 0), the screen copied
-/// (`loc_0c07c`), `loc_0ae04`, [0DC5Ah] the clock, then 17E6h.
+/// (`loc_0c07c`), `loc_0ae04`, [`g::LAST_ACTION_TIME`] the clock, then 17E6h.
 pub fn room_189a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x189a)?;
     let mut c = Ctx::new(m);
@@ -413,7 +413,7 @@ pub fn room_189a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x18b1, 3)?;
     let t = c.timer();
     c.set_reg(AX, t);
-    c.set_word(0xdc5a, t);
+    c.set_word(g::LAST_ACTION_TIME, t);
     c.jump(0x17e6)
 }
 

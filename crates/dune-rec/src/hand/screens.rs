@@ -134,8 +134,8 @@ pub fn ask_redraw(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0d454`: AX, BX = the place of item CL of the current list (its
-/// 4-byte table after the list's header); for CL = [DCE5h] (the text
-/// action item) AX = A0h and BX one of D423h, D429h, 0 by [DCE4h]'s sign.
+/// 4-byte table after the list's header); for CL = [`g::MORE_ITEM`] (the
+/// more mark) AX = A0h and BX one of D423h, D429h, 0 by [DCE4h]'s sign.
 /// CH = 0.
 pub fn item_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd454)?;
@@ -143,7 +143,7 @@ pub fn item_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let top = c.word(TOP);
     let list = c.word(top);
     let cl = c.reg8(r8::CL);
-    let special = c.byte(0xdce5);
+    let special = c.byte(g::MORE_ITEM);
     let text = cl == special;
     let k = c.byte(0xdce4) as i8;
     c.run(start, 6 + if !text { 10 } else if k < 0 { 5 } else if k > 0 { 7 } else { 8 })?;
@@ -207,7 +207,7 @@ fn set_cursor_sprite(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ct
             c.run(0xd63e, 1)?;
             c.call(0xd48a, 0xd641)?;
             c.run(0xd641, 2)?;
-            c.set_byte(0xdce7, 0xff);
+            c.set_byte(g::HOVERED_ITEM, 0xff);
             c.call(code::DRAW_MOUSE, 0xd649)?;
             c.run(0xd649, 1)?;
         }

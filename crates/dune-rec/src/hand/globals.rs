@@ -352,6 +352,18 @@ pub const TEXT_COLOUR: u16 = 0xdbe4;
 pub const MAP_CLICK_HANDLER: u16 = 0x2570;
 /// 80h while a transition runs.
 pub const TRANSITION_ACTIVE: u16 = 0xdce6;
+/// The slot of the current UI list that shows the "more" mark (A0h),
+/// when the list has more items than its four slots (FFh for none;
+/// D3D5h, D3F9h); `item_place` puts it at A0h.
+pub const MORE_ITEM: u16 = 0xdce5;
+/// The item of the current UI list under the cursor (FFh for none;
+/// `highlight_hovered_text_action_item`, D5DFh).
+pub const HOVERED_ITEM: u16 = 0xdce7;
+/// How many items the current UI list shows (D3DEh, D3FDh).
+pub const ITEM_COUNT: u16 = 0xdce8;
+/// The [`TIMER`] at the last click (D897h) or scene change (18B4h,
+/// 2E58h); the room view's waits count from it (`loc_02b2a`).
+pub const LAST_ACTION_TIME: u16 = 0xdc5a;
 /// The open video file's handle, 0 for none. (Cryogenic names it
 /// `IsAnimateMenuUnneeded`.)
 pub const HNM_FILE_HANDLE: u16 = 0x35a6;

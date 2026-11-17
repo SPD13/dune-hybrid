@@ -5407,7 +5407,7 @@ fn scene_flags(c: &mut Ctx, was: u8, map: bool) {
 }
 
 /// `loc_02e52`: the scene refreshed after a move: `scene_start`, the time
-/// noted ([0DC5Ah] = [0CE7Ah]); unless the scene took over ([47A7h]):
+/// noted ([`g::LAST_ACTION_TIME`] = [`g::TIMER`]); unless the scene took over ([47A7h]):
 /// travelling ([4735h] bit 7) a travel step (`loc_03723`); else outside a
 /// place ([8] not FFh) the head raised (`ui_head_animate_up`) unless
 /// [4774h]; at a place in the room mode the speaker [47AAh]'s phrase
@@ -5425,7 +5425,7 @@ fn refresh_at(c: &mut Ctx) -> Result<(), Bail> {
     let k = c.conversation().scene_count;
     let note = |c: &mut Ctx| {
         c.set_reg(AX, t);
-        c.set_word(0xdc5a, t);
+        c.set_word(g::LAST_ACTION_TIME, t);
         c.cmp(B, k as u16, 0);
     };
     if k != 0 {
@@ -6611,7 +6611,7 @@ fn scene_record_3551(c: &mut Ctx) -> Result<(), Bail> {
 /// `loc_02b2a`: the clock in the room view (nothing on [46D9h], [4774h]
 /// or a map mode; the list 1F0Eh current, [0FBh] not negative): AX the
 /// time [0CE7Ah]. Past the hour 14h ([2Ah]) with [`g::PENDING_EVENTS`] and
-/// 32h since [0DC5Ah]: an event to tell (`loc_02ad8`, CF) starts its
+/// 32h since [`g::LAST_ACTION_TIME`]: an event to tell (`loc_02ad8`, CF) starts its
 /// scene (`loc_03542`, stage 0); else (not at a Harkonnen place, [2Bh])
 /// the light dims (28h from 96h, 26h from 15Eh) and from 1C2h (or at
 /// one) the next event is
@@ -6649,7 +6649,7 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, t);
         return c.ret();
     }
-    let last = c.word(0xdc5a);
+    let last = c.word(g::LAST_ACTION_TIME);
     if h == 0x14 {
         let party = c.word(g::PARTY);
         let kind = c.byte(g::PLACE_KIND);
@@ -6661,7 +6661,7 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
         // The time moved on.
-        c.set_word(0xdc5a, last.wrapping_add(0x3b6));
+        c.set_word(g::LAST_ACTION_TIME, last.wrapping_add(0x3b6));
         c.call(0x1071, 0x2bc1)?;
         c.run(0x2bc1, 1)?;
         c.call(0xb17a, 0x2bc4)?;

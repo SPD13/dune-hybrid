@@ -475,7 +475,7 @@ pub fn dialogue_hit(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `highlight_hovered_text_action_item`: the hovered item CL of the
 /// current UI list (FFh none) found for the cursor (DX, BX) and, when it
-/// changes [0DCE7h], the old one drawn plain and the new one highlighted
+/// changes [`g::HOVERED_ITEM`], the old one drawn plain and the new one highlighted
 /// (`item_place`, `loc_0d48a` with bit 7 of AH), then the mouse. Fixed
 /// with [4774h] ([4775h]). In the dialogue list 1F0Eh outside the map
 /// modes: the speaker box 1BF0h (the speaker [47C4h]) or the speaker hit
@@ -577,7 +577,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                         break;
                     }
                     let cx = c.reg(CX).wrapping_add(1);
-                    let n = c.byte(0xdce8);
+                    let n = c.byte(g::ITEM_COUNT);
                     let more = (cx as u8) < n;
                     c.run(0xd568, if more { 5 } else { 6 })?;
                     c.set_reg(CX, cx);
@@ -681,7 +681,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                         break;
                     }
                     let cx = c.reg(CX).wrapping_add(1);
-                    let n = c.byte(0xdce8);
+                    let n = c.byte(g::ITEM_COUNT);
                     c.run(0xd5c7, 8)?;
                     let d = di.wrapping_add(0x0e);
                     c.set_reg(DI, d);
@@ -702,7 +702,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
     }
     // D5DDh: the change.
     let cl = c.reg8(r8::CL);
-    let old = c.byte(0xdce7);
+    let old = c.byte(g::HOVERED_ITEM);
     if cl == old {
         c.run(0xd5dd, 4 + 7)?;
         c.set_reg8(r8::AL, cl);
@@ -712,10 +712,10 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
     }
     c.run(0xd5dd, 5)?;
     c.set_reg8(r8::AL, cl);
-    c.set_byte(0xdce7, cl);
+    c.set_byte(g::HOVERED_ITEM, cl);
     c.set_reg8(r8::CL, old);
     c.call(0xdbb2, 0xd5ea)?;
-    let n = c.byte(0xdce8);
+    let n = c.byte(g::ITEM_COUNT);
     let cl = c.reg8(r8::CL);
     if cl & 0x80 != 0 || cl >= n {
         c.run(0xd5ea, if cl & 0x80 != 0 { 2 } else { 4 })?;
@@ -733,7 +733,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
         c.set_reg(AX, a);
     }
     let al = c.reg8(r8::AL);
-    let n = c.byte(0xdce8);
+    let n = c.byte(g::ITEM_COUNT);
     if al >= n {
         c.run(0xd5fc, 3)?;
         c.cmp(B, al as u16, n as u16);
@@ -778,8 +778,8 @@ pub fn install_ui_list_d338(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// a higher level are closed first (their handlers +2 called), one of a
 /// lower level is pushed above; its items enabled (bit 15 cleared) and
 /// item CL (below 5) marked (bit 7 of +3); then the panel's 5 slots
-/// drawn from the list (`loc_0d48a`; [0DCE4h] its count byte, [0DCE8h]
-/// the slots used, [0DCE5h] the one with the more mark A0h) and the
+/// drawn from the list (`loc_0d48a`; [0DCE4h] its count byte, [`g::ITEM_COUNT`]
+/// the slots used, [`g::MORE_ITEM`] the one with the more mark A0h) and the
 /// hover highlight redone at the mouse ([`highlight_hovered_text_action_item`]).
 pub fn install_ui_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd33a)?;
@@ -923,7 +923,7 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
     }
     // D397h: the slots.
     c.run(0xd397, 11)?;
-    c.set_byte(0xdce7, 0xff);
+    c.set_byte(g::HOVERED_ITEM, 0xff);
     let t = c.word(0x21da);
     let l = c.word(t);
     let si = c.inc(W, l);
@@ -936,8 +936,8 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
     c.set_reg(SI, si);
     c.xor(W, 0, 0);
     c.set_reg(CX, 0);
-    c.set_byte(0xdce8, 0);
-    c.set_byte(0xdce5, 0xff);
+    c.set_byte(g::ITEM_COUNT, 0);
+    c.set_byte(g::MORE_ITEM, 0xff);
     let mut cl = 0u8;
     loop {
         let si = c.reg(SI);
@@ -963,16 +963,16 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
             let v = c.or(B, cnt as u16, 0x80);
             c.set_byte(0xdce4, v as u8);
             c.set_reg(AX, 0xa0);
-            c.set_byte(0xdce5, cl);
+            c.set_byte(g::MORE_ITEM, cl);
         }
         let s = c.add(W, si, 4);
         c.set_reg(SI, s);
         let cx = c.reg(CX);
         c.push(cx);
         c.push(s);
-        let u = c.byte(0xdce8);
+        let u = c.byte(g::ITEM_COUNT);
         let u = c.inc(B, u as u16);
-        c.set_byte(0xdce8, u as u8);
+        c.set_byte(g::ITEM_COUNT, u as u8);
         c.call(0xd48a, 0xd3e5)?;
         let cx = c.word_in(SS, c.reg(SP).wrapping_add(2)).wrapping_add(1);
         let done = (cx as u8) >= 5;
@@ -997,10 +997,10 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
     c.cmp(B, cnt as u16, 0);
     if cnt != 0 {
         c.set_reg(AX, 0xa0);
-        c.set_byte(0xdce5, cl);
-        let u = c.byte(0xdce8);
+        c.set_byte(g::MORE_ITEM, cl);
+        let u = c.byte(g::ITEM_COUNT);
         let u = c.inc(B, u as u16);
-        c.set_byte(0xdce8, u as u8);
+        c.set_byte(g::ITEM_COUNT, u as u8);
     } else {
         c.xor(W, 0, 0);
         c.set_reg(AX, 0);

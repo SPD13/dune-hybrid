@@ -323,7 +323,7 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
     dispatch(c, ax, si, di, cx)
 }
 
-/// D893h on: a button is down (AX bits 0-3). [0DC5Ah] the time. With
+/// D893h on: a button is down (AX bits 0-3). [`g::LAST_ACTION_TIME`] the time. With
 /// the keyboard cursor ([4774h]) both buttons give `loc_01707`; else the
 /// left button (bit 0 or 2: SI + 0, else SI + 2 with AX halved) or the
 /// right one: the element under the cursor dispatched through the
@@ -333,7 +333,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
     c.run(0xd893, 4)?;
     let t = c.timer();
     c.set_reg(BP, t);
-    c.set_word(0xdc5a, t);
+    c.set_word(g::LAST_ACTION_TIME, t);
     c.cmp(B, kb as u16, 0);
     if kb != 0 {
         let both = (ax & 5) == 5;

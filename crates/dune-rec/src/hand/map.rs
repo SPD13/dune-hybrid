@@ -4343,7 +4343,7 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// ([`open_map_screen`]), or back: `loc_0d2bd`, `leave_map_screen`,
 /// [28E7h] = [28E8h], `loc_0b930`, the buttons 1C14h/1C22h back to 80h
 /// and drawn (`loc_0c097`, BP D75Ah), the transition 34h (`loc_0c108`),
-/// front buffer, `loc_0ae04`, [0DC5Ah] the time, the head up
+/// front buffer, `loc_0ae04`, [`g::LAST_ACTION_TIME`] the time, the head up
 /// ([`ui_head_animate_up`]). With [46D9h] set the code jumps to 2DB1h
 /// instead; the port leaves that to the original.
 pub fn toggle_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -4397,7 +4397,7 @@ fn toggle_map_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.run(0x18b1, 3)?;
     let t = c.timer();
     c.set_reg(AX, t);
-    c.set_word(0xdc5a, t);
+    c.set_word(g::LAST_ACTION_TIME, t);
     super::ui::ui_head_animate_up(c.m, 0x17e6)
 }
 
@@ -4427,12 +4427,12 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let e0 = c.word(g::SPRITE_LIST);
     if e0 == 0x194a {
-        let (t1, t0) = (c.timer(), c.word(0xdc5a));
+        let (t1, t0) = (c.timer(), c.word(g::LAST_ACTION_TIME));
         let t = t1.wrapping_sub(t0);
         if t >= 0x3e8 {
             c.run(start, 8)?;
             c.set_reg(DI, e0);
-            let (t1, t0) = (c.timer(), c.word(0xdc5a));
+            let (t1, t0) = (c.timer(), c.word(g::LAST_ACTION_TIME));
             let a = pure::sub(W, t1, t0);
             c.set_reg(AX, a);
             c.call(0xdbb2, 0x5c1c)?;
@@ -4449,7 +4449,7 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, n)?;
     c.set_reg(DI, e0);
     if e0 == 0x194a {
-        let (t1, t0) = (c.timer(), c.word(0xdc5a));
+        let (t1, t0) = (c.timer(), c.word(g::LAST_ACTION_TIME));
             let a = pure::sub(W, t1, t0);
         c.set_reg(AX, a);
     }
