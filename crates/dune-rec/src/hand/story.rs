@@ -926,9 +926,9 @@ pub fn place_1bec(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1c11, 3)?;
     let di = c.pop();
     c.set_reg(DI, di);
-    let b = c.byte(0x473b);
+    let b = c.byte(g::REDRAW);
     let b = pure::or(B, b as u16, 1);
-    c.set_byte(0x473b, b as u8);
+    c.set_byte(g::REDRAW, b as u8);
     c.ret()
 }
 
@@ -4445,8 +4445,8 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, 0x97cf);
         c.call(0xd323, 0x3565)?;
         c.run(0x3565, 3)?;
-        c.set_word(g::TEXT_PTR, 0);
-        c.set_word(0x1bf8, 0);
+        c.set_word(g::TEXT_BOX_FLAGS, 0);
+        c.set_word(g::HEAD_BOX_FLAGS, 0);
         return c.ret();
     }
     if st == 4 {
@@ -4459,8 +4459,8 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, 0x97cf);
         c.call(0xd323, 0x3586)?;
         c.run(0x3586, 3)?;
-        c.set_word(g::TEXT_PTR, 0);
-        c.set_word(0x1bf8, 0);
+        c.set_word(g::TEXT_BOX_FLAGS, 0);
+        c.set_word(g::HEAD_BOX_FLAGS, 0);
         return super::screens::panel_buttons(c.m, 0x2ffb);
     }
     let w = c.byte(g::KEYBOARD_CURSOR);
@@ -4892,9 +4892,9 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let al = d as u8;
     c.set_reg8(r8::AL, al);
     c.set_byte(g::CURRENT_ROOM, al);
-    let v = c.byte(0x473b);
+    let v = c.byte(g::REDRAW);
     let v = pure::or(B, v as u16, al as u16);
-    c.set_byte(0x473b, v as u8);
+    c.set_byte(g::REDRAW, v as u8);
     c.set_byte(g::HARKONNEN_PLACE, al);
     c.call(0x6144, 0x2013)?;
     c.run(0x2013, 1)?;
@@ -6461,7 +6461,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
         c.or(W, 0, 0);
         return clear_473b(c);
     }
-    let v = c.byte(0x473b);
+    let v = c.byte(g::REDRAW);
     c.run(0x1ba1, 3 + if v & 0x80 != 0 { 2 } else { 3 })?;
     c.set_reg(DI, di);
     c.or(W, di, di);
@@ -6526,7 +6526,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
 /// `loc_01bb2` reached by a jump: [473Bh] 0, `ret`.
 fn clear_473b(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x1bb2, 2)?;
-    c.set_byte(0x473b, 0);
+    c.set_byte(g::REDRAW, 0);
     c.ret()
 }
 
@@ -6572,8 +6572,8 @@ fn scene_record_3551(c: &mut Ctx) -> Result<(), Bail> {
         c.set_reg(BX, 0x97cf);
         c.call(0xd323, 0x3565)?;
         c.run(0x3565, 3)?;
-        c.set_word(g::TEXT_PTR, 0);
-        c.set_word(0x1bf8, 0);
+        c.set_word(g::TEXT_BOX_FLAGS, 0);
+        c.set_word(g::HEAD_BOX_FLAGS, 0);
         return c.ret();
     }
     if st == 4 {
@@ -6587,8 +6587,8 @@ fn scene_record_3551(c: &mut Ctx) -> Result<(), Bail> {
         c.set_reg(BX, 0x97cf);
         c.call(0xd323, 0x3586)?;
         c.run(0x3586, 3)?;
-        c.set_word(g::TEXT_PTR, 0);
-        c.set_word(0x1bf8, 0);
+        c.set_word(g::TEXT_BOX_FLAGS, 0);
+        c.set_word(g::HEAD_BOX_FLAGS, 0);
         return super::screens::panel_buttons(c.m, 0x2ffb);
     }
     let k = c.byte(g::KEYBOARD_CURSOR);

@@ -742,7 +742,7 @@ pub fn plan_0ed0(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0ef7, 1)?;
     c.call(0x98f5, 0x0efa)?;
     c.run(0x0efa, 4)?;
-    c.set_byte(0x1c06, 0x80);
+    c.set_byte(g::PICTURE_FLAGS, 0x80);
     c.set_reg(BP, 0x20c2);
     c.set_reg(BX, 0xeb9);
     c.jump(0xd338)
@@ -1104,9 +1104,9 @@ pub fn people_6dbb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let one = v & 0xff == 1;
     c.run(0x6ddb, 2 + if hit { 5 + (!one) as u32 + 3 } else { 0 } + 3)?;
     if hit {
-        let f = c.byte(0x473b);
+        let f = c.byte(g::REDRAW);
         let f = pure::or(B, f as u16, 0x80);
-        c.set_byte(0x473b, f as u8);
+        c.set_byte(g::REDRAW, f as u8);
         c.set_reg(AX, v);
         c.set_reg8(r8::AH, dh);
         if !one {
@@ -2187,7 +2187,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let map_ui = c.byte(g::MAP_INTERFACE);
     c.run(0x0d8e, 2 + 3 + 4 + 1)?;
     c.set_reg(AX, 0);
-    c.set_byte(0x473b, 0);
+    c.set_byte(g::REDRAW, 0);
     c.update_map_view(|t| t.changes = 0);
     if map_ui & 0x80 != 0 {
         c.call(0xdbb2, 0x0dad)?;
@@ -2685,8 +2685,8 @@ pub fn screen_2c9a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x96d8, 0x2cad)?;
     c.run(0x2cad, 6)?;
     c.set_reg(AX, 0);
-    c.set_word(g::TEXT_PTR, 0);
-    c.set_word(0x1bf8, 0);
+    c.set_word(g::TEXT_BOX_FLAGS, 0);
+    c.set_word(g::HEAD_BOX_FLAGS, 0);
     c.set_byte(g::SKY_PALETTE_SET, 0);
     c.set_reg(SI, 0xc0b6);
     c.call(0xda5f, 0x2cbe)?;

@@ -502,7 +502,7 @@ pub fn while_at_11d3(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_08770`: with [1954h] set, `loc_0878c` with [46F3h] cleared, then
-/// the text pointer cleared (registers kept).
+/// [`g::TEXT_BOX_FLAGS`] cleared (registers kept).
 pub fn redraw_8770(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8770)?;
     let mut c = Ctx::new(m);
@@ -516,7 +516,7 @@ pub fn redraw_8770(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_map_selection(|t| t.map_screen = 0);
     c.call(0x878c, 0x8782)?;
     c.run(0x8782, 2)?;
-    c.set_word(g::TEXT_PTR, 0);
+    c.set_word(g::TEXT_BOX_FLAGS, 0);
     c.call(code::RESTORE_REGS, 0x878b)?;
     c.run(0x878b, 1)?;
     c.ret()
@@ -557,7 +557,7 @@ pub fn gfx_draw_1be2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 7)?;
     let si = c.reg(SI);
     c.push(si);
-    let r = 0x1be2u16;
+    let r = g::TEXT_BOX;
     c.set_reg(SI, r);
     c.set_word(r + 8, 0x80);
     c.set_word(r + 0x0c, 0x7bed);
@@ -6482,7 +6482,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0x4f0c, 8)?;
-    c.set_word(0x1c06, 0x80);
+    c.set_word(g::PICTURE_FLAGS, 0x80);
     c.set_reg(AX, 0xdbec);
     c.push(0xdbec);
     c.call(0xca60, 0x4f27)?;

@@ -510,7 +510,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
             }
             at = 1;
         } else {
-            let f = c.byte(0x1bf8);
+            let f = c.byte(g::HEAD_BOX_FLAGS);
             if f & 0x80 != 0 {
                 c.run(0xd526, 8)?;
                 c.set_reg(DI, 0x1bf0);
@@ -594,15 +594,15 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                     at = 2;
                     continue;
                 }
-                let f = c.byte(g::TEXT_PTR);
+                let f = c.byte(g::TEXT_BOX_FLAGS);
                 if f & 0x80 == 0 {
                     c.run(0xd575, 5)?;
-                    c.set_reg(DI, 0x1be2);
+                    c.set_reg(DI, g::TEXT_BOX);
                     at = 6;
                     continue;
                 }
                 c.run(0xd575, 7)?;
-                c.set_reg(DI, 0x1be2);
+                c.set_reg(DI, g::TEXT_BOX);
                 c.set_reg(CX, 0);
                 c.call(0xd6fe, 0xd589)?;
                 if c.flag(CF) {
@@ -617,7 +617,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 at = if c.flag(CF) { 0 } else { 6 };
             }
             6 => {
-                let f = c.byte(0x1bf8);
+                let f = c.byte(g::HEAD_BOX_FLAGS);
                 if f & 0x80 == 0 {
                     c.run(0xd593, 2)?;
                     at = 2;

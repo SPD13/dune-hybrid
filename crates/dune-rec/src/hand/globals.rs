@@ -378,6 +378,11 @@ pub const SKY_PALETTE_SET: u16 = 0x46df;
 /// events set it), 80h while its call is on (`loc_00d8e` takes it at
 /// 0DD5h), 0 for none.
 pub const COMM_CALLER: u16 = 0x46d9;
+/// What the hour's update (`loc_01b5e`) has to redraw when it ends, in
+/// a location: 1..7Fh the room (1BB8h; set when a troop arrives there,
+/// 1C12h, or the player moves, 2009h, 83F7h), 80h the whole screen
+/// (1BD2h; something reaches the player, 6DE1h). Cleared at 1BB2h.
+pub const REDRAW: u16 = 0x473b;
 /// The talking head's zooms: the tick last seen, the start, the interval
 /// (Cryogenic: `TimeBetweenFaceZooms`).
 pub const HEAD_ZOOM_START: u16 = 0x476e;
@@ -519,8 +524,24 @@ pub const REACH: u16 = 0x1176;
 /// The character talking; its record is FD8h + 10h Â· it.
 pub const TALKER: u16 = 0x47c4;
 
-/// The text being shown (cleared when done).
-pub const TEXT_PTR: u16 = 0x1bea;
+/// The text box: a UI element (0Eh bytes: the rectangle x0, y0, x1, y1,
+/// the flags at +8, the sprite at +0Ah) set from the speech bubble's
+/// rectangle (`draw_speech_bubble`, 8F2Ch); the first the cursor tests
+/// in a dialogue (D57Bh).
+pub const TEXT_BOX: u16 = 0x1be2;
+/// The text box's flags (word 8): 80h while a text is up, the box then
+/// taking clicks (D57Eh); cleared when it is closed (`loc_098f5`).
+pub const TEXT_BOX_FLAGS: u16 = 0x1bea;
+/// The talking head's UI element's flags (word 8 of the element at
+/// [`HEAD_ORIGIN_X`]): 80h while it takes clicks (D53Ah), cleared with
+/// the text (`loc_098f5`, 98CEh).
+pub const HEAD_BOX_FLAGS: u16 = 0x1bf8;
+/// The flags (word 8) of the UI element at 1BFEh, the picture's (by its
+/// uses): 80h while a video plays there (4F1Ah), on the parchment
+/// (8FAFh) and in some scenes (0EFAh, 2980h); a click on it, when
+/// [`HEAD_BOX_FLAGS`] has 80h, is item 3 (D5A0h). Cleared with the text
+/// (`loc_098f5`).
+pub const PICTURE_FLAGS: u16 = 0x1c06;
 
 /// Set while the player is at a place the Harkonnens hold or occupy:
 /// counted up on entering one (`loc_0503c`, 5058h: its location's byte

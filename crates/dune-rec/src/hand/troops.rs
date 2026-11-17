@@ -1595,7 +1595,7 @@ pub fn drop_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let selected = c.map_selection().selected;
     c.run(start, if selected == 0 { 8 } else { 10 })?;
-    c.set_word(g::TEXT_PTR, 0);
+    c.set_word(g::TEXT_BOX_FLAGS, 0);
     c.update_map_selection(|t| t.panel = 0);
     c.set_byte(0x4c, 0);
     c.update_map_selection(|t| t.selected = 0);
@@ -1674,9 +1674,9 @@ pub fn update_troop_83bc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x83e2, 8 + hit as u32)?;
     c.set_reg8(r8::AL, want);
     if hit {
-        let b = c.byte(0x473b);
+        let b = c.byte(g::REDRAW);
         let b = pure::or(B, b as u16, 1);
-        c.set_byte(0x473b, b as u8);
+        c.set_byte(g::REDRAW, b as u8);
     }
     c.ret()
 }

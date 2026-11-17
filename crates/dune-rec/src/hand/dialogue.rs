@@ -40,7 +40,7 @@ pub fn step_phrase_ab84(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_096d8`: the character AX talks: `say_sentence` 10h while [`TALKING`] is one up;
-/// then the text pointer and [`TALKING`] cleared.
+/// then [`g::TEXT_BOX_FLAGS`] and [`TALKING`] cleared.
 pub fn talk_as(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x96d8)?;
     let mut c = Ctx::new(m);
@@ -52,7 +52,7 @@ pub fn talk_as(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x10);
     c.call(0x9702, 0x96e5)?;
     c.run(0x96e5, 3)?;
-    c.set_word(g::TEXT_PTR, 0);
+    c.set_word(g::TEXT_BOX_FLAGS, 0);
     c.set_byte(TALKING, 0);
     c.ret()
 }
@@ -88,13 +88,15 @@ fn say_with_mode_20(c: &mut Ctx) -> Result<(), Bail> {
 /// The phrases: words at -558Ah (AA76h), by number.
 const PHRASES: u16 = 0xaa76;
 
-/// `loc_098f5`: [1C06h], [1BF8h] and the text pointer cleared (AX 0).
+/// `loc_098f5`: the text box, the head and the picture stop taking clicks:
+/// [`g::PICTURE_FLAGS`], [`g::HEAD_BOX_FLAGS`], [`g::TEXT_BOX_FLAGS`]
+/// cleared (AX 0).
 pub fn clear_text_state(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x98f5)?;
     let mut c = Ctx::new(m);
     c.run(start, 5)?;
     c.set_reg(AX, 0);
-    for at in [0x1c06, 0x1bf8, g::TEXT_PTR] {
+    for at in [g::PICTURE_FLAGS, g::HEAD_BOX_FLAGS, g::TEXT_BOX_FLAGS] {
         c.set_word(at, 0);
     }
     c.ret()
@@ -1115,14 +1117,14 @@ fn close_box_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(SI, 0x1470);
     if on_map {
         // The map picture back under the box (the driver's far [391Dh]).
-        c.set_reg(BP, 0x1be2);
+        c.set_reg(BP, g::TEXT_BOX);
         c.set_reg(SI, 0x4c60);
         let es = c.screen_buffers().second;
         c.set_sreg(ES, es);
         c.interp(0x8ca9, 0x8cad)?;
         c.run(0x8cad, 3)?;
-        c.set_reg(SI, 0x1be2);
-        c.set_word(g::TEXT_PTR, 0);
+        c.set_reg(SI, g::TEXT_BOX);
+        c.set_word(g::TEXT_BOX_FLAGS, 0);
     }
     c.call(0xc446, 0x8cb8)?;
     let text = c.dialogue_text().shown;
@@ -1692,8 +1694,8 @@ pub fn close_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.set_reg(SI, 0x1bf0);
-    c.set_word(0x1bf8, 0);
-    c.set_word(0x1c06, 0);
+    c.set_word(g::HEAD_BOX_FLAGS, 0);
+    c.set_word(g::PICTURE_FLAGS, 0);
     c.call(0xc446, 0x98dc)?;
     c.run(0x98dc, 2)?;
     c.set_reg(SI, 0x1bf0);
@@ -1726,7 +1728,7 @@ pub fn redraw_dialogue_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let boxed = c.text_box().shown != 0;
     c.run(0x979f, if boxed { 4 } else { 2 })?;
     if boxed {
-        c.set_reg(SI, 0x1be2);
+        c.set_reg(SI, g::TEXT_BOX);
         c.call(0xc477, 0x97ac)?;
     }
     let text = c.dialogue_text().shown;
@@ -1932,7 +1934,7 @@ fn phrase_on_map_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) 
     c.set_byte(0x4722, 0);
     c.call(0x541f, 0x8137)?;
     c.run(0x8137, 2)?;
-    c.set_word(g::TEXT_PTR, 0);
+    c.set_word(g::TEXT_BOX_FLAGS, 0);
     c.ret()
 }
 
@@ -2319,7 +2321,7 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if state & 0x80 != 0 {
         c.run(0x980f, 6 + gauge as u32)?;
         c.set_reg(SI, speaker);
-        c.set_word(0x1c06, 0);
+        c.set_word(g::PICTURE_FLAGS, 0);
         if gauge {
             c.call(0x9673, 0x9858)?;
         }
@@ -2409,7 +2411,7 @@ fn line_end_9858(c: &mut Ctx) -> Result<(), Bail> {
         c.set_reg(AX, 0xc8);
         c.call(0xe3a0, 0x98a7)?;
         c.run(0x98a7, 2)?;
-        c.set_word(0x1c06, 0);
+        c.set_word(g::PICTURE_FLAGS, 0);
     }
     c.m.cpu.ip = 0x9858;
     Err(Bail)
@@ -4031,12 +4033,12 @@ fn show_text_88d2(c: &mut Ctx) -> Result<(), Bail> {
         let text = c.pop();
         c.set_reg(SI, text);
         c.update_text_box(|t| t.shown = 1);
-        c.set_byte(0x1c06, shown);
+        c.set_byte(g::PICTURE_FLAGS, shown);
         let ds = c.sreg(DS);
         c.push(ds);
         let es = c.pop();
         c.set_sreg(ES, es);
-        c.set_reg(DI, 0x1be2);
+        c.set_reg(DI, g::TEXT_BOX);
         c.set_reg(AX, 0);
         for _ in 0..4 {
             c.stos(W);
@@ -4257,7 +4259,7 @@ pub fn draw_speech_bubble(m: &mut Machine, start: u16) -> Result<(), Bail> {
         t.room = height.wrapping_sub(top).wrapping_sub(bottom);
     });
     let edge = if wide { 0x140 } else { right };
-    c.set_reg(DI, 0x1be2);
+    c.set_reg(DI, g::TEXT_BOX);
     for v in [x, y, edge, bottom] {
         c.set_reg(AX, v);
         c.stos(W);
@@ -4284,10 +4286,10 @@ pub fn draw_speech_bubble(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x8f7f, 18)?;
     c.save(&[SI]);
     c.set_reg(SI, 0x4c60);
-    c.set_reg(BP, 0x1be2);
+    c.set_reg(BP, g::TEXT_BOX);
     c.set_reg(AX, 0x80);
-    c.set_word_in(SS, 0x1bea, 0x80);
-    c.set_word(0x1c06, 0x80);
+    c.set_word_in(SS, g::TEXT_BOX_FLAGS, 0x80);
+    c.set_word(g::PICTURE_FLAGS, 0x80);
     c.set_word_in(SS, 0x1bee, 0x9468);
     let parchment = c.screen_buffers().second;
     c.set_sreg(ES, parchment);
@@ -4295,7 +4297,7 @@ pub fn draw_speech_bubble(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x8fbf, 1)?;
     c.call(0xc137, 0x8fc2)?;
     c.run(0x8fc2, 4)?;
-    c.set_reg(SI, 0x1be2);
+    c.set_reg(SI, g::TEXT_BOX);
     let screen = c.screen_buffers().front;
     c.set_sreg(ES, screen);
     c.set_reg(AX, 0x1c);
@@ -4312,8 +4314,8 @@ fn frame_8fd1(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x8fd1, 7)?;
     let si = c.reg(SI);
     c.push(si);
-    c.set_reg(SI, 0x1be2);
-    c.set_word(g::TEXT_PTR, 0x80);
+    c.set_reg(SI, g::TEXT_BOX);
+    c.set_word(g::TEXT_BOX_FLAGS, 0x80);
     c.set_word(0x1bee, 0x7bed);
     let v = c.word(0x1be4);
     let v = c.sub(W, v, 2); // the driver's far call sees these flags
@@ -4373,12 +4375,12 @@ fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x9022, 1 + 15)?;
     let shown = !c.byte(g::MAP_INTERFACE) & 0x80;
     c.set_reg8(r8::AL, shown);
-    c.set_byte(0x1c06, shown);
+    c.set_byte(g::PICTURE_FLAGS, shown);
     let ds = c.sreg(DS);
     c.push(ds);
     let v = c.pop();
     c.set_sreg(ES, v);
-    c.set_reg(DI, 0x1be2);
+    c.set_reg(DI, g::TEXT_BOX);
     c.set_reg(AX, 0);
     for _ in 0..4 {
         c.stos(W);
