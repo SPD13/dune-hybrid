@@ -434,7 +434,7 @@ pub fn intro_palace_equipment_room(m: &mut Machine, start: u16) -> Result<(), Ba
     c.call(more::GFX_CLEAR_ACTIVE_FRAMEBUFFER, 0x0975)?;
     c.run(0x0975, 3)?; // mov dx; mov word [12h], 0; mov bx
     c.set_reg(DX, 0x2002);
-    c.set_word(g::PRESENT, 0);
+    c.update_progress(|t| t.present = 0);
     c.set_reg(BX, 0x0180);
     draw_room(&mut c)
 }
@@ -444,7 +444,7 @@ pub fn intro_lady_jessica_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x098a)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?; // mov word [12h], 2; mov dx; jmp 097Eh; mov bx
-    c.set_word(g::PRESENT, 2);
+    c.update_progress(|t| t.present = 2);
     c.set_reg(DX, 0x2004);
     c.set_reg(BX, 0x0180);
     draw_room(&mut c)
@@ -703,7 +703,7 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xac14, 0x029d)?;
     c.run(0x029d, 3)?;
     c.set_byte(g::CINEMATIC, 0);
-    c.set_byte(0xc5, 0);
+    c.update_economy(|t| t.room_seat_shift = 0);
     c.call(0x0911, 0x02aa)?;
     c.run(0x02aa, 6)?;
     c.set_byte(g::VOICE_LANGUAGE, 0);

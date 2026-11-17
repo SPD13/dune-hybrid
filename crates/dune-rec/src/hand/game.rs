@@ -166,7 +166,7 @@ impl Troop {
 
 impl Troop {
     /// Byte 10h (word 10h's low byte): bit 80h sets it apart in the
-    /// tallies (`tally_yield`, `sum_troop_6155`) and raids; bit 10h marks
+    /// tallies (`add_troop_strength`, `sum_troop_6155`) and raids; bit 10h marks
     /// it for `troop_68da`.
     pub fn byte_10(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x10)
@@ -268,7 +268,7 @@ impl Troop {
 
 /// Charisma (byte [29h]).
 pub fn charisma(c: &mut Ctx) -> u8 {
-    c.byte(g::CHARISMA)
+    c.progress().charisma
 }
 pub fn set_charisma(c: &mut Ctx, v: u8) {
     c.set_byte(g::CHARISMA, v)
@@ -359,7 +359,7 @@ impl Location {
 
     /// Byte 12h: its spice. The top four bits scale its troops' rate
     /// (`troop_rate`); the harvest (`job_harvest`) lowers it; summed / 8
-    /// by `sum_locations_a8`.
+    /// by `estimate_field_spice`.
     pub fn spice(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x12)
     }

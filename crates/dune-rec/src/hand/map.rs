@@ -344,7 +344,7 @@ pub fn find_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_06144`: [0FDh] = `loc_060f8`'s AL with bit 0 (registers kept).
-pub fn note_60f8(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn note_battle_balance(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6144)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -357,7 +357,7 @@ pub fn note_60f8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let al = c.reg8(r8::AL);
     let al = pure::or(B, al as u16, 1) as u8;
     c.set_reg8(r8::AL, al);
-    c.set_byte(0xfd, al);
+    c.update_situation(|t| t.battle_balance = al);
     let es = c.pop();
     c.set_sreg(ES, es);
     c.call(code::RESTORE_REGS, 0x6154)?;
@@ -1029,7 +1029,7 @@ pub fn draw_map_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5bc6, 1)?;
     c.call(0xd03c, 0x5bc9)?;
     c.run(0x5bc9, 3)?;
-    let n = c.byte(g::JOINED);
+    let n = c.progress().joined;
     c.set_reg8(r8::AL, n);
     c.set_reg(AX, n as u16);
     c.call(0xe2e3, 0x5bd1)?;
@@ -1374,7 +1374,7 @@ pub fn show_message_0f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 4)?;
     let (si, al) = (c.reg(SI), c.reg8(r8::AL));
     c.update_map_selection(|t| t.shown = si);
-    c.set_byte(g::STAGE, al);
+    c.update_progress(|t| t.talk_reason = al);
     c.update_conversation(|t| t.pending = 0);
     c.call(0xc08e, 0x7bce)?;
     c.run(0x7bce, 2)?;
@@ -1948,7 +1948,7 @@ pub fn draw_location_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x6042, 3)?;
         return super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c);
     }
-    let f = c.byte(g::EVENT_FLAGS);
+    let f = c.progress().event_flags;
     let pre = f & 0x20 != 0 && al == 0;
     let n = 2 + 2 + if f & 0x20 != 0 { 2 } else { 0 } + if pre { 2 } else { 0 } + if pre { 0 } else { 1 };
     c.run(0x6042, n)?;
@@ -2828,9 +2828,9 @@ pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let a = pure::add(B, a, 0x28);
         c.set_reg8(r8::AL, a as u8);
         c.set_byte(di.wrapping_add(8), a as u8);
-        let v = c.byte(g::SIETCHES_FOUND);
+        let v = c.progress().sietches_held;
         let v = pure::dec(B, v as u16);
-        c.set_byte(g::SIETCHES_FOUND, v as u8);
+        c.update_progress(|t| t.sietches_held = v as u8);
         let si = c.reg(SI);
         c.push(si);
         c.call(0x40ae, 0x74d6)?;
@@ -3257,7 +3257,7 @@ pub fn clear_map_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_07bb9`: `loc_031f6` (AX kept), then [`show_message_0f`].
-pub fn show_message_after_31f6(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn comment_on_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7bb9)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -3830,7 +3830,7 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 3)?;
         return c.ret();
     }
-    if c.word(g::PARTY) == 0 {
+    if c.progress().party == 0 {
         c.run(start, 5)?;
         return c.ret();
     }
@@ -3875,7 +3875,7 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
             let si = c.reg(SI);
             let f = c.byte(si.wrapping_add(0x0a));
-            let ph = c.byte(g::GAME_PHASE);
+            let ph = c.progress().phase;
             let due = c.byte(si.wrapping_add(0x0b));
             if f & 0x80 == 0 {
                 c.run(0x4123, 3)?;
@@ -3913,13 +3913,13 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, side << 8 | v as u16);
             c.set_reg(CX, phrase);
             c.set_word(0x11f5, phrase);
-            c.set_byte(0xe1, side as u8);
+            c.update_situation(|t| t.sighting_side = side as u8);
             c.call(0x6231, 0x415d)?;
             c.run(0x415d, 4)?;
             let ax = c.reg(AX).wrapping_add(0x48);
             c.set_reg(AX, ax);
             c.set_word(0x11f3, ax);
-            c.set_byte(g::STAGE, 3);
+            c.update_progress(|t| t.talk_reason = 3);
             c.call(0x425b, 0x416b)?;
             for (at, to) in [(0x416bu16, 0x4944u16), (0x416e, 0xdbb2), (0x4171, 0x2efb), (0x4174, 0x2ffb), (0x4177, 0xd397)] {
                 c.run(at, 1)?;
@@ -4065,7 +4065,7 @@ pub fn location_ahead(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let si = c.reg(SI);
             let f = c.byte(si.wrapping_add(0x0a));
             if f & 0x80 != 0 {
-                let ph = c.byte(g::GAME_PHASE);
+                let ph = c.progress().phase;
                 let due = c.byte(si.wrapping_add(0x0b));
                 if ph < due {
                     skip(&mut c, 0x4211, 6)?;
@@ -4353,17 +4353,17 @@ pub fn toggle_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn toggle_map_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.run(at, pre + 1)?;
     c.call(0xdaa3, 0x186e)?;
-    let v = c.byte(g::MAP_INTERFACE);
+    let v = c.situation().map_interface;
     let nv = v.wrapping_neg();
     if nv & 0x80 != 0 {
         c.run(0x186e, 3)?;
         let r = c.neg(B, v as u16);
-        c.set_byte(g::MAP_INTERFACE, r as u8);
+        c.update_situation(|t| t.map_interface = r as u8);
         return open_map_screen(c.m, 0x5a1a);
     }
     c.run(0x186e, 3)?;
     let r = c.neg(B, v as u16);
-    c.set_byte(g::MAP_INTERFACE, r as u8);
+    c.update_situation(|t| t.map_interface = r as u8);
     c.call(0xd2bd, 0x187a)?;
     c.run(0x187a, 1)?;
     c.call(0x5adf, 0x187d)?;
@@ -4588,7 +4588,7 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x7498, 2 + 3)?;
     } else {
         c.run(0x7498, 7)?;
-        c.set_byte(g::ENDGAME_STAGE, 1);
+        c.update_economy(|t| t.endgame_stage = 1);
         for p in [0xff7u16, 0x1007] {
             let v = c.byte(p);
             let v = pure::and(B, v as u16, 0xfd);
@@ -6048,8 +6048,8 @@ pub fn zoom_legend(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x878c)?;
     let mut c = Ctx::new(m);
-    let t = c.byte(g::PLACE_KIND);
-    let b = c.byte(g::CURRENT_ROOM);
+    let t = c.progress().place_kind;
+    let b = c.progress().room;
     let plain = t != 0xff && (t < 0x20 || b < 3);
     let mut ax = 0x40a7u16;
     if plain {
@@ -6076,7 +6076,7 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.update_conversation(|t| t.pending = 0);
         c.set_reg(AX, ax);
     }
-    let ph = c.byte(g::GAME_PHASE);
+    let ph = c.progress().phase;
     let n2 = c.word(g::REACH);
     let late = ph >= 5;
     let mut n = 6 + if late { 2 } else { 0 } + 2;
@@ -6760,7 +6760,7 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     c.push(si);
     c.set_reg(AX, 0xffff);
-    for a in [0xcau16, 0xd0, 0xd6, 0xdc, 0xe2] {
+    for a in [g::NEAREST_PLACE, g::NEAREST_LOW_MAPPED, g::NEAREST_LOW_UNMAPPED, g::NEAREST_HIGH_MAPPED, g::NEAREST_HIGH_UNMAPPED] {
         c.set_word(a, 0xffff);
     }
     c.set_reg(SI, 0x100);
@@ -6790,20 +6790,20 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let d = if take_y { ya } else { cl as u16 };
         let k8 = c.byte(si.wrapping_add(8));
         let f = c.byte(si.wrapping_add(0x0a));
-        let hour = c.byte(g::GAME_PHASE);
+        let phase = c.progress().phase;
         let due = c.byte(si.wrapping_add(0x0b));
         let (bp, skip, nsel) = if k8 >= 0x28 {
-            if f & 0x80 != 0 { (0xe2u16, false, 5u32) } else { (0xdc, false, 7) }
+            if f & 0x80 != 0 { (g::NEAREST_HIGH_UNMAPPED, false, 5u32) } else { (g::NEAREST_HIGH_MAPPED, false, 7) }
         } else if f & 0x80 == 0 {
-            (0xd0, false, 5)
-        } else if hour < due {
-            (0xd0, true, 8)
+            (g::NEAREST_LOW_MAPPED, false, 5)
+        } else if phase < due {
+            (g::NEAREST_LOW_MAPPED, true, 8)
         } else {
-            (0xd6, false, 9)
+            (g::NEAREST_LOW_UNMAPPED, false, 9)
         };
         let slot = if skip { 0 } else { c.word_in(SS, bp) };
         let better = !skip && d < slot;
-        let best = c.word(0xca);
+        let best = c.situation().nearest.distance;
         let better2 = !skip && d < best;
         let n = 4 + 3 + xneg as u32 + 3 + yneg as u32 + 4 + take_y as u32 + nsel
             + if skip { 0 } else { 2 + 2 * better as u32 + 2 + 2 * better2 as u32 }
@@ -6826,16 +6826,16 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(CX, ax);
         }
         if k8 >= 0x28 {
-            c.set_reg(BP, 0xe2);
+            c.set_reg(BP, g::NEAREST_HIGH_UNMAPPED);
             if f & 0x80 == 0 {
-                c.set_reg(BP, 0xdc);
+                c.set_reg(BP, g::NEAREST_HIGH_MAPPED);
             }
         } else {
-            c.set_reg(BP, 0xd0);
+            c.set_reg(BP, g::NEAREST_LOW_MAPPED);
             if f & 0x80 != 0 {
-                c.set_reg8(r8::AL, hour);
+                c.set_reg8(r8::AL, phase);
                 if !skip {
-                    c.set_reg(BP, 0xd6);
+                    c.set_reg(BP, g::NEAREST_LOW_UNMAPPED);
                 }
             }
         }
@@ -6845,8 +6845,8 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_word_in(SS, bp.wrapping_add(2), si);
             }
             if better2 {
-                c.set_word(0xca, d);
-                c.set_word(0xcc, si);
+                c.update_situation(|t| t.nearest.distance = d);
+                c.update_situation(|t| t.nearest.record = si);
             }
         }
         let s = pure::add(W, si, 0x1c);

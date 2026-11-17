@@ -35,11 +35,11 @@ pub const TALKED_HERE: u16 = 0x0014;
 /// The spice in stock (harvests add to it, 702Ah; shipments to the
 /// Emperor take from it, 2524h).
 pub const SPICE: u16 = 0x00a0;
-/// The spice gained this phase: the stock plus what was shipped, less
-/// the stock when the phase began (1C84h, C046h).
-pub const SPICE_GAINED: u16 = 0x00a6;
-/// The previous phase's [`SPICE_GAINED`] (1C87h).
-pub const SPICE_GAINED_BEFORE: u16 = 0x00ae;
+/// The spice gained today: the stock plus what was paid out, less
+/// yesterday's stock (`new_day`, 1C84h; raised at C046h).
+pub const SPICE_INCOME: u16 = 0x00a6;
+/// The day before's [`SPICE_INCOME`] (1C87h).
+pub const SPICE_INCOME_BEFORE: u16 = 0x00ae;
 /// Four words: the amounts the player may ship to the Emperor, worked
 /// out from the demand (22B1h); the answer picks one (2509h).
 pub const SHIPMENT_OFFERS: u16 = 0x00b4;
@@ -63,9 +63,9 @@ pub const DEMANDS: u16 = 0x00c3;
 pub const SHIPMENT_DAYS_LEFT: u16 = 0x00cf;
 /// FFFFh once an amount is chosen (2510h), 0 once shipped (25D7h).
 pub const SHIPMENT_READY: u16 = 0x1158;
-/// The spice in stock when the phase began (1C7Ah).
-pub const PHASE_START_SPICE: u16 = 0x1170;
-/// The spice paid out this phase: shipped to the Emperor or paid to a
+/// The spice in stock at the last day's change (`new_day`, 1C7Ah).
+pub const SPICE_YESTERDAY: u16 = 0x1170;
+/// The spice paid out today: shipped to the Emperor or paid to a
 /// smuggler (`loc_02524`, 2528h; cleared at 1C70h).
 pub const SPICE_PAID: u16 = 0x1172;
 /// The day the shipment is due (2093h; put back by a good one,
@@ -128,8 +128,9 @@ pub const SMUGGLER_ITEM: u16 = 0x11f1;
 /// How many kinds of equipment the smugglers sell (counted up by two
 /// events, 1166h and 11C6h).
 pub const ITEMS_OFFERED: u16 = 0x1141;
-/// Sietches discovered.
-pub const SIETCHES_FOUND: u16 = 0x0027;
+/// The sietches found and held: one up when one is found (426Fh) or
+/// freed (6E40h), one down when the Harkonnens take one (74CEh).
+pub const SIETCHES_HELD: u16 = 0x0027;
 /// How many have joined you ([28h]).
 pub const JOINED: u16 = 0x0028;
 /// The player's charisma (0..C8h); every 4 points raise the troops'
@@ -137,8 +138,9 @@ pub const JOINED: u16 = 0x0028;
 pub const CHARISMA: u16 = 0x0029;
 /// Game phase (story progress), raised by `set_game_phase`.
 pub const GAME_PHASE: u16 = 0x002a;
-/// Cleared when the game phase changes.
-pub const PHASE_CHANGED_FLAG: u16 = 0x00ff;
+/// The days since [`GAME_PHASE`] last changed: 0 then, one up each
+/// day (`new_day`, 1C58h).
+pub const DAYS_IN_PHASE: u16 = 0x00ff;
 /// Story bits.
 pub const EVENT_FLAGS: u16 = 0x000a;
 /// The endgame's stage: 0 before it (no Emperor's shipments then,
@@ -578,9 +580,12 @@ pub const PAUSE_ALLOWED: u16 = 0xce80;
 pub const CHAPTER_VIDEO: u16 = 0x243e;
 /// The result bars: 6 targets, then 6 heights.
 pub const RESULT_BARS: u16 = 0xdd11;
-/// The map's statistics (`map_func`).
-pub const MAP_SHARE_A: u16 = 0x00a2;
-pub const MAP_SHARE_B: u16 = 0x00a4;
+/// The map's statistics (`map_func`, BFE3h): 1 + the percentage of map
+/// cells with bits 30h at 10h or 20h.
+pub const MAP_PERCENT_10_20: u16 = 0x00a2;
+/// The percentage of cells with bits 30h at 30h (an encounter there,
+/// 41A1h).
+pub const MAP_PERCENT_30: u16 = 0x00a4;
 /// The next IRUL subtitle (its frame, then its text).
 pub const SUBTITLE_NEXT: u16 = 0x3622;
 /// The bitmap fonts' rows.
@@ -633,8 +638,12 @@ pub const PICTURE_FLAGS: u16 = 0x1c06;
 /// dialogue lines redraw their text.
 pub const HARKONNEN_PLACE: u16 = 0x2b;
 
-/// The game's stage (64h to 73h: a wait after each line).
-pub const STAGE: u16 = 0x23;
+/// Why the scripts are asked for a line, the occasion they test: 1
+/// entering a room (3FAEh), 5 after it (3FCAh), 2 a join refused
+/// (95DEh), the advisor's comment on a troop (0Ah, 0Ch; 7BC2h), 64h + a
+/// character leaving the party (969Eh; 64h..73h: a wait after each
+/// line); 0 once told (95F2h).
+pub const TALK_REASON: u16 = 0x23;
 
 
 /// The video sprite list the dirty rect is redrawn with.
@@ -649,3 +658,236 @@ pub const KEYBOARD_CURSOR: u16 = 0x4774;
 
 /// The room the player is in at a place.
 pub const CURRENT_ROOM: u16 = 0xb;
+
+// The story state (DS:0..FFh): the variables the condition scripts
+// (CONDIT, `hand/script.rs`) can test, by their offset.
+
+/// A random word (`rand` at D84Eh, DDA3h), rotated a few bits at a time
+/// by its users for random choices (0BE8h, 0C40h, 71CAh).
+pub const RANDOM_BITS: u16 = 0x00;
+/// The room the player is walking into at a place (3FAAh), set before
+/// [`TALK_REASON`] 1 so the scripts can stop the move.
+pub const ENTERING_ROOM: u16 = 0x0c;
+/// The room left: the old [`CURRENT_ROOM`] (4060h).
+pub const PREVIOUS_ROOM: u16 = 0x0d;
+/// The game time since the speaker joined the party (its word 8, with
+/// its flag 40h) or left it (its word 0Ah) (950Fh).
+pub const SPEAKER_TIME_SINCE: u16 = 0x16;
+/// The speaker's character byte 0Fh (40h: in the party; 9502h).
+pub const SPEAKER_FLAGS: u16 = 0x18;
+/// 0 when a speaker starts (9417h), FFh once one of its lines is used
+/// (A092h).
+pub const SPEAKER_SAID_LINE: u16 = 0x19;
+/// The answers given in this talk with a smuggler or the Emperor's
+/// envoy: 0 at the start (2241h, 23A0h), one up per answer (2499h);
+/// the patience test (247Fh) and the offer picked (24FEh) use it. 1 at
+/// a room scene's start (35C4h), else 0 (35B6h).
+pub const ANSWER_COUNT: u16 = 0x1a;
+/// Join and leave requests since the last line: 0 at 947Ah, one up on
+/// each (95EEh, 953Fh).
+pub const REQUESTS: u16 = 0x1b;
+/// The high byte of the message being read (2931h), 0 once closed
+/// (29B8h); 0Ch calls `loc_0215f` (28E1h).
+pub const MESSAGE_PARAM: u16 = 0x24;
+/// One up the first time the player walks past a sietch's entrance
+/// (kind below 20h, byte 0Ah bit 10h; 3F8Eh).
+pub const SIETCHES_ENTERED: u16 = 0x25;
+/// FFh right after such a first walk in (3F9Ah), cleared on the next
+/// room move (3F37h).
+pub const FIRST_TIME_INSIDE: u16 = 0x26;
+/// The troop talked about (`describe_troop`, 31F6h, for the scripts):
+/// its location (word 4).
+pub const TOPIC_TROOP_PLACE: u16 = 0x2c;
+/// Its number (byte 0).
+pub const TOPIC_TROOP_ID: u16 = 0x2e;
+/// Its job (byte 3's low four bits).
+pub const TOPIC_TROOP_JOB: u16 = 0x2f;
+/// Its byte 3: the job and the state bits (40h: moving; 20h..22h the
+/// specialised).
+pub const TOPIC_TROOP_STATE: u16 = 0x30;
+/// Its word 12h's low four bits (also a phrase number at [11FFh]).
+pub const TOPIC_TROOP_WORD_12_LOW: u16 = 0x31;
+/// Its word 10h (bits 200h/100h pick the status line, 797Bh).
+pub const TOPIC_TROOP_WORD_10: u16 = 0x32;
+/// Its word 12h.
+pub const TOPIC_TROOP_WORD_12: u16 = 0x34;
+/// Its motivation as `troop_motivation` gives it (a join is refused
+/// below (100 - charisma) / 4, 95D6h).
+pub const TOPIC_TROOP_MOTIVATION: u16 = 0x36;
+/// The skill its job uses (byte 16h + job / 4).
+pub const TOPIC_TROOP_JOB_SKILL: u16 = 0x37;
+/// Its three skills (bytes 16h..18h). (3 bytes)
+pub const TOPIC_TROOP_SKILLS: u16 = 0x38;
+/// The needs it covers (byte 19h).
+pub const TOPIC_TROOP_NEEDS: u16 = 0x3b;
+/// Its size (byte 1Ah).
+pub const TOPIC_TROOP_SIZE: u16 = 0x3c;
+/// Its byte 19h before a change of skills (77FCh, 7CFAh); then the
+/// bits gained (7D90h).
+pub const TOPIC_TROOP_NEEDS_GAINED: u16 = 0x3d;
+/// The bits lost in that change (7D96h).
+pub const TOPIC_TROOP_NEEDS_LOST: u16 = 0x3e;
+/// 40h if need bit 40h was gained at [`LAST_PLACE`] (7DACh), else 0.
+pub const TOPIC_TROOP_GAINED_HERE: u16 = 0x3f;
+/// The days since its byte 14h (it joined or got its job).
+pub const TOPIC_TROOP_DAYS: u16 = 0x40;
+/// [`TOPIC_TROOP_AGE`] / 16.
+pub const TOPIC_TROOP_AGE_DAYS: u16 = 0x41;
+/// The game time since its word 0Ah (32CDh).
+pub const TOPIC_TROOP_AGE: u16 = 0x42;
+/// Its word 0Ch: the rate, or the destination while moving.
+pub const TOPIC_TROOP_WORD_0C: u16 = 0x44;
+/// Its word 0Eh (its low byte + E8h: the item phrase, [11F1h]).
+pub const TOPIC_TROOP_WORD_0E: u16 = 0x46;
+/// Its rate by age (`troop_rate_by_age`; 0 unless byte 3 is 0).
+pub const TOPIC_TROOP_RATE: u16 = 0x48;
+/// Its word 0Eh / [`TOPIC_TROOP_AGE`], rounded (32C1h).
+pub const TOPIC_TROOP_AVERAGE: u16 = 0x4a;
+/// FFh while the troop picked is farther than [1176h] (7C11h): the
+/// advisor doesn't go to it (971Eh).
+pub const TALK_OUT_OF_REACH: u16 = 0x4c;
+/// The place talked about (`describe_place`, 331Eh, for the scripts;
+/// its record at [11CEh]): its kind (byte 8).
+pub const TOPIC_PLACE_KIND: u16 = 0x4d;
+/// Its name: byte 1 low, byte 0 high.
+pub const TOPIC_PLACE_NAME: u16 = 0x4e;
+/// [`CHANCES`] by its byte 1.
+pub const TOPIC_PLACE_CHANCE: u16 = 0x50;
+/// Its byte 0Ah (80h unmapped, 2 Harkonnen held, 8 taken).
+pub const TOPIC_PLACE_STATUS: u16 = 0x51;
+/// Its spice (byte 12h).
+pub const TOPIC_PLACE_SPICE: u16 = 0x52;
+/// Bit 7 - k: need k not met by the troops' skills (from 46FEh,
+/// 3363h).
+pub const TOPIC_PLACE_UNMET_NEEDS: u16 = 0x53;
+/// Its byte 1Bh.
+pub const TOPIC_PLACE_BYTE_1B: u16 = 0x54;
+/// Its seven needs (bytes 14h..1Ah). (7 bytes)
+pub const TOPIC_PLACE_NEEDS: u16 = 0x55;
+/// The words 10h of its troops (not the Harkonnens') ORed together.
+pub const TOPIC_PLACE_TROOP_BITS_10: u16 = 0x5c;
+/// Their words 12h ORed together.
+pub const TOPIC_PLACE_TROOP_BITS_12: u16 = 0x5e;
+/// Its troops of ours (not the idle counted in
+/// [`TOPIC_PLACE_IDLE`]); 60h..92h counted by `count_place_troops`.
+pub const TOPIC_PLACE_OUR_TROOPS: u16 = 0x60;
+/// Its Harkonnen troops (byte 10h bit 80h).
+pub const TOPIC_PLACE_HARKONNEN_TROOPS: u16 = 0x61;
+/// Its troops by job, both sides (job 3, 7.. as job & 0Ch). (10h bytes)
+pub const TOPIC_PLACE_JOBS: u16 = 0x62;
+/// Its troops by word 12h's low four bits (71h is also job 0Fh's
+/// count). (10h bytes)
+pub const TOPIC_PLACE_TROOP_KINDS: u16 = 0x71;
+/// Troops of ours on their way there.
+pub const TOPIC_PLACE_OUR_INBOUND: u16 = 0x7e;
+/// Harkonnen troops on their way there.
+pub const TOPIC_PLACE_HARKONNEN_INBOUND: u16 = 0x7f;
+/// Those by job. (10h bytes)
+pub const TOPIC_PLACE_INBOUND_JOBS: u16 = 0x80;
+/// Its troops of ours without a job (byte 3 just 80h).
+pub const TOPIC_PLACE_IDLE: u16 = 0x90;
+/// [`TOPIC_PLACE_OUR_TROOPS`] + [`TOPIC_PLACE_OUR_INBOUND`].
+pub const TOPIC_PLACE_OUR_TOTAL: u16 = 0x91;
+/// [`TOPIC_PLACE_HARKONNEN_TROOPS`] +
+/// [`TOPIC_PLACE_HARKONNEN_INBOUND`].
+pub const TOPIC_PLACE_HARKONNEN_TOTAL: u16 = 0x92;
+/// Its Harkonnen troops' yields added (`troop_yield`, 3428h).
+pub const TOPIC_PLACE_HARKONNEN_STRENGTH: u16 = 0x94;
+/// Its other troops' yields added (3415h).
+pub const TOPIC_PLACE_OUR_STRENGTH: u16 = 0x96;
+/// A battle's Harkonnen strength lost (7326h, 7365h; 0 on arriving,
+/// 4037h).
+pub const BATTLE_HARKONNEN_LOSS: u16 = 0x98;
+/// Our strength lost (732Ch, 736Ch).
+pub const BATTLE_OUR_LOSS: u16 = 0x9a;
+/// The odds in 256 that our side strikes: 80h x larger / smaller (up
+/// to FCh), negated when the Harkonnens are stronger (`strike_odds`).
+pub const TOPIC_PLACE_STRIKE_ODDS: u16 = 0x9c;
+/// Random 0..3 on meeting a smuggler (2393h), one on (mod 4) per
+/// haggle (2474h); 10h once it breaks off (246Bh). The scripts pick
+/// its lines by it.
+pub const SMUGGLER_MOOD: u16 = 0x9e;
+/// The answer picked (1..3, 2496h; cleared at 2359h, A24Dh); 3 with
+/// spice on talking to character 3 (223Bh).
+pub const ANSWER: u16 = 0x9f;
+/// The spice of the places of kind 28h and up not taken, an eighth
+/// each, plus up to a sixteenth at random (1CE1h..1D0Bh).
+pub const FIELD_SPICE_ESTIMATE: u16 = 0xa8;
+/// Our troops' sizes added (C04Bh).
+pub const ARMY_SIZE: u16 = 0xaa;
+/// The Harkonnen troops' sizes added (C063h).
+pub const HARKONNEN_ARMY_SIZE: u16 = 0xac;
+/// How much [`SPICE_INCOME`] rose against the day before (else 0).
+pub const SPICE_INCOME_RISE: u16 = 0xb0;
+/// How much it fell (else 0).
+pub const SPICE_INCOME_FALL: u16 = 0xb2;
+/// The places the Harkonnens took (1F97h).
+pub const HARKONNEN_TAKEOVERS: u16 = 0xc4;
+/// Random on each arrival (4FC6h): its low four bits turn where the
+/// characters present stand (3DBEh).
+pub const ROOM_SEAT_SHIFT: u16 = 0xc5;
+/// The nearest place to the one talked about (`nearest_places`, 5274h):
+/// +0 the distance, +2 the record (FFFFh: none), +4 the direction
+/// (0..7). Then four more such slots by kind, with bytes between. (6 bytes)
+pub const NEAREST_PLACE: u16 = 0xca;
+/// The nearest of kind below 28h, mapped. (6 bytes)
+pub const NEAREST_LOW_MAPPED: u16 = 0xd0;
+/// Set on talking to character 1 (A1BFh), one up each day from 1
+/// (1C62h); FFh from phase 15h (1091h).
+pub const CHARACTER_1_DAYS: u16 = 0xd5;
+/// The nearest of kind below 28h, unmapped. (6 bytes)
+pub const NEAREST_LOW_UNMAPPED: u16 = 0xd6;
+/// 0: the message list shows the new ones, FFh: those read (2841h).
+pub const MESSAGES_READ_LIST: u16 = 0xdb;
+/// The nearest of kind 28h and up, mapped. (6 bytes)
+pub const NEAREST_HIGH_MAPPED: u16 = 0xdc;
+/// The side of the heading a place sighted is on, 0 left, 1 right
+/// (4156h).
+pub const SIGHTING_SIDE: u16 = 0xe1;
+/// The nearest of kind 28h and up, unmapped. (6 bytes)
+pub const NEAREST_HIGH_UNMAPPED: u16 = 0xe2;
+/// One up each time the player collapses in the desert and is brought
+/// back (37A3h); 0 on leaving a place (3FD2h).
+pub const DESERT_RESCUES: u16 = 0xe7;
+/// The subject (low six bits) of the message being read (2970h).
+pub const MESSAGE_SUBJECT: u16 = 0xe9;
+/// The number a sentence of event 1 says (299Dh, 2BFEh).
+pub const MESSAGE_NUMBER: u16 = 0xeb;
+/// Turned by job 10 (7683h).
+pub const JOB10_COUNTER: u16 = 0xec;
+/// The met troop's motivation, FFh with its state bit 10h (31EAh);
+/// 29h less per person asked (95A4h).
+pub const LEADER_MOTIVATION: u16 = 0xed;
+/// Bit by speaker: asked during this meeting (9590h; cleared at 31DBh).
+pub const LEADER_ASKED: u16 = 0xee;
+/// Added to a sentence's offset: 0, or 0Ah for character 0Ch with
+/// [10A7h] bit 10h (91A0h).
+pub const SENTENCE_BANK: u16 = 0xf0;
+/// A place's name (byte 1 low, byte 0 high) for message 2B0Ah (1F5Bh).
+pub const EVENT_PLACE_NAME: u16 = 0xf2;
+/// One up per step in the desert up to 14h (3F59h), one down per
+/// time slot, 0 below 10h (1B2Fh); from 10h the greeting is the one
+/// for coming back from the desert (918Ah).
+pub const DESERT_FATIGUE: u16 = 0xf4;
+/// One up per action 14 with character 1 (A17Ah); 0 as
+/// [`DESERT_FATIGUE`] drops (1B3Ah).
+pub const DESERT_REMARKS: u16 = 0xf5;
+/// 1 when the troops' march to the place is shown (4D2Eh).
+pub const MARCH_SHOWN: u16 = 0xf6;
+/// Bit by character (its byte 0Eh): characters 4, 5, 7 at the place
+/// talked about (0 at [`LAST_PLACE`]; 3385h).
+pub const TOPIC_PLACE_CHARACTERS: u16 = 0xf7;
+/// One up when `pick_attack_location` marks a target (1E92h), one
+/// down when the marked troops set out (1EEFh).
+pub const ATTACKS_PENDING: u16 = 0xf8;
+/// 8 up per call of `attack_clock_tick` (10h at 9551h); on its wrap the
+/// attacks step.
+pub const ATTACK_CLOCK: u16 = 0xf9;
+/// [4737h] after the troops' tick (6CCFh): while set, the waiting
+/// troops are looked at again (6CD9h).
+pub const TROOPS_RECHECK: u16 = 0xfa;
+/// `location_balance` (with bit 0) on entering a Harkonnen place
+/// (614Dh), 80h even; 0 on every entry (503Ch).
+pub const BATTLE_BALANCE: u16 = 0xfd;
+/// [`GAME_PHASE`] at the last day's change (1C4Bh).
+pub const LAST_DAY_PHASE: u16 = 0xfe;

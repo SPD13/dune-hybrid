@@ -423,7 +423,7 @@ pub fn ship_spice_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // over FFFFh) is left to the interpreter.
     let bx = c.reg(BX);
     let num = (bx as u32) << 8;
-    let den = c.word(g::SPICE_DEMANDED) as u32;
+    let den = c.economy().demanded as u32;
     if den == 0 || num / den > 0xffff {
         c.m.cpu.ip = 0x2573;
         return Err(Bail);
@@ -446,7 +446,7 @@ pub fn ship_spice_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg(AX, ax);
     let al = ax & 0xff;
-    let flags_bf = c.byte(g::SHIPMENT_FLAGS);
+    let flags_bf = c.economy().shipment_flags;
     let (rating, ah, n) = if al >= 0xc0 {
         (7u16, 0x40u16, 5)
     } else if al > 0x80 {
@@ -457,12 +457,12 @@ pub fn ship_spice_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
         (4, 8, 16 + (flags_bf & 8 != 0) as u32)
     };
     c.run(0x258d, n)?;
-    c.set_byte(g::SHIPMENT_RATIO, al as u8);
+    c.update_economy(|t| t.shipment_ratio = al as u8);
     c.set_reg(AX, (0x40 << 8) | al);
     c.set_reg(BX, 7);
     if rating < 5 {
         if flags_bf & 8 != 0 {
-            c.set_byte(g::SHIPMENT_RATIO, 0);
+            c.update_economy(|t| t.shipment_ratio = 0);
         }
     }
     c.set_reg(BX, rating);
@@ -470,12 +470,12 @@ pub fn ship_spice_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x25b3, 8)?;
     let ah = pure::or(B, ah, 0x80);
     c.set_reg(AX, (ah << 8) | al);
-    c.set_byte(g::SHIPMENT_FLAGS, ah as u8);
+    c.update_economy(|t| t.shipment_flags = ah as u8);
     c.set_reg(SI, g::SHIPMENT_DUE);
     let v = c.word(g::SHIPMENT_DUE);
     let v = pure::add(W, v, rating);
     c.set_word(g::SHIPMENT_DUE, v);
-    let bl = c.byte(g::DEMANDS);
+    let bl = c.economy().demands;
     c.set_reg(BX, (rating & 0xff00) | bl as u16);
     let bl = pure::shr1(B, bl as u16, 1);
     let bx = pure::and(W, bl, 3);
@@ -493,7 +493,7 @@ pub fn ship_spice_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let d = pure::sub(W, ax, v);
     let d = pure::neg(W, d);
     c.set_reg(AX, d);
-    c.set_byte(g::SHIPMENT_DAYS_LEFT, d as u8);
+    c.update_situation(|t| t.shipment_days_left = d as u8);
     c.set_word(g::SHIPMENT_READY, 0);
     c.call(0x2806, 0x25e0)?;
     c.run(0x25e0, 1)?;

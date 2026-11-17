@@ -342,9 +342,9 @@ pub fn mark_record_bit(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::CL, cl);
         let bit = pure::shl(B, 1, cl) as u8;
         c.set_reg8(r8::AL, bit);
-        let v = c.byte(0xf7);
+        let v = c.situation().place_characters;
         let v = pure::or(B, v as u16, bit as u16);
-        c.set_byte(0xf7, v as u8);
+        c.update_situation(|t| t.place_characters = v as u8);
     }
     c.ret()
 }

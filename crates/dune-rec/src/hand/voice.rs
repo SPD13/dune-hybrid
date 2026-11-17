@@ -360,7 +360,7 @@ pub fn create_voc_file_name_from_bx(m: &mut Machine, start: u16) -> Result<(), B
     let bl = c.reg8(r8::BL);
     c.set_reg8(r8::AL, bl);
     c.call(code::HEX_DIGIT, 0xa8e0)?;
-    let (ea, b6, b4) = (c.byte(g::EVENT_KIND), (c.player().y as u8), (c.player().x as u8));
+    let (ea, b6, b4) = (c.situation().event_kind, (c.player().y as u8), (c.player().x as u8));
     let n = if (ea as i8) > 0 {
         4
     } else if b6 != 0x80 {
@@ -866,7 +866,7 @@ fn music_walk(c: &mut Ctx, write: bool) -> u32 {
     let k = c.byte(g::KEYBOARD_CURSOR);
     c.cmp(B, k as u16, 0);
     n += 2;
-    let ph = c.byte(g::GAME_PHASE);
+    let ph = c.progress().phase;
     if k != 0 {
         c.cmp(B, ph as u16, 0x48);
         n += 2;
@@ -1638,7 +1638,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     let si = c.add(W, si, ax);
     c.set_reg(SI, si);
     c.call(0x9bee, 0x9e36)?;
-    let e = c.byte(g::EVENT_KIND);
+    let e = c.situation().event_kind;
     let skip = (e as i8) > 0;
     c.run(0x9e36, 3 + skip as u32)?;
     c.set_reg(SI, 0x4608);

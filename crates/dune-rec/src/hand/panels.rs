@@ -65,7 +65,7 @@ pub fn sub_0b21(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x0b45);
     c.call(code::REMOVE_FRAME_TASK, 0x0b30)?;
     let cinematic = c.byte(g::CINEMATIC);
-    let map_ui = c.byte(g::MAP_INTERFACE);
+    let map_ui = c.situation().map_interface;
     let skip = cinematic == 0 && map_ui & 0x80 != 0;
     c.run(0x0b30, if cinematic != 0 { 4 } else if skip { 5 } else { 6 })?;
     if !skip {
@@ -1108,7 +1108,7 @@ pub fn leave_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(target, at + 3)?;
         at += 3;
     }
-    let v = c.byte(g::HARKONNEN_PLACE);
+    let v = c.progress().harkonnen_place;
     c.run(0x18de, if v == 0 { 4 } else { 4 })?;
     c.set_byte(g::SKY_PALETTE_SET, 0);
     if v == 0 {

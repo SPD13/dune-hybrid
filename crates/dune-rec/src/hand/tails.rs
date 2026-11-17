@@ -194,10 +194,10 @@ pub fn intro_somebody_in_sietch(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.run(0x07c6, 4)?;
     c.set_reg(BX, 0x1080);
     c.set_reg(DX, 0x802);
-    c.set_word(g::PRESENT, 0x100);
+    c.update_progress(|t| t.present = 0x100);
     c.call(0x0981, 0x07d5)?;
     c.run(0x07d5, 3)?;
-    c.set_word(g::PRESENT, 0);
+    c.update_progress(|t| t.present = 0);
     c.set_reg8(r8::AL, 5);
     c.jump(0x099d)
 }
@@ -378,7 +378,7 @@ pub fn b18b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xadbe, 0xb18e)?;
     c.run(0xb18e, 4)?;
     c.update_clock(|k| k.start());
-    c.set_byte(g::BOOK, 0);
+    c.update_economy(|t| t.book = 0);
     c.set_byte(0x1c30, 0);
     c.call(0xca01, 0xb1a0)?;
     c.run(0xb1a0, 1)?;
@@ -554,7 +554,7 @@ pub fn book_aed6(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(to, ret)?;
     }
     c.run(0xaee7, 2)?;
-    c.set_byte(g::BOOK, 1);
+    c.update_economy(|t| t.book = 1);
     c.call(0xb2b9, 0xaeef)?;
     c.run(0xaeef, 1)?;
     c.call(0xd95b, 0xaef2)?;
@@ -882,7 +882,7 @@ pub fn intro_0826(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn dialogue_9719(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9719)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0x4c);
+    let f = c.topic_troop().out_of_reach;
     let neg = f & 0x80 != 0;
     c.run(0x9719, 2 + if neg { 1 } else { 4 })?;
     c.cmp(B, f as u16, 0);
@@ -947,12 +947,12 @@ pub fn globe_b96b(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// each, up to a 0) summed by their +1Ah byte: free ones (not bit 5 of
 /// +3) into [0ACh] when working (+10h bit 7), else into [0AAh] unless
 /// +3 bit 7.
-pub fn totals_c02e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn update_totals(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc02e)?;
     let mut c = Ctx::new(m);
     c.run(0xc02e, 1)?;
     c.call(0xbfe3, 0xc031)?;
-    let (spice, shipped, at_start, gained) = (c.word(g::SPICE), c.word(g::SPICE_PAID), c.word(g::PHASE_START_SPICE), c.word(g::SPICE_GAINED));
+    let (spice, shipped, at_start, gained) = (c.economy().spice, c.word(g::SPICE_PAID), c.word(g::SPICE_YESTERDAY), c.economy().income);
     let s = spice.wrapping_add(shipped);
     let (d, borrow) = s.overflowing_sub(at_start);
     let cap = if borrow { 0 } else { d };
@@ -964,11 +964,11 @@ pub fn totals_c02e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = if borrow { pure::xor(W, v, v) } else { v };
     c.set_reg(AX, v);
     if !below {
-        c.set_word(g::SPICE_GAINED, v);
+        c.update_economy(|t| t.income = v);
     }
     c.set_reg(AX, 0);
-    c.set_word(0xaa, 0);
-    c.set_word(0xac, 0);
+    c.update_economy(|t| t.army_size = 0);
+    c.update_economy(|t| t.harkonnen_army_size = 0);
     let mut si = 0x8aau16;
     c.set_reg(SI, si);
     loop {
@@ -990,14 +990,14 @@ pub fn totals_c02e(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::AL, al);
         if k3 & 0x20 == 0 {
             if k10 & 0x80 != 0 {
-                let v = c.word(0xac);
+                let v = c.economy().harkonnen_army_size;
                 let v = pure::add(W, v, al as u16);
-                c.set_word(0xac, v);
+                c.update_economy(|t| t.harkonnen_army_size = v);
             } else {
                 if k3 & 0x80 == 0 {
-                    let v = c.word(0xaa);
+                    let v = c.economy().army_size;
                     let v = pure::add(W, v, al as u16);
-                    c.set_word(0xaa, v);
+                    c.update_economy(|t| t.army_size = v);
                 }
             }
         }
@@ -1114,8 +1114,8 @@ pub fn people_6dbb(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let ax = c.reg(AX);
         c.update_player(|p| p.x = ax);
-        c.set_byte(g::CURRENT_ROOM, ax as u8);
-        c.set_byte(g::PLACE_KIND, (ax >> 8) as u8);
+        c.update_progress(|t| t.room = ax as u8);
+        c.update_progress(|t| t.place_kind = (ax >> 8) as u8);
     }
     let v = c.pop();
     c.set_reg(SI, v);
@@ -1135,7 +1135,7 @@ pub fn book_afc7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::ZF;
     entered(start, 0xafc7)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(g::BOOK);
+    let f = c.economy().book;
     if f & 2 != 0 {
         c.run(0xafc7, 3)?;
         return c.ret();
@@ -1175,14 +1175,14 @@ pub fn book_afc7(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xaff1, 3)?;
         return c.jump(0xb024);
     }
-    let f = c.byte(g::BOOK);
+    let f = c.economy().book;
     if f & 4 != 0 {
         c.run(0xaff1, 5 + 1)?;
         return c.ret();
     }
     c.run(0xaff1, 5 + 2)?;
     let f = pure::or(B, f as u16, 4);
-    c.set_byte(g::BOOK, f as u8);
+    c.update_economy(|t| t.book = f as u8);
     c.call(0x09f5, 0xb019)?;
     c.run(0xb019, 2)?;
     c.set_reg(DX, 0);
@@ -1245,7 +1245,7 @@ pub fn dialogue_941d(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn jessica_0f08(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0f08)?;
     let mut c = Ctx::new(m);
-    let f = c.word(g::PARTY);
+    let f = c.progress().party;
     if f & 0x80 == 0 {
         c.run(0x0f08, 3)?;
         return c.jump(0x0960);
@@ -1320,7 +1320,7 @@ pub fn script_1707(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1736, 2)?;
     c.set_reg(SI, 0x176b);
     c.call(0xda5f, 0x173c)?;
-    let ph = c.byte(g::GAME_PHASE);
+    let ph = c.progress().phase;
     c.run(0x173c, 7 + (ph != 0x48) as u32)?;
     let ax = c.word(0x4776);
     c.set_reg(AX, ax);
@@ -1333,7 +1333,7 @@ pub fn script_1707(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x1755, 1)?;
     c.call(0xb2be, 0x1758)?;
-    let f = c.byte(g::MAP_INTERFACE);
+    let f = c.situation().map_interface;
     if f & 0x80 == 0 {
         c.run(0x1758, 3)?;
         return c.jump(0x0fa7);
@@ -1435,7 +1435,7 @@ pub fn place_7c02(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let d = c.word(0x4752);
         c.run(0x7c11, 2 + 4 + if d != 0 { 3 } else { 0 } + 1)?;
         c.cmp(W, ax, shown);
-        c.set_byte(0x4c, 0xff);
+        c.update_topic_troop(|t| t.out_of_reach = 0xff);
         c.set_reg(DI, d);
         c.or(W, d, d);
         if d != 0 {
@@ -1491,7 +1491,7 @@ pub fn place_7c02(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (`loc_0c02e`, `loc_0bf26`), then six bytes at DD11h: [0A4h] / 2 + 1,
 /// [0A2h] / 2 + 1, [0A8h] / 16 + 1, [0A6h] / 16 + 1, [0ACh] / 256 + 1,
 /// [0AAh] / 256 + 1.
-pub fn results_bed7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn result_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{DS, ES};
     entered(start, 0xbed7)?;
     let mut c = Ctx::new(m);
@@ -1667,37 +1667,39 @@ pub fn sky_380c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(0xc2f2)
 }
 
-/// `loc_01c46`: a day passes. The days in the same phase [0FFh] (reset
-/// when [2Ah] changed, [0FEh] the last); `loc_01d66`, `loc_01e43`; [0D5h]
-/// up from 1; the spice: [`g::SPICE_GAINED`] = [`g::SPICE`] + [`g::SPICE_PAID`]
-/// - [`g::PHASE_START_SPICE`] (both taken, 0 below), its change against
-/// [`g::SPICE_GAINED_BEFORE`] (kept) as a gain [0B2h] or a loss [0B0h]; `loc_01cda`, the totals
+/// `loc_01c46`: a day passes. [`g::DAYS_IN_PHASE`] (reset when
+/// [`g::GAME_PHASE`] changed, [`g::LAST_DAY_PHASE`] the last);
+/// `loc_01d66`, `loc_01e43`; [`g::CHARACTER_1_DAYS`] up from 1; the
+/// spice: [`g::SPICE_INCOME`] = [`g::SPICE`] + [`g::SPICE_PAID`] -
+/// [`g::SPICE_YESTERDAY`] (both taken, 0 below), its change against
+/// [`g::SPICE_INCOME_BEFORE`] (kept) as a rise [`g::SPICE_INCOME_RISE`]
+/// or a fall [`g::SPICE_INCOME_FALL`]; `loc_01cda`, the totals
 /// (`loc_0c02e`, `loc_0bf26`); then with a random word (`loc_0e3cc`)
 /// each smuggler ([`g::SMUGGLERS`], those with byte 0 below 14h) met (bit 3 of +2)
 /// gets, for each of its five items out of stock but sold there (+9
 /// negative), a new stock of the next 2 random bits.
-pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::SS;
     entered(start, 0x1c46)?;
     let mut c = Ctx::new(m);
-    let ph = c.byte(g::GAME_PHASE);
-    let last = c.byte(0xfe);
+    let ph = c.progress().phase;
+    let last = c.situation().last_day_phase;
     c.run(0x1c46, 5 + (ph != last) as u32 + 2)?;
     c.set_reg8(r8::AL, ph);
     c.set_reg8(r8::AH, ph);
-    c.set_byte(0xfe, ph);
+    c.update_situation(|t| t.last_day_phase = ph);
     c.set_reg8(r8::AL, last);
     if ph != last {
-        c.set_byte(g::PHASE_CHANGED_FLAG, 0);
+        c.update_situation(|t| t.days_in_phase = 0);
     }
-    let v = c.byte(g::PHASE_CHANGED_FLAG);
+    let v = c.situation().days_in_phase;
     let v = pure::inc(B, v as u16);
-    c.set_byte(g::PHASE_CHANGED_FLAG, v as u8);
+    c.update_situation(|t| t.days_in_phase = v as u8);
     c.call(0x1d66, 0x1c5f)?;
     c.run(0x1c5f, 1)?;
     c.call(0x1e43, 0x1c62)?;
-    let d = c.byte(0xd5).wrapping_add(1);
-    let (shipped, spice, at_start, before) = (c.word(g::SPICE_PAID), c.word(g::SPICE), c.word(g::PHASE_START_SPICE), c.word(g::SPICE_GAINED_BEFORE));
+    let d = c.situation().character_1_days.wrapping_add(1);
+    let (shipped, spice, at_start, before) = (c.word(g::SPICE_PAID), c.economy().spice, c.word(g::SPICE_YESTERDAY), c.economy().income_before);
     let s = shipped.wrapping_add(spice);
     let (stock, borrow) = s.overflowing_sub(at_start);
     let stock = if borrow { 0 } else { stock };
@@ -1707,16 +1709,16 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = pure::inc(B, d.wrapping_sub(1) as u16);
     c.set_reg8(r8::AL, a as u8);
     if d >= 2 {
-        c.set_byte(0xd5, d);
+        c.update_situation(|t| t.character_1_days = d);
     }
     c.set_word(g::SPICE_PAID, 0);
     c.set_reg(BX, spice);
     let v = pure::add(W, shipped, spice);
-    c.set_word(g::PHASE_START_SPICE, spice);
+    c.set_word(g::SPICE_YESTERDAY, spice);
     let v = pure::sub(W, v, at_start);
     let v = if borrow { pure::xor(W, v, v) } else { v };
-    c.set_word(g::SPICE_GAINED, v);
-    c.set_word(g::SPICE_GAINED_BEFORE, v);
+    c.update_economy(|t| t.income = v);
+    c.update_economy(|t| t.income_before = v);
     let r = pure::sub(W, before, v);
     let (gain, lost) = if loss {
         let n = pure::neg(W, r);
@@ -1727,8 +1729,8 @@ pub fn day_1c46(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let _ = diff;
     c.set_reg(AX, gain);
     c.set_reg(BX, lost);
-    c.set_word(0xb2, gain);
-    c.set_word(0xb0, lost);
+    c.update_economy(|t| t.income_fall = gain);
+    c.update_economy(|t| t.income_rise = lost);
     c.call(0x1cda, 0x1ca0)?;
     c.run(0x1ca0, 1)?;
     c.call(0xc02e, 0x1ca3)?;
@@ -2184,7 +2186,7 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, 0);
         return c.ret();
     }
-    let map_ui = c.byte(g::MAP_INTERFACE);
+    let map_ui = c.situation().map_interface;
     c.run(0x0d8e, 2 + 3 + 4 + 1)?;
     c.set_reg(AX, 0);
     c.set_byte(g::REDRAW, 0);
@@ -2504,7 +2506,7 @@ pub fn night_4795(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, 0x50);
     c.call(0x121f, 0x47ad)?;
     c.run(0x47ad, 2)?;
-    c.set_byte(g::HEAD_ANIMATION_STEP, 0);
+    c.update_situation(|t| t.head_animation_step = 0);
     c.call(0x1797, 0x47b5)?;
     c.run(0x47b5, 3)?;
     c.set_reg8(r8::AL, 0x10);
@@ -2650,9 +2652,9 @@ pub fn count_0a1ed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let set = b & 0x80 != 0;
     c.run(0xa1ed, if set { 3 } else { 4 })?;
     if !set {
-        let v = c.byte(g::ENDGAME_STAGE);
+        let v = c.economy().endgame_stage;
         let v = pure::inc(B, v as u16);
-        c.set_byte(g::ENDGAME_STAGE, v as u8);
+        c.update_economy(|t| t.endgame_stage = v as u8);
     }
     c.ret()
 }
@@ -2674,7 +2676,7 @@ pub fn screen_2c9a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2c9a)?;
     let mut c = Ctx::new(m);
     c.run(0x2c9a, 3)?;
-    c.set_byte(g::HEAD_ANIMATION_STEP, 0);
+    c.update_situation(|t| t.head_animation_step = 0);
     c.set_reg8(r8::AL, 0x23);
     c.call(0xc2f2, 0x2ca4)?;
     c.run(0x2ca4, 1)?;
@@ -2710,7 +2712,7 @@ pub fn nothing_2540(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn by_day_a1f7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1f7)?;
     let mut c = Ctx::new(m);
-    let day = c.byte(g::GAME_PHASE);
+    let day = c.progress().phase;
     let steps: [(u16, u8); 3] = [(0x12f8, 0x14), (0x134f, 0x18), (0x1370, 0x30)];
     let k = steps.iter().position(|&(_, lim)| day < lim);
     // `mov bl`, then `mov ax` / `cmp` / `jb` per limit tried, the last

@@ -82,10 +82,22 @@ pub enum Which {
     Player,
     /// Six smugglers of 11h bytes at 10D8h.
     Smugglers,
+    /// The story's progress, the talk and the smuggler dealt with, 24h bytes at DS:8.
+    Progress,
+    /// The troop talked about, for the scripts, 21h bytes at DS:2Ch.
+    TopicTroop,
+    /// The place talked about, for the scripts, 13h bytes at DS:4Dh.
+    TopicPlace,
+    /// The troops at the place talked about and its battle, 3Dh bytes at DS:60h.
+    PlaceForces,
+    /// The spice, the trade and the Emperor's demands, 2Dh bytes at DS:9Dh.
+    Economy,
+    /// The places nearest, the desert walk, the messages read and the attacks, 36h bytes at DS:CAh.
+    Situation,
 }
 
 impl Which {
-    pub const ALL: [Which; 19] = [
+    pub const ALL: [Which; 25] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
@@ -105,6 +117,12 @@ impl Which {
         Which::Characters,
         Which::Player,
         Which::Smugglers,
+        Which::Progress,
+        Which::TopicTroop,
+        Which::TopicPlace,
+        Which::PlaceForces,
+        Which::Economy,
+        Which::Situation,
     ];
 
     pub fn name(self) -> &'static str {
@@ -128,6 +146,12 @@ impl Which {
             Which::Characters => "characters",
             Which::Player => "player",
             Which::Smugglers => "smugglers",
+            Which::Progress => "progress",
+            Which::TopicTroop => "topic troop",
+            Which::TopicPlace => "topic place",
+            Which::PlaceForces => "place forces",
+            Which::Economy => "economy",
+            Which::Situation => "situation",
         }
     }
     /// Where the table starts in the game's data segment.
@@ -152,6 +176,12 @@ impl Which {
             Which::Characters => 0x0fd8,
             Which::Player => 0x0004,
             Which::Smugglers => g::SMUGGLERS,
+            Which::Progress => 0x8,
+            Which::TopicTroop => 0x2c,
+            Which::TopicPlace => 0x4d,
+            Which::PlaceForces => 0x60,
+            Which::Economy => 0x9d,
+            Which::Situation => 0xca,
         }
     }
     pub const fn size(self) -> u16 {
@@ -175,6 +205,12 @@ impl Which {
             Which::Characters => 0x10,
             Which::Player => 4,
             Which::Smugglers => 0x11,
+            Which::Progress => 0x24,
+            Which::TopicTroop => 0x21,
+            Which::TopicPlace => 0x13,
+            Which::PlaceForces => 0x3d,
+            Which::Economy => 0x2d,
+            Which::Situation => 0x36,
         }
     }
     pub const fn count(self) -> usize {
@@ -198,6 +234,12 @@ impl Which {
             Which::Characters => 0x10,
             Which::Player => 1,
             Which::Smugglers => 6,
+            Which::Progress => 1,
+            Which::TopicTroop => 1,
+            Which::TopicPlace => 1,
+            Which::PlaceForces => 1,
+            Which::Economy => 1,
+            Which::Situation => 1,
         }
     }
     fn end(self) -> u16 {
@@ -244,6 +286,12 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::Characters => &mut n.characters,
         Which::Player => &mut n.player,
         Which::Smugglers => &mut n.smugglers,
+        Which::Progress => &mut n.progress,
+        Which::TopicTroop => &mut n.topic_troop,
+        Which::TopicPlace => &mut n.topic_place,
+        Which::PlaceForces => &mut n.place_forces,
+        Which::Economy => &mut n.economy,
+        Which::Situation => &mut n.situation,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];

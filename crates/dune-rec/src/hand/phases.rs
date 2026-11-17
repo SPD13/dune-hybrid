@@ -51,9 +51,9 @@ fn discover(c: &mut Ctx) -> Result<(), Bail> {
         c.count(7);
         return c.ret();
     }
-    let found = c.byte(g::SIETCHES_FOUND);
+    let found = c.progress().sietches_held;
     let found = c.inc(B, found as u16) as u8;
-    c.set_byte(g::SIETCHES_FOUND, found);
+    c.update_progress(|t| t.sietches_held = found);
     let id = c.word(di);
     c.cmp(W, id, location::PHASE_10_LOCATION);
     if id != location::PHASE_10_LOCATION {
@@ -138,9 +138,9 @@ pub fn sub_10be(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, 0x14);
     c.call(code::INCREASE_CHARISMA_BY_AL, 0x10ec)?;
     c.run(0x10ec, 3)?;
-    let bits = c.byte(g::EVENT_FLAGS);
+    let bits = c.progress().event_flags;
     let bits = pure::or(B, bits as u16, 0x10) as u8;
-    c.set_byte(g::EVENT_FLAGS, bits);
+    c.update_progress(|t| t.event_flags = bits);
     c.set_reg(SI, 0x10f7);
     discover_list(&mut c)
 }
@@ -161,7 +161,7 @@ pub fn sub_1139(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = pure::or(B, v as u16, 0x10);
     let v = pure::and(B, v, 0xfd) as u8;
     c.update_character(7, |t| t.flags = v);
-    let b = c.byte(g::JOINED);
+    let b = c.progress().joined;
     let b = pure::add(B, b as u16, 2) as u8;
     c.set_reg8(r8::AL, b);
     c.set_byte(g::JOINED_ENOUGH, b);
@@ -175,9 +175,9 @@ pub fn sub_1196(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1196)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let bits = c.byte(g::EVENT_FLAGS);
+    let bits = c.progress().event_flags;
     let bits = pure::or(B, bits as u16, 0x20) as u8;
-    c.set_byte(g::EVENT_FLAGS, bits);
+    c.update_progress(|t| t.event_flags = bits);
     c.set_reg(AX, 0x12fb);
     c.call(code::SUB_1771, 0x11a1)?;
     c.run(0x11a1, 2)?;

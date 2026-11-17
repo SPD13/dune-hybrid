@@ -243,7 +243,7 @@ Things that bit:
   the interrupt and comparing with the port's state. Its result flags no
   longer count there (`rec_settle`): the port goes on from the original's
   state, and flags something reads would differ in the many calls without
-  an interrupt. (`sum_locations_a8` showed this: the original's `cmp`
+  an interrupt. (`estimate_field_spice` showed this: the original's `cmp`
   before its next `call` left flags the readable port doesn't set.)
 - **Memory the original reads twice.** Read it again where the original
   does: `link_troop` marks slots in a table on the stack, and in a
@@ -297,7 +297,9 @@ the subsystem's boundary. Candidates, smallest boundary first:
   the 4770h block (talking heads, voice, 4770h-4783h and 47D4h-47EFh)
   first needs names for its bytes;
 - the map's projection and drawing (the HD renderer already models it):
-  its view (46E3h-46EEh) and its selection (46EFh-46FDh) done (below).
+  its view (46E3h-46EEh) and its selection (46EFh-46FDh) done (below);
+- the story state (DS:0-FFh, the condition scripts' variables): named
+  and six tables of one, done (below).
 
 The shadow check no longer applies inside such a subsystem. Two checks
 replace it:
@@ -530,13 +532,7 @@ indexes (x's low byte then the room). The player's own pair is a table
 of one (`hand/player.rs`, `Ctx::player` / `update_player`; `player:`
 in the output).
 
-Left, needing names before any grouping: the story state (DS:0-FFh: [0]
-the random seed, [4]/[6] the player's place and position, [8]/[9] the
-location the player is in (`PLACE_KIND`, `PLACE_INDEX`), [0Ah] event bits, [23h] the talker's dialogue stage, [2Ah] the
-game phase; [2Bh], once `IN_DIALOGUE`, is `HARKONNEN_PLACE`: the
-player is at a place the Harkonnens hold or occupy, from the listing:
-location bit 2 is what `sub_1dd7` sets when they take one) and
-1140h-11BFh. Other names found in the listing: [227Dh] `CINEMATIC`
+Other names found in the listing: [227Dh] `CINEMATIC`
 (was `MAP_VIEW_FLAG`: counted up while the intro, the end video and two
 scenes play full screen), [FBh] `MAP_INTERFACE`, [C6h] `BOOK`, [EAh]
 `EVENT_KIND`, [46D9h] `COMM_CALLER` (the character waiting to call on
@@ -618,9 +614,73 @@ More names from the listing (the scratch `named_raw.py` pattern: a raw
 - 197Ch `MAP_MARK` / `MAP_MARK_Y` (once `GLOBE_TILT_START` and local
   `MARK`/`CENTRE`), `OTHER_MARK` at 1980h swapped with it.
 
-Still unclear: [F4h] (up to 14h with each step walked, down over
-time), [9Eh]/[9Fh]/[1Ah] (the answer's state), [4722h] (a toggle of
-the map panel), [118Fh], [0DCE4h].
+### The story state (DS:0-FFh, in Rust with a mirror)
+
+DS:0-FFh is the condition scripts' variable space: a CONDIT operand
+below 80h names a variable by its one-byte offset (`hand/script.rs`).
+So the block mixes the lasting state with what the code works out only
+for the scripts to test. The byte map (every direct `[xxh]` in the
+listing with its routine) gave its layout, and every byte code touches
+now has a name in `globals.rs` (the "story state" section at its end):
+
+- 0: `RANDOM_BITS`, a random word rotated a few bits at a time; 2 the
+  clock; 4-7 the player (tables already).
+- 8-2Bh: the progress: the place and room (`ENTERING_ROOM`,
+  `PREVIOUS_ROOM`), the story bits, the character sets, the speaker
+  (`SPEAKER_TIME_SINCE`, `SPEAKER_FLAGS`, `SPEAKER_SAID_LINE`), the
+  answers and requests counted (`ANSWER_COUNT`, `REQUESTS`), the
+  smuggler talked to, `TALK_REASON` (once `STAGE`: why the scripts are
+  asked for a line, 1 entering a room, 2 a join refused, 64h + a
+  character leaving...), `SIETCHES_HELD` (once `SIETCHES_FOUND`: also
+  down when one is lost), the charisma and the phase.
+- 2Ch-4Ch: the troop talked about (`describe_troop`: `TOPIC_TROOP_*`,
+  its record's fields, age, rate, the change of its skills) and
+  `TALK_OUT_OF_REACH`.
+- 4Dh-9Ch: the place talked about (`describe_place`, once
+  `select_location`: `TOPIC_PLACE_*`): its fields, its needs; its
+  troops counted by side and job, there and on their way
+  (`count_place_troops`, `count_troop_at_place`), both sides'
+  strengths (`measure_place_forces`) and the odds of striking
+  (`strike_odds`: 80h x the larger / the smaller, negated when ours is
+  the smaller; its doc had it the other way); a battle's losses.
+- 9Dh-C9h: the economy: the smuggler's price, mood, the answer picked,
+  the spice and its daily figures (`SPICE_INCOME`, once
+  `SPICE_GAINED`: computed each day by `new_day`, not each phase, so
+  [1170h] is `SPICE_YESTERDAY`; `SPICE_INCOME_RISE`/`_FALL`, the doc
+  of `new_day` had them swapped), the map's and the armies'
+  statistics (`MAP_PERCENT_10_20`/`_30`, `ARMY_SIZE`,
+  `HARKONNEN_ARMY_SIZE`, `FIELD_SPICE_ESTIMATE`), the Emperor's
+  demands, the endgame, the book, the messages.
+- CAh-FFh: the situation: the five nearest-place slots of
+  `nearest_places` (distance, record, direction; by kind below or from
+  28h, mapped or not) with other bytes between them, the desert walk
+  (`DESERT_FATIGUE`, once the unclear [F4h], `DESERT_RESCUES`), the
+  message being read, the leader met, the attacks (`ATTACK_CLOCK`,
+  `ATTACKS_PENDING`), `DAYS_IN_PHASE` (once `PHASE_CHANGED_FLAG`: a
+  counter).
+
+The ports that touch them got names too (`count_place_troops`,
+`characters_at_place`, `attack_clock_tick`, `new_day`,
+`estimate_field_spice`, `comment_on_troop`, `skill_level_phrase`,
+`result_bars`, `update_totals`, `visit_smuggler`, ...), and troops.rs's
+local aliases of these addresses became the globals.
+
+Those six ranges are tables of one, each record at most 40h bytes
+(`hand/progress.rs`, `topic_troop.rs`, `topic_place.rs`,
+`place_forces.rs`, `economy.rs`, `situation.rs`; `Ctx::progress()` /
+`update_progress(f)` and so on; `progress:`, `topic troop:`, `topic
+place:`, `place forces:`, `economy:`, `situation:` gated by the suite).
+Each view reads its fields at their globals' offsets, so the names and
+the layout can't drift apart; 93h, C7h and FCh, which no code touches,
+are kept as raw bytes. `add_table.py` routed 419 accesses. `Ctx::rep`
+now tells the tables of the bytes a `rep movs`/`rep stos` writes (the
+clear of 60h-92h went through the CPU's string op unseen).
+
+Still unclear: [9Eh] `SMUGGLER_MOOD` and [D5h] `CHARACTER_1_DAYS`
+(which character 1 is), [54h] (a location's byte 1Bh), [31h] (a
+troop's word 12h low nibble), the kinds from 28h (sietches or
+Harkonnen places), [4722h] (a toggle of the map panel), [118Fh],
+[0DCE4h].
 
 ## Tools in place
 

@@ -95,7 +95,7 @@ pub fn ui_head_animate_up(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.cmp(B, blocked as u16, 0);
             return c.ret();
         }
-        let step = c.byte(g::HEAD_ANIMATION_STEP);
+        let step = c.situation().head_animation_step;
         if step == 0x0a {
             c.run(0x17e6, 5)?;
             c.cmp(B, 0, 0);
@@ -106,7 +106,7 @@ pub fn ui_head_animate_up(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.cmp(B, 0, 0);
         c.cmp(B, step as u16, 0x0a);
         let step = c.inc(B, step as u16) as u8;
-        c.set_byte(g::HEAD_ANIMATION_STEP, step);
+        c.update_situation(|t| t.head_animation_step = step);
         c.call(code::HEAD_STEP, 0x17fb)?;
         c.run(0x17fb, 2)?;
         c.set_reg(AX, 8);
@@ -242,7 +242,7 @@ pub fn sub_1ae7(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn sub_1dda(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1dda)?;
     let mut c = Ctx::new(m);
-    let (a, b, d, e) = (c.byte(g::SHIPMENT_FLAGS), c.word(g::PARTY), c.byte(g::CURRENT_ROOM), c.byte(g::ENDGAME_STAGE));
+    let (a, b, d, e) = (c.economy().shipment_flags, c.progress().party, c.progress().room, c.economy().endgame_stage);
     let checks = [a & 0x10 == 0, b & 8 != 0, d == 8, e != 0];
     let failed = checks.iter().position(|&f| f);
     c.run(start, match failed {
@@ -264,11 +264,11 @@ pub fn sub_1dda(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn sub_1dfe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1dfe)?;
     let mut c = Ctx::new(m);
-    let bits = c.word(0x0000);
+    let bits = c.word(g::RANDOM_BITS);
     let due = bits & 0x8000 != 0;
     c.run(start, 4)?; // jmp; rol; jae; then mov si, or ret
     let bits = c.m.cpu.shift(0, W, bits as u32, 1) as u16; // rol
-    c.set_word(0x0000, bits);
+    c.set_word(g::RANDOM_BITS, bits);
     if !due {
         return c.ret();
     }
@@ -724,7 +724,7 @@ pub fn ui_transition_to_map_interface(m: &mut Machine, start: u16) -> Result<(),
     entered(start, 0x5a3d)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_byte(g::MAP_INTERFACE, 0xff);
+    c.update_situation(|t| t.map_interface = 0xff);
     c.call(0xc13b, 0x5a45)?;
     c.interp(0x5a45, 0x5a49)?;
     c.run(0x5a49, 4)?;
@@ -1084,19 +1084,19 @@ pub fn show_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn head_blink(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1843)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(g::HEAD_ANIMATION_STEP);
+    let k = c.situation().head_animation_step;
     if k == 0 {
         c.run(start, 3)?;
         return c.ret();
     }
     c.run(start, 4)?;
-    c.set_byte(g::HEAD_ANIMATION_STEP, 9);
+    c.update_situation(|t| t.head_animation_step = 9);
     c.call(0x17be, 0x1852)?;
     c.run(0x1852, 2)?;
     c.set_reg(AX, 8);
     c.call(0xe387, 0x1858)?;
     c.run(0x1858, 2)?;
-    c.set_byte(g::HEAD_ANIMATION_STEP, 8);
+    c.update_situation(|t| t.head_animation_step = 8);
     redraw_head_panel(c.m, 0x17be)
 }
 
@@ -1148,7 +1148,7 @@ pub fn chankiss(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn bring_portrait(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3af9)?;
     let mut c = Ctx::new(m);
-    if c.byte(g::HARKONNEN_PLACE) != 0 {
+    if c.progress().harkonnen_place != 0 {
         c.run(start, 3)?;
         return super::screen::copy_game_area_to_screen_fb2_to_fb1(c.m, 0xc43e);
     }
@@ -1219,7 +1219,7 @@ fn head_and_shoulders_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(AX, 0x0f);
     c.call(0xc22f, 0x17aa)?;
     c.run(0x17aa, 5)?;
-    let h = c.byte(g::HEAD_ANIMATION_STEP);
+    let h = c.situation().head_animation_step;
     let al = c.add(B, 0x10, h as u16);
     c.set_reg(AX, al);
     c.set_reg(DX, 0x96);
@@ -1279,7 +1279,7 @@ pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x43c9, 1)?;
         return super::draw::sub_c4dd(c.m, 0xc4dd);
     }
-    let d = c.byte(g::HARKONNEN_PLACE);
+    let d = c.progress().harkonnen_place;
     c.run(0x43a2, 4 + if d == 0 { 1 } else { 2 })?;
     if d == 0 {
         c.call(0x38b4, 0x43d6)?;
@@ -1575,9 +1575,9 @@ pub fn panel_with_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 fn panel_with_head_at(c: &mut Ctx, at: u16) -> Result<(), Bail> {
     c.run(at, 2)?;
-    let v = c.byte(g::BOOK);
+    let v = c.economy().book;
     let v = c.or(B, v as u16, 2);
-    c.set_byte(g::BOOK, v as u8);
+    c.update_economy(|t| t.book = v as u8);
     c.call(0xc432, 0xaf4b)?;
     c.run(0xaf4b, 2)?;
     c.set_reg8(r8::AL, 0x32);

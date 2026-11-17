@@ -184,7 +184,7 @@ pub fn stc_on_user_input(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::RAND, 0xdda3)?;
     c.run(0xdda3, 2)?;
     let r = c.reg(AX);
-    c.set_word(0x0000, r);
+    c.set_word(g::RANDOM_BITS, r);
     c.call(code::PROCESS_FRAME_TASKS, 0xdda9)?;
     c.run(0xdda9, 4)?;
     let di = c.pop();

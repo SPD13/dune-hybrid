@@ -180,7 +180,7 @@ pub fn ui_stats_draw_ingame_day_and_charisma(m: &mut Machine, start: u16) -> Res
     c.run(0xbe04, 1)?;
     c.call(code::STRING_UPDATE_ORDINAL_SUFFIX, 0xbe07)?;
     c.run(0xbe07, 5)?;
-    let charisma = c.byte(g::CHARISMA);
+    let charisma = c.progress().charisma;
     c.set_reg(AX, charisma as u16);
     let half = pure::shr1(W, charisma as u16, 1);
     c.set_reg(AX, half);
@@ -343,8 +343,8 @@ pub fn map_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ds = c.pop();
     c.set_sreg(DS, ds);
     let bx = c.reg(BX);
-    c.set_word(g::MAP_SHARE_A, dx);
-    c.set_word(g::MAP_SHARE_B, bx);
+    c.update_economy(|t| t.map_percent_10_20 = dx);
+    c.update_economy(|t| t.map_percent_30 = bx);
     c.ret()
 }
 
@@ -698,7 +698,7 @@ pub fn stats_numbers(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(to, at + 6)?;
     }
     c.run(0xbf50, 2)?;
-    let v = c.word(0xaa);
+    let v = c.economy().army_size;
     c.set_reg(AX, v);
     stat_5_digits(c.m, 0xbf61)
 }

@@ -191,8 +191,8 @@ pub fn release_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // `rol ax,cl` of FFFEh (the 8086 rotates by the count mod 16).
     let mask = 0xfffeu16.rotate_left((bit & 0x1f) as u32 % 16);
     c.set_reg(AX, mask);
-    let v = c.word(g::PARTY) & mask;
-    c.set_word(g::PARTY, v);
+    let v = c.progress().party & mask;
+    c.update_progress(|t| t.party = v);
     c.ret()
 }
 
@@ -399,7 +399,7 @@ pub fn sentence_offset(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, 6);
         c.call(0xe3b7, 0x995c)?;
         c.run(0x995c, 3)?;
-        let bp = c.reg(AX).wrapping_add(c.word(0xf0));
+        let bp = c.reg(AX).wrapping_add(c.situation().sentence_bank);
         c.set_reg(BP, bp);
         return c.ret();
     }
@@ -589,7 +589,7 @@ pub fn start_speaker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x940c, 4)?;
     c.update_conversation(|t| t.phrase_resume[0] = 0);
     c.update_conversation(|t| t.mode = 0x80);
-    c.set_byte(0x19, 0);
+    c.update_progress(|t| t.speaker_said_line = 0);
     c.ret()
 }
 
@@ -664,7 +664,7 @@ pub fn outline_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if size as u16 == 0 {
         return Err(Bail);
     }
-    let thin = c.byte(g::EVENT_KIND) as i8 > 0;
+    let thin = c.situation().event_kind as i8 > 0;
     c.run(start, 11 + thin as u32)?;
     let ds = c.sreg(DS);
     c.push(ds);
@@ -719,7 +719,7 @@ pub fn speaker_text_setup(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9f40)?;
     let mut c = Ctx::new(m);
     let talker = c.conversation().talker;
-    let k = c.byte(g::ENDGAME_STAGE);
+    let k = c.economy().endgame_stage;
     let sums = talker == 2 && k == 4;
     c.run(start, if talker != 2 { 3 } else if !sums { 5 } else { 8 })?;
     c.set_reg(AX, talker);
@@ -781,7 +781,7 @@ pub fn start_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, previous);
         return c.ret();
     }
-    let k = c.byte(g::EVENT_KIND);
+    let k = c.situation().event_kind;
     let map_up = k as i8 > 0;
     c.run(0x992a, if map_up { 7 } else { 8 })?;
     c.update_dialogue_text(|t| t.shown = text);
@@ -823,13 +823,13 @@ pub fn speaker_mood(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 13 + near as u32)?;
     c.save(&[SI]);
     c.set_reg(SI, record);
-    c.set_byte(0x18, flags);
+    c.update_progress(|t| t.speaker_flags = flags);
     let then = c.word(record.wrapping_add(if near { 0x0a } else { 8 }));
     let since = game::game_time(&mut c).wrapping_sub(then);
     c.set_reg(AX, since);
-    c.set_word(0x16, since);
+    c.update_progress(|t| t.speaker_time_since = since);
     c.restore(&[SI]);
-    if c.byte(super::globals::GAME_PHASE) >= 0x64 {
+    if c.progress().phase >= 0x64 {
         c.run(0x9519, 3)?;
         return c.ret();
     }
@@ -877,7 +877,7 @@ pub fn number_words(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, if kind == 0x38 { 6 } else { 8 })?;
     c.set_reg(SI, record);
-    let number = if kind == 0x38 { c.word(g::SMUGGLER_DEBT) } else { c.byte(g::SMUGGLER_PRICE) as u16 };
+    let number = if kind == 0x38 { c.progress().smuggler_debt } else { c.economy().smuggler_price as u16 };
     c.set_reg(AX, number);
     c.call(0x8a23, 0x9b1f)?;
     c.run(0x9b1f, 4)?;
@@ -1059,7 +1059,7 @@ pub fn random_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let kind = c.dialogue_text().sentence_kind;
     let talker = c.conversation().talker;
-    let late = c.byte(super::globals::GAME_PHASE) >= 0xc8;
+    let late = c.progress().phase >= 0xc8;
     let cost = if kind != 0 {
         4
     } else if talker != 7 {
@@ -1079,7 +1079,7 @@ pub fn random_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     };
     let offset = (sentence - 1) as u16 * 2;
     c.set_reg(AX, offset);
-    let entry = offset.wrapping_add(c.word(0xf0));
+    let entry = offset.wrapping_add(c.situation().sentence_bank);
     c.set_reg(BP, entry);
     let base = c.dialogue_text().sentences;
     let texts = c.word(g::SPRITE_SHEET + 2);
@@ -1313,7 +1313,7 @@ fn speaker_entries_at(c: &mut Ctx, at: u16, pre: u32, head: impl FnOnce(&mut Ctx
     let speaker = c.byte(record.wrapping_add(0x0e));
     let place = c.word(record.wrapping_add(4));
     let (k, last) = (c.byte(0x476a), c.byte(0x476b));
-    let phase = c.byte(super::globals::GAME_PHASE);
+    let phase = c.progress().phase;
     let more = (k as u16).wrapping_sub(1);
     let extra = if (more as i16) > 0 { more } else { 0 };
     let mut cost = pre + 12;
@@ -1332,8 +1332,8 @@ fn speaker_entries_at(c: &mut Ctx, at: u16, pre: u32, head: impl FnOnce(&mut Ctx
     // `shl ax,cl` of 1 (the count mod 32).
     let shift = speaker & 0x1f;
     let bit = if shift < 16 { 1u16 << shift } else { 0 };
-    let v = c.word(g::PRESENT) | bit;
-    c.set_word(g::PRESENT, v);
+    let v = c.progress().present | bit;
+    c.update_progress(|t| t.present = v);
     c.set_reg(AX, place);
     c.stos(W);
     if speaker != 0x0f {
@@ -1445,7 +1445,7 @@ pub fn add_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, leaving);
         let note = c.byte(leaving.wrapping_add(0x0e)).wrapping_add(0x64);
         c.set_reg(AX, leaving & 0xff00 | note as u16);
-        c.set_byte(g::STAGE, note);
+        c.update_progress(|t| t.talk_reason = note);
         c.call(0x9556, 0x96a4)?;
         c.run(0x96a4, 7)?;
         c.restore(&[CX]);
@@ -1595,7 +1595,7 @@ pub fn pick_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
             n += 1;
         }
         ah <<= 1;
-        if c.byte(0xf4) >= 0x10 {
+        if c.situation().desert_fatigue >= 0x10 {
             ah = ah.wrapping_add(1);
         }
         al = 0x2d;
@@ -1616,7 +1616,7 @@ pub fn pick_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let mut go = true;
             if al0 != 0x0e {
                 n += 2;
-                if c.byte(g::GAME_PHASE) == 0xc8 {
+                if c.progress().phase == 0xc8 {
                     n += 3;
                     go = false;
                 } else {
@@ -2327,7 +2327,7 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         return line_end_9858(&mut c);
     }
-    let harkonnen = c.byte(g::HARKONNEN_PLACE) != 0;
+    let harkonnen = c.progress().harkonnen_place != 0;
     c.run(0x980f, if harkonnen { 10 } else { 8 })?;
     c.set_reg(SI, speaker);
     if harkonnen {
@@ -2345,7 +2345,7 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return text_redraw_9840(&mut c);
     }
     c.call(0x9655, 0x9831)?;
-    let harkonnen_now = c.byte(g::HARKONNEN_PLACE) != 0;
+    let harkonnen_now = c.progress().harkonnen_place != 0;
     let keep_view = c.conversation().line_state & 1 != 0;
     if harkonnen_now || keep_view {
         c.run(0x9831, if harkonnen_now { 3 } else { 5 })?;
@@ -2394,7 +2394,7 @@ fn line_end_9858(c: &mut Ctx) -> Result<(), Bail> {
         let state = c.conversation().line_state;
         c.update_conversation(|t| t.line_state = state & 0x7f);
         c.call(0x9b8b, 0x9870)?;
-        let stage = c.byte(g::STAGE).wrapping_sub(0x64);
+        let stage = c.progress().talk_reason.wrapping_sub(0x64);
         if stage >= 0x10 {
             c.run(0x9870, 4)?;
             c.set_reg8(r8::AL, stage);
@@ -2567,7 +2567,7 @@ pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0x8b11, 0xa032)?;
         c.run(0xa032, 1)?;
     } else {
-        let book = c.byte(g::BOOK) != 0;
+        let book = c.economy().book != 0;
         c.run(0xa034, if book { 2 } else { 3 })?;
         if !book {
             c.call(0x88af, 0xa03e)?;
@@ -2629,7 +2629,7 @@ pub(super) fn entry_said_a03f(c: &mut Ctx) -> Result<(), Bail> {
             c.set_word_in(CS, noted.wrapping_add(2), 0);
             c.set_word(NOTED, noted.wrapping_add(2));
         }
-        c.set_byte(0x19, 0xff);
+        c.update_progress(|t| t.speaker_said_line = 0xff);
         c.set_byte(entry, flags | 0x80);
         c.set_reg(SI, entry.wrapping_add(4));
         c.update_conversation(|t| t.last_entry = 0);
@@ -2658,7 +2658,7 @@ pub(super) fn entry_said_a03f(c: &mut Ctx) -> Result<(), Bail> {
             let entry = c.pop();
             c.set_reg(SI, entry);
         }
-        let quiet = (c.byte(g::EVENT_KIND) as i8) > 0;
+        let quiet = (c.situation().event_kind as i8) > 0;
         c.run(0xa0c9, if quiet { 2 } else { 3 })?;
         if !quiet {
             c.call(0xe270, 0xa0d3)?;
@@ -2673,7 +2673,7 @@ pub(super) fn entry_said_a03f(c: &mut Ctx) -> Result<(), Bail> {
             c.call(0xe283, 0xa0e2)?;
         }
     }
-    let map_ui = c.byte(g::MAP_INTERFACE);
+    let map_ui = c.situation().map_interface;
     c.run(0xa0e2, if map_ui & 0x80 != 0 { 4 } else { 6 })?;
     if map_ui & 0x80 == 0 {
         let screen = c.byte(0x28e8);
@@ -2762,7 +2762,7 @@ pub(super) fn next_line_from_9472(c: &mut Ctx) -> Result<(), Bail> {
     let pending = c.conversation().pending;
     c.run(0x9475, if pending == 0 { 8 } else { 7 })?;
     c.set_byte(0x226d, 0x0a);
-    c.set_byte(0x1b, 0);
+    c.update_progress(|t| t.requests = 0);
     c.set_reg(SI, pending);
     // From a group's number (9492h) or a list (949Ah).
     let mut list = pending != 0;
@@ -2872,11 +2872,11 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::CS;
     entered(start, 0xb039)?;
     let mut c = Ctx::new(m);
-    let mode = c.byte(g::BOOK);
+    let mode = c.economy().book;
     let page = c.word(BOOK_PAGE);
     let entry = c.word_in(CS, page);
     c.run(start, 8)?;
-    c.set_byte(g::BOOK, mode & 0xf9);
+    c.update_economy(|t| t.book = mode & 0xf9);
     c.update_conversation(|t| t.append_at = TEXT_BUFFER);
     c.push(TEXT_BUFFER);
     c.set_reg(SI, entry);
@@ -2997,7 +2997,7 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let map_view = c.map_view().mode != 0;
     let talker = c.conversation().talker;
-    let book = c.byte(g::BOOK) != 0;
+    let book = c.economy().book != 0;
     let intro = c.byte(g::CINEMATIC) != 0;
     let screen = c.byte(MAP_SCREEN) != 0;
     if map_view {
@@ -3196,7 +3196,7 @@ fn lip_sync_setup_at(c: &mut Ctx) -> Result<(), Bail> {
     let talker = c.reg(AX);
     let alt = talker == 0x0c && c.character(12).flags & 0x10 != 0;
     c.run(0x91a0, if talker != 0x0c { 4 } else if alt { 7 } else { 6 })?;
-    c.set_word(0xf0, if alt { 0x0a } else { 0 });
+    c.update_situation(|t| t.sentence_bank = if alt { 0x0a } else { 0 });
     c.call(0x9123, 0x91bb)?;
     let head = c.reg(AX);
     if head == c.word(HEAD) {
@@ -3271,7 +3271,7 @@ pub fn speaker_list_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let record = c.reg(SI);
     let speaker = c.byte(record.wrapping_add(0x0e));
     let flags = c.byte(record.wrapping_add(0x0f));
-    let special = speaker != 0x0c && c.word(g::PRESENT) & 0x1000 != 0;
+    let special = speaker != 0x0c && c.progress().present & 0x1000 != 0;
     let (mut phrase, mut handler) = (c.reg(BX), c.reg(DX));
     let mut by_flags = false;
     let mut cost = 3 + if speaker != 0x0c { 2 } else { 0 };
@@ -3287,7 +3287,7 @@ pub fn speaker_list_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
             if speaker == 0x0e {
                 cost += 4;
                 (phrase, handler) = (0x96, 0x95c1);
-                if c.byte(g::EVENT_FLAGS) & 0x10 != 0 {
+                if c.progress().event_flags & 0x10 != 0 {
                     cost += 2;
                     phrase = 0x97;
                 }
@@ -3349,10 +3349,10 @@ pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if !c.flag(CF) {
             // Off the speakers: the move up, in the first room of a place
             // (not a palace's, by day) below y 98h.
-            let room = c.byte(g::CURRENT_ROOM);
+            let room = c.progress().room;
             let y = c.reg(BX);
-            let place = c.byte(g::PLACE_KIND);
-            let harkonnen = c.byte(g::HARKONNEN_PLACE);
+            let place = c.progress().place_kind;
+            let harkonnen = c.progress().harkonnen_place;
             let cost = if room != 1 {
                 4
             } else if y >= 0x98 {
@@ -4028,7 +4028,7 @@ fn show_text_88d2(c: &mut Ctx) -> Result<(), Bail> {
             c.m.cpu.ip = 0x88d9;
             return Err(Bail);
         }
-        let shown = !c.byte(g::MAP_INTERFACE) & 0x80;
+        let shown = !c.situation().map_interface & 0x80;
         c.run(0x88d9, 21)?;
         let text = c.pop();
         c.set_reg(SI, text);
@@ -4373,7 +4373,7 @@ fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
     c.call(0xc085, 0x9022)?;
     // The `jmp`, then 8895h to its `ret`: 15 instructions.
     c.run(0x9022, 1 + 15)?;
-    let shown = !c.byte(g::MAP_INTERFACE) & 0x80;
+    let shown = !c.situation().map_interface & 0x80;
     c.set_reg8(r8::AL, shown);
     c.set_byte(g::PICTURE_FLAGS, shown);
     let ds = c.sreg(DS);
@@ -4399,8 +4399,8 @@ pub fn dialogue_state_a172(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, if talker == 1 { 7 } else { 6 })?;
     c.set_reg(AX, talker);
     if talker == 1 {
-        let n = c.byte(0xf5).wrapping_add(1);
-        c.set_byte(0xf5, n);
+        let n = c.situation().desert_remarks.wrapping_add(1);
+        c.update_situation(|t| t.desert_remarks = n);
     }
     if talker == 3 {
         return c.jump(0x24a3);
@@ -4505,7 +4505,7 @@ pub fn dialogue_state_a125(m: &mut Machine, start: u16) -> Result<(), Bail> {
         1 => {
             c.run(start, 3)?;
             c.set_reg(AX, talker);
-            if c.byte(g::EVENT_FLAGS) & 2 != 0 {
+            if c.progress().event_flags & 2 != 0 {
                 c.run(0xa186, 4)?;
                 c.set_reg8(r8::AL, 0x28);
                 c.call(0x6f78, 0xa192)?;
@@ -4570,7 +4570,7 @@ fn charisma_tail(c: &mut Ctx, ax: u16) -> Result<(), Bail> {
         d5 = 0x80u8.wrapping_sub(q as u8);
     }
     c.set_reg8(r8::BL, d5);
-    c.set_byte(0xd5, d5);
+    c.update_situation(|t| t.character_1_days = d5);
     c.ret()
 }
 
@@ -4598,7 +4598,7 @@ pub fn dialogue_scene_a248(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn scene_setup_a24a(c: &mut Ctx) -> Result<(), Bail> {
     let al = c.reg8(r8::AL);
     c.set_byte(0x476d, al);
-    c.set_byte(0x9f, 0);
+    c.update_economy(|t| t.answer = 0);
     c.set_reg(BP, 0x1ffe);
     c.set_reg(BX, 0x0f66);
     c.call(0xd323, 0xa25b)?;

@@ -49,6 +49,12 @@ pub mod voice_buffers;
 pub mod characters;
 pub mod player;
 pub mod smugglers;
+pub mod progress;
+pub mod topic_troop;
+pub mod topic_place;
+pub mod place_forces;
+pub mod economy;
+pub mod situation;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -556,8 +562,8 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x1ebe, story::phase_64_for_record, "loc_01ebe"),
     (0x23d5, story::haggle_23d5, "loc_023d5"),
     (0x2524, story::pay_spice_2524, "loc_02524"),
-    (0x3310, story::al_sixteenth_plus_d1, "loc_03310"),
-    (0x33be, story::reset_and_measure_9c, "loc_033be"),
+    (0x3310, story::skill_level_phrase, "loc_03310"),
+    (0x33be, story::measure_place_forces, "loc_033be"),
     (0x366f, story::pick_1152, "loc_0366f"),
     (0x36d3, story::handle_flag_23, "loc_036d3"),
     (0x390a, story::while_46d7, "loc_0390a"),
@@ -604,7 +610,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x62d6, map::outside_view_after_b647, "loc_062d6"),
     (0x5d36, map::location_kind_check, "loc_05d36"),
     (0x5ed0, map::find_marker, "loc_05ed0"),
-    (0x6144, map::note_60f8, "loc_06144"),
+    (0x6144, map::note_battle_balance, "loc_06144"),
     (0x633b, map::scan_up_from_mark, "loc_0633b"),
     (0x6515, map::start_move, "loc_06515"),
     // Troops, location bits.
@@ -713,20 +719,20 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x157e, gfx::gfx_zero_block, "loc_0157e"),
     (0x1e24, troops::location_has_troop_400, "loc_01e24"),
     (0x1e01, troops::troop_check_1e01, "loc_01e01"),
-    (0x1eda, troops::troops_1eda, "loc_01eda"),
+    (0x1eda, troops::attack_clock_tick, "loc_01eda"),
     (0x221d, troops::troop_to_place, "loc_0221d"),
     (0x1d66, troops::refresh_records_fd8, "loc_01d66"),
-    (0x1cda, troops::sum_locations_a8, "loc_01cda"),
+    (0x1cda, troops::estimate_field_spice, "loc_01cda"),
     (0x21fa, troops::random_2_to_12, "loc_021fa"),
     (0x1bec, story::place_1bec, "loc_01bec"),
     (0x1c18, story::redraw_1c18, "loc_01c18"),
     (0x235f, story::select_smuggler_235f, "loc_0235f"),
-    (0x2318, story::visit_smuggler_2318, "loc_02318"),
+    (0x2318, story::visit_smuggler, "loc_02318"),
     (0x23e6, story::buy_from_smuggler_23e6, "loc_023e6"),
     (0x24d2, story::grade_be, "loc_024d2"),
     (0x272f, story::drop_oldest_message, "loc_0272f"),
     (0x2a34, story::drop_oldest_event, "loc_02a34"),
-    (0x28e1, story::after_call_28e1, "loc_028e1"),
+    (0x28e1, story::close_message, "loc_028e1"),
     (0x2b00, story::message_2b00, "loc_02b00"),
     (0x2a7f, story::drop_told_events, "loc_02a7f"),
     (0x2aaf, story::find_pending_event, "loc_02aaf"),
@@ -736,10 +742,10 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x301a, screens::set_buttons_1d1e, "loc_0301a"),
     (0x398c, ui::sky_palette_rows_38bd, "loc_0398c"),
     (0x38a2, ui::sky_palette_with_tasks, "loc_038a2"),
-    (0x3385, story::mark_records_at_location, "loc_03385"),
-    (0x33d9, story::ratio_94_96, "loc_033d9"),
+    (0x3385, story::characters_at_place, "loc_03385"),
+    (0x33d9, story::strike_odds, "loc_033d9"),
     (0x348a, story::troop_strength, "loc_0348a"),
-    (0x34a5, story::tally_34a5, "loc_034a5"),
+    (0x34a5, story::count_place_troops, "loc_034a5"),
     (0x3df4, story::put_in_ring, "loc_03df4"),
     (0x37ad, gfx::draw_resource_22, "loc_037ad"),
     (0x36ee, story::for_records_here_bp, "loc_036ee"),
@@ -944,9 +950,9 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x714c, troops::troop_event_roll, "loc_0714c"),
     (0x98e6, dialogue::reset_dialogue, "loc_098e6"),
     (0x4e12, map::place_scene, "loc_04e12"),
-    (0x331e, story::select_location, "loc_0331e"),
+    (0x331e, story::describe_place, "loc_0331e"),
     (0x342d, troops::troop_yield, "loc_0342d"),
-    (0x3406, troops::tally_yield, "loc_03406"),
+    (0x3406, troops::add_troop_strength, "loc_03406"),
     (0x5728, troops::count_by_job, "loc_05728"),
     (0x4e04, troops::count_4e04, "loc_04e04"),
     (0x7289, troops::clear_bit_7289, "loc_07289"),
@@ -955,7 +961,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x75ea, troops::raid_troop_75ea, "loc_075ea"),
     (0x75af, troops::raid_troop_75af, "loc_075af"),
     (0x7506, troops::mark_troop_7506, "loc_07506"),
-    (0x34d0, troops::census_34d0, "loc_034d0"),
+    (0x34d0, troops::count_troop_at_place, "loc_034d0"),
     (0x391d, tasks::task_391d, "loc_0391d"),
     (0x6ad4, troops::set_job_6ad4, "loc_06ad4"),
     (0x6ecb, troops::redo_job_6ecb, "loc_06ecb"),
@@ -972,7 +978,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x3d83, story::sal_read_position_markers, "sal_read_position_markers"),
     (0x8ed3, text::word_width, "loc_08ed3"),
     (0x5605, map::clear_map_header, "loc_05605"),
-    (0x7bb9, map::show_message_after_31f6, "loc_07bb9"),
+    (0x7bb9, map::comment_on_troop, "loc_07bb9"),
     (0x636a, map::map_row_right, "loc_0636a"),
     (0x639a, map::map_row_left, "loc_0639a"),
     (0x6ac5, troops::set_troop_activity, "loc_06ac5"),
@@ -1005,7 +1011,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x920f, dialogue::open_talking_head_resource, "open_talking_head_resource"),
     (0x41e1, map::location_ahead, "loc_041e1"),
     (0x7be0, troops::refresh_selected_troop, "loc_07be0"),
-    (0x11e6, story::event_2b0a, "sub_11e6"),
+    (0x11e6, story::event_place_message, "sub_11e6"),
     (0x1797, ui::ui_draw_head_and_shoulders, "ui_draw_head_and_shoulders"),
     (0x0086, ui::draw_head_panel_0086, "loc_00086"),
     (0x439f, ui::scene_24, "loc_0439f"),
@@ -1225,7 +1231,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x6acb, tails::kind_6acb, "loc_06acb"),
     (0x6c15, tails::kind_6c15, "loc_06c15"),
     (0xb96b, tails::globe_b96b, "loc_0b96b"),
-    (0xc02e, tails::totals_c02e, "loc_0c02e"),
+    (0xc02e, tails::update_totals, "loc_0c02e"),
     (0x0acd, tails::intro_night_attack, "intro_28_night_attack_start"),
     (0x6dbb, tails::people_6dbb, "loc_06dbb"),
     (0xafc7, tails::book_afc7, "sub_afc7"),
@@ -1234,9 +1240,9 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x1707, tails::script_1707, "loc_01707"),
     (0x18ee, tails::palace_plan_18ee, "ui_draw_palace_plan"),
     (0x7c02, tails::place_7c02, "loc_07c02"),
-    (0xbed7, tails::results_bed7, "loc_0bed7"),
+    (0xbed7, tails::result_bars, "loc_0bed7"),
     (0x380c, tails::sky_380c, "loc_0380c"),
-    (0x1c46, tails::day_1c46, "loc_01c46"),
+    (0x1c46, tails::new_day, "loc_01c46"),
     (0xb389, tails::create_save_cl, "create_save_cl"),
     (0xb3b0, saves::load_save_cl, "loc_0b3b0"),
     (0xa03f, tails::line_a03f, "loc_0a03f"),
@@ -1640,6 +1646,54 @@ impl Ctx<'_> {
     fn update_smuggler(&mut self, i: usize, f: impl FnOnce(&mut smugglers::Smuggler)) {
         record_table::update_nth(self, i, f)
     }
+    /// The story's progress (Rust state, see [`progress`]), in step with the memory.
+    fn progress(&mut self) -> progress::Progress {
+        record_table::single(self)
+    }
+    /// The story's progress changed by `f` (written through).
+    fn update_progress(&mut self, f: impl FnOnce(&mut progress::Progress)) {
+        record_table::update_single(self, f)
+    }
+    /// The troop talked about (Rust state, see [`topic_troop`]), in step with the memory.
+    fn topic_troop(&mut self) -> topic_troop::TopicTroop {
+        record_table::single(self)
+    }
+    /// The troop talked about changed by `f` (written through).
+    fn update_topic_troop(&mut self, f: impl FnOnce(&mut topic_troop::TopicTroop)) {
+        record_table::update_single(self, f)
+    }
+    /// The place talked about (Rust state, see [`topic_place`]), in step with the memory.
+    fn topic_place(&mut self) -> topic_place::TopicPlace {
+        record_table::single(self)
+    }
+    /// The place talked about changed by `f` (written through).
+    fn update_topic_place(&mut self, f: impl FnOnce(&mut topic_place::TopicPlace)) {
+        record_table::update_single(self, f)
+    }
+    /// The forces at the place talked about (Rust state, see [`place_forces`]), in step with the memory.
+    fn place_forces(&mut self) -> place_forces::PlaceForces {
+        record_table::single(self)
+    }
+    /// The forces at the place talked about changed by `f` (written through).
+    fn update_place_forces(&mut self, f: impl FnOnce(&mut place_forces::PlaceForces)) {
+        record_table::update_single(self, f)
+    }
+    /// The spice and the trade (Rust state, see [`economy`]), in step with the memory.
+    fn economy(&mut self) -> economy::Economy {
+        record_table::single(self)
+    }
+    /// The spice and the trade changed by `f` (written through).
+    fn update_economy(&mut self, f: impl FnOnce(&mut economy::Economy)) {
+        record_table::update_single(self, f)
+    }
+    /// The situation (Rust state, see [`situation`]), in step with the memory.
+    fn situation(&mut self) -> situation::Situation {
+        record_table::single(self)
+    }
+    /// The situation changed by `f` (written through).
+    fn update_situation(&mut self, f: impl FnOnce(&mut situation::Situation)) {
+        record_table::update_single(self, f)
+    }
     /// The game time ([2]).
     fn game_time(&mut self) -> u16 {
         clock::time(self)
@@ -1735,7 +1789,20 @@ impl Ctx<'_> {
     /// `rep movsw` and the like: the CPU's own, which counts each element
     /// as an instruction (the `rep` itself is in the stretch before).
     fn rep(&mut self, op: u8) {
+        let di = self.reg(DI);
         self.m.cpu.string_op(&mut self.m.hw, op, None, 0xf3);
+        // `movs` and `stos` wrote ES:DI on: the tables there follow.
+        if matches!(op, 0xa4 | 0xa5 | 0xaa | 0xab) {
+            let (end, size) = (self.reg(DI), if op & 1 == 0 { 1 } else { 2 });
+            let (from, len) = if self.flag(pc::cpu::DF) {
+                (end.wrapping_add(size), di.wrapping_sub(end))
+            } else {
+                (di, end.wrapping_sub(di))
+            };
+            if len != 0 {
+                self.wrote(ES, from, len);
+            }
+        }
     }
     /// A `rep` string instruction whose iterations the `run` before it
     /// already counted (`c.run(at, n + iterations)`): its interrupt check

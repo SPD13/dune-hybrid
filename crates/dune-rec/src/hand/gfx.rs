@@ -306,7 +306,7 @@ pub fn ui_head_animate_down(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x181e)?;
     let mut c = Ctx::new(m);
     loop {
-        let step = c.byte(g::HEAD_ANIMATION_STEP);
+        let step = c.situation().head_animation_step;
         if step == 0 {
             c.run(0x181e, 3)?; // cmp; je 181Dh; ret
             c.cmp(super::B, 0, 0);
@@ -315,7 +315,7 @@ pub fn ui_head_animate_down(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x181e, 4)?;
         c.cmp(super::B, step as u16, 0);
         let step = c.dec(super::B, step as u16) as u8;
-        c.set_byte(g::HEAD_ANIMATION_STEP, step);
+        c.update_situation(|t| t.head_animation_step = step);
         c.call(0x17be, 0x182c)?;
         c.run(0x182c, 2)?;
         c.set_reg(AX, 8);

@@ -28,6 +28,12 @@ pub struct Native {
     pub characters: super::record_table::RecordTable,
     pub player: super::record_table::RecordTable,
     pub smugglers: super::record_table::RecordTable,
+    pub progress: super::record_table::RecordTable,
+    pub topic_troop: super::record_table::RecordTable,
+    pub topic_place: super::record_table::RecordTable,
+    pub place_forces: super::record_table::RecordTable,
+    pub economy: super::record_table::RecordTable,
+    pub situation: super::record_table::RecordTable,
 }
 
 /// The machine's Rust state (made on first use).

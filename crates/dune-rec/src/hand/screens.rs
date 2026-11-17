@@ -1070,7 +1070,7 @@ pub fn panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_02ffb` after `pre` instructions from `at` (with `ops`).
 pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
-    let harkonnen = c.byte(g::HARKONNEN_PLACE);
+    let harkonnen = c.progress().harkonnen_place;
     let mode = c.travel().screen_kind;
     let (ca, cb) = (c.travel().held, c.travel().keep_heading);
     if harkonnen != 0 || mode & 3 != 0 {
@@ -1414,14 +1414,14 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x2f13, 5)?;
         copy(&mut c, 0x220c, 2);
         if dx as u8 == 1 {
-            let t = c.byte(g::HARKONNEN_PLACE);
+            let t = c.progress().harkonnen_place;
             if t != 0 {
                 // At a Harkonnen place: the talk entries, the last one off from
                 // phase 4Fh.
                 c.run(0x2f1d, 15)?;
                 copy(&mut c, 0x2218, 4);
                 c.set_reg(SI, 0x2214);
-                let phase = c.byte(g::GAME_PHASE);
+                let phase = c.progress().phase;
                 let v = c.lods(W, DS);
                 flagged(&mut c, v, phase < 0x4f);
             } else {
@@ -1451,7 +1451,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     copy(&mut c, 0x21f0, 2);
                 }
             } else {
-                let count = c.byte(g::MESSAGE_COUNT);
+                let count = c.economy().message_count;
                 if count == 0 {
                     c.run(0x2f58, 6)?;
                 } else {
@@ -1459,7 +1459,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     // without unread ones (its phrase 26h then, 28h in a
                     // call), the second (the old ones) off when all are
                     // unread.
-                    let unread = c.byte(g::UNREAD_MESSAGES);
+                    let unread = c.economy().unread_messages;
                     let calling = c.conversation().caller != 0;
                     c.run(0x2f58, 15 + calling as u32 + 11 + 2)?;
                     c.set_reg(SI, 0x21e8);
@@ -1485,7 +1485,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         copy(&mut c, 0x220c, 2);
         c.set_reg(SI, 0x2214);
         let v = c.lods(W, DS);
-        let phase = c.byte(g::GAME_PHASE);
+        let phase = c.progress().phase;
         flagged(&mut c, v, phase < 0x4f);
         c.call(0x1ae0, 0x2fc9)?;
         // By the time of day (`loc_01ae0`): 21E0h or, from 0Bh, 21E4h.
@@ -1497,7 +1497,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return end_2ff7(&mut c);
     }
     let cb = c.travel().keep_heading;
-    let p = c.byte(g::GAME_PHASE);
+    let p = c.progress().phase;
     let n = if cb == 0 { 3 } else if p < 0x32 { 6 } else { 9 };
     c.run(0x2faa, 2 + n + 5)?;
     c.set_reg(SI, 0x21fc);
