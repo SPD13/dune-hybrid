@@ -3054,7 +3054,7 @@ pub fn map_header_by_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_04e12`: the scene for the map place: [4733h] 0, the cell
-/// (`get_map_position`, `loc_0b532`) picks the mode (`pick_mode_dc02`);
+/// (`get_map_position`, `loc_0b532`) picks the next video (`next_flight_video`);
 /// [196Ah] = 0, or for a cell with bit 40h near a record
 /// (`loc_0409a`, not at [6] 80h) within 4 across: the offsets
 /// [1968h], [1964h], [1960h], the sprite from 196Dh by the SAL index
@@ -6521,7 +6521,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mk = c.flight().marker;
     if mk & 0x80 != 0 {
         c.run(0x4f55, 5)?;
-        return speed_4e8e(&mut c);
+        return flight_video_4e8e(&mut c);
     }
     if mk != 0 {
         c.run(0x4f55, 7)?;
@@ -6538,7 +6538,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x62d6, 0x4f76)?;
     if c.flag(CF) {
         c.run(0x4f76, 2)?;
-        return speed_4e8e(&mut c);
+        return flight_video_4e8e(&mut c);
     }
     let dx = c.reg(DX) as i16;
     let bx = c.reg(BX) as i16;
@@ -6567,13 +6567,13 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x4f76, n + 3)?;
         test_box(&mut c, dx, bx);
         c.update_flight(|t| t.marker = 1);
-        return speed_4e8e(&mut c);
+        return flight_video_4e8e(&mut c);
     }
     let stop = c.travel().held;
     if stop != 0 {
         c.run(0x4f76, n + 3)?;
         test_box(&mut c, dx, bx);
-        return speed_4e8e(&mut c);
+        return flight_video_4e8e(&mut c);
     }
     c.run(0x4f76, n + 5)?;
     test_box(&mut c, dx, bx);
@@ -6590,7 +6590,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x4faa, 1)?;
     c.call(0xc07c, 0x4fad)?;
     c.run(0x4fad, 1)?;
-    speed_4e8e(&mut c)
+    flight_video_4e8e(&mut c)
 }
 
 /// `loc_04f78`'s compares of the marker's position DX / BX.
@@ -6620,13 +6620,15 @@ fn ret_mouse(c: &mut Ctx) -> Result<(), Bail> {
     Ok(())
 }
 
-/// `loc_04e8e`: the flight's speed [0DC02h] from the terrain ahead: the
-/// cells along the heading (`heading_step` six times, then `loc_0b532`
-/// against one more step's, [11CCh] kept) averaged, the low nibble
-/// against 8 with the zoom [0DC00h]: over flat ground ([487Eh] from 2)
-/// 5 / 2 by the zoom (2 kept in [487Eh]), over rough ground 3 / 4
-/// (3 at zoom 5 or up to 2).
-fn speed_4e8e(c: &mut Ctx) -> Result<(), Bail> {
+/// `loc_04e8e`: the flight's next video ([DC02h], `video_open`) from
+/// the terrain ahead: the cells along the heading (`heading_step` six
+/// times, then `loc_0b532` against one more step's, [11CCh] kept)
+/// averaged, its low nibble against 8, and the video asked for
+/// ([`g::HNM_VIDEO`]): with [`g::FLIGHT_VIDEO`] from 2, over flat ground
+/// it is kept up to video 2, then 5, past 4 2 (also into
+/// [`g::FLIGHT_VIDEO`]); over rough ground 3, past 2 4 (3 at 5). Below
+/// 2, [`g::FLIGHT_VIDEO`] itself.
+fn flight_video_4e8e(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x4e8e, 4)?;
     let dx = c.player().x;
     let bx = c.player().y;
@@ -6660,15 +6662,15 @@ fn speed_4e8e(c: &mut Ctx) -> Result<(), Bail> {
     let ax = c.word_in(SS, sp);
     let b1 = c.word_in(SS, sp.wrapping_add(2));
     let al = ((ax as u8).wrapping_add(b1 as u8)) >> 1;
-    let kind = c.word(0x487e);
-    let zoom = c.video_state().video;
+    let flight = c.word(g::FLIGHT_VIDEO);
+    let asked = c.video_state().video;
     let rough = al & 0x0f >= 8;
-    let n = 8 + if kind < 2 {
+    let n = 8 + if flight < 2 {
         0
     } else if rough {
-        4 + 3 + if zoom <= 2 { 0 } else { 2 + (zoom != 5) as u32 }
+        4 + 3 + if asked <= 2 { 0 } else { 2 + (asked != 5) as u32 }
     } else {
-        4 + 2 + if zoom <= 2 { 0 } else { 3 + if zoom <= 4 { 0 } else { 2 } }
+        4 + 2 + if asked <= 2 { 0 } else { 3 + if asked <= 4 { 0 } else { 2 } }
     } + 3;
     c.run(0x4ec0, n)?;
     let ax = c.pop();
@@ -6677,30 +6679,30 @@ fn speed_4e8e(c: &mut Ctx) -> Result<(), Bail> {
     let s = c.shr1(B, s, 1);
     c.set_reg(AX, (ax & 0xff00) | s);
     c.push(bx);
-    c.set_reg(BX, kind);
-    c.cmp(W, kind, 2);
-    let mut out = kind;
-    if kind >= 2 {
+    c.set_reg(BX, flight);
+    c.cmp(W, flight, 2);
+    let mut out = flight;
+    if flight >= 2 {
         let v = c.and(B, s, 0x0f);
         c.cmp(B, v, 8);
-        c.set_reg(AX, zoom);
+        c.set_reg(AX, asked);
         if rough {
             out = 3;
-            c.cmp(W, zoom, 2);
-            if zoom > 2 {
-                c.cmp(W, zoom, 5);
-                if zoom != 5 {
+            c.cmp(W, asked, 2);
+            if asked > 2 {
+                c.cmp(W, asked, 5);
+                if asked != 5 {
                     out = 4;
                 }
             }
         } else {
-            c.cmp(W, zoom, 2);
-            if zoom > 2 {
+            c.cmp(W, asked, 2);
+            if asked > 2 {
                 out = 5;
-                c.cmp(W, zoom, 4);
-                if zoom > 4 {
+                c.cmp(W, asked, 4);
+                if asked > 4 {
                     out = 2;
-                    c.set_word(0x487e, 2);
+                    c.set_word(g::FLIGHT_VIDEO, 2);
                 }
             }
         }

@@ -2397,15 +2397,17 @@ pub fn sky_flash(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_04ec6`: [0DC02h] = a mode from [487Eh] (below 2 itself), the
-/// low nibble of AL and [0DC00h] (AX): nibble 8 or more gives 3 (4 for
-/// AX past 2 but not 5); below, AX up to 2 keeps [487Eh], up to 4 gives
-/// 5, past 4 gives 2 (also into [487Eh]). BX kept.
-pub fn pick_mode_dc02(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_04ec6`: the flight's next video ([DC02h], `video_open`) from
+/// [`g::FLIGHT_VIDEO`] (below 2 itself), the terrain's low nibble in AL
+/// and the video asked for ([`g::HNM_VIDEO`], AX): nibble 8 or more
+/// (rough) gives 3 (4 for AX past 2 but not 5); below, AX up to 2 keeps
+/// [`g::FLIGHT_VIDEO`], up to 4 gives 5, past 4 gives 2 (also into
+/// [`g::FLIGHT_VIDEO`]). BX kept.
+pub fn next_flight_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4ec6)?;
     let mut c = Ctx::new(m);
     let bx0 = c.reg(BX);
-    let b = c.word(0x487e);
+    let b = c.word(g::FLIGHT_VIDEO);
     let al = c.reg8(r8::AL);
     let ax = c.video_state().video;
     if b < 2 {
@@ -2423,7 +2425,7 @@ pub fn pick_mode_dc02(m: &mut Machine, start: u16) -> Result<(), Bail> {
             v = 5;
             if ax > 4 {
                 v = 2;
-                c.set_word(0x487e, 2);
+                c.set_word(g::FLIGHT_VIDEO, 2);
             }
         }
         c.update_video_state(|t| t.video_open = v);
@@ -5979,7 +5981,7 @@ fn step_3ff5(c: &mut Ctx) -> Result<(), Bail> {
 /// scene (positive) is drawn by `loc_039ec`. Else `loc_03ae9`, [47A4h]
 /// bit 0; outside the map modes the place's view (`loc_0380c`,
 /// `place_scene`, `loc_04d06`); in them the map ([4728h] 0, `loc_04988`,
-/// `loc_04a5a`, the resource [487Eh] through the driver) and the sky
+/// `loc_04a5a`, the resource [`g::FLIGHT_VIDEO`] through the driver) and the sky
 /// (`set_sky_palette`).
 pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
@@ -6037,7 +6039,7 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x37fc, 1)?;
     c.call(0x4a5a, 0x37ff)?;
     c.run(0x37ff, 2)?;
-    let ax = c.word(0x487e);
+    let ax = c.word(g::FLIGHT_VIDEO);
     c.set_reg(AX, ax);
     c.call(0xca1b, 0x3805)?;
     c.interp(0x3805, 0x3809)?;

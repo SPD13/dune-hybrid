@@ -843,7 +843,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x9bac, dialogue::redraw_dialogue_frame, "loc_09bac"),
     (0x9f40, dialogue::speaker_text_setup, "loc_09f40"),
     (0x9908, dialogue::start_dialogue_text, "loc_09908"),
-    (0x4ec6, story::pick_mode_dc02, "loc_04ec6"),
+    (0x4ec6, story::next_flight_video, "loc_04ec6"),
     (0x6c46, story::phase_30_check, "loc_06c46"),
     (0x6d19, troops::merge_troop, "loc_06d19"),
     (0x64ef, map::span_handler_twice, "loc_064ef"),

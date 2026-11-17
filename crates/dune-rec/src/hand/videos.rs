@@ -90,7 +90,7 @@ pub fn video_491c(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_037f4`: [4728h] 0, `loc_04988`, `loc_04a5a`, the first frame of
-/// HNM [487Eh] (`hnm_load_first_frame`), the far routine at [3959h], then
+/// HNM [`g::FLIGHT_VIDEO`] (`hnm_load_first_frame`), the far routine at [3959h], then
 /// on into `set_sky_palette`.
 pub fn room_37f4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x37f4)?;
@@ -101,7 +101,7 @@ pub fn room_37f4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x37fc, 1)?;
     c.call(0x4a5a, 0x37ff)?;
     c.run(0x37ff, 2)?;
-    let ax = c.word(0x487e);
+    let ax = c.word(g::FLIGHT_VIDEO);
     c.set_reg(AX, ax);
     c.call(0xca1b, 0x3805)?;
     c.interp(0x3805, 0x3809)?;

@@ -701,7 +701,7 @@ pub fn draw_last_ring_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_04285`: the intro's script loaded once (resource BEh into the code
 /// segment at 15Fh, its first 8 bytes to AA66h, the pointer moved on by
-/// 167h), [487Eh] = 1, [473Eh] = 0, the screen kind 8, [AA6Eh] = the
+/// 167h), [`g::FLIGHT_VIDEO`] = 1, [473Eh] = 0, the screen kind 8, [AA6Eh] = the
 /// script's start; resource 39h opened and the driver's function at
 /// 3935h.
 pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -735,7 +735,7 @@ pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = pure::add(W, v, 0x167);
         c.set_word_in(CS, si, v);
     }
-    c.set_word(0x487e, 1);
+    c.set_word(g::FLIGHT_VIDEO, 1);
     c.set_byte(0x473e, 0);
     c.update_travel(|t| t.screen_kind = 8);
     let p = c.code_word(0x167);

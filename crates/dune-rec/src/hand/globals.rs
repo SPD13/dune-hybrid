@@ -543,6 +543,10 @@ pub const CTRL_V_TABLE_END: u16 = 0x11bd;
 /// The video opened (twice), its body's offset in the file and its size
 /// (32 bits each).
 pub const HNM_VIDEO: u16 = 0xdc00;
+/// The video of the flight: 1 in the intro (`load_intro_script`), else 2
+/// (42FFh, 50DBh); the room view's first frame is from it (37FFh), and
+/// in flight the next video follows the terrain from it (`loc_04ec6`).
+pub const FLIGHT_VIDEO: u16 = 0x487e;
 pub const HNM_BODY_OFFSET: u16 = 0xdbf6;
 
 // --- Scenes ----------------------------------------------------------------------
