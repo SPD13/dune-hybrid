@@ -141,6 +141,12 @@ pub const GAME_PHASE: u16 = 0x002a;
 pub const PHASE_CHANGED_FLAG: u16 = 0x00ff;
 /// Story bits.
 pub const EVENT_FLAGS: u16 = 0x000a;
+/// The endgame's stage: 0 before it (no Emperor's shipments then,
+/// 20AEh), 1 when it starts (749Dh), one more as it goes: the location
+/// record 11Ch taken (73A9h, 2D2Ch), `loc_0a1ed`, and at 4 a talk with
+/// character 2 once the total of `loc_01258` reaches 1000 (1243h). From
+/// 7 the hour's update stops (1B5Eh).
+pub const ENDGAME_STAGE: u16 = 0x00c2;
 /// Talking-head animation step (counted down by `ui_head_animate_down`).
 pub const HEAD_ANIMATION_STEP: u16 = 0x00e8;
 pub const BYTE_0FE8: u16 = 0x0fe8;

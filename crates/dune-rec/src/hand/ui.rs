@@ -237,12 +237,12 @@ pub fn sub_1ae7(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `sub_1dda`: `sub_29ee` with 30Bh when bit 10h of [BFh] is set, bit 8 of
-/// [10h] clear, [0Bh] not 8 and [C2h] 0. Flags from the check that ended
+/// [10h] clear, [0Bh] not 8 and [`g::ENDGAME_STAGE`] 0. Flags from the check that ended
 /// it.
 pub fn sub_1dda(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1dda)?;
     let mut c = Ctx::new(m);
-    let (a, b, d, e) = (c.byte(g::SHIPMENT_FLAGS), c.word(g::PARTY), c.byte(g::CURRENT_ROOM), c.byte(0x00c2));
+    let (a, b, d, e) = (c.byte(g::SHIPMENT_FLAGS), c.word(g::PARTY), c.byte(g::CURRENT_ROOM), c.byte(g::ENDGAME_STAGE));
     let checks = [a & 0x10 == 0, b & 8 != 0, d == 8, e != 0];
     let failed = checks.iter().position(|&f| f);
     c.run(start, match failed {

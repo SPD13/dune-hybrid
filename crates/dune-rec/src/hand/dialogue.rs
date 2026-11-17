@@ -710,7 +710,7 @@ pub fn redraw_dialogue_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     super::map::dialogue_frame_rect(c.m, 0x9bb1)
 }
 
-/// `loc_09f40`: for the character [`g::TALKER`] (number 2 with [0C2h] 4
+/// `loc_09f40`: for the character [`g::TALKER`] (number 2 with [`g::ENDGAME_STAGE`] 4
 /// first `sum_three_records`; AX, SI kept): its record (FD8h + 10h·it)
 /// at the speaker (AX); with the map not up ([`g::MAP_MODE`] 0) the front
 /// buffer active and the text box at (28h, 10h), 10h × 10h; then
@@ -719,7 +719,7 @@ pub fn speaker_text_setup(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9f40)?;
     let mut c = Ctx::new(m);
     let talker = c.conversation().talker;
-    let k = c.byte(0xc2);
+    let k = c.byte(g::ENDGAME_STAGE);
     let sums = talker == 2 && k == 4;
     c.run(start, if talker != 2 { 3 } else if !sums { 5 } else { 8 })?;
     c.set_reg(AX, talker);

@@ -400,7 +400,7 @@ pub fn go_to_phase_60(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_01243`: the sum (BX, from 0) over the three records from 138h
-/// (`loc_01258`, with BP = 1269h); 1000 or more counts one at [0C2h].
+/// (`loc_01258`, with BP = 1269h); 1000 or more counts one at [`g::ENDGAME_STAGE`].
 pub fn sum_three_records(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1243)?;
     let mut c = Ctx::new(m);
@@ -417,9 +417,9 @@ pub fn sum_three_records(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let big = bx >= 0x3e8;
     c.run(0x124d, if big { 4 } else { 3 })?;
     if big {
-        let v = c.byte(0xc2);
+        let v = c.byte(g::ENDGAME_STAGE);
         let v = pure::inc(B, v as u16);
-        c.set_byte(0xc2, v as u8);
+        c.set_byte(g::ENDGAME_STAGE, v as u8);
     }
     c.ret()
 }
@@ -4899,7 +4899,7 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `sub_1dd4` (`loc_020a4`): the spice demand's day check, with bit 7 of
 /// [0BFh]. On the day [118Dh] (the day count from `get_ingame_day_q`):
-/// while one is pending ([0C2h]) or otherwise, the days left in [0CFh]
+/// in the endgame ([`g::ENDGAME_STAGE`]) or otherwise, the days left in [0CFh]
 /// (negated difference). With bit 4: the reminders 0..3 days late
 /// (`grade_be` and the table at CS:2161h) noted as event 0Bh + code,
 /// later ones and [11BBh] set [46D9h] 7. On the day itself a new demand:
@@ -4921,7 +4921,7 @@ pub fn spice_demand_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     let day = c.word(g::SHIPMENT_DUE);
     let d = ax.wrapping_sub(day);
-    let pend = c.byte(0xc2);
+    let pend = c.byte(g::ENDGAME_STAGE);
     let f = c.byte(g::SHIPMENT_FLAGS);
     let late = c.byte(0x11bb);
     if pend != 0 || f & 0x10 == 0 && late == 0 {
@@ -6353,7 +6353,7 @@ pub fn time_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_01b23`: on a new time slot ([46DDh], cleared): [0F4h] counts
 /// down (from 10h on; below it 0, and [0F5h] 0), the date panel and the
 /// sky (`loc_01a0f`, `loc_038e1`); the hour [2] noted in [1174h], its
-/// change ([46DEh]) handled (`loc_01c46`). Before the stage 7 ([0C2h])
+/// change ([46DEh]) handled (`loc_01c46`). Before the stage 7 ([`g::ENDGAME_STAGE`])
 /// the day's events: `loc_01d9f`, `loc_06c6f`, `loc_063f0`, the
 /// handler for `loc_01ae0` (the word table 1DB3h), `loc_01c18`,
 /// `loc_0331e` with the saved [11CEh] ([11F7h] kept), `loc_01bec`;
@@ -6402,7 +6402,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     if d != 0 {
         c.call(0x1c46, 0x1b5e)?;
     }
-    let st = c.byte(0xc2);
+    let st = c.byte(g::ENDGAME_STAGE);
     if st >= 7 {
         c.run(0x1b5e, 2)?;
         c.cmp(B, st as u16, 7);

@@ -2641,7 +2641,7 @@ pub fn set_47a5_80(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0a1ed`: [0C2h] + 1 unless bit 80h of the byte at SI.
+/// `loc_0a1ed`: [`g::ENDGAME_STAGE`] + 1 unless bit 80h of the byte at SI.
 pub fn count_0a1ed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1ed)?;
     let mut c = Ctx::new(m);
@@ -2650,9 +2650,9 @@ pub fn count_0a1ed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let set = b & 0x80 != 0;
     c.run(0xa1ed, if set { 3 } else { 4 })?;
     if !set {
-        let v = c.byte(0xc2);
+        let v = c.byte(g::ENDGAME_STAGE);
         let v = pure::inc(B, v as u16);
-        c.set_byte(0xc2, v as u8);
+        c.set_byte(g::ENDGAME_STAGE, v as u8);
     }
     c.ret()
 }

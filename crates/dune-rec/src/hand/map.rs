@@ -4516,7 +4516,7 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// with 1; bit 8 of byte 0Ah; its region mark into [115Ah]; its troops
 /// through `loc_075af` and `loc_075ea`, then `loc_0762a` repeated until
 /// CX is at most DX (1 on a quarter of the seed's ticks); unless
-/// `loc_01cda` leaves DL above 1, [0C2h] 1, bit 2 of [0FF7h] and
+/// `loc_01cda` leaves DL above 1, [`g::ENDGAME_STAGE`] 1, bit 2 of [0FF7h] and
 /// [1007h] cleared and `loc_0765e`; then [`count_shown_location`].
 pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7443)?;
@@ -4590,7 +4590,7 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x7498, 2 + 3)?;
     } else {
         c.run(0x7498, 7)?;
-        c.set_byte(0xc2, 1);
+        c.set_byte(g::ENDGAME_STAGE, 1);
         for p in [0xff7u16, 0x1007] {
             let v = c.byte(p);
             let v = pure::and(B, v as u16, 0xfd);
