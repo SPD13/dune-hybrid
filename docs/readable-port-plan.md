@@ -584,6 +584,44 @@ troops. The music driver's tick runs as generated code when the timer
 interrupt comes inside generated code; that is where most of the
 sound's counted writes come from.
 
+More names from the listing (the scratch `named_raw.py` pattern: a raw
+`c.byte`/`c.word(0x..)` whose address has exactly one name in
+`globals.rs` is routed through it):
+
+- [473Bh] `REDRAW`: what the hour's update redraws at its end (1..7Fh
+  the room, 80h the whole screen).
+- UI elements are 0Eh bytes (the rectangle x0, y0, x1, y1, flags at +8,
+  sprite at +0Ah; `loc_0d6fe` the hit test). 1BE2h `TEXT_BOX` (from the
+  speech bubble's rectangle) with `TEXT_BOX_FLAGS` (once the misnamed
+  `TEXT_PTR`), the head's at 1BF0h (`HEAD_ORIGIN_X`) with
+  `HEAD_BOX_FLAGS`, the picture's at 1BFEh with `PICTURE_FLAGS`, the two
+  characters present at 1C0Ch/1C1Ah ([1152h]/[1153h]; `BOOK_COUNTERS`
+  reuses 1C0Ch).
+- 1190h `PENDING_EVENTS`: up to ten events waiting to be told (kind,
+  teller in the high byte, location record), the first at `NEXT_EVENT`
+  / `NEXT_EVENT_PLACE`; `add_pending_event`, `drop_oldest_event`,
+  `drop_told_events`, `find_pending_event`.
+- A scene polygon's state: `POLYGON_EDGES` (22D9h), the colour steps,
+  the line step, its style, colour, first point and the end of its
+  right side (`POLYGON_*`, 22DBh-22DFh, 47ECh-47F4h).
+- The UI list: `HOVERED_ITEM` (DCE7h), `ITEM_COUNT` (DCE8h),
+  `MORE_ITEM` (DCE5h, the slot with the more mark); `LAST_ACTION_TIME`
+  (DC5Ah, the timer at the last click or scene change). The stack of UI
+  screens: `UI_STACK` (21BEh), `UI_STACK_LAST`, `UI_STACK_TOP` (21DAh).
+- [C2h] `ENDGAME_STAGE` (0 before the endgame; from 7 the hour's update
+  stops).
+- [487Eh] `FLIGHT_VIDEO`; [DC02h] is the flight's next video, picked
+  from the terrain (`next_flight_video`, once `pick_mode_dc02`; the
+  docs that read a speed and a zoom there were wrong).
+- [22FCh] `TEXT_SHEET`, where the text box's pixels are laid out.
+- [4735h] `WALK_STEPS`, the steps walked outside a location.
+- 197Ch `MAP_MARK` / `MAP_MARK_Y` (once `GLOBE_TILT_START` and local
+  `MARK`/`CENTRE`), `OTHER_MARK` at 1980h swapped with it.
+
+Still unclear: [F4h] (up to 14h with each step walked, down over
+time), [9Eh]/[9Fh]/[1Ah] (the answer's state), [4722h] (a toggle of
+the map panel), [118Fh], [0DCE4h].
+
 ## Tools in place
 
 | Tool | What it checks |
