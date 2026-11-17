@@ -142,7 +142,7 @@ pub fn setup_globe_draw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x92);
     c.call(code::LOAD_RESOURCE_TO, 0xb8b2)?;
     c.run(0xb8b2, 3)?;
-    let (dx, bx) = (c.word(g::GLOBE_TILT_START), c.word(g::GLOBE_TILT_START + 2));
+    let (dx, bx) = (c.word(g::MAP_MARK), c.word(g::MAP_MARK_Y));
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
     c.call(code::SET_GLOBE_TILT_AND_ROTATION, 0xb8bd)?;
@@ -477,9 +477,9 @@ pub fn map_cell_scaled(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// The map's projection: the mark (centre) at 197Ch/197Eh and the
 /// screen's centre at DCF6h/DCF8h; a second set at 1980h/DCFAh to swap
 /// with.
-const CENTRE: u16 = 0x197c;
+const CENTRE: u16 = g::MAP_MARK;
 const SCREEN_CENTRE: u16 = 0xdcf6;
-const OTHER_CENTRE: u16 = 0x1980;
+const OTHER_CENTRE: u16 = g::OTHER_MARK;
 const OTHER_SCREEN_CENTRE: u16 = 0xdcfa;
 /// The latitude table: 8-byte rows (SS for [BP+...]).
 const LATITUDES: u16 = 0x4948;
@@ -1194,8 +1194,8 @@ pub fn globe_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xbc6e, 4)?;
     let (ax, bx) = (c.reg(AX), c.reg(BX));
-    c.set_word(g::GLOBE_TILT_START, ax);
-    c.set_word(0x197e, bx);
+    c.set_word(g::MAP_MARK, ax);
+    c.set_word(g::MAP_MARK_Y, bx);
     c.call(0xb98b, 0xbc7a)?;
     c.run(0xbc7a, 4)?;
     let d = c.pop();
@@ -1808,7 +1808,7 @@ fn found_bbec(c: &mut Ctx) -> Result<(), Bail> {
 /// `|[197Eh]|` kept below BX (its sign kept): `or ax, ax` .. `mov
 /// [197Eh], ax`, counted by the caller.
 fn clamp_197e(c: &mut Ctx, bx: u16) {
-    let ax = c.word(0x197e);
+    let ax = c.word(g::MAP_MARK_Y);
     c.set_reg(DX, ax);
     let neg = ax & 0x8000 != 0;
     let size = if neg { ax.wrapping_neg() } else { ax };
@@ -1816,12 +1816,12 @@ fn clamp_197e(c: &mut Ctx, bx: u16) {
     if size >= bx {
         let v = if neg { bx.wrapping_neg() } else { bx };
         c.set_reg(AX, v);
-        c.set_word(0x197e, v);
+        c.set_word(g::MAP_MARK_Y, v);
     }
 }
 
 fn clamp_197e_count(c: &mut Ctx, bx: u16) -> u32 {
-    let ax = c.word(0x197e);
+    let ax = c.word(g::MAP_MARK_Y);
     let neg = ax & 0x8000 != 0;
     let a = if neg { ax.wrapping_neg() } else { ax };
     neg as u32 + 2 + if a >= bx { 4 + neg as u32 } else { 0 }
@@ -1852,9 +1852,9 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, 0x4b);
         clamp_197e(&mut c, 0x4b);
         c.set_reg(BP, 0x4948);
-        let dx = c.word(g::GLOBE_TILT_START);
+        let dx = c.word(g::MAP_MARK);
         c.set_reg(DX, dx);
-        let t = c.word(0x197e);
+        let t = c.word(g::MAP_MARK_Y);
         let a = c.sub(W, t, 0x12); // the driver's far call sees these flags
         c.set_reg(AX, a);
         let di = c.word(g::MAP_GFX_DATA);
@@ -1874,7 +1874,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let lim = 0x56u16.wrapping_sub(half);
     let n = clamp_197e_count(&mut c, lim);
     let t_after = {
-        let ax = c.word(0x197e);
+        let ax = c.word(g::MAP_MARK_Y);
         let neg = ax & 0x8000 != 0;
         let a = if neg { ax.wrapping_neg() } else { ax };
         if a >= lim { if neg { lim.wrapping_neg() } else { lim } } else { ax }
@@ -1898,7 +1898,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, lim);
     clamp_197e(&mut c, lim);
     c.set_reg(BP, 0x4948);
-    let dx = c.word(g::GLOBE_TILT_START);
+    let dx = c.word(g::MAP_MARK);
     c.set_reg(DX, dx);
     // The first latitude row: 4948h + 8 · (row - half), from the end
     // backwards when that is negative.

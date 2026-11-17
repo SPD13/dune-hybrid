@@ -23,8 +23,6 @@ mod code {
 const VIEW: u16 = 0x46e3;
 /// A point on the map (x, y words).
 const POINT_4710: u16 = 0x4710;
-/// The mark on the map (x at 197Ch, y at 197Eh).
-const MARK: u16 = 0x197c;
 const SPRITE_LIST_MAP: u16 = 0x194a;
 
 /// `loc_0557b`: DX, BX = the point at [`POINT_4710`].
@@ -124,8 +122,8 @@ fn set_mark(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Re
     c.run(at, prefix + 3)?;
     ops(c);
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    c.set_word(MARK + 2, bx);
-    c.set_word(MARK, dx);
+    c.set_word(g::MAP_MARK_Y, bx);
+    c.set_word(g::MAP_MARK, dx);
     c.ret()
 }
 
@@ -373,7 +371,7 @@ pub fn scan_up_from_mark(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x633b)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
-    let (x, y) = (c.word(MARK), c.word(MARK + 2));
+    let (x, y) = (c.word(g::MAP_MARK), c.word(g::MAP_MARK_Y));
     c.set_reg(DX, x);
     c.set_reg(BX, y.wrapping_sub(0x12));
     c.call(0x634d, 0x6349)?;
@@ -5753,13 +5751,13 @@ pub fn open_place_view_542f(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
     if !from_542f {
         c.run(0x541f, 4)?;
-        let (p0, p1) = (c.word(g::GLOBE_TILT_START), c.word(0x197e));
+        let (p0, p1) = (c.word(g::MAP_MARK), c.word(g::MAP_MARK_Y));
         c.push(p0);
         c.push(p1);
         let v = c.pop();
-        c.set_word(0x1982, v);
+        c.set_word(g::OTHER_MARK_Y, v);
         let v = c.pop();
-        c.set_word(0x1980, v);
+        c.set_word(g::OTHER_MARK, v);
     }
     c.run(0x542f, 3)?;
     c.update_map_selection(|t| t.subject = 0);
@@ -5815,7 +5813,7 @@ pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
     }
     c.run(0x54ad, 4)?;
     c.set_word(0x2772, 0x5555);
-    let (dx, bx) = (c.word(0x1980), c.word(0x1982));
+    let (dx, bx) = (c.word(g::OTHER_MARK), c.word(g::OTHER_MARK_Y));
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
     c.call(0xb647, 0x54be)?;
@@ -6293,7 +6291,7 @@ pub fn ui_click_map_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x8831, 4)?;
         c.run(0x8846, 4)?;
     }
-    let point = if place_view { 0x1980u16 } else { MARK };
+    let point = if place_view { g::OTHER_MARK } else { g::MAP_MARK };
     for at in [point, point + 2] {
         let step = c.lods(W, DS);
         let v = c.word(at).wrapping_add(step);

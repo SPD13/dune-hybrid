@@ -5410,7 +5410,7 @@ fn scene_flags(c: &mut Ctx, was: u8, map: bool) {
 
 /// `loc_02e52`: the scene refreshed after a move: `scene_start`, the time
 /// noted ([`g::LAST_ACTION_TIME`] = [`g::TIMER`]); unless the scene took over ([47A7h]):
-/// travelling ([4735h] bit 7) a travel step (`loc_03723`); else outside a
+/// travelling ([`g::WALK_STEPS`] bit 7) a travel step (`loc_03723`); else outside a
 /// place ([8] not FFh) the head raised (`ui_head_animate_up`) unless
 /// [4774h]; at a place in the room mode the speaker [47AAh]'s phrase
 /// ([47C4h] = its +0Eh, `loc_0978e`).
@@ -5435,7 +5435,7 @@ fn refresh_at(c: &mut Ctx) -> Result<(), Bail> {
         note(c);
         return c.ret();
     }
-    let al = c.byte(0x4735);
+    let al = c.byte(g::WALK_STEPS);
     let head = |c: &mut Ctx| {
         note(c);
         c.set_reg8(r8::AL, al);
@@ -5485,7 +5485,7 @@ fn refresh_at(c: &mut Ctx) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_03723`: a travel step (AL = [4735h], bit 7 then dropped): from
+/// `loc_03723`: a travel step (AL = [`g::WALK_STEPS`], bit 7 then dropped): from
 /// 94h, every 10h, the view redrawn (`loc_037ad`) and a wait of
 /// ((AL - 94h) / 10h + 1, at most 0Ah) * 100h; before 37h the arrival
 /// (`loc_02db1`); else the fade-out, the handlers 1A0Fh and 401Fh, and
@@ -5493,12 +5493,12 @@ fn refresh_at(c: &mut Ctx) -> Result<(), Bail> {
 /// palaces) scheduled at 4057h before `scene_start`.
 fn travel_step(c: &mut Ctx) -> Result<(), Bail> {
     let al = c.reg8(r8::AL);
-    let s = c.byte(0x4735);
+    let s = c.byte(g::WALK_STEPS);
     let a = al.wrapping_sub(0x94);
     let n = if al < 0x94 { 4 } else if a & 0x0f != 0 { 6 } else { 7 };
     c.run(0x3723, n)?;
     let v = c.and(B, s as u16, 0x7f);
-    c.set_byte(0x4735, v as u8);
+    c.set_byte(g::WALK_STEPS, v as u8);
     c.sub(B, al as u16, 0x94);
     c.set_reg8(r8::AL, a);
     if al < 0x94 {
@@ -5529,7 +5529,7 @@ fn travel_step(c: &mut Ctx) -> Result<(), Bail> {
     let x = if big { 0x0a } else { x & 0xff };
     c.set_reg(AX, x << 8);
     c.call(0xe387, 0x3750)?;
-    let s = c.byte(0x4735);
+    let s = c.byte(g::WALK_STEPS);
     c.run(0x3750, 3)?;
     c.cmp(B, s as u16, 0x37);
     if s < 0x37 {
@@ -5723,7 +5723,7 @@ fn enter_room_at(c: &mut Ctx) -> Result<(), Bail> {
 /// `ui_click_room_up` / `_right` / `_down` (BP 1-3) and
 /// `ui_click_move_room` (BP the direction): the panel and the cursor
 /// reset (`loc_0d2bd`, `loc_0ac30`, `loc_0a7a5`). Outside a place ([6]
-/// low byte not 80h) a travel step: [4735h] counts up (bit 7 set) and
+/// low byte not 80h) a travel step: [`g::WALK_STEPS`] counts up (bit 7 set) and
 /// [0F4h] to 14h. At a place the room's exit BP (`loc_03efe`): none
 /// returns; a room of the place (positive) is entered, first visits
 /// noted ([0Bh] 1 and the place's bit 10h: `loc_0b389` 2 / 3 with the
@@ -5762,7 +5762,7 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, bx);
     };
     if bx & 0xff != 0x80 {
-        let s = c.byte(0x4735);
+        let s = c.byte(g::WALK_STEPS);
         let f4 = c.byte(0xf4);
         let a = (s & 0x7f).wrapping_add(1);
         let n = 7 + 4 + (a & 0x80 != 0) as u32 + 4 + (f4 < 0x14) as u32 + 1;
@@ -5771,7 +5771,7 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // The travel steps counted up to 7Fh (bit 7 set).
         let x = (if a & 0x80 != 0 { a - 1 } else { a }) | 0x80;
         c.set_reg8(r8::AL, x);
-        c.set_byte(0x4735, x);
+        c.set_byte(g::WALK_STEPS, x);
         if f4 < 0x14 {
             c.set_byte(0xf4, f4 + 1);
         }
@@ -5948,7 +5948,7 @@ fn step_3ff5(c: &mut Ctx) -> Result<(), Bail> {
     let x = c.reg8(r8::BL) as i8 as i16 as u16;
     c.set_reg(AX, x);
     c.set_reg(BX, x);
-    c.set_byte(0x4735, 0);
+    c.set_byte(g::WALK_STEPS, 0);
     c.set_word(g::PLACE, si);
     c.set_word(g::LAST_PLACE, si);
     c.set_reg(DI, si);

@@ -174,6 +174,10 @@ pub const PLACE: u16 = 0x114e;
 /// The record of the last location the player was in (set with
 /// [`PLACE`], kept after leaving).
 pub const LAST_PLACE: u16 = 0x1150;
+/// The steps the player has walked outside a location (low 7 bits, up
+/// to 7Fh; `ui_click_move_room`, 3F49h), bit 7 while a step is to be
+/// shown (`loc_03723`); 0 on arriving at one (401Fh).
+pub const WALK_STEPS: u16 = 0x4735;
 
 // --- Tables ---------------------------------------------------------------
 
@@ -499,11 +503,19 @@ pub const MUSIC_LOADED: u16 = 0xdbca;
 
 // --- The globe, the frieze ------------------------------------------------------
 
-/// The globe's map (resource 92h), its rotation (0..18Eh, the row table
-/// after it), its starting tilt and rotation.
+/// The globe's map (resource 92h) and its rotation (0..18Eh, the row
+/// table after it).
 pub const GLOBE_MAP: u16 = 0x4c60;
 pub const GLOBE_ROTATION: u16 = 0x494c;
-pub const GLOBE_TILT_START: u16 = 0x197c;
+/// The mark on the map (x, then y at [`MAP_MARK_Y`]; set from the map
+/// position, 5B60h): the centre of the map's projection, and the globe's
+/// starting tilt and rotation.
+pub const MAP_MARK: u16 = 0x197c;
+pub const MAP_MARK_Y: u16 = 0x197e;
+/// A second mark (x, y) swapped with [`MAP_MARK`] (B69Ah), with the
+/// screen's centre.
+pub const OTHER_MARK: u16 = 0x1980;
+pub const OTHER_MARK_Y: u16 = 0x1982;
 /// The x of the globe's side decorations (0: closed, down to -6Ah: open).
 pub const GLOBE_DECORATIONS_X: u16 = 0xdd0f;
 pub const GLOBE_DD03: u16 = 0xdd03;

@@ -4620,7 +4620,7 @@ fn scene_at_a25b(c: &mut Ctx) -> Result<(), Bail> {
     let scene = c.word(super::globals::TALKING_HEAD_TIME);
     let step = c.string_step(W);
     // `scasw` from 197Ch + 8, every 8 + 2, while the scene is above.
-    let mut at = 0x197cu16;
+    let mut at = g::MAP_MARK;
     let mut tried = 0u32;
     let entry = loop {
         at = at.wrapping_add(8);
