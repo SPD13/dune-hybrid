@@ -1049,7 +1049,7 @@ pub fn draw_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn redraw_date_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1a0f)?;
     let mut c = Ctx::new(m);
-    let v = c.word(0x1afe);
+    let v = c.word(g::WORD_1AFE);
     c.run(start, 3)?;
     if v != 0 {
         return c.ret();

@@ -476,7 +476,7 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !c.flag(CF) {
         let (si, ax) = (c.reg(SI), c.reg(AX));
         let (s, carry) = si.overflowing_add(ax);
-        let lim = c.word(0xce74);
+        let lim = c.word(g::HNM_CE74);
         let drop = carry || s > lim;
         c.run(0xc96e, 3 + if carry { 0 } else { 2 } + drop as u32 + 3)?;
         c.set_reg(SI, s);
@@ -503,7 +503,7 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let w = c.word_at(e, s0);
     let s1 = s0.wrapping_add(2);
     let (sum, carry) = w.overflowing_add(s1);
-    let lim = c.word(0xce74);
+    let lim = c.word(g::HNM_CE74);
     let reset = carry || sum > lim;
     c.run(0xc992, 4 + if carry { 0 } else { 2 } + reset as u32 + 2)?;
     c.set_reg(SI, s0);
@@ -713,7 +713,7 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let (ax, si) = (c.reg(AX), c.reg(SI));
     let (sum, carry) = ax.overflowing_add(si);
-    let lim = c.word(0xce74);
+    let lim = c.word(g::HNM_CE74);
     let zero = carry || sum > lim;
     c.run(0xccf4, 4 + if carry { 0 } else { 2 } + zero as u32)?;
     c.update_video_state(|t| t.voice_chunk = 0xffff);

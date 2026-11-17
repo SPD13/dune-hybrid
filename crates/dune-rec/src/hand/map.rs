@@ -1031,7 +1031,7 @@ pub fn draw_map_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5bc6, 1)?;
     c.call(0xd03c, 0x5bc9)?;
     c.run(0x5bc9, 3)?;
-    let n = c.byte(0x28);
+    let n = c.byte(g::JOINED);
     c.set_reg8(r8::AL, n);
     c.set_reg(AX, n as u16);
     c.call(0xe2e3, 0x5bd1)?;
@@ -3783,7 +3783,7 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 }
                 c.call(0x7c8f, 0x5e21)?;
                 let d = c.reg(AX);
-                let lim = c.word(0x1176);
+                let lim = c.word(g::REACH);
                 let far = d > lim;
                 c.run(0x5e21, 6 + far as u32 + 3)?;
                 for r in [SI, DX, BX, AX] {
@@ -6079,7 +6079,7 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, ax);
     }
     let ph = c.byte(g::GAME_PHASE);
-    let n2 = c.word(0x1176);
+    let n2 = c.word(g::REACH);
     let late = ph >= 5;
     let mut n = 6 + if late { 2 } else { 0 } + 2;
     let mut chk = None;

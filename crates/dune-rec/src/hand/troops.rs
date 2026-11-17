@@ -3355,7 +3355,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x2e98, 0x7c0e)?;
     c.run(0x7c0e, 1)?;
     c.call(0x7c63, 0x7c11)?;
-    if c.reg(AX) <= c.word(0x1176) {
+    if c.reg(AX) <= c.word(g::REACH) {
         c.run(0x7c11, 3)?;
     } else {
         let marked = c.word(PARTICLE_4752);

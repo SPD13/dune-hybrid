@@ -332,7 +332,7 @@ pub fn map_ems_for_midi_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let seg = c.word_in(CS, 0xed3c);
     c.set_reg(AX, seg);
     c.set_word(0xdbb8, seg);
-    c.set_word(0xdbb6, 0x4000);
+    c.set_word(g::MUSIC_DATA, 0x4000);
     c.ret()
 }
 
@@ -345,19 +345,19 @@ pub fn init_extended_memory_allocator(m: &mut Machine, start: u16) -> Result<(),
     use pc::cpu::ES;
     entered(start, 0xea7b)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0x2943);
+    let f = c.byte(g::CMD_ARGS_MEMORY);
     c.run(0xea7b, 2 + (f & 0x80 != 0) as u32)?;
     c.test(B, f as u16, 0x80); // `loc_0eea0` reads the flags
     if f & 0x80 != 0 {
         c.call(0xeea0, 0xea85)?;
     }
-    let f = c.byte(0x2943);
+    let f = c.byte(g::CMD_ARGS_MEMORY);
     c.run(0xea85, 2 + (f & 0x48 != 0) as u32)?;
     c.test(B, f as u16, 0x48); // `ems_init` reads the flags
     if f & 0x48 != 0 {
         c.call(0xed4c, 0xea8f)?;
     }
-    let f = c.byte(0x2943);
+    let f = c.byte(g::CMD_ARGS_MEMORY);
     if f & 0xe8 == 0 {
         c.run(0xea8f, 3)?;
         return c.ret();
@@ -603,7 +603,7 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xed5f, 4)?;
     c.call(0xedb9, 0xed69)?;
-    let f = c.byte(0x2943);
+    let f = c.byte(g::CMD_ARGS_MEMORY);
     if f & 8 != 0 {
         c.run(0xed69, 2)?;
         return fail_edb3(&mut c);
@@ -655,9 +655,9 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// EDB3h: bits 3 and 6 of [2943h] cleared (no EMS).
 fn fail_edb3(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xedb3, 2)?;
-    let f = c.byte(0x2943);
+    let f = c.byte(g::CMD_ARGS_MEMORY);
     let f = c.and(B, f as u16, 0xb7);
-    c.set_byte(0x2943, f as u8);
+    c.set_byte(g::CMD_ARGS_MEMORY, f as u8);
     c.ret()
 }
 
@@ -725,7 +725,7 @@ pub fn bump_alloc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     if start == 0xf0f6 {
         c.run(0xf0f6, 3)?;
-        let (s, e) = (c.word(0x39b7), c.word(0x39b9));
+        let (s, e) = (c.word(g::ALLOCATOR_NEXT_OFFSET), c.word(g::ALLOCATOR_NEXT_SEGMENT));
         c.set_reg(SI, s);
         c.set_sreg(ES, e);
         let di = c.reg(DI);
@@ -734,8 +734,8 @@ pub fn bump_alloc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let cx = c.reg(CX);
     let paras = ((cx as u32 + 0xf) >> 4) as u16;
-    let top = c.word(0x39b9).wrapping_add(paras);
-    let lim = c.word(0xce68);
+    let top = c.word(g::ALLOCATOR_NEXT_SEGMENT).wrapping_add(paras);
+    let lim = c.word(g::ALLOCATOR_LAST_SEGMENT);
     let over = top > lim;
     c.run(0xf0ff, 12 + if over { 0 } else { 1 })?;
     c.set_reg(AX, cx);
@@ -743,9 +743,9 @@ pub fn bump_alloc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = c.rcr1(W, a);
     let a = c.shr1(W, a, 3);
     c.set_reg(AX, a);
-    let v = c.word(0x39b9);
+    let v = c.word(g::ALLOCATOR_NEXT_SEGMENT);
     let v = c.add(W, v, a);
-    c.set_word(0x39b9, v);
+    c.set_word(g::ALLOCATOR_NEXT_SEGMENT, v);
     c.push(a);
     c.set_reg(AX, v);
     c.cmp(W, v, lim);
@@ -990,7 +990,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(0x1f4b);
     let v = c.pop();
     c.set_sreg(DS, v);
-    c.set_word(0xce68, lim);
+    c.set_word(g::ALLOCATOR_LAST_SEGMENT, lim);
     c.set_reg(CX, 0xdd1d);
     c.call(0xf0ff, 0xe5b4)?;
     c.run(0xe5b4, 7)?;
@@ -999,7 +999,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, ds);
     let a = c.add(W, 0x4c6f >> 4, ds); // the flags INT 21h sees
     c.set_reg(AX, a);
-    c.set_word(0xdc32, a);
+    c.set_word(g::BACKBUFFER, a);
     c.set_reg8(r8::AH, 0x19);
     c.interp(0xe5c4, 0xe5c6)?;
     c.run(0xe5c6, 3)?;
@@ -1019,7 +1019,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xe5dc, 1)?;
     c.call(0xe675, 0xe5df)?;
     c.run(0xe5df, 5)?;
-    let f = c.byte(0x2942);
+    let f = c.byte(g::CMD_ARGS);
     c.set_reg8(r8::AL, f);
     c.set_reg(AX, f as u16 & 1);
     c.set_reg(SI, 0x38b7);
@@ -1032,7 +1032,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xc08e, 0xe5f8)?;
     c.run(0xe5f8, 3)?;
     let cx = c.reg(CX);
-    c.set_word(0xce74, cx);
+    c.set_word(g::HNM_CE74, cx);
     c.set_reg(DI, 0xdbdc);
     c.call(0xf0f6, 0xe602)?;
     let bp = c.reg(BP);
@@ -1044,7 +1044,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0xf0f6, 0xe610)?;
     }
     c.interp(0xe610, 0xe614)?;
-    let f = c.byte(0x2942);
+    let f = c.byte(g::CMD_ARGS);
     let joy = f & 0x80 != 0;
     c.run(0xe614, 9 + if joy { 2 } else { 0 })?;
     c.set_reg8(r8::AL, f);
@@ -1053,7 +1053,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // The screen kind: bits 2-4.
     let a = (f >> 2) & 7;
     c.set_reg8(r8::AL, a);
-    c.set_byte(0xceeb, a);
+    c.set_byte(g::LANGUAGE, a);
     let ax = c.pop();
     c.set_reg(AX, ax);
     c.or(B, f as u16, f as u16);
@@ -1077,7 +1077,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xe635, 1)?;
     c.call(0xea7b, 0xe638)?;
     c.run(0xe638, 3)?;
-    let f = c.byte(0x2942);
+    let f = c.byte(g::CMD_ARGS);
     c.set_reg8(r8::AL, f);
     let a = c.and(B, f as u16, 2); // the driver's far call sees the flags
     c.set_reg8(r8::AL, a as u8);
@@ -1158,7 +1158,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.update_sound_state(|t| t.settings &= 0xff00);
         let v = c.word(0x398b).wrapping_add(0x10);
         c.set_reg(AX, v);
-        c.set_word(0x39b9, v);
+        c.set_word(g::ALLOCATOR_NEXT_SEGMENT, v);
         c.set_word(0x3cbc, 0x3624);
     }
     c.run(0xe7bc, 3)?;
@@ -1206,7 +1206,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.update_sound_state(|t| t.settings &= 0x00ff);
         let v = c.word(0x396f).wrapping_add(0x10);
         c.set_reg(AX, v);
-        c.set_word(0x39b9, v);
+        c.set_word(g::ALLOCATOR_NEXT_SEGMENT, v);
         c.set_word(0x3cbc, 0x364b);
     }
     c.call(0xae28, 0xe81b)?;
@@ -1217,8 +1217,8 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xe81b, 2)?;
     c.call(0xe826, 0xe820)?;
     c.run(0xe820, 2)?;
-    let f = c.byte(0x2943);
-    c.set_byte(0x2943, f & 0xef);
+    let f = c.byte(g::CMD_ARGS_MEMORY);
+    c.set_byte(g::CMD_ARGS_MEMORY, f & 0xef);
     c.ret()
 }
 
@@ -1244,7 +1244,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0xf1fb, 0xe67b)?;
         if !c.flag(CF) {
             c.run(0xe67b, 3)?;
-            let (d, e) = (c.word(0x39b7), c.word(0x39b9));
+            let (d, e) = (c.word(g::ALLOCATOR_NEXT_OFFSET), c.word(g::ALLOCATOR_NEXT_SEGMENT));
             c.set_reg(DI, d);
             c.set_sreg(ES, e);
             c.call(0xf260, 0xe684)?;
@@ -1280,17 +1280,17 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xe6a4, 3)?;
     let ax = c.reg(AX);
-    c.set_word(0xdbba, ax);
+    c.set_word(g::DUNE_DAT_HANDLE, ax);
     c.call(0xe741, 0xe6ac)?;
     c.run(0xe6ac, 10 + 0x14d)?; // the `rep` iterations too
     let di = c.reg(DI);
     c.set_reg(SI, di);
     let es = c.sreg(ES);
     c.set_reg(BP, es);
-    let (d, e) = (c.word(0x39b7), c.word(0x39b9));
+    let (d, e) = (c.word(g::ALLOCATOR_NEXT_OFFSET), c.word(g::ALLOCATOR_NEXT_SEGMENT));
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
-    c.set_word(0xdbbc, d);
+    c.set_word(g::RES_LOOKUP_TABLE, d);
     c.set_word(0xdbbe, e);
     c.set_reg(AX, 0x145);
     c.stos(W);

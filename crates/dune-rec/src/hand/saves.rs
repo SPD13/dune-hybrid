@@ -270,7 +270,7 @@ fn after_restore(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0xb424, 1)?;
         return c.jump(0x2db1);
     }
-    let zoomed = c.byte(0xdd02) != 0;
+    let zoomed = c.byte(g::MAP_GFX_ARG) != 0;
     c.run(0xb400, 4 + 2 + zoomed as u32)?;
     let ax = c.pop();
     c.set_reg(AX, ax);
@@ -1274,7 +1274,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     }
     c.call(0xc443, 0xc71b)?;
     // The particles meeting the rectangle, listed on the stack.
-    let count = c.word(0x3cbe);
+    let count = c.word(g::PARTICLES);
     c.run(0xc71b, 4)?;
     let sp = c.reg(SP);
     let sp = pure::sub(W, sp, 0x200);
@@ -1284,7 +1284,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     if count != 0 {
         c.run(0xc727, 9)?;
         c.set_reg(SI, 0xd834);
-        let (dx, bx, bp, ax) = (c.word(0xd834), c.word(0xd836), c.word(0xd838), c.word(0xd83a));
+        let (dx, bx, bp, ax) = (c.word(g::RECT_D834), c.word(0xd836), c.word(0xd838), c.word(0xd83a));
         c.set_reg(DX, dx);
         c.set_reg(BX, bx);
         c.set_reg(BP, bp);
@@ -1367,8 +1367,8 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
         }
     }
     // The frieze, the overlays, the copy.
-    let f = c.byte(0x227d);
-    let (b, h, l) = (c.word(0xd83a), c.word(0xd838), c.word(0xd834));
+    let f = c.byte(g::CINEMATIC);
+    let (b, h, l) = (c.word(0xd83a), c.word(0xd838), c.word(g::RECT_D834));
     let n = if f != 0 {
         2
     } else if lt(b, 0x89) {
@@ -1402,7 +1402,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     }
     c.run(0xc7be, 6)?;
     c.set_reg(SI, 0xd834);
-    let (dx, bx, bp, ax) = (c.word(0xd834), c.word(0xd836), c.word(0xd838), c.word(0xd83a));
+    let (dx, bx, bp, ax) = (c.word(g::RECT_D834), c.word(0xd836), c.word(0xd838), c.word(0xd83a));
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
     c.set_reg(BP, bp);

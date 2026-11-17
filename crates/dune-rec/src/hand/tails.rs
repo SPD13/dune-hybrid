@@ -1427,7 +1427,7 @@ pub fn place_7c02(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7c0e, 1)?;
     c.call(0x7c63, 0x7c11)?;
     let ax = c.reg(AX);
-    let shown = c.word(0x1176);
+    let shown = c.word(g::REACH);
     if ax <= shown {
         c.run(0x7c11, 2 + 1)?;
         c.cmp(W, ax, shown);
@@ -2074,7 +2074,7 @@ pub fn place_780a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x780a, 1)?;
     c.call(0x7c63, 0x780d)?;
     let (ax, si) = (c.reg(AX), c.reg(SI));
-    let shown = c.word(0x1176);
+    let shown = c.word(g::REACH);
     let k = c.byte(si.wrapping_add(3));
     let past = ax > shown;
     let inhab = k & 0x20 == 0 || k == 0x22;

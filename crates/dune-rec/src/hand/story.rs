@@ -4726,7 +4726,7 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ph = c.byte(g::GAME_PHASE);
     if ph < 0x3c {
         let d = c.game_time();
-        let t = c.word(0x1154);
+        let t = c.word(g::WORD_1154);
         let a = d.wrapping_sub(t);
         if d < t || a < 0x70 {
             c.run(0x1f64, if d < t { 6 } else { 8 })?;

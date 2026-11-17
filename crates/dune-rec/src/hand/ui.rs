@@ -242,7 +242,7 @@ pub fn sub_1ae7(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn sub_1dda(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1dda)?;
     let mut c = Ctx::new(m);
-    let (a, b, d, e) = (c.byte(0x00bf), c.word(0x0010), c.byte(g::CURRENT_ROOM), c.byte(0x00c2));
+    let (a, b, d, e) = (c.byte(g::SHIPMENT_FLAGS), c.word(g::PARTY), c.byte(g::CURRENT_ROOM), c.byte(0x00c2));
     let checks = [a & 0x10 == 0, b & 8 != 0, d == 8, e != 0];
     let failed = checks.iter().position(|&f| f);
     c.run(start, match failed {

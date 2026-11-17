@@ -687,7 +687,7 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd23d)?;
     let mut c = Ctx::new(m);
-    let a = c.word(0x1afe);
+    let a = c.word(g::WORD_1AFE);
     if a / 3 > 0xff {
         return Err(Bail);
     }
@@ -868,7 +868,7 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let odd1 = a1 && al.wrapping_sub(1) & 1 != 0;
     let a2 = ah2 != 0;
     let odd2 = a2 && ah2.wrapping_sub(1) & 1 != 0;
-    let k = c.word(0x1afe);
+    let k = c.word(g::WORD_1AFE);
     let n = 9 + 4 + if a1 { 3 + odd1 as u32 } else { 0 } + 2 + if a2 { 3 + odd2 as u32 } else { 0 } + 4 + 2;
     c.run(start, n)?;
     let _ = pure::shl1(W, t, 2);

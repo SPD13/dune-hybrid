@@ -1408,7 +1408,7 @@ fn stop_a7a5(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xa7bc, 1)?;
     c.call(0xa9a1, 0xa7bf)?;
     let bl = c.byte(g::SLIDER_MUSIC);
-    let bh = c.byte(0x28ae);
+    let bh = c.byte(g::BYTE_28AE);
     c.run(0xa7bf, 1 + 5 + (bl < 4) as u32)?;
     c.set_reg(AX, 0x190);
     c.set_reg8(r8::BL, bl);

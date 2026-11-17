@@ -603,7 +603,7 @@ pub fn open_file_size(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn scan_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe826)?;
     let mut c = Ctx::new(m);
-    let k = c.word(0xdbba);
+    let k = c.word(g::DUNE_DAT_HANDLE);
     if k == 0 {
         c.run(start, 3)?;
         return c.ret();
@@ -761,9 +761,9 @@ pub fn open_resource_force_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.push(di);
     let es = c.sreg(ES);
     c.push(es);
-    let k = c.byte(0xce71);
+    let k = c.byte(g::DISABLE_HSQ);
     let k = pure::inc(B, k as u16);
-    c.set_byte(0xce71, k as u8);
+    c.set_byte(g::DISABLE_HSQ, k as u8);
     let ds = c.sreg(DS);
     c.push(ds);
     let v = c.pop();
@@ -771,9 +771,9 @@ pub fn open_resource_force_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.set_reg(DI, 0x4c60);
     c.call(0xf0b9, 0xf0ae)?;
     c.run(0xf0ae, 5)?;
-    let k = c.byte(0xce71);
+    let k = c.byte(g::DISABLE_HSQ);
     let k = pure::dec(B, k as u16);
-    c.set_byte(0xce71, k as u8);
+    c.set_byte(g::DISABLE_HSQ, k as u8);
     let di = c.reg(DI);
     c.set_reg(SI, di);
     let v = c.pop();
@@ -1078,7 +1078,7 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, di);
     let a = di.wrapping_add(0x62fc);
     c.set_reg(AX, a);
-    c.set_word(0xdcfe, a);
+    c.set_word(g::MAP_GFX_DATA, a);
     let es = c.sreg(ES);
     c.set_word(0xdd00, es);
     let ds = c.sreg(DS);
@@ -1095,12 +1095,12 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xf0b9, 0x012c)?;
     c.run(0x012c, 3)?;
     let (di, es) = (c.reg(DI), c.sreg(ES));
-    c.set_word(0xaa72, di);
+    c.set_word(g::CONDITIONS, di);
     c.set_word(0xaa74, es);
     c.call(0x0098, 0x0137)?;
     for (at, slot, n, ret) in [(0x0137u16, 0x47acu16, 0x1d4cu16, 0x0148u16), (0x0148, 0x47b0, 0xadd4, 0x0159)] {
         c.run(at, 5)?;
-        let (a, e) = (c.word(0x39b7), c.word(0x39b9));
+        let (a, e) = (c.word(g::ALLOCATOR_NEXT_OFFSET), c.word(g::ALLOCATOR_NEXT_SEGMENT));
         c.set_reg(AX, a);
         c.set_sreg(ES, e);
         c.set_word(slot, a);
@@ -1171,14 +1171,14 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     let idx = bx.wrapping_sub(0xd844) >> 2;
-    let cur = c.word(0x2784);
+    let cur = c.word(g::RESOURCE_ID);
     c.run(0xf170, 6 + (idx == cur) as u32 + 5)?;
     c.set_reg(AX, bx);
     let a = pure::sub(W, bx, 0xd844);
     let a = pure::shr1(W, a, 2);
     c.set_reg(AX, a);
     if a == cur {
-        c.set_word(0x2784, 0xffff);
+        c.set_word(g::RESOURCE_ID, 0xffff);
     }
     let dx = c.word(bx.wrapping_add(2));
     c.set_word(bx.wrapping_add(2), 0);
@@ -1208,7 +1208,7 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     if best & 0x8000 != 0 {
         c.run(0xf1a3, 2 + 3)?;
-        c.set_word(0x39b9, dx);
+        c.set_word(g::ALLOCATOR_NEXT_SEGMENT, dx);
         let v = c.pop();
         c.set_reg(CX, v);
         return c.ret();
@@ -1267,9 +1267,9 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.push(ss);
             let v = c.pop();
             c.set_sreg(DS, v);
-            let t = c.word(0x39b9);
+            let t = c.word(g::ALLOCATOR_NEXT_SEGMENT);
             let t = pure::sub(W, t, best);
-            c.set_word(0x39b9, t);
+            c.set_word(g::ALLOCATOR_NEXT_SEGMENT, t);
             let v = c.pop();
             c.set_reg(CX, v);
             return c.ret();
