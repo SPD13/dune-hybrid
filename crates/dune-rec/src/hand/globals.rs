@@ -71,6 +71,18 @@ pub const SPICE_PAID: u16 = 0x1172;
 /// The day the shipment is due (2093h; put back by a good one,
 /// 25BDh).
 pub const SHIPMENT_DUE: u16 = 0x118d;
+/// The events waiting to be told: a count (up to 10, the oldest dropped
+/// for a new one, `loc_029f0`), then 4-byte entries from
+/// [`NEXT_EVENT`]: a word with the kind (to [`EVENT_KIND`]; 1: told) and
+/// in its high byte the character who tells it (to [`TALKER`]; told
+/// when it is [`PRESENT`], 2AD8h), and a word, the location record
+/// where (0 for none; for character 0Fh it must be [`PLACE`]). The first is told in the room view after a while
+/// (`loc_02b2a`).
+pub const PENDING_EVENTS: u16 = 0x1190;
+/// The first event waiting ([`PENDING_EVENTS`]): its kind and teller,
+pub const NEXT_EVENT: u16 = 0x1191;
+/// and its location record.
+pub const NEXT_EVENT_PLACE: u16 = 0x1193;
 /// The messages kept (ten words from 1179h, the oldest first, the
 /// newest last: an event's phrase, `loc_026da` adding one unless it is
 /// there, dropping the oldest when full).
@@ -391,6 +403,30 @@ pub const TIME_BETWEEN_FACE_ZOOMS: u16 = 0x4772;
 /// A gradient section's start.
 pub const GRADIENT_X: u16 = 0x47e8;
 pub const GRADIENT_Y: u16 = 0x47ea;
+/// Where `draw_gradient_section` puts the next edge point of a scene
+/// polygon (`SAL_polygon`): from 4C60h for the right side, 4C62h for the
+/// left, every other word (one x per row).
+pub const POLYGON_EDGES: u16 = 0x22d9;
+/// A scene polygon's colour step along a line (the signed byte * 16,
+/// 3C07h), and
+pub const POLYGON_SHADE_X: u16 = 0x22db;
+/// its step from one line to the next (3C14h).
+pub const POLYGON_SHADE_Y: u16 = 0x22dd;
+/// What the polygon's line drawer gets in SI (3CA2h): 2, and in the high
+/// byte the style's bits 3Eh.
+pub const POLYGON_LINE_STEP: u16 = 0x22df;
+/// A scene polygon's style ([si-1]; bit 0: lines drawn right to left,
+/// bits 3Eh: dithered),
+pub const POLYGON_STYLE: u16 = 0x47ec;
+/// its colour ([si-2]),
+pub const POLYGON_COLOUR: u16 = 0x47ed;
+/// its first point (x, y),
+pub const POLYGON_START_X: u16 = 0x47ee;
+pub const POLYGON_START_Y: u16 = 0x47f0;
+/// and the point where its right side ends (x, y; the left side is
+/// closed back to it, 3C71h).
+pub const POLYGON_END_X: u16 = 0x47f2;
+pub const POLYGON_END_Y: u16 = 0x47f4;
 /// The communication device's animation step.
 pub const COMM_STEP: u16 = 0xd816;
 /// The particles: a count, then 11h-byte records.
@@ -424,7 +460,7 @@ pub const BYTE_28AE: u16 = 0x28ae;
 pub const CONDITIONS: u16 = 0xaa72;
 /// The resource open as the sprite sheet (Cryogenic: `resourceId`).
 pub const RESOURCE_ID: u16 = 0x2784;
-/// The kind of the event being told (from [1191h]; 1: its phrase from
+/// The kind of the event being told (from [`NEXT_EVENT`]; 1: its phrase from
 /// [0EBh]), FFh for none (2B1Ah, 2C7Ah).
 pub const EVENT_KIND: u16 = 0x00ea;
 /// The voice file: its name (DOS form at 37DAh), the position and the

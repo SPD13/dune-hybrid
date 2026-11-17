@@ -1182,22 +1182,22 @@ pub fn drop_oldest_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_02a34`: the countdown at 1190h one down (at 0, [118Fh] cleared);
-/// then its list (from 1191h, 4-byte entries) shifted down one, zeros
+/// `loc_02a34`: the oldest of [`g::PENDING_EVENTS`] dropped: the count
+/// one down (at 0, [118Fh] cleared), the entries shifted down one, zeros
 /// after.
-pub fn shift_list_1191(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn drop_oldest_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2a34)?;
     let mut c = Ctx::new(m);
-    let v = c.byte(0x1190).wrapping_sub(1);
+    let v = c.byte(g::PENDING_EVENTS).wrapping_sub(1);
     c.run(start, (3 + (v == 0) as u32 + 7) + 0x12)?; // the `rep` iterations too
-    c.set_reg(SI, 0x1190);
-    let b = c.byte(0x1190);
+    c.set_reg(SI, g::PENDING_EVENTS);
+    let b = c.byte(g::PENDING_EVENTS);
     let v = pure::dec(B, b as u16);
-    c.set_byte(0x1190, v as u8);
+    c.set_byte(g::PENDING_EVENTS, v as u8);
     if v == 0 {
         c.set_byte(0x118f, 0);
     }
-    let si = pure::inc(W, 0x1190);
+    let si = pure::inc(W, g::PENDING_EVENTS);
     c.set_reg(DI, si);
     let si = pure::add(W, si, 4);
     c.set_reg(SI, si);
@@ -1283,19 +1283,15 @@ pub fn message_2b00(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// The list at 1190h: a count byte, then 4-byte entries (a word whose low
-/// byte is a kind, 1 for spent, and a word).
-const LIST_1190: u16 = 0x1190;
-
-/// `loc_02a7f`: the spent entries (kind 1) dropped from [`LIST_1190`],
+/// `loc_02a7f`: the spent entries (kind 1) dropped from [`g::PENDING_EVENTS`],
 /// the count fixed and a zero entry after when it shrank.
-pub fn compact_list_1190(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn drop_told_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2a7f)?;
     let mut c = Ctx::new(m);
-    let n = c.byte(LIST_1190) as u16;
+    let n = c.byte(g::PENDING_EVENTS) as u16;
     if n == 0 {
         c.run(start, 7)?;
-        c.set_reg(SI, LIST_1190);
+        c.set_reg(SI, g::PENDING_EVENTS);
         c.set_reg(CX, 0);
         c.set_reg(BP, 0);
         c.lods(B, pc::cpu::DS);
@@ -1304,7 +1300,7 @@ pub fn compact_list_1190(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut kept = 0u16;
     let mut count = 9;
     for i in 0..n {
-        let k = c.byte(LIST_1190 + 1 + 4 * i);
+        let k = c.byte(g::PENDING_EVENTS + 1 + 4 * i);
         if k == 1 {
             count += 6;
         } else {
@@ -1315,7 +1311,7 @@ pub fn compact_list_1190(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let shrank = kept as u8 != n as u8;
     count += 5 + if shrank { 4 } else { 1 };
     c.run(start, count)?;
-    c.set_reg(SI, LIST_1190);
+    c.set_reg(SI, g::PENDING_EVENTS);
     c.set_reg(CX, 0);
     c.set_reg(BP, 0);
     c.lods(B, pc::cpu::DS);
@@ -1342,8 +1338,8 @@ pub fn compact_list_1190(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, n - 1 - i);
     }
     c.set_reg(CX, bp);
-    let old = c.byte(LIST_1190);
-    c.set_byte(LIST_1190, bp as u8);
+    let old = c.byte(g::PENDING_EVENTS);
+    c.set_byte(g::PENDING_EVENTS, bp as u8);
     c.set_reg(CX, (bp & 0xff) << 8 | old as u16);
     if shrank {
         c.set_reg(AX, 0);
@@ -1353,12 +1349,12 @@ pub fn compact_list_1190(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_02aaf`: the entry of [`LIST_1190`] for kind AL (for kind 0Fh, the
+/// `loc_02aaf`: the entry of [`g::PENDING_EVENTS`] for kind AL (for kind 0Fh, the
 /// one whose word is DI): CF set, AX, DI = its words. SI kept.
-pub fn find_in_list_1190(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn find_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2aaf)?;
     let mut c = Ctx::new(m);
-    let n = c.byte(LIST_1190) as u16;
+    let n = c.byte(g::PENDING_EVENTS) as u16;
     let (al, di) = (c.reg8(r8::AL), c.reg(DI));
     let mut count = 5;
     let mut found = None;
@@ -1367,7 +1363,7 @@ pub fn find_in_list_1190(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         count += 1;
         for i in 0..n {
-            let e = LIST_1190 + 1 + 4 * i;
+            let e = g::PENDING_EVENTS + 1 + 4 * i;
             let k = c.byte(e.wrapping_add(1));
             count += 2;
             if k == al {
@@ -1392,18 +1388,18 @@ pub fn find_in_list_1190(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // The exit's flags are the last test's (`loop` keeps them), then CF.
     match found {
         None if n == 0 => {
-            c.set_reg(SI, LIST_1190);
+            c.set_reg(SI, g::PENDING_EVENTS);
             c.set_reg(CX, 0);
             c.xor(W, 0, 0); // `xor cx, cx`
         }
         None => {
-            let last = LIST_1190 + 1 + 4 * (n - 1);
+            let last = g::PENDING_EVENTS + 1 + 4 * (n - 1);
             c.set_reg(SI, last + 4);
             c.set_reg(CX, 0);
             c.add(W, last, 4); // `add si, 4`
         }
         Some(i) => {
-            let e = LIST_1190 + 1 + 4 * i;
+            let e = g::PENDING_EVENTS + 1 + 4 * i;
             let (event, place) = (c.word(e), c.word(e.wrapping_add(2)));
             c.set_reg(SI, e);
             c.set_reg(CX, n - i);
@@ -2712,10 +2708,10 @@ pub fn stop_task_3916(m: &mut Machine, start: u16) -> Result<(), Bail> {
     super::tasks::remove_frame_task(c.m, 0xda5f)
 }
 
-/// `loc_029f0`: with bit 1 of [0Ah], the pair (AX, DI) added to the list
-/// at 1190h (count byte, then 4-byte entries) unless there; with 10
-/// already, the oldest dropped (`shift_list_1191`) first.
-pub fn note_pair(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_029f0`: with bit 1 of [0Ah], the event (AX, DI) added to
+/// [`g::PENDING_EVENTS`] unless there; with 10
+/// already, the oldest dropped ([`drop_oldest_event`]) first.
+pub fn add_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x29f0)?;
     let mut c = Ctx::new(m);
     let f = c.byte(g::EVENT_FLAGS);
@@ -2724,13 +2720,13 @@ pub fn note_pair(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let (ax, di) = (c.reg(AX), c.reg(DI));
-    let n0 = c.byte(0x1190) as u16;
+    let n0 = c.byte(g::PENDING_EVENTS) as u16;
     let mut n = 2 + 4;
     let mut found = None;
     if n0 != 0 {
         n += 1;
         for i in 0..n0 {
-            let p = 0x1191 + 4 * i;
+            let p = g::NEXT_EVENT + 4 * i;
             let w = c.word(p);
             n += 2;
             if w == ax {
@@ -2757,17 +2753,17 @@ pub fn note_pair(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, n)?;
     if let Some(i) = found {
         // Already there.
-        let at = 0x1191 + 4 * i;
+        let at = g::NEXT_EVENT + 4 * i;
         c.set_reg(SI, at);
         c.set_reg(CX, n0 - i);
         return c.ret();
     }
-    c.set_reg(SI, 0x1190);
+    c.set_reg(SI, g::PENDING_EVENTS);
     c.set_reg(CX, n0);
     if full {
         // The oldest dropped first.
         c.push(ax);
-        c.push(0x1190);
+        c.push(g::PENDING_EVENTS);
         c.push(di);
         c.call(0x2a34, 0x2a1f)?;
         c.run(0x2a1f, 4)?;
@@ -2782,30 +2778,30 @@ pub fn note_pair(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // Added at the end.
     let at = (if full { 9 } else { n0 }) * 4;
     c.run(0x2a25, 8)?;
-    let count = c.byte(0x1190).wrapping_add(1);
-    c.set_byte(0x1190, count);
+    let count = c.byte(g::PENDING_EVENTS).wrapping_add(1);
+    c.set_byte(g::PENDING_EVENTS, count);
     c.set_reg(CX, at);
-    c.set_reg(SI, 0x1191 + at);
+    c.set_reg(SI, g::NEXT_EVENT + at);
     let (ax, di) = (c.reg(AX), c.reg(DI));
-    c.set_word(0x1191 + at, ax);
-    c.set_word(0x1193 + at, di);
+    c.set_word(g::NEXT_EVENT + at, ax);
+    c.set_word(g::NEXT_EVENT_PLACE + at, di);
     c.ret()
 }
 
-/// `loc_02ad8`: the pending event [1191h] (AH a bit of [12h], DI its
-/// place [1193h]): when that bit is set (and, for bit 0Fh, it is the
+/// `loc_02ad8`: the [`g::NEXT_EVENT`] (AH a bit of [`g::PRESENT`], DI its
+/// place [`g::NEXT_EVENT_PLACE`]): when that bit is set (and, for bit 0Fh, it is the
 /// current location) it is told: `loc_0dbb2`, `loc_0331e` for its place
 /// ([11CEh] kept), the sentence AH by `loc_096d8`, `loc_09945`, `loc_09ef1`
 /// with AL 1 ([0EAh] AL meanwhile, then FFh); CF set. Else CF clear.
 pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2ad8)?;
     let mut c = Ctx::new(m);
-    let ev = c.word(0x1191);
+    let ev = c.word(g::NEXT_EVENT);
     let present = c.word(g::PRESENT);
     let cl = (ev >> 8) as u8;
     let sh = (cl & 0x1f) as u32;
     let bit = sh < 16 && (present >> sh) & 1 != 0;
-    let di = c.word(0x1193);
+    let di = c.word(g::NEXT_EVENT_PLACE);
     let here = c.word(g::PLACE);
     let tell = bit && (cl != 0x0f || di == here);
     let n = 7 + if bit { 3 + if cl == 0x0f { 2 } else { 0 } } else { 0 };
@@ -2861,7 +2857,7 @@ pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_02a51`: the pending events at 1190h for the bit AL (for 0Fh only
+/// `loc_02a51`: the [`g::PENDING_EVENTS`] for the bit AL (for 0Fh only
 /// those at the place DI) dropped, the rest moved down; when any went,
 /// the list's end gets an empty entry. BP the count kept. Bails at entry
 /// with DF set.
@@ -2873,10 +2869,10 @@ pub fn drop_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let dl = c.reg8(r8::AL);
     let bx = c.reg(DI);
-    let cnt = c.byte(0x1190);
+    let cnt = c.byte(g::PENDING_EVENTS);
     if cnt == 0 {
         c.run(start, 9)?;
-        c.set_reg(SI, 0x1191);
+        c.set_reg(SI, g::NEXT_EVENT);
         c.set_reg8(r8::DL, dl);
         c.set_reg(BX, bx);
         c.set_reg(CX, 0);
@@ -2887,7 +2883,7 @@ pub fn drop_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut n = 8 + 3;
     let mut kept = 0u16;
     for i in 0..cnt as u16 {
-        let p = 0x1191 + 4 * i;
+        let p = g::NEXT_EVENT + 4 * i;
         let ev = c.word(p);
         let place = c.word(p + 2);
         n += 3;
@@ -2911,7 +2907,7 @@ pub fn drop_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let changed = (kept as u8) != cnt;
     n += 1 + 5 + if changed { 4 } else { 1 };
     c.run(start, n)?;
-    c.set_reg(SI, 0x1190);
+    c.set_reg(SI, g::PENDING_EVENTS);
     c.set_reg8(r8::DL, dl);
     c.set_reg(BX, bx);
     c.set_reg(BP, 0);
@@ -2938,7 +2934,7 @@ pub fn drop_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.set_reg(BP, left);
-    c.set_byte(0x1190, left as u8);
+    c.set_byte(g::PENDING_EVENTS, left as u8);
     c.set_reg(CX, (left & 0xff) << 8 | cnt as u16);
     if !changed {
         return c.ret();
@@ -3231,13 +3227,13 @@ pub fn event_280a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     add_message_in(&mut c)
 }
 
-/// `loc_029ee`: [`note_pair`] with DI 0.
+/// `loc_029ee`: [`add_pending_event`] with DI 0.
 pub fn note_pair_0(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x29ee)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.set_reg(DI, 0);
-    note_pair(c.m, 0x29f0)
+    add_pending_event(c.m, 0x29f0)
 }
 
 /// `sub_1166`: [`g::ITEMS_OFFERED`] counted, record FD8h's byte 10h 2 (word 12h
@@ -6614,16 +6610,16 @@ fn scene_record_3551(c: &mut Ctx) -> Result<(), Bail> {
 
 /// `loc_02b2a`: the clock in the room view (nothing on [46D9h], [4774h]
 /// or a map mode; the list 1F0Eh current, [0FBh] not negative): AX the
-/// time [0CE7Ah]. Past the hour 14h ([2Ah]) with events ([1190h]) and
+/// time [0CE7Ah]. Past the hour 14h ([2Ah]) with [`g::PENDING_EVENTS`] and
 /// 32h since [0DC5Ah]: an event to tell (`loc_02ad8`, CF) starts its
 /// scene (`loc_03542`, stage 0); else (not at a Harkonnen place, [2Bh])
 /// the light dims (28h from 96h, 26h from 15Eh) and from 1C2h (or at
 /// one) the next event is
 /// shown. At 14h exactly, outside a place and with [10h] 0, every 3E8h
 /// the time moves on 3B6h (`loc_01071`, `loc_0b17a`) and the clock steps
-/// again until [0EAh] is FFh. An event ([1191h]): its kind in [0EAh]
+/// again until [0EAh] is FFh. An event ([`g::NEXT_EVENT`]): its kind in [0EAh]
 /// ([0EBh] for 1), its phrase below 10h (0Eh needs a speaker), the
-/// speaker [1193h] placed (`loc_0331e`, `loc_02e98`; from phrase 0Eh
+/// speaker at [`g::NEXT_EVENT_PLACE`] placed (`loc_0331e`, `loc_02e98`; from phrase 0Eh
 /// with a figure `loc_06906`), the talk (`loc_02c92`, `loc_09ef1`), the
 /// list shifted, and the view reset before `loc_0c412`.
 pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -6679,7 +6675,7 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
         }
     }
-    let ev = c.byte(0x1190);
+    let ev = c.byte(g::PENDING_EVENTS);
     if ev == 0 {
         c.run(0x2b3a, 11)?;
         c.set_reg(AX, t);
@@ -6740,13 +6736,13 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     next_event_2bd2(&mut c)
 }
 
-/// `loc_02bd2`: the next event ([1191h]) shown; see [`clock_step`].
+/// `loc_02bd2`: the [`g::NEXT_EVENT`] shown; see [`clock_step`].
 fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x2bd2, 1)?;
     c.call(0xdbb2, 0x2bd5)?;
     c.run(0x2bd5, 1)?;
     c.call(0xad5e, 0x2bd8)?;
-    let di = c.word(0x1193);
+    let di = c.word(g::NEXT_EVENT_PLACE);
     if di == 0 {
         c.run(0x2bd8, 3)?;
         c.set_reg(DI, 0);
@@ -6762,14 +6758,14 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
         c.set_reg(AX, a);
         c.cmp(W, a, 0x7aa);
         if far {
-            c.set_byte(0x1193, 0);
+            c.set_byte(g::NEXT_EVENT_PLACE, 0);
         } else {
             c.call(0x331e, 0x2bf4)?;
         }
     }
-    let ev = c.word(0x1191);
+    let ev = c.word(g::NEXT_EVENT);
     let (al, ah) = (ev as u8, (ev >> 8) as u8);
-    let di = c.word(0x1193);
+    let di = c.word(g::NEXT_EVENT_PLACE);
     let skip = ah >= 0x10 || (ah == 0x0e && di == 0);
     let n = 4 + (al == 1) as u32 + 5 + if ah >= 0x10 { 0 } else if ah != 0x0e { 2 } else { 4 };
     c.run(0x2bf4, n + if skip { 1 } else if di != 0 { 4 } else { 3 })?;
@@ -6792,7 +6788,7 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
         }
     }
     if skip {
-        return shift_list_1191(c.m, 0x2a34);
+        return drop_oldest_event(c.m, 0x2a34);
     }
     c.update_conversation(|t| t.talker = ax);
     c.or(W, di, di);
@@ -6867,7 +6863,7 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
 
 /// `draw_gradient_section_2`: the outline of a scene polygon's edge
 /// (BX, DX) from the pen ([47E8h] x, [47EAh] y) into the edge list
-/// [22D9h] (every other word): one point per row it crosses (rows
+/// [`g::POLYGON_EDGES`] (every other word): one point per row it crosses (rows
 /// change by the sign of BX). A flat edge (BX 0) moves x and notes its
 /// left end; a vertical one (DX 0) notes x for each of its BX + 1
 /// rows; else a midpoint walk along the longer axis notes x before
@@ -6895,14 +6891,14 @@ pub fn edge_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
             left = pure::add(W, x, dx);
         }
         c.set_reg(DX, left);
-        let p = c.word(0x22d9);
+        let p = c.word(g::POLYGON_EDGES);
         c.set_reg(DI, p);
         c.set_reg(AX, left);
         c.stos(W);
         let p = c.reg(DI);
         let p = pure::add(W, p, 2);
         c.set_reg(DI, p);
-        c.set_word(0x22d9, p);
+        c.set_word(g::POLYGON_EDGES, p);
         let v = c.pop();
         c.set_reg(SI, v);
         let v = c.pop();
@@ -6939,7 +6935,7 @@ pub fn edge_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let n = pure::inc(W, bxa);
         c.set_reg(CX, n);
-        let p = c.word(0x22d9);
+        let p = c.word(g::POLYGON_EDGES);
         c.set_reg(DI, p);
         c.set_reg(AX, x);
         let mut cx = n;
@@ -6957,7 +6953,7 @@ pub fn edge_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0x3e79, 4)?;
         let p = c.reg(DI);
-        c.set_word(0x22d9, p);
+        c.set_word(g::POLYGON_EDGES, p);
         let v = c.pop();
         c.set_reg(SI, v);
         let v = c.pop();
@@ -7016,13 +7012,13 @@ pub fn edge_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if row {
             c.push(di);
             c.push(acc);
-            let p = c.word(0x22d9);
+            let p = c.word(g::POLYGON_EDGES);
             c.set_reg(DI, p);
             c.set_reg(AX, x);
             c.stos(W);
             let p = c.reg(DI);
             let p = pure::add(W, p, 2);
-            c.set_word(0x22d9, p);
+            c.set_word(g::POLYGON_EDGES, p);
             let v = c.pop();
             c.set_reg(AX, v);
             let v = c.pop();
@@ -7189,7 +7185,7 @@ pub fn sal_polygon(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3be9)?;
     let mut c = Ctx::new(m);
     c.run(0x3be9, 21 + 6)?;
-    c.set_word(0x22d9, 0x4c60);
+    c.set_word(g::POLYGON_EDGES, 0x4c60);
     let ds = c.sreg(DS);
     c.push(ds);
     let v = c.pop();
@@ -7197,11 +7193,11 @@ pub fn sal_polygon(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     let a = c.byte(si.wrapping_sub(2));
     c.set_reg8(r8::AL, a);
-    c.set_byte(0x47ed, a);
+    c.set_byte(g::POLYGON_COLOUR, a);
     let a = c.byte(si.wrapping_sub(1));
     c.set_reg8(r8::AL, a);
-    c.set_byte(0x47ec, a);
-    for at in [0x22dbu16, 0x22dd] {
+    c.set_byte(g::POLYGON_STYLE, a);
+    for at in [g::POLYGON_SHADE_X, g::POLYGON_SHADE_Y] {
         let b = c.lods(B, DS) as u8;
         let step = (b as i8 as i16 as u16) << 4;
         c.set_reg(AX, step);
@@ -7211,8 +7207,8 @@ pub fn sal_polygon(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, dx);
     let bx = c.lods(W, DS);
     c.set_reg(BX, bx);
-    c.set_word(0x47ee, dx);
-    c.set_word(0x47f0, bx);
+    c.set_word(g::POLYGON_START_X, dx);
+    c.set_word(g::POLYGON_START_Y, bx);
     let mut ax;
     loop {
         c.run(0x3c25, 7)?;
@@ -7235,13 +7231,13 @@ pub fn sal_polygon(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x3c3c, 7)?;
     let (di, cx) = (c.reg(DI), c.reg(CX));
-    c.set_word(0x47f2, di);
-    c.set_word(0x47f4, cx);
-    let dx = c.word(0x47ee);
+    c.set_word(g::POLYGON_END_X, di);
+    c.set_word(g::POLYGON_END_Y, cx);
+    let dx = c.word(g::POLYGON_START_X);
     c.set_reg(DX, dx);
-    let bx = c.word(0x47f0);
+    let bx = c.word(g::POLYGON_START_Y);
     c.set_reg(BX, bx);
-    c.set_word(0x22d9, 0x4c62);
+    c.set_word(g::POLYGON_EDGES, 0x4c62);
     if ax & 0x8000 == 0 {
         loop {
             c.run(0x3c57, 7)?;
@@ -7266,29 +7262,29 @@ pub fn sal_polygon(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.run(0x3c71, 3)?;
-    let di = c.word(0x47f2);
+    let di = c.word(g::POLYGON_END_X);
     c.set_reg(DI, di);
-    let cx = c.word(0x47f4);
+    let cx = c.word(g::POLYGON_END_Y);
     c.set_reg(CX, cx);
     c.call(0x3e13, 0x3c7c)?;
-    let style = c.byte(0x47ec);
+    let style = c.byte(g::POLYGON_STYLE);
     let dither = style & 0x3e != 0;
     c.run(0x3c7c, 11 + dither as u32 + 6)?;
     let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
     let si = c.reg(SI);
     c.push(si);
-    let top = c.word(0x47f0);
+    let top = c.word(g::POLYGON_START_Y);
     c.set_reg(BX, top);
     // The lines from the top: their count, the step word (style bits
     // and 2), BP 1 for a dithered style.
-    let n = c.word(0x47f4).wrapping_sub(top);
+    let n = c.word(g::POLYGON_END_Y).wrapping_sub(top);
     c.set_reg(SI, 0x4c60);
     c.set_reg(CX, n);
     c.set_reg(BP, dither as u16);
     let step = ((style & 0x3e) as u16) << 8 | 2;
-    c.set_word(0x22df, step);
-    let col = c.byte(0x47ed);
+    c.set_word(g::POLYGON_LINE_STEP, step);
+    let col = c.byte(g::POLYGON_COLOUR);
     c.set_reg(AX, (col as u16) << 8);
     let back = style & 1 != 0;
     let base = if back { 0x3ce0u16 } else { 0x3cb2 };
@@ -7322,9 +7318,9 @@ pub fn sal_polygon(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.push(si);
             let bx = c.reg(BX);
             c.push(bx);
-            let s = c.word(0x22df);
+            let s = c.word(g::POLYGON_LINE_STEP);
             c.set_reg(SI, s);
-            let d = c.word(0x22db);
+            let d = c.word(g::POLYGON_SHADE_X);
             c.set_reg(DI, d);
             if back {
                 c.set_flag(DF, true);
@@ -7345,7 +7341,7 @@ pub fn sal_polygon(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let at = if back { 0x3d08 } else { 0x3cd6 };
         let left = cx.wrapping_sub(1);
         c.run(at, 4 + if left == 0 { 2 } else { 0 })?;
-        let ax = c.reg(AX).wrapping_add(c.word(0x22dd));
+        let ax = c.reg(AX).wrapping_add(c.word(g::POLYGON_SHADE_Y));
         c.set_reg(AX, ax);
         let bx = c.reg(BX).wrapping_add(1);
         c.set_reg(BX, bx);
