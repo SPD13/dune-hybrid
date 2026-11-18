@@ -209,6 +209,17 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
     use std::fmt::Write as _;
     if rec.mode == pc::rec::RecMode::On {
         println!("rec: {} calls into Rust, {} bailed, {} BIOS stub and INT instructions run by the host", rec.calls, rec.bails, rec.host_steps);
+        if rec.inplace {
+            println!("rec: {} interrupts taken in place, {} of them past the deadline", rec.inplace_irqs, rec.inplace_late);
+            for (entry, (n, at)) in &rec.inplace_conflicts {
+                if n[1] + n[2] + n[3] > 0 {
+                    println!(
+                        "inplace {entry:04x}: {} stretches, read before {} ({:05x}), read after {} ({:05x}), wrote after {} ({:05x})",
+                        n[0], n[1], at[1], n[2], at[2], n[3], at[3]
+                    );
+                }
+            }
+        }
         let interp: u64 = rec.interp_seg.iter().sum();
         let mut segs: Vec<(u64, usize)> = rec.interp_seg.iter().enumerate().filter(|(_, n)| **n > 0).map(|(i, n)| (*n, i)).collect();
         segs.sort_unstable_by(|a, b| b.cmp(a));

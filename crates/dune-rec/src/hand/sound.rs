@@ -45,12 +45,20 @@ pub fn advance_lipsync(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn pcm_test_audio_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa9e7)?;
     let mut c = Ctx::new(m);
+    // The sound's interrupt writes the states: each is read right after
+    // a stretch of its `cmp` alone, where the original reads it (see
+    // `ticks.rs`).
+    c.run(start, 1)?;
     let first = c.voice_buffer(0).state;
-    c.run(start, if first == 3 { 3 } else { 4 })?;
     c.cmp(B, first as u16, 3);
-    if first != 3 {
+    if first == 3 {
+        c.run(0xa9ec, 2)?;
+    } else {
+        c.run(0xa9ec, 1)?;
+        c.run(0xa9ee, 1)?;
         let second = c.voice_buffer(1).state;
         c.cmp(B, second as u16, 3);
+        c.run(0xa9f3, 1)?;
     }
     c.ret()
 }

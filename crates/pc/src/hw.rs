@@ -263,6 +263,10 @@ impl Vga {
 
 pub struct Hardware {
     pub mem: Vec<u8>,
+    /// Diagnostics (`REC_INPLACE_DIAG`): the addresses read and written
+    /// through the bus while set.
+    pub read_log: Option<Vec<u32>>,
+    pub write_log: Option<Vec<u32>>,
     pub pic: [Pic; 2],
     pub pit: Pit,
     pub kbd: Keyboard,
@@ -293,6 +297,8 @@ impl Hardware {
     pub fn new() -> Self {
         Hardware {
             mem: vec![0; MEM_SIZE],
+            read_log: None,
+            write_log: None,
             pic: [Pic::new(0x08), Pic::new(0x70)],
             pit: Pit::new(),
             kbd: Keyboard { queue: VecDeque::new(), data: 0, full: false },
@@ -407,6 +413,9 @@ impl Default for Hardware {
 impl Bus for Hardware {
     #[inline]
     fn read8(&mut self, addr: u32) -> u8 {
+        if let Some(l) = &mut self.read_log {
+            l.push(addr);
+        }
         self.mem[addr as usize]
     }
 
@@ -414,6 +423,9 @@ impl Bus for Hardware {
     fn write8(&mut self, addr: u32, value: u8) {
         // ROM area F0000-FFFFF is read-only (BIOS stubs live there).
         if !(0xf0000..0x100000).contains(&addr) {
+            if let Some(l) = &mut self.write_log {
+                l.push(addr);
+            }
             self.mem[addr as usize] = value;
         }
     }

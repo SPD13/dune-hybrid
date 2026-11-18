@@ -179,6 +179,28 @@ pub struct Rec {
     /// timing is as valid (interrupts are asynchronous) but no longer the
     /// interpreter's to the instruction.
     pub late_events: bool,
+    /// `REC_INPLACE`: an interrupt due inside a hand port's stretch is taken
+    /// in place, at its instruction, instead of the port bailing (see
+    /// [`Machine::rec_run`]).
+    pub inplace: bool,
+    /// Interrupts taken in place, and those whose handler ran past the run's
+    /// deadline (the host's events then come late).
+    pub inplace_irqs: u64,
+    pub inplace_late: u64,
+    /// `REC_INPLACE_MAX`: no more interrupts in place after this many (to
+    /// find the first one that makes a run differ).
+    pub inplace_max: u64,
+    /// `REC_INPLACE_DIAG`: what the interrupts taken in place in the
+    /// current stretch wrote and read (sorted; not their own stack, below
+    /// the SP they came at), and per port entry the conflicts found with
+    /// what the port read and wrote around it (`hand::Ctx`): [stretches
+    /// with an interrupt in place, read before the stretch what the handler
+    /// wrote, read after it what it wrote, wrote after it what the handler
+    /// read], and a first address of each kind.
+    pub inplace_diag: bool,
+    pub handler_wrote: Vec<u32>,
+    pub handler_read: Vec<u32>,
+    pub inplace_conflicts: std::collections::BTreeMap<u16, ([u32; 4], [u32; 4])>,
 }
 
 /// A shadow check waiting for the original to return.
@@ -341,6 +363,14 @@ impl Rec {
             last_bail: None,
             host_steps: 0,
             late_events: false,
+            inplace: std::env::var_os("REC_INPLACE").is_some(),
+            inplace_irqs: 0,
+            inplace_late: 0,
+            inplace_max: std::env::var("REC_INPLACE_MAX").ok().and_then(|v| v.parse().ok()).unwrap_or(u64::MAX),
+            inplace_diag: std::env::var_os("REC_INPLACE_DIAG").is_some(),
+            handler_wrote: Vec::new(),
+            handler_read: Vec::new(),
+            inplace_conflicts: Default::default(),
             pending: Vec::new(),
         }
     }
@@ -1357,6 +1387,231 @@ impl Machine {
     /// stretch is checked and the interrupt put in (see `rec_settle`). A
     /// port whose own loops always meet an interrupt is then still run to
     /// its end in Rust.
+    /// A hand port's straight stretch of `len` instructions without port
+    /// I/O (CS:IP at its start), counted. True: it bails there instead,
+    /// before anything is counted ([`Machine::rec_stretch`]).
+    ///
+    /// With [`Rec::inplace`] under `--rec on`, the device events and
+    /// interrupts due inside the stretch are taken in place: the count goes
+    /// up to the instruction where the run loop would take them, the
+    /// devices are updated and an interrupt's handler runs to its IRET
+    /// (back to the stretch's start address, a word in the dead stack),
+    /// then the rest is counted (its first instruction too, unless the
+    /// run loop just checked that count). The port computed the stretch from the
+    /// state at its start, and writes its results after it: exact as long
+    /// as the handler and the stretch don't share memory (the suite's
+    /// checks show where they do). STI's hold, the run's deadline inside
+    /// it, or not `in_place` (a port that shares memory with the
+    /// handlers): the bail as before.
+    /// At a port's boundary after a stretch with an interrupt taken in
+    /// place (`rec_run`): what the handler left over the words the stretch
+    /// popped before it, put back where they are now below SP (the dead
+    /// stack holds the frame as in the original; the game reads
+    /// uninitialised locals).
+    pub fn rec_stack_fixup(&mut self) {
+        let Some((at, left)) = self.stack_fixup.take() else { return };
+        let sp = ((self.cpu.sregs[SS] as u32) << 4) + self.cpu.regs[SP] as u32;
+        for (k, v) in left.into_iter().enumerate() {
+            let a = at + k as u32;
+            if a < sp {
+                self.hw.mem[a as usize] = v;
+            }
+        }
+    }
+
+    /// Whether an interrupt taken in place is running (`rec_run`).
+    pub fn in_irq_in_place(&self) -> bool {
+        self.nested_return.is_some()
+    }
+
+    pub fn rec_run(&mut self, len: u32, in_place: bool) -> Result<bool, Bail> {
+        let start = self.cpu.instructions;
+        if !(self.in_place_ok(in_place) && len > 0 && self.now_at(start + len as u64 - 1) < self.run_deadline) {
+            if self.rec_stretch(len, true)? {
+                return Ok(true);
+            }
+            self.cpu.instructions += len as u64;
+            return Ok(false);
+        }
+        let mut left = len as u64;
+        let at_start = self.cpu.clone();
+        // Its first instruction, unless the run loop checked this count.
+        if self.checked_at != start {
+            self.events_here(None)?;
+        }
+        loop {
+            let cur = self.cpu.instructions;
+            // The next instruction of the stretch at which an event falls
+            // due (the one at `cur` is checked).
+            if left <= 1 || self.now_at(cur + left - 1) < self.next_event {
+                self.cpu.instructions = cur + left;
+                return Ok(false);
+            }
+            let (mut lo, mut hi) = (1u64, left - 1);
+            while lo < hi {
+                let mid = (lo + hi) / 2;
+                if self.now_at(cur + mid) >= self.next_event {
+                    hi = mid;
+                } else {
+                    lo = mid + 1;
+                }
+            }
+            self.cpu.instructions = cur + lo;
+            left -= lo;
+            self.events_here(Some((&at_start, len as u64 - left)))?;
+        }
+    }
+
+    /// Before an instruction a port leaves to the interpreter (an INT, a
+    /// far call: [`Machine::rec_interp`]), at CS:IP: the events due there
+    /// taken in place as by [`Machine::rec_run`]. True: it bails there
+    /// instead (as [`Machine::rec_stretch`] for one instruction).
+    pub fn rec_at(&mut self, in_place: bool) -> Result<bool, Bail> {
+        let now = self.cpu.instructions;
+        if !(self.in_place_ok(in_place) && self.now_at(now) < self.run_deadline) {
+            return self.rec_stretch(1, false);
+        }
+        if self.checked_at != now {
+            self.events_here(None)?;
+        }
+        Ok(false)
+    }
+
+    /// Whether events inside a port's stretch may be taken in place:
+    /// `REC_INPLACE` under `--rec on`, not a port sharing memory with the
+    /// handlers (`in_place` false), not in a shadow replay, a harness's
+    /// one block at a time or `--rec native`, not in STI's hold.
+    fn in_place_ok(&self, in_place: bool) -> bool {
+        in_place
+            && self.hw.io_log.replay.is_none()
+            && !self.cpu.irq_inhibit
+            && self.rec.as_ref().is_some_and(|r| {
+                r.inplace && r.inplace_irqs < r.inplace_max && r.mode == RecMode::On && !r.interp_nested && r.one_block == 0 && !r.late_events
+            })
+    }
+
+    /// What the run loop does before the instruction at the current count:
+    /// the devices updated if an event is due, and a pending interrupt's
+    /// handler run to its IRET (back to CS:IP, a frame in the dead stack),
+    /// again until nothing is due.
+    ///
+    /// `inside`: the CPU at the stretch's start and how many of its
+    /// instructions come before this one. The frame then goes where the
+    /// original pushes it, with its SP, IP and flags there (the stretch
+    /// stepped that far on a scratch CPU, [`Machine::state_at`]): the game
+    /// reads uninitialised locals, which can be such a frame's words.
+    fn events_here(&mut self, inside: Option<(&Cpu, u64)>) -> Result<(), Bail> {
+        let deadline = self.run_deadline;
+        self.checked_at = self.cpu.instructions;
+        loop {
+            let now = self.now_ns();
+            self.hw.now_ns = now;
+            if now >= self.next_event || self.hw.reschedule {
+                self.update_devices(now);
+            }
+            if !(self.cpu.accepts_irq() && self.hw.irq_pending()) {
+                return Ok(());
+            }
+            let port_cpu = self.cpu.clone();
+            if let Some((start, j)) = inside
+                && let Some(mut there) = self.state_at(start, j)
+            {
+                there.instructions = self.cpu.instructions;
+                self.cpu = there;
+            }
+            let back = (self.cpu.sregs[CS], self.cpu.ip, self.cpu.regs[SP]);
+            // The words the stretch pops before the interrupt: the frame
+            // goes over them, as in the original, but the port pops them
+            // after its stretch.
+            let ss = (self.cpu.sregs[SS] as u32) << 4;
+            let popped = ss + port_cpu.regs[SP] as u32..ss + back.2 as u32;
+            let kept = (back.2 > port_cpu.regs[SP] && self.stack_fixup.is_none())
+                .then(|| self.hw.mem[popped.start as usize..popped.end as usize].to_vec());
+            if !self.take_irq(now) {
+                self.cpu = port_cpu;
+                return Ok(());
+            }
+            let rec = self.rec.as_mut().unwrap();
+            rec.inplace_irqs += 1;
+            if std::env::var_os("REC_INPLACE_TRACE").is_some() {
+                let (from, j) = inside.map_or((0, 0), |(c, j)| (c.ip, j));
+                eprintln!("inplace irq {} insn {} at {:04x}:{:04x} sp {:04x} (stretch {from:04x} + {j}, port sp {:04x})", rec.inplace_irqs, self.cpu.instructions, back.0, back.1, back.2, port_cpu.regs[SP]);
+            }
+            let diag = rec.inplace_diag && self.nested_return.is_none();
+            let busy = std::mem::replace(&mut rec.busy, false);
+            let snap = diag.then(|| self.hw.mem.clone());
+            let logs = diag.then(|| (self.hw.read_log.replace(Vec::new()), self.hw.write_log.take()));
+            let outer = self.nested_return.replace(back);
+            let exit = self.run_until(u64::MAX);
+            self.nested_return = outer;
+            if let (Some(snap), Some((r, w))) = (snap, logs) {
+                let read = std::mem::replace(&mut self.hw.read_log, r).unwrap_or_default();
+                self.hw.write_log = w;
+                let ss = (self.cpu.sregs[SS] as u32) << 4;
+                let own = ss..ss + back.2 as u32;
+                let mut wrote: Vec<u32> = snap
+                    .iter()
+                    .zip(&self.hw.mem)
+                    .enumerate()
+                    .filter(|(i, (a, b))| a != b && !own.contains(&(*i as u32)))
+                    .map(|(i, _)| i as u32)
+                    .collect();
+                let mut read: Vec<u32> = read.into_iter().filter(|a| !own.contains(a)).collect();
+                let rec = self.rec.as_mut().unwrap();
+                rec.handler_wrote.append(&mut wrote);
+                rec.handler_read.append(&mut read);
+                rec.handler_wrote.sort_unstable();
+                rec.handler_wrote.dedup();
+                rec.handler_read.sort_unstable();
+                rec.handler_read.dedup();
+            }
+            self.run_deadline = deadline;
+            let late = self.now_ns() >= deadline;
+            let rec = self.rec.as_mut().unwrap();
+            rec.busy = busy;
+            if late {
+                rec.inplace_late += 1;
+            }
+            if exit != crate::RunExit::Nested {
+                return Err(Bail);
+            }
+            let n = self.cpu.instructions;
+            self.cpu = port_cpu;
+            self.cpu.instructions = n;
+            self.checked_at = n;
+            if let Some(kept) = kept {
+                let r = popped.start as usize..popped.end as usize;
+                let left = self.hw.mem[r.clone()].to_vec();
+                self.hw.mem[r].copy_from_slice(&kept);
+                self.stack_fixup = Some((popped.start, left));
+            }
+        }
+    }
+
+    /// The CPU `j` instructions into a stretch from `start`, stepped by the
+    /// interpreter on a scratch copy (memory read as it is, its writes kept
+    /// aside). None if it does I/O or meets anything but plain
+    /// instructions, or without the interpreter.
+    fn state_at(&self, start: &Cpu, j: u64) -> Option<Cpu> {
+        #[cfg(feature = "interp")]
+        {
+            let mut c = start.clone();
+            let mut bus = Overlay { mem: &self.hw.mem, writes: std::collections::HashMap::new(), io: false };
+            let end = start.instructions + j;
+            while c.instructions < end {
+                if !matches!(c.step(&mut bus), Step::Ok) || bus.io {
+                    return None;
+                }
+            }
+            (c.instructions == end).then_some(c)
+        }
+        #[cfg(not(feature = "interp"))]
+        {
+            let _ = (start, j);
+            None
+        }
+    }
+
     pub fn rec_stretch(&mut self, len: u32, through: bool) -> Result<bool, Bail> {
         self.rec_settle()?;
         if self.hw.io_log.replay.is_none() || !through || self.rec.as_ref().is_some_and(|r| r.no_through) {
@@ -1596,3 +1851,29 @@ pub fn dead_stack(cpu: &Cpu) -> std::ops::Range<usize> {
     ss + STACK_LOW as usize..ss + sp as usize
 }
 
+
+/// [`Machine::state_at`]'s bus: the memory read as it is, writes kept
+/// aside, no I/O.
+#[cfg(feature = "interp")]
+struct Overlay<'a> {
+    mem: &'a [u8],
+    writes: std::collections::HashMap<u32, u8>,
+    io: bool,
+}
+
+#[cfg(feature = "interp")]
+impl cpu::Bus for Overlay<'_> {
+    fn read8(&mut self, addr: u32) -> u8 {
+        self.writes.get(&addr).copied().unwrap_or(self.mem[addr as usize & 0xf_ffff])
+    }
+    fn write8(&mut self, addr: u32, value: u8) {
+        self.writes.insert(addr, value);
+    }
+    fn in8(&mut self, _port: u16) -> u8 {
+        self.io = true;
+        0xff
+    }
+    fn out8(&mut self, _port: u16, _value: u8) {
+        self.io = true;
+    }
+}

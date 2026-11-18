@@ -282,6 +282,70 @@ To check a batch: `REC_ONLY=<entries> REC_SAMPLES=200` with
 the first ten minutes of a new game) and with `--call-each 4`, then
 `suite.sh check`.
 
+### Interrupts in place (`REC_INPLACE`, the start of step 4)
+
+Real control flow needs ports that don't give up halfway: a port that
+bails at an interrupt leaves the rest of its routine to the generated
+code, so every caller must keep the 8086 state that code resumes from.
+With `REC_INPLACE=1` (under `--rec on`; the shadow check is unchanged)
+an interrupt due inside a hand port's stretch is taken in place
+(`Machine::rec_run`, `events_here`): the count goes to the instruction
+where the run loop would take it, the devices are updated, the handler
+runs nested (`run_until` until its IRET comes back, `RunExit::Nested`)
+and the port goes on. The same before an INT or far call a port leaves to
+the interpreter (`Machine::rec_at`). The run loop notes the count it last
+checked (`checked_at`), so a stretch's first instruction is not checked
+twice. Still bails: STI's hold, the run's deadline inside the stretch,
+stretches with port I/O (`check` + `count`), and the ports listed in
+`hand/ticks.rs`.
+
+This is exact only where three things hold, each found by the suite:
+
+- **The handler and the stretch share no memory.** The port reads what
+  the stretch needs before its `run` and writes after it; the original
+  reads and writes at the instructions themselves. `REC_INPLACE_DIAG=1`
+  logs, per port, the stretches where the port read what an interrupt in
+  place wrote, or wrote what it read (memory compared around the
+  handler, the bus's read and write logs; lines `inplace ENTRY:` in the
+  runner's output). The ports that share such memory (the clock's
+  countdown [46DBh], the ticks [0CE7Ah], the video frame's [0DBB5h] and
+  [0DBD0h], the sound states [3817h]/[381Fh], CS:[0E8D4h]): mostly loops
+  waiting for the timer and the frame tasks the handler runs. They are
+  listed in `hand/ticks.rs` and keep bailing. A port leaves the list
+  once each instruction that reads or writes such memory is a stretch
+  of its own, read or written right after that `run`
+  (`pcm_test_audio_done`): the events due at the instruction come first,
+  as in the original, and no later one before it. Reading before the
+  `run` is wrong when the interrupt falls at the instruction itself,
+  reading after a longer `run` when it falls after it.
+- **The frame goes where the original pushes it.** The game reads
+  uninitialised locals, and those can be an earlier interrupt's frame
+  in the dead stack (day 23: `nearest_shown_location`). So the CPU at
+  the interrupt's instruction is worked out by stepping the stretch on a
+  scratch CPU from its start (`Machine::state_at`, an overlay bus: the
+  memory read as it is, writes kept aside, no I/O; with the interpreter
+  built in), and the handler runs from there: its SP, IP and flags.
+- **The words the stretch popped before the interrupt.** There the
+  frame goes over them, but the port pops them after its stretch: they
+  are kept for its pops, and what the handler left over them is put back
+  at the port's next boundary wherever it is below SP by then
+  (`stack_fixup`, `Machine::rec_stack_fixup`).
+
+Tools: `REC_INPLACE_MAX=N` (no more interrupts in place after N) to
+bisect a run to the interrupt that makes it differ;
+`REC_INPLACE_TRACE=1` lists each one (where, and its place in the
+stretch). With `REC_INPLACE=1` all seven suite games are equal (about
+2000 interrupts in place in each). Two ports (`4f0c`, `f3d3`) still show
+one read each of 0:003Ch (an interrupt vector) in the diagnostics, with
+no effect.
+
+Most bails are not interrupts. Each game has about 190000 bails in some
+550000 calls into Rust, nearly all at paths the ports leave to the
+generated code on purpose (`get_mouse_pos_etc` at DFB7h when the mouse
+moved: 38000; `hnm_prefetch` at CB61h, port I/O: 22000; the MIDI timer
+at EFD5h). The runner lists the top ones (`rec bail:`). Real control
+flow needs those paths ported too.
+
 ## Stage B: native subsystems (whole-run checks)
 
 Once a subsystem's routines are readable and exact, its state can move

@@ -57,6 +57,9 @@ pub enum RunExit {
     Break,
     /// Built without the interpreter: CS:IP is code with no Rust version.
     Unlifted { cs: u16, ip: u16 },
+    /// An interrupt taken in place in a port's stretch returned
+    /// (`Machine::nested_return`).
+    Nested,
 }
 
 /// [`Step::Invalid`]'s opcode for "no interpreter in this build".
@@ -133,6 +136,18 @@ pub struct Machine {
     pub idle_skipped_ns: u64,
     /// Next time a device needs servicing.
     next_event: u64,
+    /// While an interrupt taken in place inside a port's stretch runs
+    /// (`rec_run`): the CS, IP and SP its IRET returns to, where
+    /// [`Machine::run_until`] gives back to the port.
+    pub(crate) nested_return: Option<(u16, u16, u16)>,
+    /// The instruction count the run loop last checked for events (they
+    /// are not taken twice at one count, see `rec_run`).
+    pub(crate) checked_at: u64,
+    /// After an interrupt taken in place where the stretch had popped words
+    /// before it (`rec_run`): the start and the bytes the handler left
+    /// over those words, which the port still pops. They go back once the
+    /// port's stretch is done (see [`Machine::rec_stack_fixup`]).
+    pub(crate) stack_fixup: Option<(u32, Vec<u8>)>,
     /// While sleeping (HLT or battery saver): when to wake up.
     sleep_until: Option<u64>,
     sleep_is_idle_skip: bool,
@@ -196,6 +211,9 @@ impl Machine {
             run_deadline: 0,
             idle_skipped_ns: 0,
             next_event: 0,
+            nested_return: None,
+            checked_at: u64::MAX,
+            stack_fixup: None,
             sleep_until: None,
             sleep_is_idle_skip: false,
             music: music::MusicTracker::default(),
@@ -258,6 +276,9 @@ impl Machine {
             if let Some(code) = self.exited {
                 return RunExit::Exited(code);
             }
+            if self.nested_return.is_some_and(|r| r == (self.cpu.sregs[CS], self.cpu.ip, self.cpu.regs[SP])) {
+                return RunExit::Nested;
+            }
             let mut now = self.now_ns();
             // Sleeping (HLT, or the battery saver skipping a busy-wait): time
             // passes without instructions. The wake time persists across
@@ -280,34 +301,12 @@ impl Machine {
             }
             self.hw.now_ns = now;
             if now >= self.next_event || self.hw.reschedule {
-                let resched = self.hw.reschedule;
-                self.hw.trace_sb = trace_irq_from().is_some_and(|f| self.cpu.instructions >= f);
-                self.next_event = self.hw.update(now);
-                if trace_irq_from().is_some_and(|f| self.cpu.instructions >= f) {
-                    eprintln!("update insn {} at {:04x}:{:04x} now {now} resched {resched} next {} pending {}", self.cpu.instructions, self.cpu.sregs[CS], self.cpu.ip, self.next_event, self.hw.irq_pending());
-                }
-                self.music.refresh(&self.hw.mem);
-                self.gfx.refresh(&self.hw.mem);
-                self.rec_driver_check(now);
-                if let Some(b) = self.mouse.deferred {
-                    if now >= self.mouse.pressed_at + MIN_BUTTON_HOLD_NS {
-                        self.mouse.buttons = b;
-                        self.mouse.deferred = None;
-                    }
-                }
+                self.update_devices(now);
             }
             if self.cpu.accepts_irq() && self.hw.irq_pending() {
-                if let Some(v) = self.hw.acknowledge_irq() {
-                    self.int_counts[v as usize] += 1;
-                    if trace_irq_from().is_some_and(|f| self.cpu.instructions >= f) {
-                        eprintln!("irq {v:02x} insn {} at {:04x}:{:04x} now {now}", self.cpu.instructions, self.cpu.sregs[CS], self.cpu.ip);
-                    }
-                    if self.hw.io_log.recording {
-                        self.hw.io_log.events.push(hw::IoEvent::Irq { vector: v, at: self.cpu.instructions });
-                    }
-                    self.cpu.interrupt(&mut self.hw, v);
-                }
+                self.take_irq(now);
             }
+            self.checked_at = self.cpu.instructions;
             if self.cpu.halted {
                 if !self.cpu.flag(cpu::IF) {
                     return RunExit::Stuck;
@@ -350,6 +349,41 @@ impl Machine {
                 Step::Invalid { cs, ip, opcode } => return RunExit::Invalid { cs, ip, opcode },
             }
         }
+    }
+
+    /// The devices brought up to `now` (an event due, or a port write that
+    /// rescheduled them), before the next instruction.
+    pub(crate) fn update_devices(&mut self, now: u64) {
+        let resched = self.hw.reschedule;
+        self.hw.trace_sb = trace_irq_from().is_some_and(|f| self.cpu.instructions >= f);
+        self.next_event = self.hw.update(now);
+        if trace_irq_from().is_some_and(|f| self.cpu.instructions >= f) {
+            eprintln!("update insn {} at {:04x}:{:04x} now {now} resched {resched} next {} pending {}", self.cpu.instructions, self.cpu.sregs[CS], self.cpu.ip, self.next_event, self.hw.irq_pending());
+        }
+        self.music.refresh(&self.hw.mem);
+        self.gfx.refresh(&self.hw.mem);
+        self.rec_driver_check(now);
+        if let Some(b) = self.mouse.deferred {
+            if now >= self.mouse.pressed_at + MIN_BUTTON_HOLD_NS {
+                self.mouse.buttons = b;
+                self.mouse.deferred = None;
+            }
+        }
+    }
+
+    /// A pending interrupt taken before the next instruction: its frame
+    /// pushed, CS:IP at its vector. False if the controller had none.
+    pub(crate) fn take_irq(&mut self, now: u64) -> bool {
+        let Some(v) = self.hw.acknowledge_irq() else { return false };
+        self.int_counts[v as usize] += 1;
+        if trace_irq_from().is_some_and(|f| self.cpu.instructions >= f) {
+            eprintln!("irq {v:02x} insn {} at {:04x}:{:04x} now {now}", self.cpu.instructions, self.cpu.sregs[CS], self.cpu.ip);
+        }
+        if self.hw.io_log.recording {
+            self.hw.io_log.events.push(hw::IoEvent::Irq { vector: v, at: self.cpu.instructions });
+        }
+        self.cpu.interrupt(&mut self.hw, v);
+        true
     }
 
     /// One step with the decompilation tooling on (`rec`, `coverage` or

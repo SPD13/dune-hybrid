@@ -100,6 +100,7 @@ mod tails;
 mod ui;
 mod video;
 mod videos;
+mod ticks;
 mod voice;
 mod waits;
 
@@ -1357,17 +1358,29 @@ pub fn reached(entry: u16) -> u32 {
 }
 
 /// operations, calls, and the instruction count.
+#[allow(clippy::struct_field_names)]
 struct Ctx<'a> {
     m: &'a mut Machine,
     /// Where the port was entered (for [`reached`]).
     entry: u16,
+    /// `REC_INPLACE_DIAG` (see [`Ctx::boundary`]): on for this port, the
+    /// addresses it read since its last boundary, and what the interrupts
+    /// taken in place in its last stretch wrote and read.
+    diag: bool,
+    pre_reads: Vec<u32>,
+    pending: Option<(Vec<u32>, Vec<u32>)>,
 }
 
 #[allow(dead_code)]
 impl Ctx<'_> {
     fn new(m: &mut Machine) -> Ctx<'_> {
         let entry = m.cpu.ip;
-        Ctx { m, entry }
+        let diag = m.rec.as_ref().is_some_and(|r| r.inplace_diag) && !m.in_irq_in_place();
+        if diag {
+            m.hw.read_log = Some(Vec::new());
+            m.hw.write_log = Some(Vec::new());
+        }
+        Ctx { m, entry, diag, pre_reads: Vec::new(), pending: None }
     }
 
     // --- Virtual time -------------------------------------------------
@@ -1377,9 +1390,56 @@ impl Ctx<'_> {
     /// the end of a shadow check) falls inside it, so the interpreter takes
     /// over at the exact instruction; else counts them.
     fn run(&mut self, at: u16, insns: u32) -> Result<(), Bail> {
-        self.stretch(at, insns, true)?;
-        self.count(insns);
+        self.boundary();
+        self.m.cpu.ip = at;
+        if self.m.rec_run(insns, !ticks::shared(self.entry))? {
+            self.m.cpu.ip = at;
+            return Err(Bail);
+        }
+        if self.diag {
+            let rec = self.m.rec.as_mut().unwrap();
+            if !rec.handler_wrote.is_empty() || !rec.handler_read.is_empty() {
+                let wrote = std::mem::take(&mut rec.handler_wrote);
+                let read = std::mem::take(&mut rec.handler_read);
+                let e = rec.inplace_conflicts.entry(self.entry).or_default();
+                e.0[0] += 1;
+                if let Some(a) = first_common(&self.pre_reads, &wrote) {
+                    e.0[1] += 1;
+                    e.1[1] = a;
+                }
+                self.pending = Some((wrote, read));
+            }
+        }
         Ok(())
+    }
+
+    /// `REC_INPLACE_DIAG`: a boundary of the port's stretches (a `run`, a
+    /// call, its end). What it read and wrote since the last one is checked
+    /// against what the interrupts taken in place in its last stretch
+    /// wrote and read; what it read is kept for the next stretch.
+    fn boundary(&mut self) {
+        self.m.rec_stack_fixup();
+        if !self.diag {
+            return;
+        }
+        let mut reads = self.m.hw.read_log.replace(Vec::new()).unwrap_or_default();
+        let mut writes = self.m.hw.write_log.replace(Vec::new()).unwrap_or_default();
+        reads.sort_unstable();
+        reads.dedup();
+        writes.sort_unstable();
+        writes.dedup();
+        if let Some((wrote, read)) = self.pending.take() {
+            let e = self.m.rec.as_mut().unwrap().inplace_conflicts.entry(self.entry).or_default();
+            if let Some(a) = first_common(&reads, &wrote) {
+                e.0[2] += 1;
+                e.1[2] = a;
+            }
+            if let Some(a) = first_common(&writes, &read) {
+                e.0[3] += 1;
+                e.1[3] = a;
+            }
+        }
+        self.pre_reads = reads;
     }
 
     /// [`Ctx::run`]'s check alone, for stretches that do port I/O: they
@@ -1951,6 +2011,7 @@ impl Ctx<'_> {
     /// `CALL target` from the instruction ending at `ret` (the original's
     /// return address goes on the stack: the callee may look at it).
     fn call(&mut self, target: u16, ret: u16) -> Result<(), Bail> {
+        self.boundary();
         self.push(ret);
         if let Some(r) = self.m.rec.as_mut() {
             r.from_port = true;
@@ -1964,7 +2025,12 @@ impl Ctx<'_> {
     /// an event due at it is checked here, before it (the generated code's
     /// block check counts it; the plain emulator takes the event first).
     fn interp(&mut self, ip: u16, next: u16) -> Result<(), Bail> {
-        self.check(ip, 1)?;
+        self.boundary();
+        self.m.cpu.ip = ip;
+        if self.m.rec_at(!ticks::shared(self.entry))? {
+            self.m.cpu.ip = ip;
+            return Err(Bail);
+        }
         self.m.rec_interp(ip, next)
     }
 
@@ -1973,6 +2039,7 @@ impl Ctx<'_> {
     /// (any block leader resumes the routine it belongs to, up to its
     /// `ret`), else the interpreter from there.
     fn jump(&mut self, target: u16) -> Result<(), Bail> {
+        self.boundary();
         REACHED[self.entry as usize].fetch_add(1, Ordering::Relaxed);
         self.m.cpu.ip = target;
         self.m.rec_settle()?;
@@ -1984,6 +2051,7 @@ impl Ctx<'_> {
 
     /// `IRET`: IP, CS and the flags from the stack.
     fn iret(&mut self) -> Result<(), Bail> {
+        self.boundary();
         REACHED[self.entry as usize].fetch_add(1, Ordering::Relaxed);
         let ip = self.pop();
         let cs = self.pop();
@@ -1996,6 +2064,7 @@ impl Ctx<'_> {
 
     /// `RET`.
     fn ret(&mut self) -> Result<(), Bail> {
+        self.boundary();
         REACHED[self.entry as usize].fetch_add(1, Ordering::Relaxed);
         self.m.cpu.ip = self.pop();
         Ok(())
@@ -2006,4 +2075,17 @@ impl Ctx<'_> {
 /// generated code resumes inside it).
 fn entered(start: u16, entry: u16) -> Result<(), Bail> {
     if start == entry { Ok(()) } else { Err(Bail) }
+}
+
+/// The first address in both sorted lists.
+fn first_common(a: &[u32], b: &[u32]) -> Option<u32> {
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        match a[i].cmp(&b[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => return Some(a[i]),
+        }
+    }
+    None
 }
