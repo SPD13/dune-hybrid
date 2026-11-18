@@ -550,6 +550,31 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// `loc_0cb61`, `hnm_prefetch` once its video is all read (no frames or no
+/// file left): unless bit 0 of the video's flags (a next video to set up,
+/// left to the original), the video marked done ([0DBE7h] bit 0) and, once
+/// nothing read is left to decode ([0DC1Ah] 0), closed (bit 1,
+/// `hnm_close_resource`). Flags: the `cmp`'s, or the close's.
+fn video_end(c: &mut Ctx) -> Result<(), Bail> {
+    let v = c.video_state();
+    if v.flags & 1 != 0 {
+        c.m.cpu.ip = 0xcb61;
+        return Err(Bail);
+    }
+    let close = v.buffered == 0;
+    // test, jz; or, cmp, jnz; then or, call, or the ret
+    c.run(0xcb61, 2 + 3 + if close { 2 } else { 1 })?;
+    c.update_video_state(|t| t.playing |= 1);
+    c.cmp(W, v.buffered, 0);
+    if !close {
+        return c.ret();
+    }
+    c.update_video_state(|t| t.playing |= 2);
+    c.call(0xca01, 0xcb60)?;
+    c.run(0xcb60, 1)?;
+    c.ret()
+}
+
 /// `hnm_prefetch` (CB1A): more of the HNM file read ahead. While the
 /// part wanted ([0DC20h]) is done, the next one is set up (`loc_0cd8f`,
 /// `loc_0cc0c`) as long as frames are left ([0DBEAh] not [0DBEEh]) and
@@ -569,8 +594,7 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xcb00, 3)?;
             c.set_reg(AX, a);
             if a == b {
-                c.m.cpu.ip = 0xcb61;
-                return Err(Bail);
+                return video_end(&mut c);
             }
             let left = c.video_state().file_left;
             let (a, b) = (left as u16, (left >> 16) as u16);
@@ -579,8 +603,7 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let o = a | b;
             c.set_reg(AX, o);
             if o == 0 {
-                c.m.cpu.ip = 0xcb61;
-                return Err(Bail);
+                return video_end(&mut c);
             }
             c.run(0xcb12, 1)?;
             c.call(0xcd8f, 0xcb15)?;

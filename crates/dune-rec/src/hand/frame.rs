@@ -536,6 +536,53 @@ pub fn sub_c827(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
+/// `loc_0c835` (the map's at [2786h]): of the CX records pointed to by
+/// the words at SI (0: none), the one lowest down, by its bottom (word 4
+/// plus word 6; 7FFFh with bit 40h of its byte 0Ch): DX that bottom
+/// (FFFFh for none), BX past its word. Flags from `or dx, dx`.
+pub fn lowest_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xc835)?;
+    let mut c = Ctx::new(m);
+    if c.reg(CX) == 0 {
+        // `loop` would go round 65536 times: left to the original.
+        return Err(Bail);
+    }
+    c.run(start, 1)?;
+    let mut dx = 0xffffu16;
+    c.set_reg(DX, dx);
+    loop {
+        let si = c.reg(SI);
+        let p = c.word_in(DS, si);
+        let left = c.reg(CX).wrapping_sub(1);
+        if p == 0 {
+            c.run(0xc838, 4)?;
+            c.lods(W, DS);
+            c.set_reg(CX, left);
+        } else {
+            let bottom = c.word(p.wrapping_add(4)).wrapping_add(c.word(p.wrapping_add(6)));
+            let hidden = c.byte(p.wrapping_add(0x0c)) & 0x40 != 0;
+            let v = if hidden { 0x7fff } else { bottom };
+            let lower = v <= dx;
+            c.run(0xc838, 3 + 5 + hidden as u32 + 2 + 2 * lower as u32 + 1)?;
+            c.lods(W, DS);
+            c.set_reg(DI, p);
+            c.set_reg(AX, v);
+            if lower {
+                dx = v;
+                c.set_reg(DX, dx);
+                c.set_reg(BX, si.wrapping_add(2));
+            }
+            c.set_reg(CX, left);
+        }
+        if left == 0 {
+            break;
+        }
+    }
+    c.run(0xc858, 2)?;
+    c.or(W, dx, dx);
+    c.ret()
+}
+
 /// `sub_b23f`: a cleared screen with the 12h UI elements at 1AE6h,
 /// `sub_d397`, `sub_b039`; then [479Eh] = 0.
 pub fn sub_b23f(m: &mut Machine, start: u16) -> Result<(), Bail> {

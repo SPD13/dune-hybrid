@@ -17,6 +17,13 @@ use pc::{
 };
 
 mod code {
+    pub const ACCELERATED_STEP: u16 = 0xe243;
+    pub const HOTSPOTS_EIGHT_POINTS: u16 = 0xe11c;
+    pub const HOTSPOTS_MARKERS: u16 = 0xe0db;
+    pub const HOTSPOTS_PARTICLES: u16 = 0xe0a2;
+    pub const HOTSPOTS_POINTS: u16 = 0xe068;
+    pub const KB_CLEAR_SCANCODE: u16 = 0xde4e;
+    pub const MOVE_CURSOR_BY: u16 = 0xdaaf;
     pub const CURRENT_UI_ELEMENTS: u16 = 0xd41b;
     pub const POINT_IN_RECT: u16 = 0xd6fe;
     pub const RECT_HOTSPOT: u16 = 0xe159;
@@ -1030,3 +1037,228 @@ fn slots_end(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(BX, y);
     highlight_hovered_text_action_item(c.m, 0xd50f)
 }
+
+/// `loc_0dfb7`, the rest of `get_mouse_pos_etc` once the keys (or the
+/// joystick) give a direction, DX and BX its sums (not both 0):
+///
+/// - with [`KEYS_GLIDE`] FFh, the cursor glides: each axis' direction
+///   doubled up to three times by the speed it has built up ([0DC51h],
+///   [0DC53h], the pixels moved so far), times the ticks since the last
+///   step (at most 8, [0DC50h]) in eighths (`accelerated_step`, the
+///   fractions in [0DC55h], [0DC56h]), added to the speed, and the cursor
+///   moved by that (on into `move_cursor_by`);
+/// - else it jumps to the nearest hotspot in that direction: a frame of
+///   five words below SP (see the module's notes), the scoring routine
+///   from the table at CS:DFA7h by the signs of DL and BL, the key
+///   forgotten (`kb_clear_scancode`), then every UI element shown (bit 7
+///   of its flags) not under the cursor, the extra points, the particles,
+///   the markers and the eight points scored; the best one, if any, noted
+///   at [0DC4Ch], [0DC4Eh] with [0DC4Bh] 64h and the time [0DC4Ah] (the
+///   cursor moves there over the next frames).
+///
+/// With neither DL nor BL (only their high bytes set) it returns.
+pub(super) fn keyboard_move(c: &mut Ctx) -> Result<(), Bail> {
+    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    if c.byte(KEYS_GLIDE) == 0xff {
+        return glide(c, dx, bx);
+    }
+    let (dl, bl) = (dx as u8, bx as u8);
+    // cmp, jnz; mov di, or dl, jz
+    let mut n = 5;
+    let di = if dl != 0 {
+        let mut d = SCORERS + 2;
+        n += 1; // jns
+        if dl & 0x80 != 0 {
+            d += 6;
+            n += 1;
+        }
+        n += 2; // or bl, jz
+        if bl != 0 {
+            d -= 2;
+            n += 2; // lea, js
+            if bl & 0x80 == 0 {
+                d += 4;
+                n += 2; // add, jmp
+            }
+        }
+        d
+    } else {
+        n += 3; // mov di, or bl, jz
+        if bl == 0 {
+            c.run(0xdfb7, n + 1)?; // the ret at DFA6
+            c.set_reg(DI, SCORERS + 0x0c);
+            return c.ret();
+        }
+        let mut d = SCORERS + 0x0c;
+        n += 1; // js
+        if bl & 0x80 == 0 {
+            d += 2;
+            n += 1;
+        }
+        d
+    };
+    let scorer = c.code_word(di);
+    n += 5; // mov bx, cs:[di]; sub sp; mov bp, sp; mov [bp], bx; call
+    c.run(0xdfb7, n)?;
+    c.set_reg(DI, di);
+    c.set_reg(BX, scorer);
+    let sp = c.reg(SP).wrapping_sub(0x0a);
+    c.set_reg(SP, sp);
+    c.set_reg(BP, sp);
+    set_frame(c, 0, scorer);
+    c.call(code::KB_CLEAR_SCANCODE, 0xdff5)?;
+
+    // The UI elements: [1AE4h] of them, 0Eh bytes each from 1AE6h.
+    let count = c.word(UI_ELEMENTS);
+    if count == 0 {
+        // `loop` would go round 65536 times: left to the original.
+        c.m.cpu.ip = 0xdff5;
+        return Err(Bail);
+    }
+    let mouse = c.mouse_state();
+    c.run(0xdff5, 6)?;
+    c.set_reg(DX, mouse.x);
+    c.set_reg(BX, mouse.y);
+    c.set_reg(DI, UI_ELEMENTS);
+    c.set_reg(CX, count);
+    set_frame(c, 2, 0x8000);
+    let mut di = UI_ELEMENTS + 2;
+    c.set_reg(DI, di);
+    loop {
+        let shown = c.byte(di.wrapping_add(8)) & 0x80 != 0;
+        c.run(0xe00a, if shown { 3 } else { 2 })?;
+        if shown {
+            c.call(code::POINT_IN_RECT, 0xe013)?;
+            let under = c.flag(CF);
+            c.run(0xe013, if under { 1 } else { 2 })?;
+            if !under {
+                c.call(code::RECT_HOTSPOT, 0xe018)?;
+                c.run(0xe018, 1)?;
+                if score(c, 0xe018, 2)? {
+                    c.call(code::RECT_HOTSPOT, 0xe026)?;
+                    c.run(0xe026, 2)?;
+                    let (ax, si) = (c.reg(AX), c.reg(SI));
+                    set_frame(c, 4, ax);
+                    set_frame(c, 6, si);
+                }
+            }
+        }
+        let cx = c.reg(CX).wrapping_sub(1);
+        c.run(0xe02c, 2)?;
+        di = pure::add(W, c.reg(DI), 0x0e);
+        c.set_reg(DI, di);
+        c.set_reg(CX, cx);
+        if cx == 0 {
+            break;
+        }
+    }
+    c.run(0xe031, 1)?;
+    c.call(code::HOTSPOTS_POINTS, 0xe034)?;
+    c.run(0xe034, 1)?;
+    c.call(code::HOTSPOTS_PARTICLES, 0xe037)?;
+    c.run(0xe037, 1)?;
+    c.call(code::HOTSPOTS_MARKERS, 0xe03a)?;
+    c.run(0xe03a, 1)?;
+    c.call(code::HOTSPOTS_EIGHT_POINTS, 0xe03d)?;
+    let found = frame(c, 2) & 0x8000 == 0;
+    if found {
+        let (x, y) = (frame(c, 4), frame(c, 6));
+        let t = c.timer();
+        c.run(0xe03d, 2 + 9 + 2)?;
+        c.set_byte(0xceba, 0);
+        c.set_word(GLIDE_TARGET, x);
+        c.set_word(GLIDE_TARGET + 2, y);
+        c.set_byte(GLIDE_STEPS, 0x64);
+        c.set_reg(AX, t);
+        c.set_byte(GLIDE_TIME, t as u8);
+    } else {
+        c.run(0xe03d, 2 + 2)?;
+    }
+    let sp = c.reg(SP).wrapping_add(0x0a);
+    c.set_reg(SP, sp);
+    c.ret()
+}
+
+/// `loc_0e1d1` (see [`keyboard_move`]): the glide's step, on into
+/// `move_cursor_by` with DX, BX the pixels.
+fn glide(c: &mut Ctx, dx: u16, bx: u16) -> Result<(), Bail> {
+    let (mut dl, mut bl) = (dx as u8, bx as u8);
+    // cmp, jnz, jmp; or dl, jz
+    let mut n = 5;
+    if dl != 0 {
+        let v = c.word(GLIDE_SPEED);
+        let neg = v & 0x8000 != 0;
+        let a = if neg { v.wrapping_neg() } else { v };
+        n += 3 + neg as u32 + 2; // mov, or, jns, [neg], cmp, jb
+        for (k, limit) in [4u16, 0x0c, 0x24].into_iter().enumerate() {
+            if a < limit {
+                break;
+            }
+            dl = dl.wrapping_add(dl);
+            n += if k < 2 { 3 } else { 1 }; // add, [cmp, jb]
+        }
+    }
+    n += 2; // or bl, jz
+    if bl != 0 {
+        let v = c.word(GLIDE_SPEED + 2);
+        // `jns` on the flags of `or bl, bl` (the `mov` keeps them).
+        let neg = bl & 0x80 != 0;
+        let a = if neg { v.wrapping_neg() } else { v };
+        n += 2 + neg as u32 + 2; // mov, jns, [neg], cmp, jb
+        for (k, limit) in [3u16, 0x0a, 0x1c].into_iter().enumerate() {
+            if a < limit {
+                break;
+            }
+            bl = bl.wrapping_add(bl);
+            n += if k < 2 { 3 } else { 1 };
+        }
+    }
+    // The ticks since the last step, at most 8.
+    let t = c.timer() as u8;
+    let last = c.byte(GLIDE_LAST_TICK);
+    let d = t.wrapping_sub(last);
+    let capped = d >= 8;
+    let cl = if capped { 8 } else { d };
+    // mov al, mov ah, xchg, sub, cmp, jb, [mov al, 8]; mov cl, mov si,
+    // mov al, call
+    n += 6 + capped as u32 + 4;
+    c.run(0xdfb7, n)?;
+    c.set_reg(DX, dx & 0xff00 | dl as u16);
+    c.set_reg(BX, bx & 0xff00 | bl as u16);
+    c.set_byte(GLIDE_LAST_TICK, t);
+    c.set_reg(AX, (last as u16) << 8 | dl as u16);
+    c.set_reg8(r8::CL, cl);
+    c.set_reg(SI, GLIDE_FRACTIONS);
+    c.call(code::ACCELERATED_STEP, 0xe22e)?;
+    let ax = c.reg(AX);
+    let speed = c.word(GLIDE_SPEED);
+    c.run(0xe22e, 5)?;
+    c.set_reg(DX, ax);
+    c.set_word(GLIDE_SPEED, speed.wrapping_add(ax));
+    c.set_reg(SI, GLIDE_FRACTIONS + 1);
+    c.set_reg8(r8::AL, bl);
+    c.call(code::ACCELERATED_STEP, 0xe23a)?;
+    let ax = c.reg(AX);
+    let speed = c.word(GLIDE_SPEED + 2);
+    c.run(0xe23a, 3)?;
+    c.set_reg(BX, ax);
+    c.set_word(GLIDE_SPEED + 2, speed.wrapping_add(ax));
+    c.jump(code::MOVE_CURSOR_BY)
+}
+
+/// [0CE9Eh]: FFh when the keys glide the cursor instead of jumping between
+/// hotspots.
+const KEYS_GLIDE: u16 = 0xce9e;
+/// The table of the scoring routines by direction (CS:DFA7h, 8 words).
+const SCORERS: u16 = 0xdfa7;
+/// The current UI elements: a count, then 0Eh-byte records.
+const UI_ELEMENTS: u16 = 0x1ae4;
+/// The glide: its speed so far (x, y words), the fractions of a pixel
+/// (two bytes), the tick of the last step, and the hotspot the cursor
+/// moves to after a jump (x, y), with its steps and its start time.
+const GLIDE_SPEED: u16 = 0xdc51;
+const GLIDE_FRACTIONS: u16 = 0xdc55;
+const GLIDE_LAST_TICK: u16 = 0xdc50;
+const GLIDE_TARGET: u16 = 0xdc4c;
+const GLIDE_STEPS: u16 = 0xdc4b;
+const GLIDE_TIME: u16 = 0xdc4a;

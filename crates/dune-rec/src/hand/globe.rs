@@ -2087,3 +2087,25 @@ pub fn globe_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, di);
     c.ret()
 }
+
+/// `map_func` (B58B): the map cell for BX (`tablat_lookup_from_bx_to_ax_bp`
+/// gives AX, BP) and DX: ES:DI = [0DCFEh] + AX + the high word of
+/// 2 × BP × DX (rounded); AX, DX the product's halves as left.
+pub fn map_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xb58b)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xb5a0, 0xb58e)?;
+    let (ax, bp, dx) = (c.reg(AX), c.reg(BP), c.reg(DX));
+    let (base, seg) = (c.word(0xdcfe), c.word(0xdd00));
+    c.run(0xb58e, 8)?;
+    let p = bp as u32 * dx as u32;
+    let (lo, hi) = (p as u16, (p >> 16) as u16);
+    let carry = lo & 0x8000 != 0;
+    let hi = hi.wrapping_add(carry as u16);
+    c.set_sreg(ES, seg);
+    c.set_reg(DI, base.wrapping_add(ax).wrapping_add(hi));
+    c.set_reg(AX, lo << 1);
+    c.set_reg(DX, hi);
+    c.ret()
+}

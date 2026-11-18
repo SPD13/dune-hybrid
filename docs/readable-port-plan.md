@@ -339,12 +339,37 @@ stretch). With `REC_INPLACE=1` all seven suite games are equal (about
 one read each of 0:003Ch (an interrupt vector) in the diagnostics, with
 no effect.
 
-Most bails are not interrupts. Each game has about 190000 bails in some
-550000 calls into Rust, nearly all at paths the ports leave to the
-generated code on purpose (`get_mouse_pos_etc` at DFB7h when the mouse
-moved: 38000; `hnm_prefetch` at CB61h, port I/O: 22000; the MIDI timer
-at EFD5h). The runner lists the top ones (`rec bail:`). Real control
-flow needs those paths ported too.
+Most bails were not interrupts. Each game had about 190000 bails in some
+550000 calls into Rust. Since then:
+
+- Paths the ports left to the generated code are ported: the keys
+  moving the cursor (`get_mouse_pos_etc` from DFB7h, `cursor.rs`
+  `keyboard_move`: the glide and the jump to the nearest hotspot, with
+  the four diagonal scorers E1A2h, E1B9h, E1C3h, E1CBh), the end of a
+  video's reading (`hnm_prefetch` at CB61h, `video_end`; the next
+  video's set-up, bit 0 of [0DBFEh], still bails), the timer handler's
+  chain to the BIOS's (EFD5h: a far jump to the target the program wrote
+  at EFDDh), and two routines that had no port (`loc_0c835`, the lowest
+  of a list of records; `map_func`, B58Bh).
+- With `REC_INPLACE`, `rec_interp` (an INT or far call a port leaves to
+  the interpreter) no longer gives up when the service shows the game
+  idle (the mouse poll): the run loop's sleep is done in place (the time
+  to the next device event passes, `sleep_in_place`), its events taken;
+  between the instructions it interprets too (`events_in_place`), and
+  when it hands back to the port (`events_after_interp`: an interrupt
+  raised while the service had interrupts off comes once its IRET turned
+  them on, before the port reads anything for its next stretch). The
+  main loop then stays in Rust instead of going on in the generated code
+  after every mouse poll.
+
+With `REC_INPLACE` a game now has about 50000-67000 bails (day 23 in
+100 s: 161 in hand ports, 1719 in generated code, 2841 in the drivers'
+lifted code, the rest in `rec_interp`'s lifted code). The runner prints
+them by place (`rec: bails in hand ports ...`), where the generated
+code was entered from the run loop (`rec generated code entered at`,
+runs/bails: after a bail the generated code goes on with the routine
+and its callers) and `rec_interp`'s bails by their place. What is left
+in hand ports is mostly the ports on the `ticks.rs` list.
 
 ## Stage B: native subsystems (whole-run checks)
 

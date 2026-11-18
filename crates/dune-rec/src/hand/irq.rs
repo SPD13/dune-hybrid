@@ -7,7 +7,7 @@ use super::globals as g;
 use super::{B, Ctx, W, entered, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, IF, SI, ZF},
+    cpu::{AX, BP, BX, CF, CS, CX, DI, DS, DX, ES, IF, SI, ZF},
     rec::Bail,
 };
 
@@ -80,10 +80,20 @@ fn timer_end(c: &mut Ctx) -> Result<(), Bail> {
     let k = c.dec(B, k.wrapping_add(1) as u16) as u8; // the BIOS's handler sees the flags
     c.set_byte(0xce72, k);
     if k & 0x80 != 0 {
-        // Chain to the BIOS's handler: the far jump's target is code the
-        // program rewrote; the interpreter takes it from EFD5h.
-        c.m.cpu.ip = 0xefd5;
-        return Err(Bail);
+        // EFD5h: the count restarted, DS and AX back, and on to the BIOS's
+        // handler by a far jump whose target the program wrote into its
+        // code (at EFDDh, the old INT 8 vector). The flags are the `dec`'s.
+        c.run(0xefd5, 4)?;
+        c.set_byte(0xce72, 0x0a);
+        let ds = c.pop();
+        c.set_sreg(DS, ds);
+        let ax = c.pop();
+        c.set_reg(AX, ax);
+        let ip = c.code_word(0xefdd);
+        let cs = c.code_word(0xefdf);
+        c.m.cpu.ip = ip;
+        c.set_sreg(CS, cs);
+        return Ok(());
     }
     let frame = c.byte(g::HNM_FLAG_MSB);
     c.check(0xefa9, 4 + (frame != 0) as u32)?;

@@ -209,6 +209,12 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
     use std::fmt::Write as _;
     if rec.mode == pc::rec::RecMode::On {
         println!("rec: {} calls into Rust, {} bailed, {} BIOS stub and INT instructions run by the host", rec.calls, rec.bails, rec.host_steps);
+        println!("rec: rec_interp bails by place: {:?}", rec.interp_bails);
+        println!("rec: bails in hand ports {}, in generated code {}, in the drivers' code {}", rec.bails_by[0], rec.bails_by[1], rec.bails_by[2]);
+        let mut g: Vec<_> = rec.generated_at.iter().map(|(ip, (n, b))| (*n, *b, *ip)).collect();
+        g.sort_unstable_by(|a, b| b.cmp(a));
+        let g: Vec<String> = g.iter().take(20).map(|(n, b, ip)| format!("{ip:04x}:{n}/{b}")).collect();
+        println!("rec generated code entered at (runs/bails): {}", g.join(" "));
         if rec.inplace {
             println!("rec: {} interrupts taken in place, {} of them past the deadline", rec.inplace_irqs, rec.inplace_late);
             for (entry, (n, at)) in &rec.inplace_conflicts {

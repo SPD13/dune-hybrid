@@ -602,8 +602,7 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = dx | bx;
     c.set_reg(AX, ax);
     if ax != 0 {
-        c.m.cpu.ip = 0xdfb7;
-        return Err(Bail);
+        return super::cursor::keyboard_move(&mut c);
     }
     c.run(0xdf9d, 4)?;
     c.set_word(0xdc51, 0);

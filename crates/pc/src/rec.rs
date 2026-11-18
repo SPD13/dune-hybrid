@@ -114,6 +114,15 @@ pub struct Rec {
     /// back to Rust written by hand, not to the generated code.
     pub from_port: bool,
     pub bails: u64,
+    /// Bails by where the code that gave up runs: [the game's hand ports,
+    /// its generated code, the drivers' lifted code].
+    pub bails_by: [u64; 3],
+    /// [`Machine::rec_interp`]'s bails by their place (diagnostics).
+    pub interp_bails: [u64; 16],
+    /// The game's generated code: where it was entered from the run loop
+    /// (a routine's entry or a block it resumes from), and how often that
+    /// run bailed (diagnostics).
+    pub generated_at: std::collections::HashMap<u16, (u64, u64)>,
     /// `On` mode profile: bails by the seg000 offset they left at, and
     /// instructions generated code ran through the interpreter, by opcode.
     pub bail_at: Vec<u64>,
@@ -341,6 +350,9 @@ impl Rec {
             generated_runs: 0,
             from_port: false,
             bails: 0,
+            bails_by: [0; 3],
+            interp_bails: [0; 16],
+            generated_at: Default::default(),
             bail_at: vec![0; 0x10000],
             returned: vec![0; 0x40000],
             stepped_op: vec![0; 256],
@@ -638,8 +650,12 @@ impl Machine {
                 let rec = self.rec.as_mut().unwrap();
                 // A driver's lifted code, or seg000's generated code (not a
                 // hand port).
-                if space != 0 || rec.generated[ip as usize].is_some_and(|g| g as usize == f as usize) {
+                let lifted = space != 0 || rec.generated[ip as usize].is_some_and(|g| g as usize == f as usize);
+                if lifted {
                     rec.generated_runs += 1;
+                    if space == 0 {
+                        rec.generated_at.entry(ip).or_default().0 += 1;
+                    }
                 }
                 rec.in_interp = false;
                 rec.calls += 1;
@@ -653,6 +669,10 @@ impl Machine {
                 rec.one_block = 0;
                 if r.is_err() {
                     rec.bails += 1;
+                    rec.bails_by[if space != 0 { 2 } else { lifted as usize }] += 1;
+                    if space == 0 && lifted {
+                        rec.generated_at.entry(ip).or_default().1 += 1;
+                    }
                     // A port may stop where the generated code goes on: Rust
                     // tries once more there; a second bail with nothing
                     // changed leaves one instruction to the interpreter.
@@ -1258,7 +1278,7 @@ impl Machine {
         // The graphics model check watches every instruction: leave these to
         // the run loop then. (Music driver calls are tracked here as there.)
         if self.gfx.active() {
-            return Err(Bail);
+            return self.interp_bail(0);
         }
         // Running: BIOS/DOS services and driver calls are short; interpret
         // them here. One that takes long (it waits for an interrupt) is left
@@ -1291,10 +1311,10 @@ impl Machine {
                     self.rec.as_mut().unwrap().bails += 1;
                 }
                 if back(&self.cpu) {
-                    return Ok(());
+                    return self.events_after_interp();
                 }
-                if self.exited.is_some() || self.rec_tick(1) {
-                    return Err(Bail);
+                if self.exited.is_some() || (self.rec_tick(1) && !self.events_in_place()?) {
+                    return self.interp_bail(1);
                 }
                 continue;
             }
@@ -1313,22 +1333,23 @@ impl Machine {
                 Step::Ok => {}
                 Step::Callback(n) => {
                     self.service(n);
-                    if self.idle_check() {
-                        return Err(Bail);
+                    if self.idle_check() && !self.sleep_in_place()? {
+                        return self.interp_bail(2);
                     }
                 }
                 Step::Halt | Step::Invalid { .. } => return Err(Bail),
             }
             if back(&self.cpu) {
-                return Ok(());
+                return self.events_after_interp();
             }
             // An interrupt or device event due: the run loop takes it now,
-            // as it would have between these instructions.
-            if self.exited.is_some() || self.rec_tick(1) {
-                return Err(Bail);
+            // as it would have between these instructions (or, with
+            // `REC_INPLACE`, it is taken here: no port's stretch is open).
+            if self.exited.is_some() || (self.rec_tick(1) && !self.events_in_place()?) {
+                return self.interp_bail(3);
             }
         }
-        Err(Bail)
+        self.interp_bail(15)
     }
 
     /// For generated code: call the routine at seg000 `target` with the
@@ -1417,6 +1438,64 @@ impl Machine {
                 self.hw.mem[a as usize] = v;
             }
         }
+    }
+
+    /// In [`Machine::rec_interp`], between the instructions it interprets
+    /// (no port's stretch open): with `REC_INPLACE`, the events due now
+    /// taken here, as the run loop would before the next instruction.
+    /// False: they are left to the run loop (the caller bails).
+    fn events_in_place(&mut self) -> Result<bool, Bail> {
+        if !self.in_place_ok(true) || self.now_ns() >= self.run_deadline {
+            return Ok(false);
+        }
+        self.events_here(None)?;
+        Ok(true)
+    }
+
+    /// [`Machine::rec_interp`] back at the port's next instruction: with
+    /// `REC_INPLACE`, the events due there taken (an interrupt raised while
+    /// the INT's service had interrupts off is taken once its IRET turned
+    /// them on, before the port reads anything for its next stretch).
+    fn events_after_interp(&mut self) -> Result<(), Bail> {
+        if !self.in_place_ok(true) || self.now_ns() >= self.run_deadline || self.checked_at == self.cpu.instructions {
+            return Ok(());
+        }
+        let due = self.now_ns() >= self.next_event || self.hw.reschedule || (self.cpu.accepts_irq() && self.hw.irq_pending());
+        if due {
+            self.events_here(None)?;
+        }
+        Ok(())
+    }
+
+    /// In [`Machine::rec_interp`], a service that showed the program idle
+    /// (the run loop would sleep to the next device event): with
+    /// `REC_INPLACE`, the sleep done here (the time passes without
+    /// instructions) and the events then due taken. False: left to the run
+    /// loop (the caller bails), also when the sleep would pass the run's
+    /// deadline.
+    fn sleep_in_place(&mut self) -> Result<bool, Bail> {
+        let Some(wake) = self.sleep_until else { return Ok(true) };
+        if !self.in_place_ok(true) || wake >= self.run_deadline {
+            return Ok(false);
+        }
+        let now = self.now_ns();
+        if now < wake {
+            self.idle_ns += wake - now;
+            if self.sleep_is_idle_skip {
+                self.idle_skipped_ns += wake - now;
+            }
+        }
+        self.sleep_until = None;
+        self.events_here(None)?;
+        Ok(true)
+    }
+
+    /// A bail of [`Machine::rec_interp`], counted by its place (diagnostics).
+    fn interp_bail(&mut self, why: usize) -> Result<(), Bail> {
+        if let Some(r) = self.rec.as_mut() {
+            r.interp_bails[why.min(15)] += 1;
+        }
+        Err(Bail)
     }
 
     /// Whether an interrupt taken in place is running (`rec_run`).

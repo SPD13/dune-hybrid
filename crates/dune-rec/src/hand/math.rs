@@ -423,3 +423,71 @@ pub fn direction_between(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, (b & 0xff) << 8);
     direction_256(c.m, 0x514e)
 }
+
+/// The shared tail of the four diagonal variants (E1A8h): given AX (along)
+/// and SI (across), both at least 6 (signed): AX = |along - across|, SI
+/// across; else AX = SI = FFFFh (out of range). Flags as the original's
+/// last instruction leaves them. `prefix` counts the variant's own
+/// instructions before E1A8h.
+fn diagonal(c: &mut Ctx, entry: u16, prefix: u32, along: u16, across: u16) -> Result<(), Bail> {
+    let too_close = (along as i16) < 6;
+    let too_wide = !too_close && (across as i16) < 6;
+    let d = along.wrapping_sub(across);
+    let d_negative = d & 0x8000 != 0;
+    let n = prefix
+        + 2
+        + if too_close {
+            3
+        } else if too_wide {
+            2 + 3
+        } else {
+            2 + 2 + d_negative as u32 + 1
+        };
+    c.run(entry, n)?;
+    c.cmp(W, along, 6);
+    if !too_close {
+        c.cmp(W, across, 6);
+    }
+    if too_close || too_wide {
+        c.set_reg(AX, 0xffff);
+        c.set_reg(SI, 0xffff);
+        return c.ret();
+    }
+    let d = c.sub(W, along, across);
+    let d = if d_negative { c.neg(W, d) } else { d };
+    c.set_reg(AX, d);
+    c.set_reg(SI, across);
+    c.ret()
+}
+
+/// `loc_0e1a2`: along = AX - DX, across = BX - SI.
+pub fn nearness_e1a2(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xe1a2)?;
+    let mut c = Ctx::new(m);
+    let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
+    diagonal(&mut c, start, 3, ax.wrapping_sub(dx), bx.wrapping_sub(si))
+}
+
+/// `loc_0e1b9`: along = DX - AX, across = BX - SI.
+pub fn nearness_e1b9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xe1b9)?;
+    let mut c = Ctx::new(m);
+    let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
+    diagonal(&mut c, start, 5, dx.wrapping_sub(ax), bx.wrapping_sub(si))
+}
+
+/// `loc_0e1c3`: along = DX - AX, across = SI - BX.
+pub fn nearness_e1c3(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xe1c3)?;
+    let mut c = Ctx::new(m);
+    let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
+    diagonal(&mut c, start, 4, dx.wrapping_sub(ax), si.wrapping_sub(bx))
+}
+
+/// `loc_0e1cb`: along = AX - DX, across = SI - BX.
+pub fn nearness_e1cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xe1cb)?;
+    let mut c = Ctx::new(m);
+    let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
+    diagonal(&mut c, start, 3, ax.wrapping_sub(dx), si.wrapping_sub(bx))
+}
