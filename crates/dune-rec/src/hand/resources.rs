@@ -353,7 +353,7 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x0098, 0xd00d)?;
     let k = c.byte(g::LANGUAGE);
     let a = (0x9au8).wrapping_add(k);
-    let cur = c.byte(g::PHRASE_LOADED);
+    let cur = c.phrase().loaded;
     c.run(0xd00d, 5 + if a == cur { 1 } else { 6 })?;
     let a = pure::add(B, 0x9a, k as u16);
     c.set_reg8(super::r8::AL, a as u8);
@@ -362,7 +362,7 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let si = c.reg(SI);
     c.push(si);
-    c.set_byte(g::PHRASE_LOADED, a as u8);
+    c.update_phrase(|t| t.loaded = a as u8);
     c.set_reg(AX, a);
     c.set_reg(SI, a);
     let (di, es) = (c.conversation().phrases[0], c.conversation().phrases[1]);

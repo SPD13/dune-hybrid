@@ -71,6 +71,9 @@ pub const SPICE_PAID: u16 = 0x1172;
 /// The day the shipment is due (2093h; put back by a good one,
 /// 25BDh).
 pub const SHIPMENT_DUE: u16 = 0x118d;
+/// Set with the last reminder of an unpaid demand (24CBh): the demand's
+/// day check goes on to 215Fh from then (`spice_demand_day`).
+pub const SPICE_DEMAND_LAPSED: u16 = 0x11bb;
 /// The events waiting to be told: a count (up to 10, the oldest dropped
 /// for a new one, `loc_029f0`), then 4-byte entries from
 /// [`NEXT_EVENT`]: a word with the kind (to [`EVENT_KIND`]; 1: told) and
@@ -121,7 +124,7 @@ pub const DEBTS: u16 = 0x0022;
 /// The price asked for [`SMUGGLER_ITEM`] (twice the smuggler's byte
 /// 9 + i, 23D1h), an eighth off each time it is haggled (23D5h).
 pub const SMUGGLER_PRICE: u16 = 0x009d;
-/// The equipment offered: 0E8h + its index i (0 the ornithopter, then
+/// The equipment offered (the phrase code 83h's, in [`PHRASE_ARGS`]): 0E8h + its index i (0 the ornithopter, then
 /// the krys knives, laser guns, weirding modules, atomics), its name
 /// the command phrase of that number.
 pub const SMUGGLER_ITEM: u16 = 0x11f1;
@@ -157,6 +160,21 @@ pub const BYTE_0FE8: u16 = 0x0fe8;
 pub const CHANCES: u16 = 0x1141;
 /// The day from which `pick_attack_location` picks ([1156h]).
 pub const ATTACK_DAY: u16 = 0x1156;
+/// The location the Harkonnens attack next (picked at 1E8Eh, 1F05h; 0:
+/// none); a character below 9 talks of it before phase 64h
+/// (`speaker_mood`).
+pub const ATTACK_TARGET: u16 = 0x11db;
+/// The followed troop's (troop 3, 8E0h) note: the location it heads for
+/// (0: none; `job_1` sets it out, `troop_arrived_at`), then a map point
+/// (6 bytes in all, copied to 4718h at 8087h).
+pub const FOLLOWED_TROOP_PLACE: u16 = 0x11d3;
+/// Set when a fight was seen (the night attack, 2DE2h; `map_func`):
+/// the next Harkonnen take (`harkonnen_take`) is skipped, and it is
+/// cleared.
+pub const SKIP_HARKONNEN_TAKE: u16 = 0x11bc;
+/// The regions whose marks are to be taken off the map (bit 12 - n for
+/// the region n; `location_raided` adds, `unmark_pending_regions` takes).
+pub const REGIONS_TO_UNMARK: u16 = 0x115a;
 pub const BYTE_11D0: u16 = 0x11d0;
 pub const COUNTER_122A: u16 = 0x122a;
 pub const BYTE_0FD8: u16 = 0x0fd8;
@@ -176,6 +194,39 @@ pub const PLACE: u16 = 0x114e;
 /// The record of the last location the player was in (set with
 /// [`PLACE`], kept after leaving).
 pub const LAST_PLACE: u16 = 0x1150;
+/// The record of the location talked about (`describe_place`; its
+/// fields at [`TOPIC_PLACE_KIND`] on).
+pub const TOPIC_PLACE_RECORD: u16 = 0x11ce;
+/// The picture of a place the Harkonnens hold, as an icon list
+/// (`enter_location`: 2Fh..33h by its kind; drawn at 0AF5h).
+pub const HARKONNEN_PLACE_ICONS: u16 = 0x11dd;
+/// The time [2] at the last time slot (`new_time_1b23`): its change of
+/// hour goes to [46DEh].
+pub const LAST_TIME: u16 = 0x1174;
+/// The day shown on the results screen ([2] to the day; `result_bars`).
+pub const RESULTS_DATE: u16 = 0x115c;
+
+/// The phrases a phrase's codes 81h..8Fh stand for (a word each, by the
+/// code's low nibble; `loc_08979`): slot 0 the phrase `draw_phrase_11eb`
+/// draws, and from the code 81h:
+pub const PHRASE_ARGS: u16 = 0x11eb;
+/// 81h, 82h: a place's name, its two words (`note_point`: its byte 0,
+/// its byte 1 + 0Ch);
+pub const PHRASE_ARG_PLACE: u16 = 0x11ed;
+/// 84h: a troop's job (+18h; `describe_troop`), an encounter's place
+/// (+48h; `scan_encounters`);
+pub const PHRASE_ARG_SUBJECT: u16 = 0x11f3;
+/// 85h: how long a troop has been at it (70h..74h, by its age;
+/// `record_age_phrase`), an encounter's side (CEh, D0h);
+pub const PHRASE_ARG_DETAIL: u16 = 0x11f5;
+/// 86h..88h: a troop's three skills (`skill_level_phrase`);
+pub const PHRASE_ARG_SKILLS: u16 = 0x11f7;
+/// 89h: the direction of the nearest place (`nearest_places`, + DAh);
+pub const PHRASE_ARG_DIRECTION: u16 = 0x11fd;
+/// 8Ah: a troop's word 12h's low nibble, as a phrase (0..0Fh: the
+/// first words of the places' names; what it says of the troop is
+/// unclear).
+pub const PHRASE_ARG_8A: u16 = 0x11ff;
 /// The steps the player has walked outside a location (low 7 bits, up
 /// to 7Fh; `ui_click_move_room`, 3F49h), bit 7 while a step is to be
 /// shown (`loc_03723`); 0 on arriving at one (401Fh).
@@ -212,14 +263,10 @@ pub const SETTINGS_HOVER: u16 = 0x28be;
 /// `SceneSequenceOffset`).
 pub const SCENE_SEQUENCE_OFFSET: u16 = 0x4854;
 pub const FRAME_TASKS_ACTIVE: u16 = 0x46d7;
-/// Toggled by `blink` (the cursor or text blink phase).
-pub const BLINK_PHASE: u16 = 0x4775;
 /// The sub-resource index `open_sky_palette_al_sub_bl_dsdx` was asked for.
 pub const PALETTE_SUB: u16 = 0x46d6;
 /// The sky resource offset (0 or 1: SKY or SKYDN).
 pub const SKY_VARIANT: u16 = 0x22e3;
-/// How long the talking head plays (`intro_talking_head_play`).
-pub const TALKING_HEAD_TIME: u16 = 0x4780;
 /// Pointer to the filename buffer (`strcpy_to_filename_buf`).
 pub const FILENAME_BUF_PTR: u16 = 0x38a6;
 /// What `strcpy_to_filename_buf` returns in DX.
@@ -351,6 +398,18 @@ pub const MOUSE_RECT: u16 = 0xdc58;
 pub const PHRASE_PART: u16 = 0x477c;
 pub const PHRASE_SPLIT: u16 = 0xaad6;
 pub const PHRASE_LOADED: u16 = 0x477e;
+/// The last control code (80h and up) met while a phrase is put together
+/// (`loc_0895b`); with [`ENTRY_FLAGS`] bit 10h it picks the variant
+/// (`loc_08a43`).
+pub const PHRASE_CODE: u16 = 0x477f;
+/// The phrase whose voice plays (AX of `load_voc_and_lipsync_data`): set
+/// with the sentence (`loc_088af`), 190h in the intro, 10Ah + [0D810h]
+/// more for a sentence of the speaker's own, 1000h more for its second
+/// part (once `TALKING_HEAD_TIME`).
+pub const VOICE_PHRASE: u16 = 0x4780;
+/// The top row of the text sheet's last blit (`blit_dialogue_frame`): it
+/// blits again only when [0D83Ah] is past it.
+pub const TEXT_SHEET_TOP: u16 = 0x4782;
 /// The language (Cryogenic: `languageSetting`).
 pub const LANGUAGE: u16 = 0xceeb;
 /// The voices' language, two bytes.
@@ -500,6 +559,8 @@ pub const VOICE_FILE_NAME: u16 = 0x37da;
 pub const VOICE_FILE_POS: u16 = 0xdbc0;
 pub const VOICE_FILE_LEFT: u16 = 0xdbc4;
 pub const VOICE_PART: u16 = 0x3823;
+/// The voice file's part letter (`loc_0a8fa`: added to the name as
+/// 41h + it), 0 with each new sentence.
 pub const VOICE_LANGUAGE_PART: u16 = 0x47e0;
 pub const MUSIC_LOADED: u16 = 0xdbca;
 
@@ -523,9 +584,14 @@ pub const GLOBE_DECORATIONS_X: u16 = 0xdd0f;
 pub const GLOBE_DD03: u16 = 0xdd03;
 /// The frieze's UI elements (3, the sides from +8).
 pub const FRIEZE_ELEMENTS: u16 = 0x1ae6;
-/// The closed book's two page counters (UI elements) and their pages.
+/// The closed book's two page counters (UI elements) and their pages
+/// (signed bytes, FFh: none; `draw_gauges`, `in_dialogue_rects`).
 pub const BOOK_COUNTERS: u16 = 0x1c0c;
 pub const BOOK_PAGE: u16 = 0x1152;
+pub const BOOK_PAGE_2: u16 = 0x1153;
+/// The open book's page (a pointer `book_afc7` moves on, two pages at a
+/// time).
+pub const BOOK_POSITION: u16 = 0x11bf;
 
 // --- The mouse, the frame ------------------------------------------------------
 
@@ -652,9 +718,47 @@ pub const SPRITE_LIST: u16 = 0xdbe0;
 /// The direction of the player's move on the map (`loc_051cb`).
 pub const HEADING: u16 = 0x11c7;
 
-/// Set while the cursor is moved with the keyboard (the item it is on
-/// at [4775h]).
-pub const KEYBOARD_CURSOR: u16 = 0x4774;
+/// Set while a story sequence plays: a script of steps the game plays by
+/// itself (`loc_01771` counts it up; scripts at CS:128Fh, 12DBh, 12FBh,
+/// 1313h, 1321h, 134Fh, 1370h). A click of both buttons only steps it
+/// (`loc_01707`), the hovered item blinks ([`BLINK_PHASE`]), and the
+/// map's comments say no voice (once `KEYBOARD_CURSOR`).
+pub const SEQUENCE_PLAYING: u16 = 0x4774;
+/// Toggled every 64h ticks by `blink` (the frame task 176Bh) while a
+/// sequence plays: the hovered item's highlight.
+pub const BLINK_PHASE: u16 = 0x4775;
+/// Where the player was when the sequence began ([4]'s low byte, then
+/// [46E0h]): put back at its end.
+pub const SEQUENCE_RETURN: u16 = 0x4776;
+/// The position markers of the sequence's scene (a list in CS, 0 for
+/// none; `sal_read_position_markers`).
+pub const SEQUENCE_MARKERS: u16 = 0x4778;
+/// The sequence's next step: a byte in CS, an index in the table
+/// CS:1475h (FFh: the end).
+pub const SEQUENCE_NEXT: u16 = 0x477a;
+
+/// A rectangle (x0, y0, x1, y1) put together for a draw: the dialogue
+/// sprites' (`draw_dialogue_sprites`), the number display's.
+pub const SCRATCH_RECT: u16 = 0x47d4;
+/// One up while a character's sentence is said (`loc_096d8`,
+/// `loc_09ef1`): its voice is a character's.
+pub const TALKING: u16 = 0x47dc;
+/// [`TALKING`] as it was when the text's voice started
+/// (`start_text_voice`), for the voice played again (`loc_09eeb`).
+pub const VOICE_TALKING: u16 = 0x47dd;
+/// The flags word of the dialogue entry being said (bit 10h: its
+/// phrases' variants picked at random; the low nibble 1: ...).
+pub const ENTRY_FLAGS: u16 = 0x47de;
+/// The sentence's number part: 0 none, bit 80h begun, bit 1 to draw;
+/// [`NUMBER_ENTRY`] its entry in the text, [`NUMBER_RECORD`] its record
+/// (word 0 the kind, 38h and up a number to say, then four words for
+/// `font_draw_interpolated_string`).
+pub const NUMBER_PART: u16 = 0x47e1;
+pub const NUMBER_ENTRY: u16 = 0x47e2;
+pub const NUMBER_RECORD: u16 = 0x47e4;
+/// The record whose point `note_point` noted (DI): the portrait of a
+/// talker from 0Eh is drawn from it (`portrait_a28e`).
+pub const NOTED_RECORD: u16 = 0x47e6;
 
 /// The room the player is in at a place.
 pub const CURRENT_ROOM: u16 = 0xb;
@@ -832,8 +936,9 @@ pub const ROOM_SEAT_SHIFT: u16 = 0xc5;
 pub const NEAREST_PLACE: u16 = 0xca;
 /// The nearest of kind below 28h, mapped. (6 bytes)
 pub const NEAREST_LOW_MAPPED: u16 = 0xd0;
-/// Set on talking to character 1 (A1BFh), one up each day from 1
-/// (1C62h); FFh from phase 15h (1091h).
+/// Set on each talk with character 1 (its charisma step, A1BFh): 80h -
+/// [`REACH`] / 6, 0 once the reach is 64h or more; then one up each day
+/// while it is 1 or more, up to FFh (1C62h); FFh from phase 15h (1091h).
 pub const CHARACTER_1_DAYS: u16 = 0xd5;
 /// The nearest of kind below 28h, unmapped. (6 bytes)
 pub const NEAREST_LOW_UNMAPPED: u16 = 0xd6;

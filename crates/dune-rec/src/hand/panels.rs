@@ -1083,7 +1083,7 @@ pub fn draw_phrase_11eb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(0xd08f, 0x15ab)?;
     c.run(0x15ab, 4)?;
-    let p = c.word(0x11eb);
+    let p = c.word(g::PHRASE_ARGS);
     c.set_reg(AX, p);
     c.set_reg(DX, 0x0a);
     c.set_reg(BX, 0x9d);

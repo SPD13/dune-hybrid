@@ -159,7 +159,7 @@ pub fn sub_06fc(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// The talking head, 400 (190h) ticks.
 fn talking_head(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x0798, 2)?;
-    c.set_word(g::TALKING_HEAD_TIME, 0x190);
+    c.update_phrase(|t| t.voice = 0x190);
     c.call(code::TALKING_HEAD, 0x07a1)?;
     go_on(c, 0x07a1)
 }

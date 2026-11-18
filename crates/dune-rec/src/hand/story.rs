@@ -1251,7 +1251,7 @@ pub fn message_2b00(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
     c.run(start, if di == 0 { 3 } else { 5 })?;
-    let w = c.word(0x11ce);
+    let w = c.word(g::TOPIC_PLACE_RECORD);
     c.push(w);
     c.or(W, di, di);
     if di != 0 {
@@ -2045,7 +2045,7 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.set_reg(AX, ah << 8 | al);
-    c.set_byte(0x11dd, ah as u8);
+    c.set_byte(g::HARKONNEN_PLACE_ICONS, ah as u8);
     c.ret()
 }
 
@@ -2833,7 +2833,7 @@ pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SP, sp);
     c.call(0xdbb2, 0x2b00)?;
     let di = c.reg(DI);
-    let keep = c.word(0x11ce);
+    let keep = c.word(g::TOPIC_PLACE_RECORD);
     c.run(0x2b00, 3 + if di != 0 { 2 } else { 0 })?;
     c.push(keep);
     if di != 0 {
@@ -3016,7 +3016,7 @@ pub fn record_age_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, a);
         ax = a;
     }
-    c.set_word(0x11f5, ax);
+    c.set_word(g::PHRASE_ARG_DETAIL, ax);
     c.ret()
 }
 
@@ -3028,11 +3028,11 @@ pub fn start_task_176b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
     let ax = c.reg(AX);
-    c.set_word(0x477a, ax);
-    c.set_word(0x4778, 0);
-    let v = c.byte(g::KEYBOARD_CURSOR);
+    c.update_sequence(|t| t.next = ax);
+    c.update_sequence(|t| t.markers = 0);
+    let v = c.sequence().playing;
     let v = pure::inc(B, v as u16);
-    c.set_byte(g::KEYBOARD_CURSOR, v as u8);
+    c.update_sequence(|t| t.playing = v as u8);
     c.call(0xb2b9, 0x1781)?;
     c.run(0x1781, 1)?;
     c.call(0xad5e, 0x1784)?;
@@ -3041,7 +3041,7 @@ pub fn start_task_176b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let hi = c.byte(0x46e0);
     let ax = (hi as u16) << 8 | lo as u16;
     c.set_reg(AX, ax);
-    c.set_word(0x4776, ax);
+    c.update_sequence(|t| t.return_to = ax);
     c.set_reg(BP, 0x64);
     c.set_reg(SI, 0x176b);
     super::tasks::add_frame_task(c.m, 0xda25)
@@ -3377,7 +3377,7 @@ pub fn describe_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, (24) + 7)?; // the `rep` iterations too
     let (si, di) = (c.reg(SI), c.reg(DI));
-    c.set_word(0x11ce, di);
+    c.set_word(g::TOPIC_PLACE_RECORD, di);
     c.push(si);
     c.push(di);
     let (b0, b1) = (c.byte(di), c.byte(di.wrapping_add(1)));
@@ -3568,8 +3568,8 @@ pub fn sal_read_position_markers(m: &mut Machine, start: u16) -> Result<(), Bail
     let di = c.word(0x47f6);
     c.set_reg(DI, di);
     c.rep_counted(0xaa);
-    let k = c.byte(g::KEYBOARD_CURSOR);
-    let list = c.word(0x4778);
+    let k = c.sequence().playing;
+    let list = c.sequence().markers;
     let di = c.word(0x47f6);
     if k != 0 && list != 0 {
         c.run(0x3d91, 3 + 3 + 5)?;
@@ -3939,7 +3939,7 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_topic_troop(|t| t.job = a as u8);
     let a = pure::add(W, a, 0x18);
     c.set_reg(AX, a);
-    c.set_word(0x11f3, a);
+    c.set_word(g::PHRASE_ARG_SUBJECT, a);
     c.call(0x32c7, 0x321a)?;
     c.run(0x321a, 1)?;
     c.call(0x329d, 0x321d)?;
@@ -3955,19 +3955,19 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_topic_troop(|t| t.word_12_low = a as u8);
     let a = pure::add(W, a, 0);
     c.set_reg(AX, a);
-    c.set_word(0x11ff, a);
+    c.set_word(g::PHRASE_ARG_8A, a);
     c.call(0x6efd, 0x323b)?;
     for (at, src, dst, word, ret) in [
-        (0x323bu16, 0x16u16, g::TOPIC_TROOP_SKILLS, 0x11f7u16, 0x3247u16),
-        (0x3247, 0x17, g::TOPIC_TROOP_SKILLS + 1, 0x11f9, 0x3253),
-        (0x3253, 0x18, g::TOPIC_TROOP_SKILLS + 2, 0x11fb, 0x325f),
+        (0x323bu16, 0x16u16, g::TOPIC_TROOP_SKILLS, g::PHRASE_ARG_SKILLS, 0x3247u16),
+        (0x3247, 0x17, g::TOPIC_TROOP_SKILLS + 1, g::PHRASE_ARG_SKILLS + 2, 0x3253),
+        (0x3253, 0x18, g::TOPIC_TROOP_SKILLS + 2, g::PHRASE_ARG_SKILLS + 4, 0x325f),
     ] {
         c.run(at, 4)?;
         let ax = c.reg(AX);
         if at == 0x323b {
             c.update_topic_troop(|t| t.motivation = ax as u8);
         } else {
-            let prev = if at == 0x3247 { 0x11f7 } else { 0x11f9 };
+            let prev = if at == 0x3247 { g::PHRASE_ARG_SKILLS } else { g::PHRASE_ARG_SKILLS + 2 };
             c.set_word(prev, ax);
         }
         let si = c.reg(SI);
@@ -3979,7 +3979,7 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x325f, 9)?;
     let ax = c.reg(AX);
-    c.set_word(0x11fb, ax);
+    c.set_word(g::PHRASE_ARG_SKILLS + 4, ax);
     let si = c.reg(SI);
     let w = c.word(si.wrapping_add(0x0c));
     c.update_topic_troop(|t| t.word_0c = w);
@@ -4471,7 +4471,7 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word(g::HEAD_BOX_FLAGS, 0);
         return super::screens::panel_buttons(c.m, 0x2ffb);
     }
-    let w = c.byte(g::KEYBOARD_CURSOR);
+    let w = c.sequence().playing;
     if w != 0 {
         c.run(0x354c, 9)?;
         ops(&mut c);
@@ -4753,17 +4753,17 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x1f79, 3)?;
         return c.ret();
     }
-    let k = c.byte(0x11bc);
+    let k = c.byte(g::SKIP_HARKONNEN_TAKE);
     if k != 0 {
         c.run(0x1f79, 7)?;
-        c.set_byte(0x11bc, 0);
+        c.set_byte(g::SKIP_HARKONNEN_TAKE, 0);
         c.set_reg8(r8::AL, k);
         return c.ret();
     }
     let w = c.word(0);
     let carry = w & 0x8000 != 0;
     c.run(0x1f79, if carry { 9 } else { 9 })?;
-    c.set_byte(0x11bc, 0);
+    c.set_byte(g::SKIP_HARKONNEN_TAKE, 0);
     c.set_reg8(r8::AL, 0);
     let r = pure::rol1(W, w);
     c.set_word(0, r);
@@ -4935,7 +4935,7 @@ pub fn spice_demand_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let d = ax.wrapping_sub(day);
     let pend = c.economy().endgame_stage;
     let f = c.economy().shipment_flags;
-    let late = c.byte(0x11bb);
+    let late = c.byte(g::SPICE_DEMAND_LAPSED);
     if pend != 0 || f & 0x10 == 0 && late == 0 {
         // 2098h / 20C6h: the days left.
         let n = if pend != 0 { 2 } else { 6 } + 2 + if d != 0 { 3 } else { 0 };
@@ -5458,7 +5458,7 @@ fn refresh_at(c: &mut Ctx) -> Result<(), Bail> {
     }
     let kind = c.progress().place_kind;
     if kind != 0xff {
-        let p = c.byte(g::KEYBOARD_CURSOR);
+        let p = c.sequence().playing;
         c.run(0x2e55, 12)?;
         head(c);
         c.cmp(B, kind as u16, 0xff);
@@ -5629,8 +5629,8 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(g::SAL_FLAGS, 0);
         c.call(0x2d74, 0x2de2)?;
         c.run(0x2de2, 3)?;
-        let v = c.byte(0x11bc);
-        c.set_byte(0x11bc, v | 1);
+        let v = c.byte(g::SKIP_HARKONNEN_TAKE);
+        c.set_byte(g::SKIP_HARKONNEN_TAKE, v | 1);
         c.set_byte(g::SKY_PALETTE_SET, 0);
         c.call(0x0acd, 0x2def)?;
         for (at, to) in [(0x2defu16, 0x1797u16), (0x2df2, 0xc4cd), (0x2df5, 0xc0f4)] {
@@ -6401,10 +6401,10 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x1b43, 1)?;
     c.call(0x38e1, 0x1b46)?;
     let now = c.game_time();
-    let old = c.word(0x1174);
+    let old = c.word(g::LAST_TIME);
     let d = (old as u8 & 0xf0).wrapping_sub(now as u8 & 0xf0);
     c.run(0x1b46, 8 + (d != 0) as u32)?;
-    c.set_word(0x1174, now);
+    c.set_word(g::LAST_TIME, now);
     c.and(B, old & 0xff, 0xf0);
     let cl = c.and(B, now & 0xff, 0xf0);
     c.set_reg(CX, (now & 0xff00) | cl);
@@ -6424,7 +6424,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     c.cmp(B, st as u16, 7);
     c.call(0x1d9f, 0x1b68)?;
     c.run(0x1b68, 3)?;
-    let (a, b) = (c.word(0x11f7), c.word(0x11ce));
+    let (a, b) = (c.word(g::PHRASE_ARG_SKILLS), c.word(g::TOPIC_PLACE_RECORD));
     c.push(a);
     c.push(b);
     c.call(0x6c6f, 0x1b73)?;
@@ -6447,7 +6447,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     c.call(0x331e, 0x1b89)?;
     c.run(0x1b89, 2)?;
     let v = c.pop();
-    c.set_word(0x11f7, v);
+    c.set_word(g::PHRASE_ARG_SKILLS, v);
     c.call(0x1bec, 0x1b90)?;
     let k = c.byte(g::COMM_CALLER);
     if k != 0 {
@@ -6599,7 +6599,7 @@ fn scene_record_3551(c: &mut Ctx) -> Result<(), Bail> {
         c.set_word(g::HEAD_BOX_FLAGS, 0);
         return super::screens::panel_buttons(c.m, 0x2ffb);
     }
-    let k = c.byte(g::KEYBOARD_CURSOR);
+    let k = c.sequence().playing;
     let go = k == 0 && st < 0x64;
     c.run(0x3551, 5 + if k != 0 { 3 } else if !go { 5 } else { 6 })?;
     count(c);
@@ -6637,7 +6637,7 @@ fn scene_record_3551(c: &mut Ctx) -> Result<(), Bail> {
 pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2b2a)?;
     let mut c = Ctx::new(m);
-    let (a, b, d) = (c.byte(g::COMM_CALLER), c.byte(g::KEYBOARD_CURSOR), c.travel().screen_kind);
+    let (a, b, d) = (c.byte(g::COMM_CALLER), c.sequence().playing, c.travel().screen_kind);
     // Not in a scene, a talk or with the head held.
     c.run(0x2b2a, 5)?;
     c.set_reg8(r8::AL, a | b | d);

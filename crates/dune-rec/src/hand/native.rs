@@ -34,6 +34,9 @@ pub struct Native {
     pub place_forces: super::record_table::RecordTable,
     pub economy: super::record_table::RecordTable,
     pub situation: super::record_table::RecordTable,
+    pub sequence: super::record_table::RecordTable,
+    pub phrase: super::record_table::RecordTable,
+    pub sentence: super::record_table::RecordTable,
 }
 
 /// The machine's Rust state (made on first use).

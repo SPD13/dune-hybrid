@@ -354,13 +354,13 @@ pub fn script_13c8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = c.lods(B, CS);
     c.update_player(|p| p.x = p.x & 0xff00 | (a as u8) as u16);
     let si = c.reg(SI);
-    c.set_word(0x4778, si);
+    c.update_sequence(|t| t.markers = si);
     let n = c.lods(B, CS);
     c.set_reg(AX, n);
     let si = c.reg(SI);
     let s = pure::add(W, si, n);
     c.set_reg(SI, s);
-    c.set_word(0x477a, s);
+    c.update_sequence(|t| t.next = s);
     c.call(0x1392, 0x13de)?;
     c.run(0x13de, 1)?;
     c.call(0x2db1, 0x13e1)?;
@@ -817,7 +817,7 @@ pub fn results_be1d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let d = c.game_time();
     let d = pure::and(W, d, 0xfff0);
     c.set_reg(AX, d);
-    c.set_word(0x115c, d);
+    c.set_word(g::RESULTS_DATE, d);
     c.call(0xd075, 0xbe48)?;
     c.run(0xbe48, 2)?;
     c.set_reg(SI, 0x2494);
@@ -1142,9 +1142,9 @@ pub fn book_afc7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xafc7, 4 + if f & 4 != 0 { 2 } else { 5 })?;
     if f & 4 != 0 {
-        let v = c.word(0x11bf);
+        let v = c.word(g::BOOK_POSITION);
         let v = pure::add(W, v, 2);
-        c.set_word(0x11bf, v);
+        c.set_word(g::BOOK_POSITION, v);
         c.call(0x0a3e, 0xafdd)?;
         c.run(0xafdd, 1)?;
         c.call(0xad5e, 0xafe0)?;
@@ -1154,13 +1154,13 @@ pub fn book_afc7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, 0xfffe);
     let bx = c.word(0x2406);
     c.set_reg(BX, bx);
-    let si = c.word(0x11bf);
+    let si = c.word(g::BOOK_POSITION);
     c.set_reg(SI, si);
     c.call(0xb150, 0xaff1)?;
     if !c.flag(ZF) {
         c.run(0xaff1, 3)?;
         let di = c.reg(DI);
-        c.set_word(0x11bf, di);
+        c.set_word(g::BOOK_POSITION, di);
         c.call(0xb1af, 0xaffa)?;
         c.run(0xaffa, 2)?;
         c.set_reg(BP, 0xb039);
@@ -1299,7 +1299,7 @@ pub fn script_1707(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x1707, 2)?;
     }
-    let si = c.word(0x477a);
+    let si = c.sequence().next;
     let b = c.byte_in(CS, si);
     c.run(0x171a, 5 + if b == 0xff { 0 } else { 4 })?;
     c.set_byte(0xce9d, 0);
@@ -1309,7 +1309,7 @@ pub fn script_1707(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // The script's next step (a table jump: it could see the flags
         // of `xor ah, ah`).
         let si = c.reg(SI);
-        c.set_word(0x477a, si);
+        c.update_sequence(|t| t.next = si);
         let ah = c.reg8(r8::AH);
         c.xor(B, ah as u16, ah as u16);
         c.set_reg(AX, b as u16);
@@ -1322,12 +1322,12 @@ pub fn script_1707(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xda5f, 0x173c)?;
     let ph = c.progress().phase;
     c.run(0x173c, 7 + (ph != 0x48) as u32)?;
-    let ax = c.word(0x4776);
+    let ax = c.sequence().return_to;
     c.set_reg(AX, ax);
     c.update_player(|p| p.x = p.x & 0xff00 | (ax as u8) as u16);
     c.set_byte(0x46e0, (ax >> 8) as u8);
     c.set_reg8(r8::AL, 0);
-    c.set_byte(g::KEYBOARD_CURSOR, 0);
+    c.update_sequence(|t| t.playing = 0);
     if ph != 0x48 {
         c.call(0xadbe, 0x1755)?;
     }
@@ -1500,7 +1500,7 @@ pub fn result_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, d);
     let d = pure::and(W, d, 0xfff0);
     c.set_reg(AX, d);
-    c.set_word(0x115c, d);
+    c.set_word(g::RESULTS_DATE, d);
     c.call(0xc02e, 0xbee3)?;
     c.run(0xbee3, 1)?;
     c.call(0xbf26, 0xbee6)?;
@@ -1996,7 +1996,7 @@ pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx = c.word_in(SS, 0x18f5);
     let bx = pure::inc(W, bx);
     let dx = pure::inc(W, dx);
-    c.set_word_in(SS, 0x47d4, dx);
+    c.set_word_in(SS, g::SCRATCH_RECT, dx);
     c.set_word_in(SS, 0x47d6, bx);
     let dx = pure::add(W, dx, 0x3b);
     c.set_reg(DX, dx);

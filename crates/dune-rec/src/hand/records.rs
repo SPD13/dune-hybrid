@@ -311,21 +311,22 @@ pub fn list_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_02e98`: the point at DI (two bytes, y + 0Ch) to [11EDh], [11EFh];
-/// DI noted at [47E6h].
+/// `loc_02e98`: the name of the place at DI (its byte 0, its byte 1 +
+/// 0Ch: two phrases) to [`g::PHRASE_ARG_PLACE`]; DI noted at
+/// [`g::NOTED_RECORD`].
 pub fn note_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2e98)?;
     let mut c = Ctx::new(m);
     c.run(start, 10)?;
     let di = c.reg(DI);
-    c.set_word(0x47e6, di);
+    c.update_sentence(|t| t.noted_record = di);
     let x = c.byte(di) as u16;
     let x = pure::add(W, x, 0);
-    c.set_word(0x11ed, x);
+    c.set_word(g::PHRASE_ARG_PLACE, x);
     let y = c.byte(di.wrapping_add(1)) as u16;
     let y = pure::add(W, y, 0x0c);
     c.set_reg(AX, y);
-    c.set_word(0x11ef, y);
+    c.set_word(g::PHRASE_ARG_PLACE + 2, y);
     c.ret()
 }
 

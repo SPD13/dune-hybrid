@@ -13,9 +13,9 @@ pub fn blink(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x176b)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let phase = c.byte(g::BLINK_PHASE);
+    let phase = c.sequence().blink;
     let phase = pure::xor(B, phase as u16, 0xff) as u8;
-    c.set_byte(g::BLINK_PHASE, phase);
+    c.update_sequence(|t| t.blink = phase);
     c.ret()
 }
 

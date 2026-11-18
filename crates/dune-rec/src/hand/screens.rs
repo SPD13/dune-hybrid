@@ -470,7 +470,7 @@ pub fn draw_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = c.byte(g::BOOK_PAGE) as i8 as u16;
     let a = pure::add(W, a, 0x41);
     c.set_word(si + 0x0a, a);
-    let b = c.byte(0x1153) as i8 as u16;
+    let b = c.byte(g::BOOK_PAGE_2) as i8 as u16;
     let b = pure::add(W, b, 0x41);
     c.set_reg(AX, b);
     c.set_word(si + 0x18, b);
@@ -768,7 +768,7 @@ pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let t = c.game_time();
     let t = pure::and(W, t, 0xfff0);
     c.set_reg(AX, t);
-    c.set_word(0x115c, t);
+    c.set_word(g::RESULTS_DATE, t);
     c.call(0xd075, 0xbdda)?;
     c.run(0xbdda, 2)?;
     c.set_reg(SI, 0x2494);
@@ -1327,7 +1327,7 @@ fn list_2220_at(c: &mut Ctx) -> Result<(), Bail> {
 pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2eb2)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(g::KEYBOARD_CURSOR);
+    let k = c.sequence().playing;
     if k != 0 {
         c.run(start, 3)?;
         c.cmp(B, k as u16, 0);

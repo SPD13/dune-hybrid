@@ -479,7 +479,7 @@ pub fn while_at_11d3(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (mut at, mut jmp) = (start, 0);
     loop {
         let si = c.reg(SI);
-        let di = c.word(0x11d3);
+        let di = c.word(g::FOLLOWED_TROOP_PLACE);
         let here = c.word(si.wrapping_add(4)) == di;
         let f = c.byte(si.wrapping_add(3));
         let go = here && f & 0x40 == 0;
@@ -539,10 +539,10 @@ pub fn note_47e0(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
     let al = c.reg8(r8::AL);
-    c.set_byte(g::VOICE_LANGUAGE_PART, al);
-    let v = c.byte(0x47de);
-    let v = pure::and(B, v as u16, 0xef);
-    c.set_byte(0x47de, v as u8);
+    c.update_sentence(|t| t.voice_part = al);
+    let v = c.sentence().entry_flags;
+    let low = pure::and(B, v & 0xff, 0xef);
+    c.update_sentence(|t| t.entry_flags = v & 0xff00 | low);
     c.ret()
 }
 
@@ -594,7 +594,7 @@ pub fn gfx_call_38c9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, si);
     let fb = c.screen_buffers().active;
     c.set_sreg(ES, fb);
-    c.set_word(0x4782, top);
+    c.update_phrase(|t| t.sheet_top = top);
     c.interp(0x9041, 0x9045)?;
     c.run(0x9045, 1)?;
     c.ret()
@@ -2084,14 +2084,14 @@ pub fn draw_sprite_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn unmark_pending_regions(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5584)?;
     let mut c = Ctx::new(m);
-    let pend = c.word(0x115a);
+    let pend = c.word(g::REGIONS_TO_UNMARK);
     if pend == 0 {
         c.run(start, 5)?;
         c.set_reg(AX, 0);
         return c.ret();
     }
     c.run(start, 5)?;
-    c.set_word(0x115a, 0);
+    c.set_word(g::REGIONS_TO_UNMARK, 0);
     c.set_reg(AX, pend);
     c.call(0xe270, 0x5591)?;
     c.run(0x5591, 3)?;
@@ -3912,13 +3912,13 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let (side, phrase) = if right { (1u16, 0xd0u16) } else { (0, 0xce) };
             c.set_reg(AX, side << 8 | v as u16);
             c.set_reg(CX, phrase);
-            c.set_word(0x11f5, phrase);
+            c.set_word(g::PHRASE_ARG_DETAIL, phrase);
             c.update_situation(|t| t.sighting_side = side as u8);
             c.call(0x6231, 0x415d)?;
             c.run(0x415d, 4)?;
             let ax = c.reg(AX).wrapping_add(0x48);
             c.set_reg(AX, ax);
-            c.set_word(0x11f3, ax);
+            c.set_word(g::PHRASE_ARG_SUBJECT, ax);
             c.update_progress(|t| t.talk_reason = 3);
             c.call(0x425b, 0x416b)?;
             for (at, to) in [(0x416bu16, 0x4944u16), (0x416e, 0xdbb2), (0x4171, 0x2efb), (0x4174, 0x2ffb), (0x4177, 0xd397)] {
@@ -4552,7 +4552,7 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::CL, cl);
     let r = c.m.cpu.shift(0, W, 0x8000, (cl & 0x1f) as u32) as u16;
     c.set_reg(AX, r);
-    c.set_word(0x115a, r);
+    c.set_word(g::REGIONS_TO_UNMARK, r);
     let x = c.pop();
     c.set_reg(CX, x);
     c.set_reg(BP, 0x75af);
@@ -5031,7 +5031,7 @@ pub fn note_phrase_count(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// The code of `loc_08acc` up to its call or its end (with `write`, its
 /// registers and push too).
 fn phrase_count_walk(c: &mut Ctx, write: bool) -> (u32, Option<bool>) {
-    let t = c.byte_in(SS, 0x47de);
+    let t = c.sentence().entry_flags as u8;
     c.test(B, t as u16, 0x10);
     if t & 0x10 == 0 {
         return (3, None);
@@ -5127,7 +5127,7 @@ pub fn check_room_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// The code of `loc_08a3b` up to its call (with `write`, its registers
 /// and push too): its count, and whether it pushed and calls.
 fn room_phrase_walk(c: &mut Ctx, write: bool) -> (u32, Option<bool>) {
-    let t = c.byte(0x47de);
+    let t = c.sentence().entry_flags as u8;
     c.test(B, t as u16, 0x10);
     if t & 0x10 == 0 {
         return (3, None);
@@ -5136,13 +5136,13 @@ fn room_phrase_walk(c: &mut Ctx, write: bool) -> (u32, Option<bool>) {
     if write {
         c.push(bx0);
     }
-    let bh = c.byte(0x477f);
+    let bh = c.phrase().code;
     let mut bl = bx0 as u8;
     let mut ax = c.reg(AX);
     // test, jne, push, mov bh; cmp bh, 8Bh, jne.
     let mut n = 6u32;
     let mode = |c: &mut Ctx, bl: &mut u8| {
-        let m = c.byte(0x47de);
+        let m = c.sentence().entry_flags as u8;
         let v = c.and(B, m as u16, 0x0f);
         *bl = v as u8;
         c.cmp(B, v, 1);
@@ -6866,7 +6866,7 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     let ax = pure::add(W, ax, 0xda);
     c.set_reg(AX, ax);
-    c.set_word(0x11fd, ax);
+    c.set_word(g::PHRASE_ARG_DIRECTION, ax);
     c.set_reg(BP, 0xcc);
     c.call(0x5323, 0x531a)?;
     c.run(0x531a, 2)?;

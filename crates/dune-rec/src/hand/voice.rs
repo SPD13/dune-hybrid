@@ -372,7 +372,7 @@ pub fn create_voc_file_name_from_bx(m: &mut Machine, start: u16) -> Result<(), B
     };
     let cl = c.reg8(r8::CL);
     let ch_bh = (c.reg8(r8::BH) as u32 >> (cl & 0x1f).min(8)) as u8;
-    let extra = c.byte(g::VOICE_LANGUAGE_PART);
+    let extra = c.sentence().voice_part;
     let none = ch_bh | extra == 0;
     c.run(0xa8e0, n + 5 + if none { 0 } else { 2 } + 2)?;
     c.stos(B);
@@ -784,7 +784,7 @@ pub fn play_voice_19(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xab4f, 3)?;
-    c.set_byte(g::VOICE_LANGUAGE_PART, 0);
+    c.update_sentence(|t| t.voice_part = 0);
     c.set_reg(BX, 0x19);
     c.call(0xa8bc, 0xab5a)?;
     c.run(0xab5a, 2)?;
@@ -863,7 +863,7 @@ fn music_walk(c: &mut Ctx, write: bool) -> u32 {
         }
         n + 1
     };
-    let k = c.byte(g::KEYBOARD_CURSOR);
+    let k = c.sequence().playing;
     c.cmp(B, k as u16, 0);
     n += 2;
     let ph = c.progress().phase;
@@ -1793,7 +1793,7 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
         let big = (bx & 0xff) >= 0xe;
         let bl = if big { 0xe } else { bx & 0xff };
         let bx1 = (bx & 0xff00) | bl;
-        let f = c.byte(0x47dc);
+        let f = c.sentence().talking;
         let intro = c.byte(g::CINEMATIC);
         let mut n = 2 + 3 + big as u32 + 3;
         if f != 0 {

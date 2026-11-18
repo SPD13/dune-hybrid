@@ -358,7 +358,7 @@ pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x92da, 2)?;
         return c.ret();
     }
-    let k = c.byte(0x1153);
+    let k = c.byte(g::BOOK_PAGE_2);
     if k == 0xff {
         c.run(0x92da, 5)?;
         c.set_reg8(r8::CL, k);
@@ -485,7 +485,7 @@ pub fn dialogue_hit(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd50f)?;
     let mut c = Ctx::new(m);
-    let fixed = c.byte(g::KEYBOARD_CURSOR);
+    let fixed = c.sequence().playing;
     c.run(start, if fixed != 0 { 10 } else { 9 })?;
     for r in [BX, CX, DX, SI, DI, BP] {
         let v = c.reg(r);
@@ -495,7 +495,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
     // 4 D55Dh (CX the speaker), 5 D545h, 6 D593h.
     let mut at;
     if fixed != 0 {
-        let cl = c.byte(g::BLINK_PHASE);
+        let cl = c.sequence().blink;
         c.set_reg8(r8::CL, cl);
         at = 0;
     } else {

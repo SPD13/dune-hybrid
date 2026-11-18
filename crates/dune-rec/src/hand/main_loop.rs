@@ -324,12 +324,12 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
 }
 
 /// D893h on: a button is down (AX bits 0-3). [`g::LAST_ACTION_TIME`] the time. With
-/// the keyboard cursor ([4774h]) both buttons give `loc_01707`; else the
+/// a story sequence playing ([`g::SEQUENCE_PLAYING`]) both buttons give `loc_01707`; else the
 /// left button (bit 0 or 2: SI + 0, else SI + 2 with AX halved) or the
 /// right one: the element under the cursor dispatched through the
 /// handler table SI (+2, +6, +0Ah) or the element's own (+0Ch).
 fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail> {
-    let kb = c.byte(g::KEYBOARD_CURSOR);
+    let kb = c.sequence().playing;
     c.run(0xd893, 4)?;
     let t = c.timer();
     c.set_reg(BP, t);

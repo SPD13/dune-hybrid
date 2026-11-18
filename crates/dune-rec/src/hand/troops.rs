@@ -3742,8 +3742,8 @@ fn troop_panel_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x78f4, 1)?;
     c.call(0x31f6, 0x78f7)?;
     c.run(0x78f7, 3)?;
-    let bottom = c.word(0x11f3).wrapping_add(0x0c);
-    c.set_word(0x11f3, bottom);
+    let bottom = c.word(g::PHRASE_ARG_SUBJECT).wrapping_add(0x0c);
+    c.set_word(g::PHRASE_ARG_SUBJECT, bottom);
     c.set_reg(SI, PANEL);
     c.call(0x7b1b, 0x7902)?;
     c.run(0x7902, 1)?;
@@ -3795,7 +3795,7 @@ fn troop_panel_at(c: &mut Ctx) -> Result<(), Bail> {
     let bx = c.reg(BX).wrapping_add(0x0f);
     c.set_reg(BX, bx);
     let activity = c.topic_troop().job;
-    let at = 0x11f7 + ((activity >> 1) & 6) as u16;
+    let at = g::PHRASE_ARG_SKILLS + ((activity >> 1) & 6) as u16;
     c.set_reg(SI, at);
     let phrase = c.word(at);
     c.set_reg(AX, phrase);
@@ -3968,7 +3968,7 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x8357, 2)?;
     } else {
         // Troop 3, followed: its note shifted when it reaches the place.
-        let followed = c.word(0x11d3);
+        let followed = c.word(g::FOLLOWED_TROOP_PLACE);
         c.run(0x8357, if followed == target { 6 } else { 5 })?;
         c.set_reg(AX, followed);
         if followed == target {
@@ -5315,7 +5315,7 @@ pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.cmp(W, si, shown); // the exit's flags
         return c.ret();
     }
-    let setting_out = c.word(0x11d3);
+    let setting_out = c.word(g::FOLLOWED_TROOP_PLACE);
     if setting_out != 0 {
         c.run(0x712d, 7)?;
         troop.set_word_0e(&mut c, 0x64);

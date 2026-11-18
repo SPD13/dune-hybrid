@@ -55,6 +55,9 @@ pub mod topic_place;
 pub mod place_forces;
 pub mod economy;
 pub mod situation;
+pub mod sequence;
+pub mod phrase;
+pub mod sentence;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1692,6 +1695,30 @@ impl Ctx<'_> {
     }
     /// The situation changed by `f` (written through).
     fn update_situation(&mut self, f: impl FnOnce(&mut situation::Situation)) {
+        record_table::update_single(self, f)
+    }
+    /// The story sequence (Rust state, see [`sequence`]), in step with the memory.
+    fn sequence(&mut self) -> sequence::Sequence {
+        record_table::single(self)
+    }
+    /// The story sequence changed by `f` (written through).
+    fn update_sequence(&mut self, f: impl FnOnce(&mut sequence::Sequence)) {
+        record_table::update_single(self, f)
+    }
+    /// The phrase and its voice (Rust state, see [`phrase`]), in step with the memory.
+    fn phrase(&mut self) -> phrase::Phrase {
+        record_table::single(self)
+    }
+    /// The phrase and its voice changed by `f` (written through).
+    fn update_phrase(&mut self, f: impl FnOnce(&mut phrase::Phrase)) {
+        record_table::update_single(self, f)
+    }
+    /// The sentence being said (Rust state, see [`sentence`]), in step with the memory.
+    fn sentence(&mut self) -> sentence::Sentence {
+        record_table::single(self)
+    }
+    /// The sentence being said changed by `f` (written through).
+    fn update_sentence(&mut self, f: impl FnOnce(&mut sentence::Sentence)) {
         record_table::update_single(self, f)
     }
     /// The game time ([2]).

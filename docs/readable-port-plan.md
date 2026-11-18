@@ -294,8 +294,8 @@ the subsystem's boundary. Candidates, smallest boundary first:
   locations: done, with a mirror (below);
 - the dialogue state machine: its text box's layout, the text being
   played and the conversation (47A2h-47C5h) done (below); the rest of
-  the 4770h block (talking heads, voice, 4770h-4783h and 47D4h-47EFh)
-  first needs names for its bytes;
+  the 4770h block named, and the story sequence, the phrase and the
+  sentence being said are tables of one too (below);
 - the map's projection and drawing (the HD renderer already models it):
   its view (46E3h-46EEh) and its selection (46EFh-46FDh) done (below);
 - the story state (DS:0-FFh, the condition scripts' variables): named
@@ -536,8 +536,8 @@ Other names found in the listing: [227Dh] `CINEMATIC`
 (was `MAP_VIEW_FLAG`: counted up while the intro, the end video and two
 scenes play full screen), [FBh] `MAP_INTERFACE`, [C6h] `BOOK`, [EAh]
 `EVENT_KIND`, [46D9h] `COMM_CALLER` (the character waiting to call on
-the communicator, 80h while the call is on). DCE4h-DCFFh, 4710h-476Fh
-and 4770h-4783h / 47D4h-47EFh are mixes.
+the communicator, 80h while the call is on). DCE4h-DCFFh and
+4710h-476Fh are mixes.
 
 The six records of 11h bytes at 10D8h, once taken for troops, are the
 smugglers (`SMUGGLERS`): the five slots are the five kinds of
@@ -676,11 +676,52 @@ are kept as raw bytes. `add_table.py` routed 419 accesses. `Ctx::rep`
 now tells the tables of the bytes a `rep movs`/`rep stos` writes (the
 clear of 60h-92h went through the CPU's string op unseen).
 
-Still unclear: [9Eh] `SMUGGLER_MOOD` and [D5h] `CHARACTER_1_DAYS`
-(which character 1 is), [54h] (a location's byte 1Bh), [31h] (a
-troop's word 12h low nibble), the kinds from 28h (sietches or
-Harkonnen places), [4722h] (a toggle of the map panel), [118Fh],
-[0DCE4h].
+### The rest of the 4770h block, and 1140h-11FFh
+
+4770h-4783h and 47D4h-47EFh, once "a mix", hold three things, now
+named and tables of one (`sequence:`, `phrase:`, `sentence:` gated):
+
+- 4774h-477Bh, the story sequence (`hand/sequence.rs`): a script of
+  steps the game plays by itself (`loc_01771` starts one with its
+  script in CS, `loc_01707` runs the next step through the table
+  CS:1475h). [4774h] was named `KEYBOARD_CURSOR`; it is
+  `SEQUENCE_PLAYING`: while it is set a click of both buttons only
+  steps the sequence, the hovered item blinks (`BLINK_PHASE`, the frame
+  task 176Bh every 64h ticks) and the map's comments say no voice.
+  With it `SEQUENCE_RETURN` (where the player goes back to),
+  `SEQUENCE_MARKERS` (its scene's position markers) and `SEQUENCE_NEXT`.
+- 477Ch-4783h, the phrase (`hand/phrase.rs`): the phrase file asked
+  for and loaded, `PHRASE_CODE` (the last control code met while a
+  phrase is put together), `VOICE_PHRASE` (once `TALKING_HEAD_TIME`:
+  it is the phrase whose voice plays, 190h in the intro) and
+  `TEXT_SHEET_TOP` (the text sheet's last blit).
+- 47DCh-47E7h, the sentence being said (`hand/sentence.rs`):
+  `TALKING`, `VOICE_TALKING`, `ENTRY_FLAGS`, the voice file's part,
+  the number part (`NUMBER_PART`, `NUMBER_ENTRY`, `NUMBER_RECORD`, once
+  dialogue.rs's own consts) and `NOTED_RECORD` (`note_point`'s).
+
+47D4h-47DBh is `SCRATCH_RECT`, a rectangle put together for a draw,
+left in memory; 476Eh-4773h (the head's zooms) stays with 4710h-476Fh.
+
+In 1140h-11FFh, the remaining bytes the ports touch are named:
+`BOOK_PAGE_2`, `BOOK_POSITION`, `REGIONS_TO_UNMARK`, `RESULTS_DATE`,
+`LAST_TIME`, `SPICE_DEMAND_LAPSED`, `SKIP_HARKONNEN_TAKE`,
+`TOPIC_PLACE_RECORD` (the location talked about, [11CEh]),
+`ATTACK_TARGET`, `HARKONNEN_PLACE_ICONS`, `FOLLOWED_TROOP_PLACE` (troop
+3's note). 11EBh is `PHRASE_ARGS`: the phrases a phrase's codes
+81h..8Fh stand for, one word each by the code's low nibble (81h/82h a
+place's name, 83h the equipment, 84h a job or an encounter's place
+kind, 85h how long, 86h-88h a troop's skills, 89h a direction, 8Ah a
+troop's word 12h low nibble). `note_point` (2E98h) notes a place's
+name there, not a point. These stay in memory (a mix, no one
+subsystem).
+
+Still unclear: [9Eh] `SMUGGLER_MOOD`, [D5h] `CHARACTER_1_DAYS` (set
+from the reach on each talk with character 1, then counted up each
+day; which character 1 is), [54h] (a location's byte 1Bh), [31h] (a
+troop's word 12h low nibble: as phrase 8Ah's argument it names a
+place's first word), the kinds from 28h (sietches or Harkonnen
+places), [4722h] (a toggle of the map panel), [118Fh], [0DCE4h].
 
 ## Tools in place
 

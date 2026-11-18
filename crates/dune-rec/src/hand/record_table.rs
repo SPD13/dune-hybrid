@@ -94,10 +94,16 @@ pub enum Which {
     Economy,
     /// The places nearest, the desert walk, the messages read and the attacks, 36h bytes at DS:CAh.
     Situation,
+    /// The story sequence playing, 8 bytes at DS:4774h.
+    Sequence,
+    /// The phrase file, the phrase put together and its voice, 8 bytes at DS:477Ch.
+    Phrase,
+    /// The sentence being said, 0Ch bytes at DS:47DCh.
+    Sentence,
 }
 
 impl Which {
-    pub const ALL: [Which; 25] = [
+    pub const ALL: [Which; 28] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
@@ -123,6 +129,9 @@ impl Which {
         Which::PlaceForces,
         Which::Economy,
         Which::Situation,
+        Which::Sequence,
+        Which::Phrase,
+        Which::Sentence,
     ];
 
     pub fn name(self) -> &'static str {
@@ -152,6 +161,9 @@ impl Which {
             Which::PlaceForces => "place forces",
             Which::Economy => "economy",
             Which::Situation => "situation",
+            Which::Sequence => "sequence",
+            Which::Phrase => "phrase",
+            Which::Sentence => "sentence",
         }
     }
     /// Where the table starts in the game's data segment.
@@ -182,6 +194,9 @@ impl Which {
             Which::PlaceForces => 0x60,
             Which::Economy => 0x9d,
             Which::Situation => 0xca,
+            Which::Sequence => 0x4774,
+            Which::Phrase => 0x477c,
+            Which::Sentence => 0x47dc,
         }
     }
     pub const fn size(self) -> u16 {
@@ -211,6 +226,9 @@ impl Which {
             Which::PlaceForces => 0x3d,
             Which::Economy => 0x2d,
             Which::Situation => 0x36,
+            Which::Sequence => 0x8,
+            Which::Phrase => 0x8,
+            Which::Sentence => 0xc,
         }
     }
     pub const fn count(self) -> usize {
@@ -240,6 +258,9 @@ impl Which {
             Which::PlaceForces => 1,
             Which::Economy => 1,
             Which::Situation => 1,
+            Which::Sequence => 1,
+            Which::Phrase => 1,
+            Which::Sentence => 1,
         }
     }
     fn end(self) -> u16 {
@@ -292,6 +313,9 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::PlaceForces => &mut n.place_forces,
         Which::Economy => &mut n.economy,
         Which::Situation => &mut n.situation,
+        Which::Sequence => &mut n.sequence,
+        Which::Phrase => &mut n.phrase,
+        Which::Sentence => &mut n.sentence,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];

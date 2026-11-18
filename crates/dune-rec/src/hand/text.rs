@@ -81,11 +81,11 @@ pub fn get_phrase_or_command_string_si(m: &mut Machine, start: u16) -> Result<()
 pub fn load_phrase_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd00f)?;
     let mut c = Ctx::new(m);
-    let (part, split) = (c.word(g::PHRASE_PART), c.word(g::PHRASE_SPLIT));
+    let (part, split) = (c.phrase().part, c.word(g::PHRASE_SPLIT));
     let first = part < split;
     let language = c.byte(g::LANGUAGE);
     let resource = (if first { 0x93u8 } else { 0x9a }).wrapping_add(language);
-    let loaded = c.byte(g::PHRASE_LOADED);
+    let loaded = c.phrase().loaded;
     let n = 4 + !first as u32 + 3;
     if resource == loaded {
         c.run(start, n + 1)?;
@@ -101,7 +101,7 @@ pub fn load_phrase_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let si = c.reg(SI);
     c.push(si);
-    c.set_byte(g::PHRASE_LOADED, al);
+    c.update_phrase(|t| t.loaded = al);
     c.set_reg(AX, al as u16);
     c.set_reg(SI, al as u16);
     let (di, es) = (c.conversation().phrases[0], c.conversation().phrases[1]);
