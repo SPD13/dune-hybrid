@@ -324,6 +324,36 @@ pub fn ui_head_animate_down(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
+/// `ui_head_animate_down`'s other entry (1803, the listing's first label of
+/// the name): unless a voice language is set ([28E7h]) or the head is at
+/// rest ([0E8h] 0), the head stepped down (181E) with [0CE66h] 1 (its
+/// panel redrawn from the picture 0CD9Eh, see `redraw_head_panel`).
+pub fn head_down_from_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x1803)?;
+    let mut c = Ctx::new(m);
+    let voice = c.byte(g::VOICE_LANGUAGE);
+    if voice != 0 {
+        c.run(start, 3)?; // cmp; jne 181Dh; ret
+        c.cmp(B, voice as u16, 0);
+        return c.ret();
+    }
+    let step = c.situation().head_animation_step;
+    if step == 0 {
+        c.run(start, 5)?; // cmp; jne; cmp; je 181Dh; ret
+        c.cmp(B, 0, 0);
+        return c.ret();
+    }
+    c.run(start, 6)?; // cmp; jne; cmp; je; mov [0CE66h], 1; call
+    c.cmp(B, step as u16, 0);
+    c.set_byte(0xce66, 1);
+    c.call(0x181e, 0x1819)?;
+    let k = c.byte(0xce66);
+    c.run(0x1819, 2)?; // dec [0CE66h]; ret
+    let k = c.dec(B, k as u16) as u8;
+    c.set_byte(0xce66, k);
+    c.ret()
+}
+
 /// `loc_0c0e8`: driver function 30 on the screen buffer, BP = the timer.
 pub fn gfx_call_30(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc0e8)?;

@@ -246,6 +246,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x99b2, video::swap_byte_arrays, "swap_byte_arrays"),
     // Graphics driver calls, sprites, HNM frames, UI drawing.
     (0x181e, gfx::ui_head_animate_down, "ui_head_animate_down"),
+    (0x1803, gfx::head_down_from_picture, "ui_head_animate_down (1803)"),
     (0xb977, gfx::map_func_gfx, "map_func_gfx"),
     (0xc097, gfx::gfx_call_bp_with_front_buffer_as_screen, "gfx_call_bp_with_front_buffer_as_screen"),
     (0xc0ad, gfx::gfx_clear_active_framebuffer, "gfx_clear_active_framebuffer"),

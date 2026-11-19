@@ -1358,21 +1358,31 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if mode == 0 {
         c.call(0x3090, 0x2edd)?;
     }
+    // Low on the screen (y 74h on), the cursor hidden (`call_restore_cursor`)
+    // with `draw_mouse` (DBECh) pushed: the tail's `ret` goes there, which
+    // shows it again on the way out.
     let y = c.mouse_state().y;
-    if y >= 0x74 {
-        c.m.cpu.ip = 0x2edd;
-        return Err(Bail);
-    }
-    c.run(0x2edd, 4)?;
+    let hide = y >= 0x74;
+    c.run(0x2edd, if hide { 6 } else { 4 })?;
     c.set_reg(AX, y);
     c.cmp(W, y, 0x74);
+    if hide {
+        c.set_reg(AX, 0xdbec);
+        c.push(0xdbec);
+        c.call(0xdbb2, 0x2eec)?;
+        c.run(0x2eec, 1)?;
+    }
     c.call(0x2ffb, 0x2eef)?;
     c.run(0x2eef, 1)?;
     c.call(0xd763, 0x2ef2)?;
     c.run(0x2ef2, 3)?;
     c.set_reg(BP, 0x1f0e);
     c.set_reg(BX, 0x0f66);
-    super::cursor::install_ui_list_d338(c.m, 0xd338)
+    super::cursor::install_ui_list_d338(c.m, 0xd338)?;
+    if hide && c.m.cpu.ip == 0xdbec {
+        return super::mouse::draw_mouse(c.m, 0xdbec);
+    }
+    Ok(())
 }
 
 /// `loc_02efb`: the action list 1F0Fh rebuilt (a 0 byte, then 4-byte
