@@ -633,7 +633,28 @@ fn main() -> ExitCode {
         }
         ev
     };
-    let mut events = schedule(0.0, 0);
+    // Keys and the mouse are scheduled in the machine at their times (it
+    // applies them at the same instruction as a stop there would, without
+    // stopping: code running ahead takes them in place); the other events
+    // stop the run. HOST_DEADLINES=1: every event stops the run (as before).
+    let host_deadlines = std::env::var_os("HOST_DEADLINES").is_some();
+    let queue = |m: &mut Machine, ev: Vec<(f64, Vec<String>)>| -> Vec<(f64, Vec<String>)> {
+        m.clear_inputs();
+        if host_deadlines {
+            return ev;
+        }
+        let mut rest = Vec::new();
+        for (et, e) in ev {
+            let at = ((t0 + et) * 1e9) as u64;
+            match e[0].as_str() {
+                "key" => m.schedule_input(at, pc::HostInput::Key(u8::from_str_radix(&e[1], 16).unwrap(), e[2] == "1")),
+                "mouse" => m.schedule_input(at, pc::HostInput::Mouse(e[1].parse().unwrap(), e[2].parse().unwrap(), e[3].parse().unwrap())),
+                _ => rest.push((et, e)),
+            }
+        }
+        rest
+    };
+    let mut events = queue(&mut m, schedule(0.0, 0));
     let mut ei = 0;
     let mut checkpoint: Option<(Vec<u8>, f64)> = None;
     let mut rewinds = 0u64;
@@ -783,7 +804,7 @@ fn main() -> ExitCode {
                 dune_rec::hand::native::outside(&mut m);
             }
             t = *at;
-            events = schedule(*at, rewinds * 0x1_0000);
+            events = queue(&mut m, schedule(*at, rewinds * 0x1_0000));
             ei = 0;
             continue;
         }

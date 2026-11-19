@@ -1565,12 +1565,22 @@ impl Machine {
         if !self.in_place_ok(true) || wake >= self.run_deadline {
             return Ok(false);
         }
-        let now = self.now_ns();
-        if now < wake {
-            self.idle_ns += wake - now;
-            if self.sleep_is_idle_skip {
-                self.idle_skipped_ns += wake - now;
+        // As the run loop: host inputs due while asleep applied at their
+        // time, and the sleep goes on.
+        loop {
+            let now = self.now_ns();
+            let target = wake.min(self.host_next());
+            if now < target {
+                self.idle_ns += target - now;
+                if self.sleep_is_idle_skip {
+                    self.idle_skipped_ns += target - now;
+                }
             }
+            if target >= wake {
+                break;
+            }
+            self.hw.now_ns = target;
+            self.apply_host_inputs(target);
         }
         self.sleep_until = None;
         self.events_here(None)?;
@@ -1698,7 +1708,10 @@ impl Machine {
         loop {
             let now = self.now_ns();
             self.hw.now_ns = now;
-            if now >= self.next_event || self.hw.reschedule {
+            if now >= self.host_next() {
+                self.apply_host_inputs(now);
+            }
+            if now >= self.dev_next || self.hw.reschedule {
                 self.update_devices(now);
             }
             if !(self.cpu.accepts_irq() && self.hw.irq_pending()) {

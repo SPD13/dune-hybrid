@@ -399,24 +399,36 @@ Most bails were not interrupts. Each game had about 190000 bails in some
   left over a stretch's popped words (`stack_fixup`) is put back below
   SP first (a port that bailed after its stretch had not).
 
-With `REC_INPLACE` a game now has about 59000 interrupts taken in place
-in 300 s (5000-7000 of them in generated code); bails: 50-100 in hand
-ports, about 1450 in generated code, 1300-2300 in the drivers' lifted
-code (before generated code took them in place: 3000-5500 and
-6000-7000). The hand ports' stretches that
+- **The host's inputs in place.** The runner no longer stops the run
+  at each key and mouse event: it schedules them in the machine
+  (`Machine::schedule_input`, `HostInput`), which applies them before
+  the first instruction at or after their time, as a stop there would
+  (before the devices' update; while asleep, at their time, and the
+  sleep goes on, as a deadline split it). `next_event` is the earlier
+  of the devices' next event (`dev_next`, what HLT and the idle skip
+  sleep to) and the next input, so stretches and generated blocks stop
+  there and take them in place. The plain emulation is unchanged by it
+  (the suite's reference hashes, recorded with the stops, are equal).
+  The run still stops for the screenshots and state hashes (every 10 s),
+  the load and save events and the end. `HOST_DEADLINES=1`: stops at
+  every event (as before).
+
+With `REC_INPLACE` a game now has about 60000 interrupts taken in place
+in 300 s (3300-5000 of them in generated code); bails: 2-7 in hand
+ports, 230-355 in generated code, 0-200 in the drivers' lifted code
+(before the inputs in place: 50-100, about 1450 and 1300-2300; before
+generated code took interrupts in place: 3000-5500 generated, 6000-7000
+drivers). The hand ports' stretches that
 still give up are listed with their reason (`rec: hand stretch bails`):
 now nearly all the run's deadline. The runner prints
 them by place (`rec: bails in hand ports ...`), where the generated
 code was entered from the run loop (`rec generated code entered at`,
 runs/bails: after a bail the generated code goes on with the routine
-and its callers) and `rec_interp`'s bails by their place. What is left
-is mostly the run's deadline: the runner's slices end inside ports'
-wait loops and inside idle sleeps (`get_mouse_pos_etc`'s mouse poll,
-`rec_interp` place 2; the generated `game_loop` then goes on from
-D863h and bails at its next hand port), and blocks with an event due
-after their first instruction (the graphics driver's retrace wait,
-334b:2555-255Dh). Taking the runner's own events in place (keys, the
-mouse, its shots and state hashes at the deadline) would end these.
+and its callers) and `rec_interp`'s bails by their place. What is left:
+the runner's remaining stops (shots every 10 s, load/save, the end),
+the start-up's PIT measurement (`ticks.rs`), and blocks with an event
+due after their first instruction (the graphics driver's retrace wait,
+334b:2555-255Dh).
 
 ## Stage B: native subsystems (whole-run checks)
 

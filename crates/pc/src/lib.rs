@@ -134,8 +134,17 @@ pub struct Machine {
     pub(crate) run_deadline: u64,
     /// Virtual nanoseconds skipped by the battery saver (diagnostics).
     pub idle_skipped_ns: u64,
-    /// Next time a device needs servicing.
+    /// Next time a device needs servicing, or a host input is due
+    /// (`host_inputs`): what code running ahead must stop at.
     next_event: u64,
+    /// Next time a device needs servicing.
+    dev_next: u64,
+    /// Host inputs scheduled at their virtual times (`schedule_input`):
+    /// applied before the first instruction at or after their time, as
+    /// when the host stops the run there (`run_until`'s deadline) and
+    /// applies them, but without stopping it, so code running ahead
+    /// (`--rec on`) takes them in place too.
+    host_inputs: VecDeque<(u64, HostInput)>,
     /// While an interrupt taken in place inside a port's stretch runs
     /// (`rec_run`): the CS, IP and SP its IRET returns to, where
     /// [`Machine::run_until`] gives back to the port.
@@ -211,6 +220,8 @@ impl Machine {
             run_deadline: 0,
             idle_skipped_ns: 0,
             next_event: 0,
+            dev_next: 0,
+            host_inputs: VecDeque::new(),
             nested_return: None,
             checked_at: u64::MAX,
             stack_fixup: None,
@@ -285,7 +296,7 @@ impl Machine {
             // calls, so results do not depend on how a run is sliced.
             if let Some(wake) = self.sleep_until {
                 if now < wake {
-                    let target = wake.min(deadline_ns);
+                    let target = wake.min(deadline_ns).min(self.host_next());
                     self.idle_ns += target - now;
                     if self.sleep_is_idle_skip {
                         self.idle_skipped_ns += target - now;
@@ -300,7 +311,14 @@ impl Machine {
                 return RunExit::Deadline;
             }
             self.hw.now_ns = now;
-            if now >= self.next_event || self.hw.reschedule {
+            if now >= self.host_next() {
+                self.apply_host_inputs(now);
+                // Still asleep: as after a deadline there, the sleep goes on.
+                if self.sleep_until.is_some() {
+                    continue;
+                }
+            }
+            if now >= self.dev_next || self.hw.reschedule {
                 self.update_devices(now);
             }
             if self.cpu.accepts_irq() && self.hw.irq_pending() {
@@ -311,7 +329,7 @@ impl Machine {
                 if !self.cpu.flag(cpu::IF) {
                     return RunExit::Stuck;
                 }
-                self.sleep_until = Some(self.next_event.max(now + 1));
+                self.sleep_until = Some(self.dev_next.max(now + 1));
                 self.sleep_is_idle_skip = false;
                 continue;
             }
@@ -356,7 +374,8 @@ impl Machine {
     pub(crate) fn update_devices(&mut self, now: u64) {
         let resched = self.hw.reschedule;
         self.hw.trace_sb = trace_irq_from().is_some_and(|f| self.cpu.instructions >= f);
-        self.next_event = self.hw.update(now);
+        self.dev_next = self.hw.update(now);
+        self.next_event = self.dev_next.min(self.host_next());
         if trace_irq_from().is_some_and(|f| self.cpu.instructions >= f) {
             eprintln!("update insn {} at {:04x}:{:04x} now {now} resched {resched} next {} pending {}", self.cpu.instructions, self.cpu.sregs[CS], self.cpu.ip, self.next_event, self.hw.irq_pending());
         }
@@ -445,8 +464,8 @@ impl Machine {
         if trace_irq_from().is_some_and(|f| self.cpu.instructions >= f) {
             eprintln!("idle insn {} at {:04x}:{:04x} now {} next {}", self.cpu.instructions, self.cpu.sregs[CS], self.cpu.ip, self.now_ns(), self.next_event);
         }
-        if self.next_event > self.now_ns() {
-            self.sleep_until = Some(self.next_event);
+        if self.dev_next > self.now_ns() {
+            self.sleep_until = Some(self.dev_next);
             self.sleep_is_idle_skip = true;
             return true;
         }
@@ -586,6 +605,39 @@ impl Machine {
     }
 
     // ---- host input ----
+
+    /// When the next scheduled host input is due (`u64::MAX`: none).
+    pub(crate) fn host_next(&self) -> u64 {
+        self.host_inputs.front().map_or(u64::MAX, |e| e.0)
+    }
+
+    /// Schedule a host input at virtual time `at` (after those already
+    /// scheduled at that time).
+    pub fn schedule_input(&mut self, at: u64, e: HostInput) {
+        let i = self.host_inputs.partition_point(|x| x.0 <= at);
+        self.host_inputs.insert(i, (at, e));
+        self.next_event = self.dev_next.min(self.host_next());
+    }
+
+    /// Drop the host inputs scheduled.
+    pub fn clear_inputs(&mut self) {
+        self.host_inputs.clear();
+        self.next_event = self.dev_next;
+    }
+
+    /// The scheduled host inputs due at `now`, applied.
+    pub(crate) fn apply_host_inputs(&mut self, now: u64) {
+        while let Some(&(at, e)) = self.host_inputs.front()
+            && at <= now
+        {
+            self.host_inputs.pop_front();
+            match e {
+                HostInput::Key(sc, pressed) => self.key(sc, pressed),
+                HostInput::Mouse(x, y, b) => self.mouse_input(x, y, b),
+            }
+        }
+        self.next_event = self.dev_next.min(self.host_next());
+    }
 
     /// Host keyboard: set-1 make code, `pressed` false sends the break code.
     pub fn key(&mut self, scancode: u8, pressed: bool) {
@@ -728,7 +780,7 @@ impl Machine {
         w.u32(i.streak);
         w.bool(i.pending);
         w.u64(self.idle_skipped_ns);
-        w.u64(self.next_event);
+        w.u64(self.dev_next);
         w.bool(self.sleep_until.is_some());
         w.u64(self.sleep_until.unwrap_or(0));
         w.bool(self.sleep_is_idle_skip);
@@ -820,7 +872,8 @@ impl Machine {
         self.files = files;
         self.idle = idle;
         self.idle_skipped_ns = idle_skipped_ns;
-        self.next_event = next_event;
+        self.dev_next = next_event;
+        self.next_event = next_event.min(self.host_next());
         self.sleep_until = sleeping.then_some(wake);
         self.sleep_is_idle_skip = sleep_is_idle_skip;
         self.music.current = current_song;
@@ -830,6 +883,15 @@ impl Machine {
         self.exited = None;
         Ok(())
     }
+}
+
+/// A host input scheduled in the machine ([`Machine::schedule_input`]).
+#[derive(Clone, Copy, Debug)]
+pub enum HostInput {
+    /// Set-1 make code, pressed (else the break code).
+    Key(u8, bool),
+    /// Screen pixels and the button mask, as [`Machine::mouse_input`].
+    Mouse(i32, i32, u16),
 }
 
 impl Machine {
