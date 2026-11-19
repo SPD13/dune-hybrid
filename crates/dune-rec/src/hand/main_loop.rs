@@ -218,7 +218,7 @@ pub fn game_loop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let t = c.timer();
     c.set_reg(AX, t);
     c.set_word(g::FRAME_TASKS_LAST_TICK, t);
-    c.set_byte(0xdc4b, 0);
+    c.set_byte(g::GLIDE_STEPS, 0);
     main_loop(&mut c)
 }
 
@@ -251,7 +251,7 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
     c.cmp(B, k as u16, 0x2f);
     if k == 0x2f {
         c.run(0xd825, 2)?;
-        let v = c.byte(0xce9e);
+        let v = c.byte(g::KEY_CTRL);
         c.cmp(B, v as u16, 0xff);
         let ctrl_v = v == 0xff;
         c.run(0xd82c, 1 + ctrl_v as u32)?;
@@ -283,7 +283,7 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
     let r = c.reg(AX);
     c.set_word(0, r);
     c.call(0x4f0c, 0xd854)?;
-    let busy = c.byte(0xdc4b);
+    let busy = c.byte(g::GLIDE_STEPS);
     c.run(0xd854, 3)?;
     c.cmp(B, busy as u16, 0);
     if busy != 0 {
@@ -299,10 +299,10 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
     let (ax, bx, dx) = (c.reg(AX), c.reg(BX), c.reg(DX));
     let buttons = ax & 0x0f;
     c.run(0xd869, 11)?;
-    let old_x = c.word(0xdc62);
-    c.set_word(0xdc62, dx);
-    let old_y = c.word(0xdc64);
-    c.set_word(0xdc64, bx);
+    let old_x = c.word(g::POINTER_PREV_X);
+    c.set_word(g::POINTER_PREV_X, dx);
+    let old_y = c.word(g::POINTER_PREV_Y);
+    c.set_word(g::POINTER_PREV_Y, bx);
     let di = c.sub(W, old_x, dx);
     let cx = c.sub(W, old_y, bx);
     let di = c.neg(W, di);
@@ -375,7 +375,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
     c.set_reg8(r8::AL, al as u8);
     if al == 0 {
         // A plain press.
-        let held = c.word(0xdc5c);
+        let held = c.word(g::REPEAT_ELEMENT);
         c.run(0xd8c0, 3)?;
         c.set_reg(BP, held);
         c.or(W, held, held);
@@ -398,7 +398,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
             return Ok(());
         }
         let t = c.timer();
-        let t0 = c.word(0xdc5e);
+        let t0 = c.word(g::PRESS_TIME);
         c.run(0xd8da, 5)?;
         c.set_reg(AX, t);
         let d = c.sub(W, t, t0);
@@ -432,9 +432,9 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
     c.set_reg8(r8::AL, al as u8);
     if al == 0 {
         c.run(0xd944, 4)?;
-        let di = c.word(0xdc5c);
+        let di = c.word(g::REPEAT_ELEMENT);
         c.set_reg(DI, di);
-        c.set_word(0xdc5c, 0);
+        c.set_word(g::REPEAT_ELEMENT, 0);
         c.or(W, di, di);
         if di != 0 {
             return release_at_d92b(c);
@@ -459,7 +459,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
             c.run(0xd907, 1)?;
             let di = c.reg(DI);
             c.run(0xd918, 2)?;
-            c.set_word(0xdc60, di);
+            c.set_word(g::PRESSED_ELEMENT, di);
             c.call(entry::DRAW_ELEMENT_PRESSED, 0xd91f)?;
             let di = c.reg(DI);
             let b = c.byte(di.wrapping_add(9));
@@ -469,7 +469,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
                 return release_at_d92b(c);
             }
             c.run(0xd925, 2)?;
-            c.set_word(0xdc5c, di);
+            c.set_word(g::REPEAT_ELEMENT, di);
             return press_at_d935(c);
         }
         c.run(0xd907, 3)?;
@@ -493,8 +493,8 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
 /// D92Bh: [0CE9Dh] and [0CEBAh] 0, then [`press_at_d935`].
 fn release_at_d92b(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xd92b, 2)?;
-    c.set_byte(0xce9d, 0);
-    c.set_byte(0xceba, 0);
+    c.set_byte(g::KEY_ENTER, 0);
+    c.set_byte(g::KEY_SPACE, 0);
     press_at_d935(c)
 }
 
@@ -504,7 +504,7 @@ fn press_at_d935(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xd935, 4)?;
     let t = c.timer();
     c.set_reg(AX, t);
-    c.set_word(0xdc5e, t);
+    c.set_word(g::PRESS_TIME, t);
     let a = c.mouse_state().buttons_seen;
     c.set_reg8(r8::AL, a);
     let di = c.reg(DI);

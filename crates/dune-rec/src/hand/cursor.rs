@@ -414,8 +414,8 @@ pub fn dialogue_hit(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         n += 1;
     }
-    let ex = c.word(0x472d);
-    let ey = c.word(0x472f);
+    let ex = c.word(g::ROOM_FIGURES_X);
+    let ey = c.word(g::ROOM_FIGURES_Y);
     let mut extra = false;
     if hit.is_none() {
         n += 3;
@@ -550,7 +550,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                     continue;
                 }
                 let a = cl.wrapping_sub(0x0f);
-                let extra = c.byte(0x476b);
+                let extra = c.byte(g::CHARACTER_15_SPECIAL_SLOT);
                 let n = if cl < 0x0f { 5 } else if a.wrapping_add(1) != extra { 8 } else { 9 };
                 c.run(0xd549, n)?;
                 let b = c.pop();
@@ -659,7 +659,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                     at = 3;
                     continue;
                 }
-                let (l, r) = (c.word(0x1b48), c.word(0x1b4c));
+                let (l, r) = (c.word(g::TEXT_ACTIONS), c.word(g::TEXT_ACTIONS_X1));
                 if dx < l || dx >= r {
                     c.run(0xd5b1, if dx < l { 6 } else { 8 })?;
                     c.set_reg8(r8::CL, 0xff);
@@ -935,7 +935,7 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
     let si = c.inc(W, l);
     c.set_reg(SI, si);
     let n = c.lods(B, DS) as u8;
-    c.set_byte(0xdce4, n);
+    c.set_byte(g::ITEM_SCROLL, n);
     let si = c.reg(SI).wrapping_add(n as i8 as i16 as u16);
     let ax = n as i8 as i16 as u16;
     let si = c.add(W, si.wrapping_sub(ax), ax);
@@ -951,7 +951,7 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
         if ax == 0 {
             break;
         }
-        let cnt = c.byte(0xdce4);
+        let cnt = c.byte(g::ITEM_SCROLL);
         let next = c.word(si.wrapping_add(4));
         let more = cl >= 4 && (cnt != 0 || next != 0);
         let n = 3 + if cl < 4 { 2 } else if cnt != 0 { 4 } else if next == 0 { 6 } else { 6 } + if more { 3 } else { 0 } + 5;
@@ -967,7 +967,7 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
         }
         if more {
             let v = c.or(B, cnt as u16, 0x80);
-            c.set_byte(0xdce4, v as u8);
+            c.set_byte(g::ITEM_SCROLL, v as u8);
             c.set_reg(AX, 0xa0);
             c.set_byte(g::MORE_ITEM, cl);
         }
@@ -995,7 +995,7 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
         }
     }
     // D3EFh: the empty slots.
-    let cnt = c.byte(0xdce4);
+    let cnt = c.byte(g::ITEM_SCROLL);
     let n = 3 + 2 + if cnt != 0 { 4 } else { 1 } + 2;
     c.run(0xd3b5, n)?;
     c.set_reg(AX, 0);
@@ -1166,7 +1166,7 @@ pub(super) fn keyboard_move(c: &mut Ctx) -> Result<(), Bail> {
         let (x, y) = (frame(c, 4), frame(c, 6));
         let t = c.timer();
         c.run(0xe03d, 2 + 9 + 2)?;
-        c.set_byte(0xceba, 0);
+        c.set_byte(g::KEY_SPACE, 0);
         c.set_word(GLIDE_TARGET, x);
         c.set_word(GLIDE_TARGET + 2, y);
         c.set_byte(GLIDE_STEPS, 0x64);

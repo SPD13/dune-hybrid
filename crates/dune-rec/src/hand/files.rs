@@ -689,7 +689,7 @@ pub fn open_resource_by_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xf0b9, 7)?;
     let si = c.reg(SI);
-    c.set_word(0xce78, si);
+    c.set_word(g::LOADING_RESOURCE, si);
     let s = pure::shl1(W, si, 1);
     let p = c.word(s.wrapping_add(0x31ff));
     c.set_reg(SI, p);
@@ -722,8 +722,8 @@ pub fn read_and_maybe_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use super::B;
     entered(start, 0xf0d6)?;
     let mut c = Ctx::new(m);
-    let ax = c.word(0xce78);
-    let lim = c.byte(0xce70);
+    let ax = c.word(g::LOADING_RESOURCE);
+    let lim = c.byte(g::EXT_MEMORY_RESOURCE_LIMIT);
     let below = (ax as u8) < lim;
     c.run(0xf0d6, 4)?;
     c.set_reg(AX, ax);
@@ -736,8 +736,8 @@ pub fn read_and_maybe_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.call(entry::READ_RESOURCE_TO_ESDI, 0xf0e7)?;
-    let ax = c.word(0xce78);
-    let lim = c.byte(0xce70);
+    let ax = c.word(g::LOADING_RESOURCE);
+    let lim = c.byte(g::EXT_MEMORY_RESOURCE_LIMIT);
     let below = (ax as u8) < lim;
     c.run(0xf0e7, 4)?;
     c.set_reg(AX, ax);
@@ -894,7 +894,7 @@ pub fn get_res_index_by_name(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.pop();
     c.set_reg(SI, si);
     c.set_reg(DX, 0);
-    let ax = c.word(0xce78);
+    let ax = c.word(g::LOADING_RESOURCE);
     c.set_reg(AX, ax);
     let d = ax << 1;
     c.set_reg(DI, d);
@@ -1080,7 +1080,7 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, a);
     c.set_word(g::MAP_GFX_DATA, a);
     let es = c.sreg(ES);
-    c.set_word(0xdd00, es);
+    c.set_word(g::MAP_GFX_SEGMENT, es);
     let ds = c.sreg(DS);
     c.push(ds);
     let v = c.pop();
@@ -1096,7 +1096,7 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x012c, 3)?;
     let (di, es) = (c.reg(DI), c.sreg(ES));
     c.set_word(g::CONDITIONS, di);
-    c.set_word(0xaa74, es);
+    c.set_word(g::CONDITIONS_SEGMENT, es);
     c.call(entry::ADJUST_SUB_RESOURCE_POINTERS, 0x0137)?;
     for (at, slot, n, ret) in [(0x0137u16, 0x47acu16, 0x1d4cu16, 0x0148u16), (0x0148, 0x47b0, 0xadd4, 0x0159)] {
         c.run(at, 5)?;
@@ -1230,13 +1230,13 @@ pub fn allocator_free_space(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.set_reg(CX, 0x90 - k);
     }
-    let v = c.word(0xdbb2);
+    let v = c.word(g::SPRITE_SHEET_SEGMENT);
     let lo = v < dx;
     c.run(0xf1b8, 3 + (!lo) as u32)?;
     c.set_reg(SI, 0xdbb2);
     if !lo {
         let n = pure::sub(W, v, best);
-        c.set_word(0xdbb2, n);
+        c.set_word(g::SPRITE_SHEET_SEGMENT, n);
     }
     let mut dst = dx;
     loop {

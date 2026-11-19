@@ -709,9 +709,9 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x02aa, 6)?;
     c.set_byte(g::VOICE_LANGUAGE, 0);
     c.update_video_state(|t| t.delay = 6);
-    let v = c.byte(0x115);
+    let v = c.byte(g::GAME_STARTS);
     let v = c.inc(B, v as u16);
-    c.set_byte(0x115, v as u8);
+    c.set_byte(g::GAME_STARTS, v as u8);
     c.set_reg(DX, 0x200a);
     c.set_reg(BX, 0x180);
     c.jump(entry::SET_CURRENT_PLACE)

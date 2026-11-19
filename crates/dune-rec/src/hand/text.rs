@@ -437,7 +437,7 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let s = (ax * 9).wrapping_add(c.word(g::TALL_FONT_ROWS));
         c.set_reg(SI, s);
         c.set_reg(BX, 0xceec);
-        let w = c.byte(0xceecu16.wrapping_add(ax));
+        let w = c.byte(g::FONT_DATA.wrapping_add(ax));
         c.set_reg8(r8::AL, w);
         c.call(entry::FONT_GET_DRAW_POSITION, 0xd0b5)?;
         c.run(0xd0b5, 5)?;

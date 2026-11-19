@@ -111,7 +111,7 @@ pub fn copy_clip_rect_to_screen_from_fb2(m: &mut Machine, start: u16) -> Result<
     entered(start, 0xc443)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.set_reg(SI, g::RECT_D834);
+    c.set_reg(SI, g::DIRTY_RECT);
     copy_rect_fb2_to_fb1(&mut c)
 }
 
@@ -332,7 +332,7 @@ pub fn draw_sprite_clipped_clobbering(m: &mut Machine, start: u16) -> Result<(),
     c.set_reg8(r8::AH, 0);
     let ax = c.reg(AX);
     c.set_reg(CX, ax);
-    c.set_reg(BP, g::RECT_D834);
+    c.set_reg(BP, g::DIRTY_RECT);
     c.interp(0xc327, 0xc32c)?;
     c.run(0xc32c, 3)?;
     let ss = c.sreg(SS);

@@ -376,7 +376,7 @@ pub fn hnm_initialize_memory_handler(m: &mut Machine, start: u16) -> Result<(), 
     entered(start, 0xce6c)?;
     let mut c = Ctx::new(m);
     let mem = c.byte(g::CMD_ARGS_MEMORY);
-    let big = c.word(0x39a9);
+    let big = c.word(g::EMS_BLOCKS);
     let clear4 = mem & 2 != 0 || big < 0x15e;
     c.run(start, if mem & 2 != 0 { 2 } else { 4 } + if clear4 { 2 } else { 0 })?;
     if clear4 {
@@ -654,7 +654,7 @@ pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let seg = c.video_state().pending_frame[1];
     c.run(0xcc96, 6 + (seg == 0) as u32)?;
-    let a = c.word(0x38fb);
+    let a = c.word(g::HNM_DECODER_SEGMENT);
     c.set_reg(AX, a);
     c.set_word_in(CS, 0xcc94, a);
     c.update_video_state(|t| t.pending_frame[1] = 0);

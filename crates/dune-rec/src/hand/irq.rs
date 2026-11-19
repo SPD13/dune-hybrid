@@ -74,18 +74,18 @@ fn timer_tick(c: &mut Ctx) -> Result<(), Bail> {
 /// EFA2h on: the BIOS's handler chained every tenth tick or so, else the
 /// PIC's EOI and a video frame.
 fn timer_end(c: &mut Ctx) -> Result<(), Bail> {
-    let k = c.byte(0xce72).wrapping_sub(1);
+    let k = c.byte(g::BIOS_TICK_COUNTDOWN).wrapping_sub(1);
     c.run(0xefa2, 3)?;
     let es = c.pop();
     c.set_sreg(ES, es);
     let k = c.dec(B, k.wrapping_add(1) as u16) as u8; // the BIOS's handler sees the flags
-    c.set_byte(0xce72, k);
+    c.set_byte(g::BIOS_TICK_COUNTDOWN, k);
     if k & 0x80 != 0 {
         // EFD5h: the count restarted, DS and AX back, and on to the BIOS's
         // handler by a far jump whose target the program wrote into its
         // code (at EFDDh, the old INT 8 vector). The flags are the `dec`'s.
         c.run(0xefd5, 4)?;
-        c.set_byte(0xce72, 0x0a);
+        c.set_byte(g::BIOS_TICK_COUNTDOWN, 0x0a);
         let ds = c.pop();
         c.set_sreg(DS, ds);
         let ax = c.pop();

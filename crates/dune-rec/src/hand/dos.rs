@@ -290,7 +290,7 @@ pub fn map_ems_for_midi_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::CS;
     entered(start, 0xedb9)?;
     let mut c = Ctx::new(m);
-    let f = c.byte(0x2944);
+    let f = c.byte(g::AUDIO_DRIVERS);
     if f & 0x0f == 0 {
         c.run(0xedb9, 3)?;
         return c.ret();
@@ -331,7 +331,7 @@ pub fn map_ems_for_midi_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xeded, 5)?;
     let seg = c.word_in(CS, 0xed3c);
     c.set_reg(AX, seg);
-    c.set_word(0xdbb8, seg);
+    c.set_word(g::MUSIC_DATA_SEGMENT, seg);
     c.set_word(g::MUSIC_DATA, 0x4000);
     c.ret()
 }
@@ -364,9 +364,9 @@ pub fn init_extended_memory_allocator(m: &mut Machine, start: u16) -> Result<(),
     }
     c.run(0xea8f, 11)?;
     c.set_reg(DI, 0xce6a);
-    let n = c.word(0x39a9);
+    let n = c.word(g::EMS_BLOCKS);
     c.set_reg(AX, 0xb9);
-    c.set_byte(0xce70, 0xb9);
+    c.set_byte(g::EXT_MEMORY_RESOURCE_LIMIT, 0xb9);
     let n = n.wrapping_add(2 * 0xb9);
     c.push(n);
     c.set_reg(CX, n << 1);
@@ -376,7 +376,7 @@ pub fn init_extended_memory_allocator(m: &mut Machine, start: u16) -> Result<(),
     let sp = c.reg(pc::cpu::SP);
     let n = c.word_in(SS, sp);
     c.run(0xeaad, 4 + n as u32)?;
-    let (di, es) = (c.word(0xce6a), c.word(0xce6c));
+    let (di, es) = (c.word(g::EXT_MEMORY_TABLE), c.word(g::EXT_MEMORY_TABLE_SEGMENT));
     c.set_reg(DI, di);
     c.set_sreg(ES, es);
     c.pop();
@@ -396,9 +396,9 @@ pub fn install_interrupt_handlers(m: &mut Machine, start: u16) -> Result<(), Bai
     entered(start, 0xe913)?;
     let mut c = Ctx::new(m);
     c.run(0xe913, 5)?;
-    let v = c.byte(0xce73);
+    let v = c.byte(g::INTERRUPTS_INSTALLED);
     let v = c.xor(B, v as u16, 0xff); // the flags pushed
-    c.set_byte(0xce73, v as u8);
+    c.set_byte(g::INTERRUPTS_INSTALLED, v as u8);
     c.set_reg(SI, 0x2913);
     let f = c.m.cpu.flags();
     c.push(f);
@@ -450,8 +450,8 @@ pub fn alloc_extended_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{CS, DS, ES, SI};
     entered(start, 0xebe3)?;
     let mut c = Ctx::new(m);
-    let base = c.word(0x39a9);
-    let seg = c.word(0xce6c);
+    let base = c.word(g::EMS_BLOCKS);
+    let seg = c.word(g::EXT_MEMORY_TABLE_SEGMENT);
     let ax0 = c.reg(AX);
     let s = base.wrapping_add(ax0).wrapping_shl(1);
     let first = c.word_at(seg, s);
@@ -635,7 +635,7 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let a = c.shl1(W, a, 3); // likewise
     c.set_reg(AX, a);
-    c.set_word(0x39a9, a);
+    c.set_word(g::EMS_BLOCKS, a);
     c.set_reg8(super::r8::AH, 0x43);
     c.call(entry::CALL_EMS_FUNC, 0xed9b)?;
     if c.flag(CF) {
@@ -699,11 +699,11 @@ pub fn uninitialize_memory_driver(m: &mut Machine, start: u16) -> Result<(), Bai
     c.set_reg(AX, 0);
     c.call(entry::SET_PIT_TIMER_FREQUENCY, 0xe902)?;
     c.run(0xe902, 2)?;
-    let dl = c.byte(0x2941);
+    let dl = c.byte(g::CTRL_BREAK_SAVED);
     c.set_reg8(r8::DL, dl);
     c.set_reg(AX, 0x3301);
     c.interp(0xe909, 0xe90b)?;
-    let f = c.byte(0xce73);
+    let f = c.byte(g::INTERRUPTS_INSTALLED);
     c.run(0xe90b, 2 + (f == 0) as u32)?;
     if f == 0 {
         return c.ret();
@@ -784,15 +784,15 @@ pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SP, bp);
     c.set_reg(BP, bp);
     let ax = c.reg(AX);
-    c.set_word(0xce6e, ax);
+    c.set_word(g::EXT_MEMORY_RESOURCE, ax);
     let di = c.reg(DI);
     c.push(di);
     c.push(es);
-    let (d, e) = (c.word(0xce6a), c.word(0xce6c));
+    let (d, e) = (c.word(g::EXT_MEMORY_TABLE), c.word(g::EXT_MEMORY_TABLE_SEGMENT));
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
     c.set_reg(SI, ax);
-    let n = c.word(0x39a9);
+    let n = c.word(g::EMS_BLOCKS);
     c.set_reg(AX, n);
     let n2 = n << 1;
     c.set_reg(AX, n2);
@@ -1004,13 +1004,13 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.interp(0xe5c4, 0xe5c6)?;
     c.run(0xe5c6, 3)?;
     let al = c.reg8(r8::AL);
-    c.set_byte(0xce76, al);
-    c.set_byte(0xce77, al);
+    c.set_byte(g::STARTUP_DRIVE, al);
+    c.set_byte(g::CURRENT_DRIVE, al);
     c.set_reg(AX, 0x3301);
     c.interp(0xe5cf, 0xe5d1)?;
     c.run(0xe5d1, 3)?;
     let dl = c.reg8(r8::DL);
-    c.set_byte(0x2941, dl);
+    c.set_byte(g::CTRL_BREAK_SAVED, dl);
     c.set_reg(AX, 0x3301);
     let dx = c.reg(DX);
     c.xor(W, dx, dx); // likewise
@@ -1084,7 +1084,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, 0xce7a);
     c.interp(0xe640, 0xe644)?;
     c.run(0xe644, 7)?;
-    c.set_word(0xdc48, 0x271c);
+    c.set_word(g::KEY_MOVES, 0x271c);
     c.update_mouse_state(|t| t.cursor_shown = 0xff);
     c.set_reg(AX, 0);
     c.set_reg(BX, 0xc7);
@@ -1120,7 +1120,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     loop {
         c.run(0xe76a, 8)?;
-        let f = c.byte(0x2944);
+        let f = c.byte(g::AUDIO_DRIVERS);
         c.set_reg8(r8::AL, f);
         c.set_reg8(r8::CL, 4);
         // The music driver's entry: (high nibble) + 7.
@@ -1130,7 +1130,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, 8);
         c.call(entry::LOAD_DRIVER_AX_WITH_VTABLE_AT_SI, 0xe77e)?;
         c.run(0xe77e, 1)?;
-        let v = c.word(0x39b5);
+        let v = c.word(g::SOUND_DRIVER_ARG);
         c.set_reg(AX, v);
         c.interp(0xe781, 0xe785)?;
         c.run(0xe785, 2)?;
@@ -1145,21 +1145,21 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xe792, 1)?;
             break;
         }
-        let f = c.byte(0x2944);
+        let f = c.byte(g::AUDIO_DRIVERS);
         if f & 0xf0 == 0 {
             c.run(0xe792, 3 + 1)?;
             return c.jump(entry::OUT_OF_MEMORY_ERROR);
         }
         c.run(0xe792, 3 + 9)?;
         // That one failed: the next.
-        c.set_byte(0x2944, f & 0xf);
+        c.set_byte(g::AUDIO_DRIVERS, f & 0xf);
         c.set_reg(AX, 0);
         c.update_voice_buffer(0, |b| b.data[1] = 0);
         c.update_sound_state(|t| t.settings &= 0xff00);
-        let v = c.word(0x398b).wrapping_add(0x10);
+        let v = c.word(g::SOUND_DRIVER_SEGMENT).wrapping_add(0x10);
         c.set_reg(AX, v);
         c.set_word(g::ALLOCATOR_NEXT_SEGMENT, v);
-        c.set_word(0x3cbc, 0x3624);
+        c.set_word(g::EXIT_MESSAGE, 0x3624);
     }
     c.run(0xe7bc, 3)?;
     let v = c.voice_buffer(0).data[1];
@@ -1168,7 +1168,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::AUDIO_TEST_FREQUENCY, 0xe7c5)?;
     loop {
         c.run(0xe7c5, 6)?;
-        let f = c.byte(0x2944);
+        let f = c.byte(g::AUDIO_DRIVERS);
         c.set_reg8(r8::AL, f);
         // The sound driver's entry: (low nibble) + 2.
         c.set_reg(AX, (f & 0xf) as u16 + 2);
@@ -1178,7 +1178,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xe7d7, 3)?;
         c.set_reg(BP, 0x3349);
         c.set_reg(CX, 0xa);
-        let v = c.word(0x39b3);
+        let v = c.word(g::MUSIC_DRIVER_ARG);
         c.set_reg(AX, v);
         c.interp(0xe7e0, 0xe7e4)?;
         c.run(0xe7e4, 2)?;
@@ -1194,20 +1194,20 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xe7f1, 2)?;
             break;
         }
-        let f = c.byte(0x2944);
+        let f = c.byte(g::AUDIO_DRIVERS);
         if f & 0xf == 0 {
             c.run(0xe7f1, 3 + 1)?;
             return c.jump(entry::OUT_OF_MEMORY_ERROR);
         }
         c.run(0xe7f1, 3 + 9)?;
-        c.set_byte(0x2944, f & 0xf0);
+        c.set_byte(g::AUDIO_DRIVERS, f & 0xf0);
         c.set_reg(AX, 0);
-        c.set_word(0xdbb8, 0);
+        c.set_word(g::MUSIC_DATA_SEGMENT, 0);
         c.update_sound_state(|t| t.settings &= 0x00ff);
-        let v = c.word(0x396f).wrapping_add(0x10);
+        let v = c.word(g::MUSIC_DRIVER_SEGMENT).wrapping_add(0x10);
         c.set_reg(AX, v);
         c.set_word(g::ALLOCATOR_NEXT_SEGMENT, v);
-        c.set_word(0x3cbc, 0x364b);
+        c.set_word(g::EXIT_MESSAGE, 0x364b);
     }
     c.call(entry::MUSIC_ENABLED, 0xe81b)?;
     if c.flag(ZF) {
@@ -1259,12 +1259,12 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
         } else {
             c.run(0xe67b, 1)?;
         }
-        let d = c.byte(0x37f7).wrapping_add(1);
+        let d = c.byte(g::PATCH_FILE_DIGIT).wrapping_add(1);
         c.run(0xe692, 4)?;
         c.set_reg(SI, 0x37f7);
-        let v = c.byte(0x37f7);
+        let v = c.byte(g::PATCH_FILE_DIGIT);
         let v = c.inc(B, v as u16);
-        c.set_byte(0x37f7, v as u8);
+        c.set_byte(g::PATCH_FILE_DIGIT, v as u8);
         c.cmp(B, d as u16, 0x39);
         if d > 0x39 {
             break;
@@ -1291,14 +1291,14 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
     c.set_word(g::RES_LOOKUP_TABLE, d);
-    c.set_word(0xdbbe, e);
+    c.set_word(g::RES_LOOKUP_TABLE_SEGMENT, e);
     c.set_reg(AX, 0x145);
     c.stos(W);
     c.set_reg(CX, 0x14d);
     c.set_reg8(r8::AL, 0xff);
     c.rep_counted(0xaa);
     let di = c.reg(DI);
-    c.set_word(0xd820, di);
+    c.set_word(g::RES_LOOKUP_TABLE_END, di);
     let ds = c.sreg(DS);
     c.push(ds);
     let bp = c.reg(BP);
@@ -1363,7 +1363,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.pop();
     c.set_sreg(DS, v);
     c.set_reg(SI, 0x145);
-    let end = c.word(0xd820);
+    let end = c.word(g::RES_LOOKUP_TABLE_END);
     let a = c.sub(W, end, 0x145);
     c.set_reg(AX, a);
     c.xor(W, 0, 0);
@@ -1397,7 +1397,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.run(0xe73a, 2)?;
-    let cx = c.word(0xd820);
+    let cx = c.word(g::RES_LOOKUP_TABLE_END);
     c.set_reg(CX, cx);
     c.jump(entry::BUMP_ALLOCATE_BUMP_CX_BYTES)
 }

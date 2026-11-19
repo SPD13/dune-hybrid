@@ -261,7 +261,7 @@ pub fn draw_head_if_needed_and_update_screen_rect_at_si(m: &mut Machine, start: 
 /// rectangle.
 pub fn update_screen_at_sprite_rect_updating_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc4ed)?;
-    update_rect_at_si(&mut Ctx::new(m), 0xc4ed, 1, Some(g::RECT_D834))
+    update_rect_at_si(&mut Ctx::new(m), 0xc4ed, 1, Some(g::DIRTY_RECT))
 }
 
 /// `loc_0c4dd`: the game area to the screen (with the talking head),

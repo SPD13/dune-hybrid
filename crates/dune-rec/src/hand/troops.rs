@@ -3627,7 +3627,7 @@ pub fn map_troop_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::DROP_MAP_SPRITE_LIST, 0x5ce7)?;
     c.run(0x5ce7, 1)?;
     c.call(entry::OPEN_ONMAP_RESOURCE, 0x5cea)?;
-    if c.word(0xdbe2) != 0 {
+    if c.word(g::SPRITE_LIST_2) != 0 {
         c.run(0x5cea, 3)?;
         return c.ret();
     }
@@ -3708,7 +3708,7 @@ pub fn troop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.restore(&[SI]);
     let id = troop.id(&mut c);
     c.set_reg8(r8::AL, id);
-    c.set_byte(0x1955, id);
+    c.set_byte(g::CAPTIONED_TROOP, id);
     troop_panel_at(&mut c)
 }
 
@@ -5148,7 +5148,7 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = c.byte(di.wrapping_add(0x0a));
     if a & 1 == 0 {
         c.run(0x769c, 1 + 4 + 9)?;
-        c.set_byte(0x4737, 0xff);
+        c.set_byte(g::TROOPS_TICK_RECHECK, 0xff);
         let w = troop.word_10(&mut c);
         troop.set_word_10(&mut c, w | 0x100);
         c.set_byte(di.wrapping_add(0x0a), a | 1);
@@ -5163,7 +5163,7 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.jump(entry::START_MOVE);
     }
     c.run(0x769c, 1 + 4 + 1)?;
-    c.set_byte(0x4737, 0xff);
+    c.set_byte(g::TROOPS_TICK_RECHECK, 0xff);
     let w = troop.word_10(&mut c);
     troop.set_word_10(&mut c, w | 0x100);
     c.call(entry::TROOP_DAY_UPDATE, 0x76ce)?;
@@ -5390,7 +5390,7 @@ pub fn job_4(m: &mut Machine, start: u16) -> Result<(), Bail> {
         troop.set_rate(&mut c, n);
         return c.ret();
     }
-    let own = di == c.word(0x473c);
+    let own = di == c.word(g::TICK_LOCATION);
     c.run(0x71f2, 3 + 2 + 2 + if own { 3 } else { 1 })?;
     let w10 = troop.word_10(&mut c);
     troop.set_word_10(&mut c, w10 & 0xfdff);

@@ -63,7 +63,7 @@ fn globe_with_atmosphere(c: &mut Ctx) -> Result<(), Bail> {
     c.call(code::SET_SOME_MOUSE_RECT, 0xb872)?;
     c.run(0xb872, 3)?;
     c.set_reg(SI, GLOBE_CLIP_RECT);
-    c.set_reg(DI, g::RECT_D834);
+    c.set_reg(DI, g::DIRTY_RECT);
     c.call(code::COPY_RECT_AT_SI_TO_DI, 0xb87b)?;
     c.run(0xb87b, 1)?; // jmp B977h
     super::gfx::map_func_gfx(c.m, 0xb977)
@@ -118,7 +118,7 @@ fn side_decorations(c: &mut Ctx) -> Result<(), Bail> {
     c.call(code::DRAW_SPRITE_CLIPPED_CLOBBERING, 0xb89e)?;
     c.run(0xb89e, 3)?;
     c.set_reg(SI, GLOBE_CLIP_RECT);
-    c.set_reg(DI, g::RECT_D834);
+    c.set_reg(DI, g::DIRTY_RECT);
     super::video::copy_rect_at_si_to_di(c.m, 0x5b99)
 }
 
@@ -842,7 +842,7 @@ pub fn globe_turn_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, 0x18e);
         let dx = c.reg(DX);
         c.mul16(dx);
-        let bp = c.word(0x494a).wrapping_mul(2);
+        let bp = c.word(g::LATITUDE_ROWS).wrapping_mul(2);
         c.set_reg(BP, bp);
         let dx = c.reg(DX);
         let r = c.word(g::GLOBE_ROTATION);
@@ -850,7 +850,7 @@ pub fn globe_turn_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DX, dx);
         c.call(entry::GLOBE_ROW_SPAN, 0xbab3)?;
         let (dx, bx) = (c.reg(DX), c.reg(BX));
-        let top = c.word(0x2460);
+        let top = c.word(g::GLOBE_TILT);
         let y = bx.wrapping_sub(top);
         let (sx, sy) = (dx as i16, y as i16);
         let c1 = sx >= 0x20;
@@ -913,7 +913,7 @@ fn tilt_walk(c: &mut Ctx, write: bool, head: bool) -> Result<u32, Bail> {
     let mut cx;
     if head {
         let ax0 = c.reg(AX);
-        let t = c.word(0x2460);
+        let t = c.word(g::GLOBE_TILT);
         ax = c.add(W, ax0, t);
         cx = 0x62u16;
         c.cmp(W, ax, cx);
@@ -930,10 +930,10 @@ fn tilt_walk(c: &mut Ctx, write: bool, head: bool) -> Result<u32, Bail> {
             n += 1;
         }
         if write {
-            c.set_word(0x2460, ax);
+            c.set_word(g::GLOBE_TILT, ax);
         }
     } else {
-        ax = c.word(0x2460);
+        ax = c.word(g::GLOBE_TILT);
     }
     if write {
         let ds = c.sreg(DS);
@@ -1115,9 +1115,9 @@ pub fn set_globe_tilt_and_rotation(m: &mut Machine, start: u16) -> Result<(), Ba
     c.mul16(dx);
     let d = c.reg(DX);
     c.set_word(g::GLOBE_ROTATION, d);
-    c.set_word(0x494e, 0);
+    c.set_word(g::GLOBE_ROTATION_FRACTION, 0);
     c.set_reg(AX, a);
-    c.set_word(0x2460, a);
+    c.set_word(g::GLOBE_TILT, a);
     c.call(entry::RECALCULATE_GLOBE_ROTATION_TABLE, 0xba9c)?;
     let saved = c.m.cpu.flags();
     let n = tilt_walk(&mut c, false, false);
@@ -1844,8 +1844,8 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(ds);
         let v = c.pop();
         c.set_sreg(ES, v);
-        c.set_word(0xdcf6, 0xa0);
-        c.set_word(0xdcf8, 0x4c);
+        c.set_word(g::GLOBE_CENTRE_X, 0xa0);
+        c.set_word(g::GLOBE_CENTRE_Y, 0x4c);
         c.set_reg(CX, 0x12);
         c.set_reg(BX, 0x4b);
         clamp_197e(&mut c, 0x4b);
@@ -1856,7 +1856,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let a = c.sub(W, t, 0x12); // the driver's far call sees these flags
         c.set_reg(AX, a);
         let di = c.word(g::MAP_GFX_DATA);
-        let es = c.word(0xdd00);
+        let es = c.word(g::MAP_GFX_SEGMENT);
         c.set_reg(DI, di);
         c.set_sreg(ES, es);
         c.set_reg(SI, 0x4c60);
@@ -1885,13 +1885,13 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let width = e7.wrapping_sub(e3);
     let x = (width >> 1).wrapping_add(e3);
     c.set_reg(DX, x);
-    c.set_word(0xdcf6, x);
-    c.set_word(0xdcf2, width);
+    c.set_word(g::GLOBE_CENTRE_X, x);
+    c.set_word(g::GLOBE_WIDTH, width);
     let rows = e9.wrapping_sub(e5).wrapping_sub(1);
     let y = (rows >> 1).wrapping_add(e5);
     c.set_reg(BX, y);
-    c.set_word(0xdcf8, y);
-    c.set_word(0xdcf4, rows.wrapping_add(1));
+    c.set_word(g::GLOBE_CENTRE_Y, y);
+    c.set_word(g::GLOBE_HEIGHT, rows.wrapping_add(1));
     c.set_reg(CX, half);
     c.set_reg(BX, lim);
     clamp_197e(&mut c, lim);
@@ -1902,7 +1902,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // backwards when that is negative.
     let first = t_after.wrapping_sub(half);
     c.push(first);
-    let cnt = c.word(0xdcf4);
+    let cnt = c.word(g::GLOBE_HEIGHT);
     c.set_reg(CX, cnt);
     let s = first << 3;
     let s = if back { s.wrapping_neg() } else { s };
@@ -1965,9 +1965,9 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xb7ae, 9 + (f & 0x40 != 0) as u32)?;
     let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
-    let di = c.word(0xdcf2);
+    let di = c.word(g::GLOBE_WIDTH);
     c.set_reg(DI, di);
-    let cx = c.word(0xdcf4);
+    let cx = c.word(g::GLOBE_HEIGHT);
     c.set_reg(CX, cx);
     let dx = c.map_view().rect[0];
     c.set_reg(DX, dx);
@@ -1996,7 +1996,7 @@ pub fn globe_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (dx0, di0, cx0, bx0, bp) = (c.reg(DX), c.reg(DI), c.reg(CX), c.reg(BX), c.reg(BP));
     let ds0 = c.sreg(DS);
     let si0 = c.word(g::MAP_GFX_DATA);
-    let seg = c.word(0xdd00);
+    let seg = c.word(g::MAP_GFX_SEGMENT);
     let bx2 = bx0.wrapping_add(bx0);
     let prod = dx0 as u32 * bx2 as u32;
     let hi = (prod >> 16) as u16;
@@ -2095,7 +2095,7 @@ pub fn map_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(entry::TRIG_LOOKUP, 0xb58e)?;
     let (ax, bp, dx) = (c.reg(AX), c.reg(BP), c.reg(DX));
-    let (base, seg) = (c.word(0xdcfe), c.word(0xdd00));
+    let (base, seg) = (c.word(0xdcfe), c.word(g::MAP_GFX_SEGMENT));
     c.run(0xb58e, 8)?;
     let p = bp as u32 * dx as u32;
     let (lo, hi) = (p as u16, (p >> 16) as u16);

@@ -82,7 +82,7 @@ pub fn stop_scene_voice_and_particles(m: &mut Machine, start: u16) -> Result<(),
 pub fn ui_draw_date_and_time_indicator(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1a34)?;
     let mut c = Ctx::new(m);
-    let hidden = c.word(g::WORD_1AFE);
+    let hidden = c.word(g::FRIEZE_LEFT_SPRITE);
     if hidden != 0 {
         c.run(start, 3)?;
         c.cmp(W, hidden, 0); // the exit's flags
@@ -469,7 +469,7 @@ pub fn draw_talking_head_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> 
         c.set_reg8(r8::AH, 0);
         let ax = c.reg(AX);
         c.set_reg(CX, ax);
-        c.set_reg(BP, g::RECT_D834);
+        c.set_reg(BP, g::DIRTY_RECT);
         c.interp(0x9d5e, 0x9d63)?;
         let sp = c.reg(SP);
         let left = c.word_in(SS, sp.wrapping_add(2)).wrapping_sub(1);
@@ -1050,7 +1050,7 @@ pub fn draw_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn redraw_date_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1a0f)?;
     let mut c = Ctx::new(m);
-    let v = c.word(g::WORD_1AFE);
+    let v = c.word(g::FRIEZE_LEFT_SPRITE);
     c.run(start, 3)?;
     if v != 0 {
         return c.ret();
@@ -1061,7 +1061,7 @@ pub fn redraw_date_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(sheet);
     c.call(entry::LOAD_ICONES_SPRITES, 0x1a20)?;
     c.run(0x1a20, 2)?;
-    c.set_reg(SI, 0x1af4);
+    c.set_reg(SI, g::FRIEZE_SIDES);
     c.call(entry::DRAW_UI_ELEMENT, 0x1a26)?;
     c.run(0x1a26, 1)?;
     c.call(entry::UI_DRAW_DATE_AND_TIME_INDICATOR, 0x1a29)?;
@@ -1240,7 +1240,7 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xa567, 3)?;
         c.set_byte(g::VOC_PCM_PLAYING, 1);
         c.set_reg(SI, 0x3811);
-        let to = c.word(0x3991);
+        let to = c.word(g::SOUND_DRIVER_PLAY);
         c.call(to, 0xa573)?;
         c.run(0xa573, 1)?;
         return super::voice::wait_voice_done(c.m, 0xaba9);
@@ -1272,7 +1272,7 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     let q = (ax / 7) as u8;
-    let al = c.byte(0x28cfu16.wrapping_add(q as u16));
+    let al = c.byte(g::SETTINGS_ROW_CHOICES.wrapping_add(q as u16));
     let lang = c.byte(g::LANGUAGE);
     let n = 1 + 8 + if al > 7 {
         5

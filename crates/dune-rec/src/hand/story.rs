@@ -705,14 +705,14 @@ pub fn clear_speaker_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// From 41CC (the stretch from `at`, `prefix` instructions before it done
 /// by `ops`): [21FDh] = AL, and [1F11h] too when [1F12h] is 4FFBh.
 fn note_21fd(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
-    let w = c.word(0x1f12);
+    let w = c.word(g::ACTION_LIST_FIRST_HANDLER);
     c.run(at, prefix + if w == 0x4ffb { 5 } else { 4 })?;
     ops(c);
     let al = c.reg8(r8::AL);
-    c.set_byte(0x21fd, al);
+    c.set_byte(g::MAP_ACTION_FLAGS, al);
     c.cmp(W, w, 0x4ffb);
     if w == 0x4ffb {
-        c.set_byte(0x1f11, al);
+        c.set_byte(g::ACTION_LIST_FIRST_FLAGS, al);
     }
     c.ret()
 }
@@ -727,7 +727,7 @@ pub fn note_21fd_al(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn reset_desert_countdown(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x41c5)?;
     note_21fd(&mut Ctx::new(m), start, 2, |c| {
-        c.set_byte(0x4726, 0);
+        c.set_byte(g::DESERT_COUNTDOWN, 0);
         let al = c.reg8(r8::AL) as u16;
         let z = pure::xor(B, al, al);
         c.set_reg8(r8::AL, z as u8);
@@ -840,7 +840,7 @@ pub fn note_place_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ch = c.byte(di.wrapping_add(0x14));
     let cx = (ch as u16) << 8 | c.reg(CX) & 0xff;
     c.set_reg(CX, cx);
-    c.set_word(0x4733, cx);
+    c.set_word(g::PLACE_TROOP_COUNT, cx);
     let es = c.sreg(pc::cpu::ES);
     c.push(es);
     c.call(entry::NOTED_LOCATION_SKILL_NEEDS, 0x4e01)?;
@@ -1203,7 +1203,7 @@ pub fn drop_oldest_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = pure::dec(B, b as u16);
     c.set_byte(g::PENDING_EVENTS, v as u8);
     if v == 0 {
-        c.set_byte(0x118f, 0);
+        c.set_byte(g::PENDING_EVENTS_FLAG, 0);
     }
     let si = pure::inc(W, g::PENDING_EVENTS);
     c.set_reg(DI, si);
@@ -1437,8 +1437,8 @@ pub fn reset_visitor_positions(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let bx = c.player().y;
     let at = bx & 0xff == 0x80;
     c.run(start, if at { 14 } else { 11 })?;
-    c.set_byte(0x476b, 0);
-    c.set_byte(0x476a, 0);
+    c.set_byte(g::CHARACTER_15_SPECIAL_SLOT, 0);
+    c.set_byte(g::CHARACTER_15_TROOP_COUNT, 0);
     c.set_reg(AX, 0x7f80);
     for i in [15, 14, 13, 12] {
         c.update_character(i, |t| t.y = 0x7f80);
@@ -1916,7 +1916,7 @@ pub fn start_message_57(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x4662, 2)?;
     c.set_reg(SI, 0x57);
     c.call(entry::GET_PHRASE_OR_COMMAND_STRING_SI, 0x4668)?;
-    let f = c.byte(0x473e);
+    let f = c.byte(g::GAME_FRAME);
     c.run(0x4668, 7 + if f != 0 { 2 } else { 0 } + 5)?;
     let es = c.sreg(pc::cpu::ES);
     c.update_typed_message(|t| t.next[1] = es);
@@ -1969,7 +1969,7 @@ pub fn show_speaker_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let bl = c.dec(B, bl as u16) as u8;
         c.set_reg8(r8::BL, bl);
         if k == 1 {
-            c.set_byte(0x473e, 1);
+            c.set_byte(g::GAME_FRAME, 1);
             c.update_conversation(|t| t.line_state = 1);
             let ax = c.reg(AX);
             c.push(ax);
@@ -2072,7 +2072,7 @@ pub fn leave_hotspot_mode(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if k == 0 {
         return c.ret();
     }
-    c.set_word(0xa5c0, 0);
+    c.set_word(g::MAP_MARKERS, 0);
     c.call(entry::CLEAR_SOME_MOUSE_RECT, 0x4429)?;
     c.run(0x4429, 2)?;
     c.set_reg(SI, 0x44ab);
@@ -2218,7 +2218,7 @@ pub fn swap_game_state(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn run_cs_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4d6c)?;
     let mut c = Ctx::new(m);
-    let si = c.word(0xaa6e);
+    let si = c.word(g::CS_SCRIPT_PTR);
     let b = c.byte_in(pc::cpu::CS, si);
     if b == 0xff {
         c.run(start, 8)?;
@@ -2227,7 +2227,7 @@ pub fn run_cs_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.code_word(s);
         let s = pure::add(W, s, v);
         c.set_reg(SI, s);
-        c.set_word(0xaa6e, s);
+        c.set_word(g::CS_SCRIPT_PTR, s);
     } else {
         c.run(start, 5)?;
         c.set_reg(SI, si);
@@ -2248,7 +2248,7 @@ pub fn run_cs_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let v = c.pop();
             c.set_sreg(pc::cpu::DS, v);
             let si = c.reg(SI);
-            c.set_word(0xaa6e, si);
+            c.set_word(g::CS_SCRIPT_PTR, si);
             return c.ret();
         }
         c.run(0x4d84, 8 + if al == 1 { 2 } else { 0 })?;
@@ -2470,7 +2470,7 @@ pub fn phase_30_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ph = c.progress().phase;
     let al = ph.wrapping_sub(0x2d);
     let w = c.progress().party;
-    let di = c.word(0x473c);
+    let di = c.word(g::TICK_LOCATION);
     let n = if al >= 3 { 5 } else if w & 0x10 != 0 { 7 } else if di == 0 { 10 } else { 0 };
     if n != 0 {
         c.run(start, n)?;
@@ -2543,7 +2543,7 @@ pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, a as u8);
     let drop_it = |c: &mut Ctx, at: u16, n: u32| -> Result<(), Bail> {
         c.run(at, n)?;
-        c.set_byte(0x4726, 0);
+        c.set_byte(g::DESERT_COUNTDOWN, 0);
         c.set_reg8(r8::AL, 0);
         note_21fd_al(c.m, 0x41cc)
     };
@@ -2567,7 +2567,7 @@ pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::AL, a as u8);
         return drop_it(&mut c, 0x41c5, 2);
     }
-    let t = c.byte(0x4726);
+    let t = c.byte(g::DESERT_COUNTDOWN);
     c.run(0x41a1, 5 + (t == 0) as u32 + 2)?;
     let a = pure::and(B, al as u16, 0x30);
     c.set_reg8(r8::AL, a as u8);
@@ -2576,11 +2576,11 @@ pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg8(r8::AL, 0x40);
     c.call(entry::NOTE_21FD_AL, 0x41b8)?;
-    let t = c.byte(0x4726);
+    let t = c.byte(g::DESERT_COUNTDOWN);
     let r = t.wrapping_sub(0x20);
     c.run(0x41b8, if r != 0 { 3 } else { 4 })?;
     let r = pure::sub(B, t as u16, 0x20);
-    c.set_byte(0x4726, r as u8);
+    c.set_byte(g::DESERT_COUNTDOWN, r as u8);
     if r != 0 {
         return c.ret();
     }
@@ -3046,7 +3046,7 @@ pub fn start_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::PICK_MUSIC, 0x1784)?;
     c.run(0x1784, 6)?;
     let lo = c.player().x as u8;
-    let hi = c.byte(0x46e0);
+    let hi = c.byte(g::SKY_PALETTE_SHOWN);
     let ax = (hi as u16) << 8 | lo as u16;
     c.set_reg(AX, ax);
     c.update_sequence(|t| t.return_to = ax);
@@ -3347,7 +3347,7 @@ pub fn on_phase_0c(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = pure::and(B, v as u16, 0x7f);
         c.set_byte(p, v as u8);
     }
-    c.set_word(0x121d, 0xffff);
+    c.set_word(g::PALACE_PLAN_SPRITE_4, 0xffff);
     c.set_reg(AX, 0x1321);
     start_sequence(c.m, 0x1771)
 }
@@ -3537,7 +3537,7 @@ pub fn ui_comm(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let x = c.word(d.wrapping_add(4));
                 c.set_reg(BX, x);
                 c.set_word(g::COMM_STEP, d);
-                c.set_word(0xd818, d2);
+                c.set_word(g::SPAN_ROW, d2);
             }
         }
         di = c.reg(DI);
@@ -3551,7 +3551,7 @@ pub fn ui_comm(m: &mut Machine, start: u16) -> Result<(), Bail> {
             break;
         }
     }
-    let bp = c.word(0xd818);
+    let bp = c.word(g::SPAN_ROW);
     c.set_reg(BP, bp);
     let di = c.word(g::COMM_STEP);
     c.set_reg(DI, di);
@@ -3574,12 +3574,12 @@ pub fn sal_read_position_markers(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_sreg(pc::cpu::ES, es);
     c.set_reg(AX, 0xffff);
     c.set_reg(CX, 0x17);
-    let di = c.word(0x47f6);
+    let di = c.word(g::SAL_MARKERS_PTR);
     c.set_reg(DI, di);
     c.rep_counted(0xaa);
     let k = c.sequence().playing;
     let list = c.sequence().markers;
-    let di = c.word(0x47f6);
+    let di = c.word(g::SAL_MARKERS_PTR);
     if k != 0 && list != 0 {
         c.run(0x3d91, 3 + 3 + 5)?;
         c.set_reg(DI, di);
@@ -3629,7 +3629,7 @@ pub fn sal_read_position_markers(m: &mut Machine, start: u16) -> Result<(), Bail
                     break;
                 }
             }
-            let dl = c.byte(0x476a);
+            let dl = c.byte(g::CHARACTER_15_TROOP_COUNT);
             let dx = c.reg(DX) & 0xff00 | dl as u16;
             let d = dx.wrapping_sub(1);
             let more = (d as i16) > 0;
@@ -3659,12 +3659,12 @@ pub fn sal_read_position_markers(m: &mut Machine, start: u16) -> Result<(), Bail
     }
     c.run(0x3de5, 7)?;
     let b = c.lods(B, DS);
-    let di = c.word(0x47f6);
+    let di = c.word(g::SAL_MARKERS_PTR);
     let ax = pure::dec(W, b);
     c.set_reg(AX, ax);
     let di = pure::add(W, di, ax);
     c.set_reg(DI, di);
-    c.set_word(0x47f6, di);
+    c.set_word(g::SAL_MARKERS_PTR, di);
     c.ret()
 }
 
@@ -3798,7 +3798,7 @@ pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
         }
         c.call(entry::RAND, 0x0c5b)?;
-        let k = c.byte(0x473a);
+        let k = c.byte(g::CREATURES_STILL);
         c.run(0x0c5b, 2 + (k != 0) as u32 + 3)?;
         let mut ax = c.reg(AX);
         if k != 0 {
@@ -4030,9 +4030,9 @@ pub fn on_phase_08(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1027)?;
     let mut c = Ctx::new(m);
     super::screens::panel_buttons_at(&mut c, start, 2, |c| {
-        let v = c.byte(0x122e);
+        let v = c.byte(g::PALACE_ROOM_2_BUTTON_4);
         let v = pure::and(B, v as u16, 0x7f);
-        c.set_byte(0x122e, v as u8);
+        c.set_byte(g::PALACE_ROOM_2_BUTTON_4, v as u8);
     })
 }
 
@@ -4042,10 +4042,10 @@ pub fn on_phase_1c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x10a4)?;
     let mut c = Ctx::new(m);
     super::screens::panel_buttons_at(&mut c, start, 3, |c| {
-        let v = c.byte(0x1245);
+        let v = c.byte(g::PALACE_ROOM_7_BUTTON_2);
         let v = pure::and(B, v as u16, 0x7f);
-        c.set_byte(0x1245, v as u8);
-        c.set_word(0x1217, 0xffff);
+        c.set_byte(g::PALACE_ROOM_7_BUTTON_2, v as u8);
+        c.set_word(g::PALACE_PLAN_SPRITE_3, 0xffff);
     })
 }
 
@@ -4055,10 +4055,10 @@ pub fn on_phase_54(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1188)?;
     let mut c = Ctx::new(m);
     super::screens::panel_buttons_at(&mut c, start, 3, |c| {
-        let v = c.byte(0x1259);
+        let v = c.byte(g::PALACE_ROOM_11_BUTTON_2);
         let v = pure::and(B, v as u16, 0x7f);
-        c.set_byte(0x1259, v as u8);
-        c.set_word(0x1211, 0xffff);
+        c.set_byte(g::PALACE_ROOM_11_BUTTON_2, v as u8);
+        c.set_word(g::PALACE_PLAN_SPRITE_2, 0xffff);
     })
 }
 
@@ -4259,7 +4259,7 @@ pub fn update_people(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 4
             };
             let e = c.byte(si.wrapping_add(0x0e));
-            let nx = c.byte(0x144du16.wrapping_add(e as u16));
+            let nx = c.byte(g::PEOPLE_NEXT_STATE.wrapping_add(e as u16));
             let ph = c.progress().phase;
             if stage == 4 && nx == 6 {
                 n += 2 + if ph < 0x24 { 2 } else { 0 };
@@ -4327,7 +4327,7 @@ pub fn redraw_message_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::CALL_RESTORE_CURSOR, 0x45e8)?;
     c.run(0x45e8, 1)?;
     c.call(entry::FONT_SELECT_SMALL_FONT, 0x45eb)?;
-    let f = c.byte(0x473e);
+    let f = c.byte(g::GAME_FRAME);
     let di = c.reg(DI);
     c.run(0x45eb, 5 + if f != 0 { 2 } else { 0 } + 3)?;
     c.set_reg(DX, 0x55);
@@ -4866,7 +4866,7 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
         n += 4 + (c.word(p + 2) == bx) as u32;
     }
     let di = c.reg(DI);
-    let own = c.word(0x8e4) == di;
+    let own = c.word(g::FOLLOWED_TROOP_LOCATION) == di;
     n += 4 + own as u32 + 3;
     c.run(0x1fd5, n)?;
     c.set_reg(SI, 0xfd8);
@@ -5115,12 +5115,12 @@ fn new_demand(c: &mut Ctx, ax: u16, day: u16, f: u8) -> Result<(), Bail> {
 pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0b45)?;
     let mut c = Ctx::new(m);
-    let t = c.byte(0x485d).wrapping_sub(1);
+    let t = c.byte(g::SCENE_TIMER).wrapping_sub(1);
     let day = c.situation().event_kind;
     let pic = !((day as i8) > 0) && t <= 0x10;
     c.run(start, 4 + if (day as i8) > 0 { 0 } else { 3 } + if pic { 2 } else { 0 })?;
     c.set_reg(SI, 0x4856);
-    c.set_byte(0x485d, t);
+    c.set_byte(g::SCENE_TIMER, t);
     if (day as i8) <= 0 {
         c.set_reg8(r8::BL, t);
         if pic {
@@ -5673,11 +5673,11 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(to, at + 3)?;
     }
     let a = c.byte(g::SKY_PALETTE_SET);
-    let old = c.byte(0x46e0);
+    let old = c.byte(g::SKY_PALETTE_SHOWN);
     let swap = |c: &mut Ctx| {
         c.set_reg8(r8::AL, a);
         c.set_reg8(r8::AH, a);
-        c.set_byte(0x46e0, a);
+        c.set_byte(g::SKY_PALETTE_SHOWN, a);
         c.set_reg8(r8::AL, old);
     };
     if old == a {
@@ -6015,7 +6015,7 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x37b5, 1)?;
     c.call(entry::STOP_ALARM_TASK, 0x37b8)?;
     c.run(0x37b8, 2)?;
-    c.set_word(0x472d, 0);
+    c.set_word(g::ROOM_FIGURES_X, 0);
     c.call(entry::COPY_GAME_AREA_RECT_TO_CLIP_RECT, 0x37c1)?;
     c.run(0x37c1, 1)?;
     c.call(entry::CLEAR_GAME_AREA, 0x37c4)?;
@@ -6075,7 +6075,7 @@ fn enemy_watch(c: &mut Ctx) -> Result<(), Bail> {
     let di = c.word(g::LAST_PLACE);
     let dx = c.word(di.wrapping_add(2));
     let here = c.player().x;
-    let ax = c.word(0x4733);
+    let ax = c.word(g::PLACE_TROOP_COUNT);
     let ah = (ax >> 8) as u8;
     let bx = c.player().y;
     let b4 = c.byte(di.wrapping_add(4));
@@ -6262,7 +6262,7 @@ fn figures_3a24(c: &mut Ctx) -> Result<(), Bail> {
         c.cmp(B, k as u16, 0xff);
         return c.ret();
     }
-    let cl = c.byte(0x46ff);
+    let cl = c.byte(g::LOCATION_SKILL_NEED_1);
     if cl == 0 {
         c.run(0x3a24, 10)?;
         c.cmp(B, lit as u16, 0);
@@ -6295,10 +6295,10 @@ fn figures_3a24(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x3a5a, 6)?;
     let (dx, bx) = (c.reg(DX), c.reg(BX));
     let a = c.add(W, dx, 0x0c);
-    c.set_word(0x472d, a);
+    c.set_word(g::ROOM_FIGURES_X, a);
     let a = c.add(W, bx, 8);
     c.set_reg(AX, a);
-    c.set_word(0x472f, a);
+    c.set_word(g::ROOM_FIGURES_Y, a);
     loop {
         c.run(0x3a6a, 4)?;
         let (cx, bx, dx) = (c.reg(CX), c.reg(BX), c.reg(DX));
@@ -6423,7 +6423,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(CX, (now & 0xff00) | cl);
     c.sub(B, (old & 0xf0) as u16, cl);
     c.set_reg(AX, (old & 0xff00) | d as u16);
-    c.set_byte(0x46de, d);
+    c.set_byte(g::DAY_CHANGED, d);
     if d != 0 {
         c.call(entry::NEW_DAY, 0x1b5e)?;
     }
@@ -6500,7 +6500,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
             c.cmp(B, map_ui as u16, 0);
             return super::map::refresh_map_view(c.m, 0x5d6d);
         }
-        let da = c.byte(0x46da);
+        let da = c.byte(g::CLOCK_TICKING);
         if da != 0 {
             c.run(0x1bd5, 4)?;
             c.cmp(B, map_ui as u16, 0);
@@ -6525,7 +6525,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
         c.cmp(B, map_ui as u16, 0);
         return clear_473b(c);
     }
-    let da = c.byte(0x46da);
+    let da = c.byte(g::CLOCK_TICKING);
     if da != 0 {
         c.run(0x1bb8, 4)?;
         c.cmp(B, map_ui as u16, 0);
@@ -6847,7 +6847,7 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
                 c.run(0x2c3d, 2)?;
                 c.update_conversation(|t| t.talker = 0x0e);
                 let si = c.reg(SI);
-                c.set_word(0x4756, si);
+                c.set_word(g::CHARACTER_14_TROOP, si);
             }
         }
     }
@@ -6861,8 +6861,8 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x2c52, 4)?;
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
-    c.set_byte(0x1f0f, 0);
-    c.set_word(0x1f10, 0);
+    c.set_byte(g::ACTION_LIST, 0);
+    c.set_word(g::ACTION_LIST_FIRST, 0);
     c.call(entry::REDRAW_UI_SLOTS, 0x2c5d)?;
     c.run(0x2c5d, 1)?;
     c.call(entry::STOP_CLOCK, 0x2c60)?;
@@ -6880,10 +6880,10 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.update_text_box(|t| t.shown = 0);
-    c.set_word(0x4540, 0);
+    c.set_word(g::HEAD_SPRITES_DRAWN, 0);
     c.update_situation(|t| t.event_kind = 0xff);
     c.update_situation(|t| t.head_animation_step = 0x0a);
-    c.set_word(0xdc30, 0);
+    c.set_word(g::NEXT_PHRASE, 0);
     c.set_reg8(r8::AL, 6);
     c.call(entry::REDRAW_ROOM_BY_TRANSITION, 0x2c8f)?;
     c.run(0x2c8f, 1)?;
@@ -7090,7 +7090,7 @@ pub fn draw_sal(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // 18h bytes on the stack for the markers.
     let sp = c.reg(SP).wrapping_sub(0x18);
     c.set_reg(SP, sp);
-    c.set_word(0x47f6, sp);
+    c.set_word(g::SAL_MARKERS_PTR, sp);
     let scene = (ax & 0xff).wrapping_sub(1);
     c.push(scene);
     c.set_reg8(r8::CL, 4);
@@ -7182,13 +7182,13 @@ pub fn draw_sal(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let f = c.conversation().line_state;
         let skip = f & 0x81 != 0;
-        let p = c.word(0x47f6);
+        let p = c.word(g::SAL_MARKERS_PTR);
         let mark = c.byte(p);
         let none = !skip && mark == 0xff;
         c.run(0x3d12, if skip { 2 } else if none { 6 } else { 8 })?;
         if !skip {
             c.set_reg(DI, p);
-            c.set_word(0x47f6, p.wrapping_sub(1));
+            c.set_word(g::SAL_MARKERS_PTR, p.wrapping_sub(1));
             if !none {
                 c.set_reg8(r8::AL, mark);
                 c.call(entry::DRAW_CHARACTER, 0x3d2b)?;
@@ -7493,7 +7493,7 @@ pub fn place_troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if state >= 0x80 {
             (who, slot, ax) = (14, 0x4756u16, (ah as u16) << 8 | state as u16);
         } else {
-            let v = c.byte(0x476a) & 7;
+            let v = c.byte(g::CHARACTER_15_TROOP_COUNT) & 7;
             n += 8; // mov bp; mov di; and; mov al; inc; xor ah; cmp si; jne
             let first = si == 0x8e0;
             if first {
@@ -7519,9 +7519,9 @@ pub fn place_troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     n += 4; // mov [di], si; mov [bp], dx; mov [bp+2], bx; ret
     c.run(start, n)?;
     if let Some((v, first)) = slots {
-        c.set_byte(0x476a, v + 1);
+        c.set_byte(g::CHARACTER_15_TROOP_COUNT, v + 1);
         if first {
-            c.set_byte(0x476b, v + 1);
+            c.set_byte(g::CHARACTER_15_SPECIAL_SLOT, v + 1);
         }
     }
     if let Some((bit, al)) = asked {

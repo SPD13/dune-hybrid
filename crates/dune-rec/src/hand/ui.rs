@@ -957,7 +957,7 @@ pub fn close_settings_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 3)?;
     let v = c.byte(g::VOICE_LANGUAGE);
     c.set_reg8(r8::AL, v);
-    c.set_byte(0x28e8, v);
+    c.set_byte(g::VOICE_LANGUAGE_SAVED, v);
     c.call(entry::CLEAR_SOME_MOUSE_RECT, 0xa54a)?;
     c.run(0xa54a, 1)?;
     c.call(entry::SET_MAP_CLICK_HANDLER, 0xa54d)?;
@@ -975,7 +975,7 @@ pub fn redraw_head_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0x17c1)?;
-    let k = c.byte(0xce66);
+    let k = c.byte(g::HEAD_PANEL_FROM_PICTURE);
     c.run(0x17c1, 4 + if k == 0 { 1 } else { 3 })?;
     c.set_reg(SI, 0x1e6e);
     c.push(0x1e6e);
@@ -1053,7 +1053,7 @@ pub fn sky_fade_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn show_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x43e3)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(0x473e);
+    let k = c.byte(g::GAME_FRAME);
     if k == 0 {
         let e = c.video_state().fetched;
         if e == 0 {
@@ -1167,7 +1167,7 @@ pub fn bring_portrait(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // The speaker's place (0Fh: the phrase's own, 0Fh + [476Ch]).
     let talker = c.conversation().talker;
     let own = talker & 0xff == 0x0f;
-    let talker = if own { talker & 0xff00 | 0x0fu8.wrapping_add(c.byte(0x476c)) as u16 } else { talker };
+    let talker = if own { talker & 0xff00 | 0x0fu8.wrapping_add(c.byte(g::CHARACTER_15_SLOT)) as u16 } else { talker };
     let slot = talker.wrapping_shl(2);
     let x = c.word(slot.wrapping_add(0x47f8));
     let none = x & 0x8000 != 0;
@@ -1265,7 +1265,7 @@ pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0x43a2)?;
-    let k = c.byte(0x473e);
+    let k = c.byte(g::GAME_FRAME);
     if k == 0 {
         c.run(0x43a2, 4)?;
         c.set_reg(AX, 0x24);
@@ -1389,7 +1389,7 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x1426);
     for i in 0..0x0bu16 {
         c.run(0x199c, 14)?;
-        let (x0, y0) = (c.word(0x120d), c.word(0x120f));
+        let (x0, y0) = (c.word(g::PALACE_PLAN_X), c.word(g::PALACE_PLAN_Y));
         let ox = c.lods(B, DS);
         let dx = pure::add(W, x0, ox);
         let oy = c.lods(B, DS);
@@ -1522,7 +1522,7 @@ pub fn scene_2a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::DRAW_ORNI, 0x4860)?;
     c.run(0x4860, 1)?;
     c.call(entry::GET_ORNI_POSITION, 0x4863)?;
-    let ov = c.byte(0x46ff);
+    let ov = c.byte(g::LOCATION_SKILL_NEED_1);
     c.run(0x4863, 3 + if ov != 0 { 4 } else { 1 })?;
     c.set_reg(CX, ov as u16);
     if ov != 0 {
@@ -1562,7 +1562,7 @@ pub fn open_dialogue_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xaf2f, 1)?;
     c.call(entry::MARK_DIALOGUE_BUTTONS, 0xaf32)?;
     c.run(0xaf32, 5)?;
-    c.set_word(0x2406, 0);
+    c.set_word(g::BOOK_PAGE_KINDS, 0);
     c.set_reg(BP, 0x2032);
     c.set_reg(BX, 0xd917);
     c.xor(W, 0, 0);
@@ -1589,7 +1589,7 @@ fn panel_with_head_at(c: &mut Ctx, at: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, 0x32);
     c.call(entry::OPEN_RESOURCE_AND_DRAW_SPRITE_0, 0xaf50)?;
     c.run(0xaf50, 2)?;
-    c.set_byte(0x1c30, 0);
+    c.set_byte(g::BOOK_VIDEO_BUTTON_FLAGS, 0);
     ui_draw_head_and_shoulders(c.m, 0x1797)
 }
 
@@ -1624,7 +1624,7 @@ pub fn draw_character(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::CH, (ax >> 8) as u8);
     if al >= 0x0f {
         let e = pure::sub(B, al as u16, 0x0f);
-        c.set_byte(0x476c, e as u8);
+        c.set_byte(g::CHARACTER_15_SLOT, e as u8);
         c.set_reg8(r8::AL, 0x0f);
     }
     c.call(entry::PICK_SENTENCE, 0x3d5b)?;
@@ -1705,7 +1705,7 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let lit = ah & 0x40 == 0;
     let swap = lit && ah & 0x80 != 0;
     c.run(0xd4b4, 5 + if text == 0 { 0 } else { 3 + if lit { 4 + swap as u32 } else { 0 } + 2 })?;
-    c.set_byte(0xdbe5, 0xf3);
+    c.set_byte(g::TEXT_BACK_COLOUR, 0xf3);
     let f = c.byte(di.wrapping_add(8)) & 0x7f;
     c.set_byte(di.wrapping_add(8), f);
     c.set_reg(AX, ax);
@@ -1718,8 +1718,8 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_byte(di.wrapping_add(8), f | 0x80);
             c.set_reg8(r8::AL, 0xfa);
             if swap {
-                let old = c.byte(0xdbe5);
-                c.set_byte(0xdbe5, 0xfa);
+                let old = c.byte(g::TEXT_BACK_COLOUR);
+                c.set_byte(g::TEXT_BACK_COLOUR, 0xfa);
                 c.set_reg8(r8::AL, old);
             }
         }
@@ -1738,13 +1738,13 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd4ec, 8)?;
     c.set_reg(SI, 0xdce9);
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    c.set_word(0xdce9, dx);
-    c.set_word(0xdceb, bx);
-    c.set_word(0xdced, 0xe3);
+    c.set_word(g::LABEL_RECT, dx);
+    c.set_word(g::LABEL_RECT_TOP, bx);
+    c.set_word(g::LABEL_RECT_RIGHT, 0xe3);
     let b = c.add(W, bx, 7); // the driver's far call sees these flags
     c.set_reg(BX, b);
-    c.set_word(0xdcef, b);
-    let bg = c.byte(0xdbe5);
+    c.set_word(g::LABEL_RECT_BOTTOM, b);
+    let bg = c.byte(g::TEXT_BACK_COLOUR);
     c.set_reg8(r8::AL, bg);
     let es = c.screen_buffers().active;
     c.set_sreg(pc::cpu::ES, es);

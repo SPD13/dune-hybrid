@@ -387,9 +387,9 @@ pub fn play_sal_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// 48D1h-48DAh of `loc_0488a` (counted by the caller): [46E0h] down by
 /// one, [4732h] 0, on into `open_SAL_resource`.
 fn sal_end(c: &mut Ctx) -> Result<(), Bail> {
-    let v = c.byte(0x46e0);
+    let v = c.byte(g::SKY_PALETTE_SHOWN);
     let v = c.dec(B, v as u16);
-    c.set_byte(0x46e0, v as u8);
+    c.set_byte(g::SKY_PALETTE_SHOWN, v as u8);
     c.set_byte(g::SAL_FLAGS, 0);
     c.jump(entry::OPEN_SAL_RESOURCE)
 }

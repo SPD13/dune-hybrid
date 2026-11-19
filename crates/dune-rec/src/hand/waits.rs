@@ -256,8 +256,8 @@ pub fn audio_test_frequency(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0x800);
     c.mul16(0x800);
     let (lo, hi) = (c.reg(AX), c.reg(pc::cpu::DX));
-    c.set_word(0x2882, hi);
-    c.set_word(0x2884, lo);
+    c.set_word(g::LIP_SYNC_STEP_HIGH, hi);
+    c.set_word(g::LIP_SYNC_STEP_LOW, lo);
     popf(&mut c);
     c.ret()
 }

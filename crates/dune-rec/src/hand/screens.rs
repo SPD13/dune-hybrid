@@ -146,7 +146,7 @@ pub fn item_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cl = c.reg8(r8::CL);
     let special = c.byte(g::MORE_ITEM);
     let text = cl == special;
-    let k = c.byte(0xdce4) as i8;
+    let k = c.byte(g::ITEM_SCROLL) as i8;
     c.run(start, 6 + if !text { 10 } else if k < 0 { 5 } else if k > 0 { 7 } else { 8 })?;
     let si = list.wrapping_add(1);
     c.set_reg(SI, si);
@@ -272,7 +272,7 @@ pub fn draw_element_pressed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !on {
         return c.ret();
     }
-    c.set_word(0xdc60, di);
+    c.set_word(g::PRESSED_ELEMENT, di);
     let v = c.word(di.wrapping_add(0x0a));
     let v = pure::inc(W, v);
     c.set_word(di.wrapping_add(0x0a), v);
@@ -298,7 +298,7 @@ pub fn draw_element_pressed(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn draw_panel_button_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd741)?;
     let mut c = Ctx::new(m);
-    let v = c.word(0x1b0c);
+    let v = c.word(g::FRIEZE_RIGHT_SPRITE);
     let d = v.wrapping_sub(3);
     c.run(start, if d >= 3 { 5 } else { 7 })?;
     c.set_reg(AX, d);
@@ -693,7 +693,7 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd23d)?;
     let mut c = Ctx::new(m);
-    let a = c.word(g::WORD_1AFE);
+    let a = c.word(g::FRIEZE_LEFT_SPRITE);
     if a / 3 > 0xff {
         return Err(Bail);
     }
@@ -705,7 +705,7 @@ pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let cx = c.reg(CX);
     c.xor(W, cx, cx);
-    c.set_reg(SI, 0x1af4);
+    c.set_reg(SI, g::FRIEZE_SIDES);
     let ax = c.sub(W, a, 0);
     c.set_reg(AX, ax);
     c.set_reg(CX, 3);
@@ -719,11 +719,11 @@ pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let step = { let _ = step; c.neg(W, 1) };
     c.set_reg(AX, step);
     c.push(step);
-    c.push(0x1af4);
+    c.push(g::FRIEZE_SIDES);
     for off in [0x0au16, 0x18] {
-        let v = c.word(0x1af4 + off);
+        let v = c.word(g::FRIEZE_SIDES + off);
         let v = c.add(W, v, step);
-        c.set_word(0x1af4 + off, v);
+        c.set_word(g::FRIEZE_SIDES + off, v);
     }
     c.set_reg(CX, 2);
     c.call(entry::DRAW_UI_ELEMENTS_LIST_AT_DS_SI, 0xd265)?;
@@ -857,18 +857,18 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let t = c.timer();
     c.set_reg(AX, t);
     let ah = ((t << 2) >> 8) as u8;
-    let last = c.byte(0xdcf1);
+    let last = c.byte(g::GAUGE_BLINK_TICK);
     if ah == last {
         c.run(0xd7ba, 5)?;
         let a = pure::shl1(W, t, 2);
         c.set_reg(AX, a);
         return c.ret();
     }
-    let ax = c.word(0x2222);
+    let ax = c.word(g::GAUGE_BLINK);
     if ax == 0 {
         c.run(0xd7ba, 9)?;
         let _ = pure::shl1(W, t, 2);
-        c.set_byte(0xdcf1, ah);
+        c.set_byte(g::GAUGE_BLINK_TICK, ah);
         c.set_reg(AX, 0);
         return c.ret();
     }
@@ -878,11 +878,11 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let odd1 = a1 && al.wrapping_sub(1) & 1 != 0;
     let a2 = ah2 != 0;
     let odd2 = a2 && ah2.wrapping_sub(1) & 1 != 0;
-    let k = c.word(g::WORD_1AFE);
+    let k = c.word(g::FRIEZE_LEFT_SPRITE);
     let n = 9 + 4 + if a1 { 3 + odd1 as u32 } else { 0 } + 2 + if a2 { 3 + odd2 as u32 } else { 0 } + 4 + 2;
     c.run(0xd7ba, n - 1)?;
     let _ = pure::shl1(W, t, 2);
-    c.set_byte(0xdcf1, ah);
+    c.set_byte(g::GAUGE_BLINK_TICK, ah);
     c.set_reg(BX, g);
     c.push(g);
     let mut l = al;
@@ -903,7 +903,7 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax2 = (h as u16) << 8 | l as u16;
     c.set_reg(AX, ax2);
     c.set_reg(BX, bx);
-    c.set_word(0x2222, ax2);
+    c.set_word(g::GAUGE_BLINK, ax2);
     c.set_word(g::BOOK_PAGE, bx);
     if k == 0 {
         let r = c.word(g::RESOURCE_ID);
@@ -936,22 +936,22 @@ pub fn open_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 10)?;
     let (dx, bx) = (c.reg(DX), c.reg(BX));
     c.set_reg(SI, 0xdd06);
-    c.set_word(0xdd06, dx);
-    c.set_word(0xdd08, bx);
+    c.set_word(g::OPEN_BOX_RECT, dx);
+    c.set_word(g::OPEN_BOX_TOP, bx);
     let d = pure::inc(W, dx);
     let d = pure::inc(W, d);
     c.set_reg(DX, d);
     let b = pure::inc(W, bx);
     c.set_reg(BX, b);
-    c.set_word(0xdd0a, d);
-    c.set_word(0xdd0c, b);
-    c.set_byte(0xdd0e, 7);
+    c.set_word(g::OPEN_BOX_RIGHT, d);
+    c.set_word(g::OPEN_BOX_BOTTOM, b);
+    c.set_byte(g::OPEN_BOX_COLOUR, 7);
     c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xbcb1)?;
     c.run(0xbcb1, 1)?;
     c.set_reg(CX, 8);
     loop {
-        let v = [c.word(0xdd06), c.word(0xdd08), c.word(0xdd0a), c.word(0xdd0c)];
-        let b = [c.word(0x2440), c.word(0x2442), c.word(0x2444), c.word(0x2446)];
+        let v = [c.word(g::OPEN_BOX_RECT), c.word(g::OPEN_BOX_TOP), c.word(g::OPEN_BOX_RIGHT), c.word(g::OPEN_BOX_BOTTOM)];
+        let b = [c.word(g::GLOBE_CLIP_RECT), c.word(g::GLOBE_CLIP_RECT_Y0), c.word(g::GLOBE_CLIP_RECT_X1), c.word(g::GLOBE_CLIP_RECT_Y1)];
         let steps = [0xfffcu16, 0xfffe, 4, 2];
         let mut n = 5 + 2 + 2;
         for k in 0..4 {
@@ -1007,9 +1007,9 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x44ab)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let v = c.byte(0x4751);
+    let v = c.byte(g::MAP_POINTER_BLINKS);
     let v = pure::inc(B, v as u16);
-    c.set_byte(0x4751, v as u8);
+    c.set_byte(g::MAP_POINTER_BLINKS, v as u8);
     let fb = c.screen_buffers().active;
     c.push(fb);
     c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x44b6)?;
@@ -1022,7 +1022,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x44c2)?;
     let si = c.reg(SI);
     let r = [c.word(si), c.word(si.wrapping_add(2)), c.word(si.wrapping_add(4)), c.word(si.wrapping_add(6))];
-    let b = [c.word(g::RECT_D834), c.word(0xd836), c.word(0xd838), c.word(0xd83a)];
+    let b = [c.word(g::DIRTY_RECT), c.word(g::DIRTY_RECT_TOP), c.word(g::DIRTY_RECT_RIGHT), c.word(g::DIRTY_RECT_BOTTOM)];
     let (c2, c3, c0, c1) = (r[2] >= b[2], r[3] >= b[3], r[0] < b[0], r[1] < b[1]);
     c.run(0x44c2, 7 + c2 as u32 + 2 + c3 as u32 + 2 + c0 as u32 + 2 + c1 as u32 + 1)?;
     c.set_reg(SI, 0xd834);
@@ -1035,7 +1035,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, bp);
     c.set_reg(AX, ax);
     c.call(entry::DRAW_HEAD_IF_NEEDED_AND_UPDATE_SCREEN_RECT, 0x44f1)?;
-    let k = c.byte(0x4751);
+    let k = c.byte(g::MAP_POINTER_BLINKS);
     let odd = k & 1 != 0;
     c.run(0x44f1, 3 + if odd { 4 } else { 0 })?;
     let bx = c.reg(BX);
@@ -1044,7 +1044,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, bx & 0xff00 | bl);
     if odd {
         c.set_reg(AX, 0x4c);
-        let (x, y) = (c.word(0x4749), c.word(0x474b));
+        let (x, y) = (c.word(g::MAP_POINTER_BOX), c.word(g::MAP_POINTER_BOX_TOP));
         c.set_reg(DX, x);
         c.set_reg(BX, y);
         c.call(entry::DRAW_SPRITE_CLIPPED_CLOBBERING, 0x4507)?;
@@ -1121,7 +1121,7 @@ pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ct
                 c.set_reg(DX, dx);
                 c.cmp(B, dx >> 8, 0x21);
             }
-            c.set_word(0x1b98, 0x23);
+            c.set_word(g::FIRST_BUTTON_SPRITE, 0x23);
             let mut b = 0x1du16;
             let mut di = 0x1b98u16;
             for i in 0..4u16 {
@@ -1172,9 +1172,9 @@ pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ct
         al = 0x20;
     }
     c.set_reg(BX, b);
-    c.set_word(0x1b98, b);
-    c.set_byte(0x1bdc, al);
-    c.set_byte(0x1cc4, al);
+    c.set_word(g::FIRST_BUTTON_SPRITE, b);
+    c.set_byte(g::PLAN_BUTTON_FLAGS, al);
+    c.set_byte(g::SET_PLAN_BUTTON_FLAGS, al);
     let mut di = 0x1b96u16;
     for i in 0..4u16 {
         let a = c.lods(B, pc::cpu::DS);
@@ -1221,7 +1221,7 @@ fn place_map_pointer_at(c: &mut Ctx) -> Result<(), Bail> {
     c.call(entry::MAP_POINT_OUTSIDE_VIEW, 0x4469)?;
     if c.flag(CF) {
         c.run(0x4469, 3)?;
-        c.set_word(0x4749, 0);
+        c.set_word(g::MAP_POINTER_BOX, 0);
         return c.ret();
     }
     c.run(0x4469, 2)?;
@@ -1248,15 +1248,15 @@ fn place_map_pointer_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     c.set_reg(DX, dx);
     c.set_reg(DI, 0x4749);
-    c.set_word(0x4749, dx);
-    c.set_word(0x474b, bx);
-    c.set_word(0x474d, bp);
-    c.set_word(0x474f, ax);
+    c.set_word(g::MAP_POINTER_BOX, dx);
+    c.set_word(g::MAP_POINTER_BOX_TOP, bx);
+    c.set_word(g::MAP_POINTER_BOX_RIGHT, bp);
+    c.set_word(g::MAP_POINTER_BOX_BOTTOM, ax);
     c.set_reg(SI, 0x44ab);
     c.set_reg(BP, 0x12c);
     c.call(entry::ADD_FRAME_TASK, 0x44a6)?;
     c.run(0x44a6, 1)?;
-    c.set_byte(0x4751, 0);
+    c.set_byte(g::MAP_POINTER_BLINKS, 0);
     blink_map_pointer(c.m, 0x44ab)
 }
 
@@ -1271,7 +1271,7 @@ pub fn redraw_map_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(at, 1)?;
         c.call(to, at + 3)?;
     }
-    let f = c.byte(0x473e);
+    let f = c.byte(g::GAME_FRAME);
     c.run(0x4386, if f != 0 { 4 } else { 3 })?;
     if f != 0 {
         c.set_reg(AX, 0x24);
@@ -1322,7 +1322,7 @@ pub fn install_current_ui_list(m: &mut Machine, start: u16) -> Result<(), Bail> 
 
 fn list_2220_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x2ebf, 3)?;
-    let bp = c.word(0x2220);
+    let bp = c.word(g::CURRENT_UI_LIST);
     c.set_reg(BP, bp);
     c.set_reg(BX, 0x0f66);
     super::cursor::install_ui_list_unhighlighted(c.m, 0xd338)
@@ -1456,7 +1456,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_reg(DI, d);
                 c.set_reg(SI, 0x21dc);
                 let v = c.lods(W, DS);
-                let skills = c.byte(0x46ff);
+                let skills = c.byte(g::LOCATION_SKILL_NEED_1);
                 flagged(&mut c, v, skills < 1);
             }
         } else {
@@ -1488,7 +1488,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     let none = unread < 1;
                     let phrase = if calling { 0x28 } else if none { 0x26 } else { 0x27 };
                     c.set_reg8(r8::CH, phrase);
-                    c.set_byte(0x1248, phrase);
+                    c.set_byte(g::PALACE_ROOM_8_LABEL, phrase);
                     flagged(&mut c, v, none);
                     let v = c.lods(W, DS);
                     flagged(&mut c, v, unread >= count);

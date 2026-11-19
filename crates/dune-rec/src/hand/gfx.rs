@@ -343,12 +343,12 @@ pub fn head_down_from_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(start, 6)?; // cmp; jne; cmp; je; mov [0CE66h], 1; call
-    c.set_byte(0xce66, 1);
+    c.set_byte(g::HEAD_PANEL_FROM_PICTURE, 1);
     c.call(entry::UI_HEAD_ANIMATE_DOWN, 0x1819)?;
-    let k = c.byte(0xce66);
+    let k = c.byte(g::HEAD_PANEL_FROM_PICTURE);
     c.run(0x1819, 2)?; // dec [0CE66h]; ret
     let k = pure::dec(B, k as u16) as u8;
-    c.set_byte(0xce66, k);
+    c.set_byte(g::HEAD_PANEL_FROM_PICTURE, k);
     c.ret()
 }
 
@@ -397,7 +397,7 @@ pub fn draw_sprite_centred(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx = c.reg(BX);
     let bx = c.sub(W, bx, half); // the driver's far call sees the flags
     c.set_reg(BX, bx);
-    c.set_reg(BP, g::RECT_D834);
+    c.set_reg(BP, g::DIRTY_RECT);
     c.interp(0xc368, 0xc36d)?;
     c.run(0xc36d, 3)?;
     let ss = c.sreg(SS);
@@ -626,8 +626,8 @@ pub fn gfx_zero_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let al = c.reg8(super::r8::AL);
     c.set_byte(g::FRAME_TASKS_ACTIVE, al);
     let (cx, bx) = (c.reg(CX), c.reg(BX));
-    c.set_word(0xd81a, cx);
-    c.set_word(0xd818, bx);
+    c.set_word(g::SCRATCH_COUNT, cx);
+    c.set_word(g::SPAN_ROW, bx);
     let sp = c.reg(SP);
     let sp = c.sub(W, sp, cx);
     c.set_reg(SP, sp);
@@ -764,13 +764,13 @@ pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word_in(CS, si, v);
     }
     c.set_word(g::FLIGHT_VIDEO, 1);
-    c.set_byte(0x473e, 0);
+    c.set_byte(g::GAME_FRAME, 0);
     c.update_travel(|t| t.screen_kind = 8);
     let p = c.code_word(0x167);
     let q = c.code_word(p);
     let si = pure::add(W, p, q);
     c.set_reg(SI, si);
-    c.set_word(0xaa6e, si);
+    c.set_word(g::CS_SCRIPT_PTR, si);
     c.set_reg(AX, 0x39);
     c.call(code::OPEN_RESOURCE_BY_INDEX, 0x42cc)?;
     c.interp(0x42cc, 0x42d0)?;
@@ -804,7 +804,7 @@ pub fn redraw_panel_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7b0f)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
-    c.set_byte(0x46d8, 0);
+    c.set_byte(g::SKIP_BOX_RESTORE, 0);
     let (si, di) = (c.reg(SI), c.reg(DI));
     c.push(si);
     c.set_reg(DI, si);

@@ -102,7 +102,7 @@ pub fn joystick_as_keys(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::READ_GAME_PORT, 0xdd13)?;
     let (al, dx, bx) = (c.reg8(super::r8::AL), c.reg(DX), c.reg(BX));
     let button = al & 0x30 != 0;
-    let (x0, x1, y0, y1) = (c.word(0x39ab), c.word(0x39ad), c.word(0x39af), c.word(0x39b1));
+    let (x0, x1, y0, y1) = (c.word(g::JOYSTICK_LEFT), c.word(g::JOYSTICK_RIGHT), c.word(g::JOYSTICK_UP), c.word(g::JOYSTICK_DOWN));
     let axis = |v: u16, lo: u16, hi: u16| -> (u32, u16) {
         if v <= lo {
             (5, 0xff00)
@@ -117,7 +117,7 @@ pub fn joystick_as_keys(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xdd13, 4 + button as u32 + 1 + nx + 2 + ny + 3)?;
     c.set_reg8(super::r8::AH, al);
     c.set_reg8(super::r8::AL, 0);
-    c.set_byte(0xcee6, if button { 0xff } else { 0 });
+    c.set_byte(g::JOYSTICK_BUTTON, if button { 0xff } else { 0 });
     // Each axis: FFh in the first byte below the low limit, in the
     // second above the high one.
     for (a, b, res) in [(0xcee1u16, 0xcedfu16, ax_x), (0xcee4, 0xcedc, ax_y)] {
@@ -194,7 +194,7 @@ pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     let t = c.timer();
     c.set_reg(AX, t);
-    let last = c.byte(0xdc4a);
+    let last = c.byte(g::GLIDE_TIME);
     let gap = (t as u8).wrapping_sub(last);
     if gap < 6 {
         c.run(0xd965, 4)?;
@@ -212,7 +212,7 @@ pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd97a, 1)?;
     let t = c.timer();
     c.set_reg(AX, t);
-    let (tx, ty) = (c.word(0xdc4c), c.word(0xdc4e));
+    let (tx, ty) = (c.word(g::GLIDE_TARGET), c.word(g::GLIDE_TARGET_Y));
     let (cx0, cy0) = (c.mouse_state().x, c.mouse_state().y);
     let dx = tx.wrapping_sub(cx0);
     let dy = ty.wrapping_sub(cy0);
@@ -224,10 +224,10 @@ pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let fdy = step(dy, cx);
     let zero = fdx | fdy == 0;
     c.run(0xd97d, n + if zero { 3 } else { 1 })?;
-    c.set_byte(0xdc4a, t as u8);
-    let k = c.byte(0xdc4b);
+    c.set_byte(g::GLIDE_TIME, t as u8);
+    let k = c.byte(g::GLIDE_STEPS);
     let k = pure::dec(B, k as u16);
-    c.set_byte(0xdc4b, k as u8);
+    c.set_byte(g::GLIDE_STEPS, k as u8);
     let d = leg_ops(&mut c, tx, cx0, cx);
     let b = leg_ops(&mut c, ty, cy0, cx);
     c.set_reg(DX, d);
@@ -235,7 +235,7 @@ pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, b);
     c.set_reg(AX, b | d);
     if zero {
-        c.set_byte(0xdc4b, 0);
+        c.set_byte(g::GLIDE_STEPS, 0);
         return mouse_stuff(c.m, 0xdb4c);
     }
     c.call(entry::MOVE_CURSOR_BY, 0xd9ca)?;
@@ -381,15 +381,15 @@ pub fn initialize_joystick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let dx = c.add(W, dx, ax);
     c.set_reg(DX, dx);
     c.set_reg(SI, 0x39ab);
-    c.set_word(0x39ab, ax);
-    c.set_word(0x39ad, dx);
+    c.set_word(g::JOYSTICK_LEFT, ax);
+    c.set_word(g::JOYSTICK_RIGHT, dx);
     let bx = c.reg(BX);
     let ax = c.shr1(W, bx, 1);
     let bx = c.add(W, bx, ax);
     c.set_reg(AX, ax);
     c.set_reg(BX, bx);
-    c.set_word(0x39af, ax);
-    c.set_word(0x39b1, bx);
+    c.set_word(g::JOYSTICK_UP, ax);
+    c.set_word(g::JOYSTICK_DOWN, bx);
     c.ret()
 }
 
@@ -456,12 +456,12 @@ pub fn initialize_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     loop {
-        let k = c.byte(0x2581).wrapping_add(1);
+        let k = c.byte(g::MOUSE_SCALE_Y).wrapping_add(1);
         let neg = k & 0x80 != 0;
         c.run(0xe9b3, 2 + if neg { 0 } else { 4 })?;
-        let k = c.byte(0x2581) as u16;
+        let k = c.byte(g::MOUSE_SCALE_Y) as u16;
         let k = c.inc(B, k);
-        c.set_byte(0x2581, k as u8);
+        c.set_byte(g::MOUSE_SCALE_Y, k as u8);
         if neg {
             break;
         }
@@ -557,7 +557,7 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     // The keyboard's interrupt writes the keys' states: each is read right
     // after a stretch of its instruction alone (see `ticks.rs`).
-    let di0 = c.word(0xdc48);
+    let di0 = c.word(g::KEY_MOVES);
     c.run(0xdf56, 6)?;
     c.set_reg(SI, 0xcec8);
     c.set_reg(DI, di0);
@@ -596,20 +596,20 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, 12 - k);
     }
     c.run(0xdf79, 1)?;
-    let a = c.byte(0xceba);
+    let a = c.byte(g::KEY_SPACE);
     c.set_reg8(r8::AL, a);
     c.run(0xdf7c, 1)?;
-    let k = c.byte(0xce9d);
+    let k = c.byte(g::KEY_ENTER);
     let a = c.or(B, a as u16, k as u16) as u8;
     c.set_reg8(r8::AL, a);
     c.run(0xdf80, 1)?;
-    let k = c.byte(0xcee6);
+    let k = c.byte(g::JOYSTICK_BUTTON);
     let a = c.or(B, a as u16, k as u16) as u8;
     c.set_reg8(r8::AL, a);
     c.run(0xdf84, 10)?;
     let a = a & 1;
-    let old = c.byte(0xdc57);
-    c.set_byte(0xdc57, a);
+    let old = c.byte(g::KEY_BUTTON_DOWN);
+    c.set_byte(g::KEY_BUTTON_DOWN, a);
     let v = !old;
     let s = c.mouse_state().buttons;
     let v = (v & s) | a;
@@ -622,9 +622,9 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return super::cursor::keyboard_move(&mut c);
     }
     c.run(0xdf9d, 4)?;
-    c.set_word(0xdc51, 0);
-    c.set_word(0xdc53, 0);
-    c.set_word(0xdc55, 0);
+    c.set_word(g::GLIDE_SPEED, 0);
+    c.set_word(g::GLIDE_SPEED_Y, 0);
+    c.set_word(g::GLIDE_FRACTIONS, 0);
     c.ret()
 }
 

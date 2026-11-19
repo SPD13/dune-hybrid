@@ -374,7 +374,7 @@ pub fn copy_game_area_rect_to_clip_rect(m: &mut Machine, start: u16) -> Result<(
     let mut c = Ctx::new(m);
     c.run(start, 3 + 7)?;
     c.set_reg(SI, g::GAME_AREA_RECT);
-    c.set_reg(DI, g::RECT_D834);
+    c.set_reg(DI, g::DIRTY_RECT);
     copy_rect(&mut c);
     c.ret()
 }

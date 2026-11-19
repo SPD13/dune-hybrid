@@ -192,7 +192,7 @@ pub fn load_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xb3ba, 4)?;
     let cl = c.reg8(r8::CL).wrapping_add(0x31);
     c.set_reg8(r8::CL, cl);
-    c.set_byte(0x38af, cl);
+    c.set_byte(g::SAVE_FILE_DIGIT, cl);
     c.set_reg(CX, 0x578);
     c.call(entry::ALLOC_CHECK_CX_PAGES_AVAILABLE, 0xb3c7)?;
     c.run(0xb3c7, 2)?;
@@ -252,7 +252,7 @@ fn after_restore(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xb3f4, 1)?;
     c.call(entry::CLEAR_FRAME_TASKS, 0xb3f7)?;
     c.run(0xb3f7, 2)?;
-    c.set_word(0x22a6, 0xffff);
+    c.set_word(g::LOADED_HEAD, 0xffff);
     c.call(entry::START_CLOCK, 0xb400)?;
     let sp = c.reg(SP);
     let fb = c.word_in(SS, sp) as u8;
@@ -785,7 +785,7 @@ pub fn save_slot_label_ax(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn save_slot_label_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb2c4)?;
     let mut c = Ctx::new(m);
-    let v = c.byte(0x38af);
+    let v = c.byte(g::SAVE_FILE_DIGIT);
     if v > 0x32 {
         c.run(start, 3)?;
         return c.ret();
@@ -935,7 +935,7 @@ pub fn load_save_game_timestamp(m: &mut Machine, start: u16) -> Result<(), Bail>
     let mut c = Ctx::new(m);
     c.run(0xb30f, 2)?;
     c.set_reg(DI, 0x38a8);
-    c.set_byte(0x38af, 0x31);
+    c.set_byte(g::SAVE_FILE_DIGIT, 0x31);
     loop {
         c.run(0xb316, 2)?;
         let di = c.reg(DI);
@@ -1283,7 +1283,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     if count != 0 {
         c.run(0xc727, 9)?;
         c.set_reg(SI, 0xd834);
-        let (dx, bx, bp, ax) = (c.word(g::RECT_D834), c.word(0xd836), c.word(0xd838), c.word(0xd83a));
+        let (dx, bx, bp, ax) = (c.word(g::DIRTY_RECT), c.word(g::DIRTY_RECT_TOP), c.word(g::DIRTY_RECT_RIGHT), c.word(g::DIRTY_RECT_BOTTOM));
         c.set_reg(DX, dx);
         c.set_reg(BX, bx);
         c.set_reg(BP, bp);
@@ -1339,7 +1339,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
                 c.set_reg(SI, sp0);
                 let cx = c.reg(CX);
                 c.push(cx);
-                let to = c.word(0x2786);
+                let to = c.word(g::DRAW_ORDER_PICKER);
                 c.call(to, 0xc76a)?;
                 if c.flag(pc::cpu::SF) {
                     c.run(0xc76a, 2)?;
@@ -1367,7 +1367,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     }
     // The frieze, the overlays, the copy.
     let f = c.byte(g::CINEMATIC);
-    let (b, h, l) = (c.word(0xd83a), c.word(0xd838), c.word(g::RECT_D834));
+    let (b, h, l) = (c.word(g::DIRTY_RECT_BOTTOM), c.word(g::DIRTY_RECT_RIGHT), c.word(g::DIRTY_RECT));
     let n = if f != 0 {
         2
     } else if lt(b, 0x89) {
@@ -1397,7 +1397,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     }
     c.run(0xc7be, 6)?;
     c.set_reg(SI, 0xd834);
-    let (dx, bx, bp, ax) = (c.word(g::RECT_D834), c.word(0xd836), c.word(0xd838), c.word(0xd83a));
+    let (dx, bx, bp, ax) = (c.word(g::DIRTY_RECT), c.word(g::DIRTY_RECT_TOP), c.word(g::DIRTY_RECT_RIGHT), c.word(g::DIRTY_RECT_BOTTOM));
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
     c.set_reg(BP, bp);

@@ -88,7 +88,7 @@ pub fn ui_draw_book_turning_page(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_reg(AX, 0x0a);
     c.call(code::WAIT_A_BIT, 0xb1e1)?;
     c.run(0xb1e1, 3)?;
-    c.set_reg(SI, 0x1af4);
+    c.set_reg(SI, g::FRIEZE_SIDES);
     c.set_reg(CX, 1);
     c.call(code::DRAW_UI_ELEMENTS_LIST, 0xb1ea)?;
     c.run(0xb1ea, 2)?;

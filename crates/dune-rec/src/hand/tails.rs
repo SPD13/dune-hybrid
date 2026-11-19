@@ -213,8 +213,8 @@ pub fn center_map_and_open_place_view(m: &mut Machine, start: u16) -> Result<(),
     c.set_reg(DX, dx);
     let bx = c.travel().kept[1];
     c.set_reg(BX, bx);
-    c.set_word(0x4710, dx);
-    c.set_word(0x4712, bx);
+    c.set_word(g::PLACE_BOX, dx);
+    c.set_word(g::PLACE_BOX_TOP, bx);
     c.call(entry::DROP_MAP_SPRITE_LIST, 0x5419)?;
     c.run(0x5419, 1)?;
     c.call(entry::DROP_CAPTION, 0x541c)?;
@@ -380,7 +380,7 @@ pub fn b18b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xb18e, 4)?;
     c.update_clock(|k| k.start());
     c.update_economy(|t| t.book = 0);
-    c.set_byte(0x1c30, 0);
+    c.set_byte(g::BOOK_VIDEO_BUTTON_FLAGS, 0);
     c.call(entry::HNM_CLOSE_RESOURCE, 0xb1a0)?;
     c.run(0xb1a0, 1)?;
     c.call(entry::STOP_KEEP_FRAMEBUFFER_TASK, 0xb1a3)?;
@@ -588,7 +588,7 @@ pub fn setup_intro_talking_head(m: &mut Machine, start: u16) -> Result<(), Bail>
     if x >= d {
         c.run(0x09d0, 5 + 1)?;
     } else {
-        let r = c.word(0x1bf4).wrapping_add(d);
+        let r = c.word(g::HEAD_BOX_X1).wrapping_add(d);
         let clip = (r as i16) > 0x140;
         c.run(0x09d0, 5 + 4 + clip as u32 + 1)?;
     }
@@ -601,11 +601,11 @@ pub fn setup_intro_talking_head(m: &mut Machine, start: u16) -> Result<(), Bail>
     }
     let v = pure::add(W, x, d);
     c.set_word(g::HEAD_ORIGIN_X, v);
-    let r = c.word(0x1bf4);
+    let r = c.word(g::HEAD_BOX_X1);
     let r = pure::add(W, r, d);
-    c.set_word(0x1bf4, r);
+    c.set_word(g::HEAD_BOX_X1, r);
     if (r as i16) > 0x140 {
-        c.set_word(0x1bf4, 0x140);
+        c.set_word(g::HEAD_BOX_X1, 0x140);
     }
     c.ret()
 }
@@ -812,9 +812,9 @@ pub fn results_draw_text_and_icons(m: &mut Machine, start: u16) -> Result<(), Ba
     c.run(0xbe2f, 9)?;
     c.set_reg(SI, 0xdd17);
     c.set_reg(AX, 0);
-    c.set_word(0xdd17, 0);
-    c.set_word(0xdd19, 0);
-    c.set_word(0xdd1b, 0);
+    c.set_word(g::RESULT_BAR_HEIGHTS, 0);
+    c.set_word(g::RESULT_BAR_HEIGHTS_2, 0);
+    c.set_word(g::RESULT_BAR_HEIGHTS_4, 0);
     let d = c.game_time();
     let d = pure::and(W, d, 0xfff0);
     c.set_reg(AX, d);
@@ -912,7 +912,7 @@ pub fn say_next_place_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, s);
     }
     if v == 0 || v == 0xffff {
-        let w = c.word(0xab6a);
+        let w = c.word(g::PHRASE_7A);
         c.set_reg(SI, w);
     }
     c.update_conversation(|t| t.mode = 0x20);
@@ -1020,7 +1020,7 @@ pub fn intro_night_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0acd)?;
     let mut c = Ctx::new(m);
     c.run(0x0acd, 3)?;
-    c.set_word(0x2786, 0xc827);
+    c.set_word(g::DRAW_ORDER_PICKER, 0xc827);
     c.m.cpu.write8(&mut c.m.hw, CS, 0xc13c, 0x2b);
     c.call(entry::OPEN_ONMAP_RESOURCE, 0x0adc)?;
     c.run(0x0adc, 1)?;
@@ -1152,7 +1152,7 @@ pub fn book_next_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg(CX, 1);
     c.set_reg(DX, 0xfffe);
-    let bx = c.word(0x2406);
+    let bx = c.word(g::BOOK_PAGE_KINDS);
     c.set_reg(BX, bx);
     let si = c.word(g::BOOK_POSITION);
     c.set_reg(SI, si);
@@ -1264,7 +1264,7 @@ pub fn draw_jessica_on_palace_plan(m: &mut Machine, start: u16) -> Result<(), Ba
     c.run(0x0f2c, 1)?;
     c.call(entry::SWAP_GAME_STATE, 0x0f2f)?;
     c.run(0x0f2f, 4)?;
-    c.set_word(0x22a6, 0xffff);
+    c.set_word(g::LOADED_HEAD, 0xffff);
     let v = c.conversation().two_heads;
     let v = pure::inc(B, v as u16);
     c.update_conversation(|t| t.two_heads = v as u8);
@@ -1286,7 +1286,7 @@ pub fn run_script_next_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::CS;
     entered(start, 0x1707)?;
     let mut c = Ctx::new(m);
-    let scr = c.word(0x2220);
+    let scr = c.word(g::CURRENT_UI_LIST);
     if scr == 0x1fae {
         c.run(0x1707, 4)?;
         c.set_reg(DI, 0x1b56);
@@ -1302,7 +1302,7 @@ pub fn run_script_next_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.sequence().next;
     let b = c.byte_in(CS, si);
     c.run(0x171a, 5 + if b == 0xff { 0 } else { 4 })?;
-    c.set_byte(0xce9d, 0);
+    c.set_byte(g::KEY_ENTER, 0);
     c.set_reg(SI, si);
     c.lods(B, CS);
     if b != 0xff {
@@ -1325,7 +1325,7 @@ pub fn run_script_next_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.sequence().return_to;
     c.set_reg(AX, ax);
     c.update_player(|p| p.x = p.x & 0xff00 | (ax as u8) as u16);
-    c.set_byte(0x46e0, (ax >> 8) as u8);
+    c.set_byte(g::SKY_PALETTE_SHOWN, (ax >> 8) as u8);
     c.set_reg8(r8::AL, 0);
     c.update_sequence(|t| t.playing = 0);
     if ph != 0x48 {
@@ -1432,7 +1432,7 @@ pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x7c11, 2 + 1)?;
         c.cmp(W, ax, shown);
     } else {
-        let d = c.word(0x4752);
+        let d = c.word(g::TROOP_MARKER_PARTICLE);
         c.run(0x7c11, 2 + 4 + if d != 0 { 3 } else { 0 } + 1)?;
         c.cmp(W, ax, shown);
         c.update_topic_troop(|t| t.out_of_reach = 0xff);
@@ -1801,7 +1801,7 @@ pub fn create_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cl = c.reg8(r8::CL);
     let cl = pure::add(B, cl as u16, 0x31);
     c.set_reg8(r8::CL, cl as u8);
-    c.set_byte(0x38af, cl as u8);
+    c.set_byte(g::SAVE_FILE_DIGIT, cl as u8);
     c.call(entry::CREATE_SAVE_IN_MEMORY, 0xb393)?;
     c.run(0xb393, 8)?;
     let d = c.game_time();
@@ -1876,12 +1876,12 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, 5);
         let (ax, bx) = if low { (0xe, 0x50) } else { (0x1e, 5) };
         c.set_reg(AX, ax);
-        c.set_word(0x18eb, bx);
+        c.set_word(g::PLACE_PANEL_Y0, bx);
         let b = pure::add(W, bx, 0x43);
         c.set_reg(BX, b);
-        c.set_word(0x18ef, b);
-        c.set_word(0x4710, 0x5c);
-        c.set_word(0x4712, ax);
+        c.set_word(g::PLACE_PANEL_Y1, b);
+        c.set_word(g::PLACE_BOX, 0x5c);
+        c.set_word(g::PLACE_BOX_TOP, ax);
     } else {
         c.run(0x79f5, 2 + 3)?;
         c.set_reg(SI, 0x18e9);
@@ -1892,15 +1892,15 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7a27, 23)?;
     c.set_reg(DI, 0x18e9);
     c.set_reg(SI, 0x18f3);
-    let dx = c.word(0x18e9);
-    let bx = c.word(0x18eb);
+    let dx = c.word(g::PLACE_PANEL);
+    let bx = c.word(g::PLACE_PANEL_Y0);
     c.set_reg(AX, dx);
     let a = pure::add(W, dx, 0x49);
     c.set_reg(AX, a);
-    c.set_word(0x2244, a);
+    c.set_word(g::MAP_BOX, a);
     let bx = pure::add(W, bx, 3);
     c.set_reg(BX, bx);
-    c.set_word(0x2246, bx);
+    c.set_word(g::MAP_BOX_Y, bx);
     c.update_text_box(|t| t.margins[0] = 0);
     c.update_text_box(|t| t.margins[1] = 5);
     c.update_text_box(|t| t.margins[2] = 0);
@@ -1908,14 +1908,14 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, a);
     c.update_text_box(|t| t.margins[3] = 1);
     let dx = pure::add(W, dx, 4);
-    c.set_word(0x18f3, dx);
-    c.set_word(0x18f5, bx);
+    c.set_word(g::PLACE_PICTURE_BOX, dx);
+    c.set_word(g::PLACE_PICTURE_BOX_Y0, bx);
     let dx = pure::add(W, dx, 0x3d);
     c.set_reg(DX, dx);
     let bx = pure::add(W, bx, 0x3d);
     c.set_reg(BX, bx);
-    c.set_word(0x18f7, dx);
-    c.set_word(0x18f9, bx);
+    c.set_word(g::PLACE_PICTURE_BOX_X1, dx);
+    c.set_word(g::PLACE_PICTURE_BOX_Y1, bx);
     c.call(entry::FILL_AND_OUTLINE, 0x7a6a)?;
     let si = c.map_selection().selected;
     let k = c.byte(si.wrapping_add(3));
@@ -1958,13 +1958,13 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, 0xf);
         c.update_conversation(|t| t.talker = 0xf);
         let si = c.reg(SI);
-        c.set_word(0x4758, si);
-        c.set_byte(0x476c, 0);
+        c.set_word(g::CHARACTER_15_TROOPS, si);
+        c.set_byte(g::CHARACTER_15_SLOT, 0);
         c.call(entry::SETUP_LIP_SYNC_DATA_FROM_SPRITE_SHEET, 0x7aa8)?;
         c.run(0x7aa8, 1)?;
         c.call(entry::UPDATE_SCREEN_PALETTE, 0x7aab)?;
         c.run(0x7aab, 9)?;
-        let h = c.word(0x22a6);
+        let h = c.word(g::LOADED_HEAD);
         let a = pure::sub(W, h, 0xe);
         let a = pure::shl1(W, a, 2);
         c.set_reg(AX, a);
@@ -1980,9 +1980,9 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let s = pure::add(W, 0x22b9, ax);
     c.set_reg(SI, s);
     let a = c.lods(W, pc::cpu::DS);
-    c.set_word(0x46d2, a);
+    c.set_word(g::HEAD_OFFSET_X, a);
     let a = c.lods(W, pc::cpu::DS);
-    c.set_word(0x46d4, a);
+    c.set_word(g::HEAD_OFFSET_Y, a);
     let ds = c.sreg(pc::cpu::DS);
     c.push(ds);
     let base = c.word_in(SS, 0x47ca);
@@ -2227,7 +2227,7 @@ pub fn start_comm_call(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::CLEAR_FRAME_TASKS, 0x0df1)?;
     let sp = c.reg(pc::cpu::SP);
     let who = c.word_in(pc::cpu::SS, sp);
-    let face = c.byte(0x225du16.wrapping_add(who & 0xff));
+    let face = c.byte(g::COMM_CALLER_FACES.wrapping_add(who & 0xff));
     c.run(0x0df1, 5 + if face & 0x80 != 0 { 0 } else { 1 })?;
     let v = c.pop();
     c.set_reg(AX, v);
@@ -2242,9 +2242,9 @@ pub fn start_comm_call(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // The face: the sheet's sprite count / 2 - 3, at the box + 1.
         let face = (c.lods(W, ES) >> 1).wrapping_sub(3);
         c.set_reg(AX, face);
-        let x = c.word(0x2254).wrapping_add(1);
+        let x = c.word(g::COMM_FRAME).wrapping_add(1);
         c.set_reg(DX, x);
-        let y = c.word(0x2256).wrapping_add(1);
+        let y = c.word(g::COMM_FRAME_Y0).wrapping_add(1);
         c.set_reg(BX, y);
         c.push(face);
         c.call(entry::DRAW_SPRITE, 0x0e16)?;
@@ -2397,7 +2397,7 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(es);
     let ds = c.sreg(DS);
     c.push(ds);
-    let (s, seg) = (c.word(g::MAP_GFX_DATA), c.word(0xdd00));
+    let (s, seg) = (c.word(g::MAP_GFX_DATA), c.word(g::MAP_GFX_SEGMENT));
     c.set_reg(SI, s);
     c.set_sreg(DS, seg);
     let si = c.reg(SI);
@@ -2568,7 +2568,7 @@ pub fn draw_map_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (cx, bx) = (c.reg(CX), c.reg(BX));
     let none = cx | bx == 0;
     c.run(0x56c6, 5 + if none { 0 } else { 1 })?;
-    let d = c.word(0x4710);
+    let d = c.word(g::PLACE_BOX);
     let d = pure::add(W, d, 0x71);
     c.set_reg(DX, d);
     c.set_reg(AX, cx);

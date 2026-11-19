@@ -299,7 +299,7 @@ pub fn list_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 11)?;
     let dx = c.reg(DX);
     let i = pure::shl1(W, dx >> 8, 1);
-    let list = c.word(0x13c4u16.wrapping_add(i));
+    let list = c.word(g::ROOM_LISTS.wrapping_add(i));
     let k = pure::dec(B, dx & 0xff);
     c.set_reg(AX, 5 << 8 | k);
     c.mul8(5);
