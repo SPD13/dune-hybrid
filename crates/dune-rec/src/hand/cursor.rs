@@ -35,8 +35,6 @@ mod code {
 const UI_ELEMENTS_WITH_POINTS: u16 = 0x201a;
 const POINTS: u16 = 0x28e9;
 const PARTICLE_SIZE: u16 = 0x11;
-/// 6-byte records: a non-zero word, x, y (its low byte).
-const MARKERS: u16 = 0xa5c0;
 const EIGHT_POINTS: u16 = 0x2462;
 const EIGHT_POINTS_ON: u16 = 0x4749;
 
@@ -232,7 +230,7 @@ pub fn hotspots_particles(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// `loc_0e0db`: the records at [`MARKERS`] (when [`g::MAP_MODE`] is not
+/// `loc_0e0db`: the records at [`g::MAP_MARKERS`] (when [`g::MAP_MODE`] is not
 /// 0), up to the first whose word 0 is 0.
 pub fn hotspots_markers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe0db)?;
@@ -242,7 +240,7 @@ pub fn hotspots_markers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if kinds == 0 {
         return c.ret();
     }
-    let mut di = MARKERS;
+    let mut di = g::MAP_MARKERS;
     c.set_reg(DI, di);
     loop {
         let w = c.word(di);
@@ -1042,7 +1040,7 @@ fn slots_end(c: &mut Ctx) -> Result<(), Bail> {
 /// `loc_0dfb7`, the rest of `get_mouse_pos_etc` once the keys (or the
 /// joystick) give a direction, DX and BX its sums (not both 0):
 ///
-/// - with [`KEYS_GLIDE`] FFh, the cursor glides: each axis' direction
+/// - with [`g::KEY_CTRL`] FFh, the cursor glides: each axis' direction
 ///   doubled up to three times by the speed it has built up ([0DC51h],
 ///   [0DC53h], the pixels moved so far), times the ticks since the last
 ///   step (at most 8, [0DC50h]) in eighths (`accelerated_step`, the
@@ -1060,7 +1058,7 @@ fn slots_end(c: &mut Ctx) -> Result<(), Bail> {
 /// With neither DL nor BL (only their high bytes set) it returns.
 pub(super) fn keyboard_move(c: &mut Ctx) -> Result<(), Bail> {
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    if c.byte(KEYS_GLIDE) == 0xff {
+    if c.byte(g::KEY_CTRL) == 0xff {
         return glide(c, dx, bx);
     }
     let (dl, bl) = (dx as u8, bx as u8);
@@ -1167,11 +1165,11 @@ pub(super) fn keyboard_move(c: &mut Ctx) -> Result<(), Bail> {
         let t = c.timer();
         c.run(0xe03d, 2 + 9 + 2)?;
         c.set_byte(g::KEY_SPACE, 0);
-        c.set_word(GLIDE_TARGET, x);
-        c.set_word(GLIDE_TARGET + 2, y);
-        c.set_byte(GLIDE_STEPS, 0x64);
+        c.set_word(g::GLIDE_TARGET, x);
+        c.set_word(g::GLIDE_TARGET + 2, y);
+        c.set_byte(g::GLIDE_STEPS, 0x64);
         c.set_reg(AX, t);
-        c.set_byte(GLIDE_TIME, t as u8);
+        c.set_byte(g::GLIDE_TIME, t as u8);
     } else {
         c.run(0xe03d, 2 + 2)?;
     }
@@ -1187,7 +1185,7 @@ fn glide(c: &mut Ctx, dx: u16, bx: u16) -> Result<(), Bail> {
     // cmp, jnz, jmp; or dl, jz
     let mut n = 5;
     if dl != 0 {
-        let v = c.word(GLIDE_SPEED);
+        let v = c.word(g::GLIDE_SPEED);
         let neg = v & 0x8000 != 0;
         let a = if neg { v.wrapping_neg() } else { v };
         n += 3 + neg as u32 + 2; // mov, or, jns, [neg], cmp, jb
@@ -1201,7 +1199,7 @@ fn glide(c: &mut Ctx, dx: u16, bx: u16) -> Result<(), Bail> {
     }
     n += 2; // or bl, jz
     if bl != 0 {
-        let v = c.word(GLIDE_SPEED + 2);
+        let v = c.word(g::GLIDE_SPEED + 2);
         // `jns` on the flags of `or bl, bl` (the `mov` keeps them).
         let neg = bl & 0x80 != 0;
         let a = if neg { v.wrapping_neg() } else { v };
@@ -1229,37 +1227,26 @@ fn glide(c: &mut Ctx, dx: u16, bx: u16) -> Result<(), Bail> {
     c.set_byte(GLIDE_LAST_TICK, t);
     c.set_reg(AX, (last as u16) << 8 | dl as u16);
     c.set_reg8(r8::CL, cl);
-    c.set_reg(SI, GLIDE_FRACTIONS);
+    c.set_reg(SI, g::GLIDE_FRACTIONS);
     c.call(code::ACCELERATED_STEP, 0xe22e)?;
     let ax = c.reg(AX);
-    let speed = c.word(GLIDE_SPEED);
+    let speed = c.word(g::GLIDE_SPEED);
     c.run(0xe22e, 5)?;
     c.set_reg(DX, ax);
-    c.set_word(GLIDE_SPEED, speed.wrapping_add(ax));
-    c.set_reg(SI, GLIDE_FRACTIONS + 1);
+    c.set_word(g::GLIDE_SPEED, speed.wrapping_add(ax));
+    c.set_reg(SI, g::GLIDE_FRACTIONS + 1);
     c.set_reg8(r8::AL, bl);
     c.call(code::ACCELERATED_STEP, 0xe23a)?;
     let ax = c.reg(AX);
-    let speed = c.word(GLIDE_SPEED + 2);
+    let speed = c.word(g::GLIDE_SPEED + 2);
     c.run(0xe23a, 3)?;
     c.set_reg(BX, ax);
-    c.set_word(GLIDE_SPEED + 2, speed.wrapping_add(ax));
+    c.set_word(g::GLIDE_SPEED + 2, speed.wrapping_add(ax));
     c.jump(code::MOVE_CURSOR_BY)
 }
 
-/// [0CE9Eh]: FFh when the keys glide the cursor instead of jumping between
-/// hotspots.
-const KEYS_GLIDE: u16 = 0xce9e;
 /// The table of the scoring routines by direction (CS:DFA7h, 8 words).
 const SCORERS: u16 = 0xdfa7;
 /// The current UI elements: a count, then 0Eh-byte records.
 const UI_ELEMENTS: u16 = 0x1ae4;
-/// The glide: its speed so far (x, y words), the fractions of a pixel
-/// (two bytes), the tick of the last step, and the hotspot the cursor
-/// moves to after a jump (x, y), with its steps and its start time.
-const GLIDE_SPEED: u16 = 0xdc51;
-const GLIDE_FRACTIONS: u16 = 0xdc55;
 const GLIDE_LAST_TICK: u16 = 0xdc50;
-const GLIDE_TARGET: u16 = 0xdc4c;
-const GLIDE_STEPS: u16 = 0xdc4b;
-const GLIDE_TIME: u16 = 0xdc4a;

@@ -95,8 +95,6 @@ pub fn start_clock(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// Set while [`run_clock_ticks`] runs.
-const TICKING: u16 = 0x46da;
 
 /// `loc_00fd9`: the game clock run CX steps at once (the clock started;
 /// each step the countdown restarted, the pending step run
@@ -126,7 +124,7 @@ fn clock_steps(c: &mut Ctx, mut at: u16) -> Result<(), Bail> {
         match at {
             0x0fd9 => {
                 c.run(0x0fd9, 2)?;
-                c.set_byte(TICKING, 1);
+                c.set_byte(g::CLOCK_TICKING, 1);
                 c.call(entry::START_CLOCK, 0x0fe1)?;
                 at = 0x0fe1;
             }
@@ -134,7 +132,7 @@ fn clock_steps(c: &mut Ctx, mut at: u16) -> Result<(), Bail> {
                 let cx = c.reg(CX);
                 if cx as i16 <= 0 {
                     c.run(0x0fe1, 4)?;
-                    c.set_byte(TICKING, 0);
+                    c.set_byte(g::CLOCK_TICKING, 0);
                     return c.ret();
                 }
                 let pending = c.clock().steps_pending != 0;
@@ -162,7 +160,7 @@ fn clock_steps(c: &mut Ctx, mut at: u16) -> Result<(), Bail> {
                     c.run(0x1002, 4)?;
                     c.pop();
                     c.set_reg(CX, 0);
-                    c.set_byte(TICKING, 0);
+                    c.set_byte(g::CLOCK_TICKING, 0);
                     return c.ret();
                 }
                 c.run(0x1002, 2)?;

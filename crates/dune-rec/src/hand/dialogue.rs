@@ -1890,19 +1890,19 @@ fn phrase_on_map_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) 
     c.run(0x80e3, 1)?;
     c.call(entry::DRAW_TEXT_BOX_FRAME, 0x80e6)?;
     // The box 2244h raised for the while: its y and height pushed.
-    let (y, height) = (c.word(MAP_BOX + 2), c.word(MAP_BOX + 6));
+    let (y, height) = (c.word(g::MAP_BOX + 2), c.word(g::MAP_BOX + 6));
     let raised = y >= 0x32;
     c.run(0x80e6, if raised { 12 } else { 11 })?;
     let phrase = c.pop();
     c.set_reg(BX, phrase);
-    c.set_reg(SI, MAP_BOX);
+    c.set_reg(SI, g::MAP_BOX);
     let new_y = if raised { y + 0x26 } else { y };
     c.set_reg(AX, new_y);
     c.push(y);
     c.push(height);
     c.push(phrase);
-    c.set_word(MAP_BOX + 2, new_y);
-    c.set_word(MAP_BOX + 6, 0x19);
+    c.set_word(g::MAP_BOX + 2, new_y);
+    c.set_word(g::MAP_BOX + 6, 0x19);
     c.call(entry::TALL_FONT_COLOUR_F0, 0x8105)?;
     c.run(0x8105, 2)?;
     let phrase = c.pop();
@@ -1919,9 +1919,9 @@ fn phrase_on_map_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) 
         c.run(0x811e, 3)?;
     }
     let height = c.pop();
-    c.set_word(MAP_BOX + 6, height);
+    c.set_word(g::MAP_BOX + 6, height);
     let y = c.pop();
-    c.set_word(MAP_BOX + 2, y);
+    c.set_word(g::MAP_BOX + 2, y);
     c.call(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0x8129)?;
     c.run(0x8129, 3)?;
     c.set_word(g::PLACE_VIEW_LAST_BOX, 0x18f3);
@@ -1932,9 +1932,6 @@ fn phrase_on_map_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) 
     c.ret()
 }
 
-/// The box a phrase over the map is drawn in (2244h: x, y, width,
-/// height words).
-const MAP_BOX: u16 = 0x2244;
 
 /// `loc_088af`: the phrase AX (none for 0) shown: [4780h] = it, [47E0h]
 /// 0. Over the map (bit 40h of [`g::MAP_MODE`], then dropped):
@@ -2446,7 +2443,7 @@ fn view_back_9879(c: &mut Ctx) -> Result<(), Bail> {
 /// `last_entry` was set). Outside the map views for a speaker below
 /// 10h: the portrait brought (before the phrase) and the scene redrawn,
 /// `loc_02ebf` with [4774h], and with no [0EAh] above 0 the voice started
-/// and the hook [`ENTRY_HOOK`] (reset to F66h) run. [`MAP_SCREEN`] =
+/// and the hook [`g::DIALOGUE_ENTRY_HOOK`] (reset to F66h) run. [`MAP_SCREEN`] =
 /// [28E8h] unless [0FBh] is negative. CF clear.
 pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::CF;
@@ -2659,8 +2656,8 @@ pub(super) fn entry_said_a03f(c: &mut Ctx) -> Result<(), Bail> {
             c.run(0xa0d3, 1)?;
             c.call(entry::START_TEXT_VOICE, 0xa0d6)?;
             c.run(0xa0d6, 3)?;
-            let hook = c.word(ENTRY_HOOK);
-            c.set_word(ENTRY_HOOK, 0xf66);
+            let hook = c.word(g::DIALOGUE_ENTRY_HOOK);
+            c.set_word(g::DIALOGUE_ENTRY_HOOK, 0xf66);
             c.set_reg(AX, hook);
             c.call(hook, 0xa0df)?;
             c.run(0xa0df, 1)?;
@@ -2683,8 +2680,6 @@ pub(super) fn entry_said_a03f(c: &mut Ctx) -> Result<(), Bail> {
 const TEXT_BUFFER: u16 = 0xa6b0;
 /// The next free word of the noted entries' list (in CS).
 const NOTED: u16 = 0x11bd;
-/// Run once after an entry's voice starts.
-const ENTRY_HOOK: u16 = 0x227e;
 
 /// `loc_09761`: the speaker AX ([`g::TALKER`]; 0Eh describes the troop
 /// [4756h] first) starts its dialogue: its list (entry 8 · AX + 7 of
@@ -3010,7 +3005,7 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(entry::RESTORE_REGS, 0x8cf5)?;
         }
         c.run(0x8cf5, 2)?;
-        c.set_reg(BP, MAP_BOX);
+        c.set_reg(BP, g::MAP_BOX);
         return box_8ddb(&mut c);
     }
     if talker == 0xffff {
@@ -3191,7 +3186,7 @@ fn lip_sync_setup_at(c: &mut Ctx) -> Result<(), Bail> {
     c.update_situation(|t| t.sentence_bank = if alt { 0x0a } else { 0 });
     c.call(entry::PICK_SENTENCE, 0x91bb)?;
     let head = c.reg(AX);
-    if head == c.word(HEAD) {
+    if head == c.word(g::LOADED_HEAD) {
         c.run(0x91bb, 2)?;
         return open_talking_head_resource(c.m, 0x920f);
     }
@@ -3202,7 +3197,7 @@ fn lip_sync_setup_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x91c5, 4)?;
     let head = c.pop();
     c.set_reg(AX, head);
-    c.set_word(HEAD, head);
+    c.set_word(g::LOADED_HEAD, head);
     c.set_reg(SI, head);
     c.call(entry::OPEN_TALKING_HEAD_RESOURCE, 0x91ce)?;
     // Its text width into the three boxes from 2224h.
@@ -3246,8 +3241,6 @@ fn lip_sync_setup_at(c: &mut Ctx) -> Result<(), Bail> {
     c.ret()
 }
 
-/// The talking head loaded (its resource).
-const HEAD: u16 = 0x22a6;
 
 /// `loc_090bd`: the dialogue list 1F7Eh's second item (+6 the phrase BX,
 /// +8 its handler DX) for the speaker SI (its number in byte 0Eh, AL):

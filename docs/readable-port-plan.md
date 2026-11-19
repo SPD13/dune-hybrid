@@ -1074,6 +1074,12 @@ read and the globe reads it as its latitude rows, so not sine/cosine;
 `COUNTER_122A` is palace room 2's label phrase (`on_phase_04` decrements
 it); `BOOK_PAGE` (1152h) is used as a pick of one of two speakers; the
 local `KEYS_GLIDE` (cursor.rs, CE9Eh) is the Ctrl key's state;
-`POINT_4710` (map.rs) is `PLACE_BOX`. Module-local constants that now
-have a global name (`SHOWN_TROOP`, `MAP_BOX`, `HEAD`, `PICKED`,
-`SHOWN_LIST`, ...) can go.
+`POINT_4710` (map.rs) is `PLACE_BOX`. The module-local constants that
+were the same memory under the same or a weaker name now use the global
+(`SHOWN_TROOP`, `MAP_BOX`, the glide fields, `PLACE_BOX`, the troops'
+tick words, ...); the local `KEYS_GLIDE` is `g::KEY_CTRL` now. Locals
+whose meaning differs from the global's at the same address are left:
+`GAUGES` / `BOOK_PAGE` (1152h), `MAP_SCREEN` / `VOICE_LANGUAGE` (28E7h),
+`EIGHT_POINTS_ON` / `MAP_POINTER_BOX` (4749h), `NEEDS_4C60` /
+`GLOBE_MAP` (4C60h, a buffer used for both), `SHOWN_LIST`,
+`SHOWN_INDEX`, `REDRAWING`, `FIRST_400`.

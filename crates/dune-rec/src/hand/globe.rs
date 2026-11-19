@@ -38,7 +38,6 @@ mod code {
 /// The globe's frame (sprites of resource 1) and its rectangles.
 const GLOBE_SHEET: u16 = 1;
 const GLOBE_MOUSE_RECT: u16 = 0x2448;
-const GLOBE_CLIP_RECT: u16 = 0x2440;
 /// The globe's frame tasks.
 const GLOBE_TASK: u16 = 0xb9ae;
 const GLOBE_TASK_2: u16 = 0xbe57;
@@ -62,7 +61,7 @@ fn globe_with_atmosphere(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(SI, GLOBE_MOUSE_RECT);
     c.call(code::SET_SOME_MOUSE_RECT, 0xb872)?;
     c.run(0xb872, 3)?;
-    c.set_reg(SI, GLOBE_CLIP_RECT);
+    c.set_reg(SI, g::GLOBE_CLIP_RECT);
     c.set_reg(DI, g::DIRTY_RECT);
     c.call(code::COPY_RECT_AT_SI_TO_DI, 0xb87b)?;
     c.run(0xb87b, 1)?; // jmp B977h
@@ -117,7 +116,7 @@ fn side_decorations(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(AX, 1);
     c.call(code::DRAW_SPRITE_CLIPPED_CLOBBERING, 0xb89e)?;
     c.run(0xb89e, 3)?;
-    c.set_reg(SI, GLOBE_CLIP_RECT);
+    c.set_reg(SI, g::GLOBE_CLIP_RECT);
     c.set_reg(DI, g::DIRTY_RECT);
     super::video::copy_rect_at_si_to_di(c.m, 0x5b99)
 }
@@ -478,7 +477,6 @@ pub fn map_cell_scaled(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// screen's centre at DCF6h/DCF8h; a second set at 1980h/DCFAh to swap
 /// with.
 const CENTRE: u16 = g::MAP_MARK;
-const SCREEN_CENTRE: u16 = 0xdcf6;
 const OTHER_CENTRE: u16 = g::OTHER_MARK;
 const OTHER_SCREEN_CENTRE: u16 = 0xdcfa;
 /// The latitude table: 8-byte rows (SS for [BP+...]).
@@ -490,7 +488,7 @@ pub fn swap_projection(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 13)?;
     let mut ax = 0;
-    for (a, b) in [(CENTRE, OTHER_CENTRE), (CENTRE + 2, OTHER_CENTRE + 2), (SCREEN_CENTRE, OTHER_SCREEN_CENTRE), (SCREEN_CENTRE + 2, OTHER_SCREEN_CENTRE + 2)] {
+    for (a, b) in [(CENTRE, OTHER_CENTRE), (CENTRE + 2, OTHER_CENTRE + 2), (g::GLOBE_CENTRE_X, OTHER_SCREEN_CENTRE), (g::GLOBE_CENTRE_X + 2, OTHER_SCREEN_CENTRE + 2)] {
         let (x, y) = (c.word(a), c.word(b));
         c.set_word(b, x);
         c.set_word(a, y);
@@ -509,7 +507,7 @@ pub fn map_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let zoom = c.map_view().mode & 0x80 != 0;
     let shift = if zoom { 2 } else { 0 };
     let (along, row) = (c.reg(DX), c.reg(BX));
-    let y = (row.wrapping_sub(c.word(CENTRE + 2)) << shift).wrapping_add(c.word(SCREEN_CENTRE + 2));
+    let y = (row.wrapping_sub(c.word(CENTRE + 2)) << shift).wrapping_add(c.word(g::GLOBE_CENTRE_X + 2));
     // The row's width (the latitude table's word 2, doubled).
     let index = row.wrapping_mul(8);
     let neg = index & 0x8000 != 0;
@@ -523,7 +521,7 @@ pub fn map_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, y);
     c.set_reg(BP, width);
     c.set_reg(AX, x as u16);
-    let screen_x = c.word(SCREEN_CENTRE);
+    let screen_x = c.word(g::GLOBE_CENTRE_X);
     c.set_reg(DX, ((x >> 16) as u16).wrapping_add(screen_x));
     c.ret()
 }
@@ -713,7 +711,7 @@ pub fn screen_to_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let zoom = c.map_view().mode & 0x80 != 0;
     let cl = if zoom { 2u16 } else { 0 };
     let (dx, bx) = (c.reg(DX), c.reg(BX));
-    let (sx, sy) = (c.word(SCREEN_CENTRE), c.word(SCREEN_CENTRE + 2));
+    let (sx, sy) = (c.word(g::GLOBE_CENTRE_X), c.word(g::GLOBE_CENTRE_X + 2));
     let row = ((bx.wrapping_sub(sy) as i16) >> cl) as u16;
     let row = row.wrapping_add(c.word(CENTRE + 2));
     let neg = row & 0x8000 != 0;

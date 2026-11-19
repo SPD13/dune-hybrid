@@ -26,8 +26,6 @@ mod code {
 
 /// Particle records: 11h bytes each, after the count at [`g::PARTICLES`].
 const PARTICLE_SIZE: u8 = 0x11;
-/// Two pointers into the particle list, kept right when one is removed.
-const PARTICLE_POINTERS: u16 = 0x4752;
 
 /// `decompress_sav` (B4BB): the RLE of saved games, DS:SI to ES:DI: a
 /// header (the escape byte, the packed size with the header); then bytes,
@@ -347,7 +345,7 @@ pub fn particles_remove_particle(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_word(g::PARTICLES, count);
     let di = c.pop();
     c.set_reg(DI, di);
-    c.set_reg(SI, PARTICLE_POINTERS);
+    c.set_reg(SI, g::TROOP_MARKER_PARTICLE);
     c.set_reg(CX, 2);
     for left in [1u16, 0] {
         let si = c.reg(SI);

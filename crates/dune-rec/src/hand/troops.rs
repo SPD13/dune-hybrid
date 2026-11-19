@@ -118,15 +118,15 @@ pub fn spawn_troop_particle_if_visible(m: &mut Machine, start: u16) -> Result<()
     c.ret()
 }
 
-/// `loc_069a3`: the particle at [`PARTICLE_4752`] (if any) removed and
+/// `loc_069a3`: the particle at [`g::TROOP_MARKER_PARTICLE`] (if any) removed and
 /// forgotten. DI kept.
 pub fn remove_troop_marker_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x69a3)?;
     let mut c = Ctx::new(m);
-    let particle = c.word(PARTICLE_4752);
+    let particle = c.word(g::TROOP_MARKER_PARTICLE);
     c.run(start, if particle == 0 { 7 } else { 6 })?;
     c.save(&[DI]);
-    c.set_word(PARTICLE_4752, 0);
+    c.set_word(g::TROOP_MARKER_PARTICLE, 0);
     c.set_reg(DI, particle);
     if particle != 0 {
         c.call(code::PARTICLES_REMOVE_PARTICLE, 0x69b1)?;
@@ -136,8 +136,6 @@ pub fn remove_troop_marker_particle(m: &mut Machine, start: u16) -> Result<(), B
     c.ret()
 }
 
-/// A particle remembered at [4752h] (`remove_troop_marker_particle`).
-const PARTICLE_4752: u16 = 0x4752;
 
 /// `loc_06b25`: the record at SI stamped with the game time (AX 0).
 pub fn stamp_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -792,13 +790,13 @@ pub fn start_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_068eb`: SI = the troop shown: in the zoomed map ([`g::MAP_MODE`]
-/// 80h or more) troop [`SHOWN_TROOP`] (`troop_ptr`, AX kept but AL that
+/// 80h or more) troop [`g::SHOWN_TROOP`] (`troop_ptr`, AX kept but AL that
 /// number), else the one at [`SHOWN_LIST`] by [`SHOWN_INDEX`] (AX twice
 /// the index, AL the troop's number).
 pub fn shown_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x68eb)?;
     let mut c = Ctx::new(m);
-    let number = c.byte(SHOWN_TROOP);
+    let number = c.byte(g::SHOWN_TROOP);
     if c.map_view().mode >= 0x80 {
         c.run(start, 3 + 8)?;
         c.set_reg8(r8::AL, number);
@@ -1289,7 +1287,7 @@ pub fn troop_bit_10_by_state(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// travelling or at a location `loc_05ed0` accepts (ZF; DI the troop's
 /// location): unless `troop_screen_place` sets CF, a particle made
 /// (`loc_0c5cf` with BP 18FDh), given bit 40h of its byte 0Ch and
-/// remembered at [`PARTICLE_4752`].
+/// remembered at [`g::TROOP_MARKER_PARTICLE`].
 pub fn mark_troop_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x697c)?;
     let mut c = Ctx::new(m);
@@ -1325,7 +1323,7 @@ pub fn mark_troop_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let particle = c.reg(DI);
     let b = c.byte(particle.wrapping_add(0x0c));
     c.set_byte(particle.wrapping_add(0x0c), b | 0x40);
-    c.set_word(PARTICLE_4752, particle);
+    c.set_word(g::TROOP_MARKER_PARTICLE, particle);
     c.ret()
 }
 
@@ -1559,7 +1557,7 @@ pub fn troop_take_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (troop, skill, place) = (Troop(c.reg(SI)), c.reg(BX), c.reg(DI));
     let two = skill == 1 && place == c.word(g::LAST_PLACE);
     let least = 1 + two as u8;
-    let ok = c.byte(NEEDS_46FE.wrapping_add(skill)) >= least;
+    let ok = c.byte(g::LOCATION_SKILL_NEEDS.wrapping_add(skill)) >= least;
     c.run(0x77e2, 8 + if skill == 1 { 2 + two as u32 } else { 0 } + if ok { 7 } else { 0 })?;
     c.set_reg8(r8::AL, least);
     if !ok {
@@ -1577,8 +1575,6 @@ pub fn troop_take_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// Where `noted_location_skill_needs` puts a location's needs.
-const NEEDS_46FE: u16 = 0x46fe;
 
 /// `loc_07b58`: [1BEAh], [46F4h] and [4Ch] cleared, and the
 /// selected troop ([46EFh]) dropped (0): its state reset (`loc_01ebe`; word 10h kept
@@ -2008,14 +2004,14 @@ pub fn drop_troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_06715`: `spawn_troop_particle_if_visible` for every troop of the chains of the
-/// locations listed at SS:[`SHOWN_PLACES`] (6 bytes each, to a 0), then
+/// locations listed at SS:[`g::MAP_MARKERS`] (6 bytes each, to a 0), then
 /// for every record of the troop table travelling and without
 /// bit 10h of byte 10h.
 pub fn refresh_all_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6715)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    let mut entry = SHOWN_PLACES;
+    let mut entry = g::MAP_MARKERS;
     c.set_reg(BP, entry);
     loop {
         let place = c.word_in(SS, entry);
@@ -2068,9 +2064,6 @@ pub fn refresh_all_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// The locations whose troops `refresh_all_troops` draws: words in the
-/// stack segment, 6 bytes apart, ending with 0.
-const SHOWN_PLACES: u16 = 0xa5c0;
 
 /// `loc_06d19`: a plain troop SI (no bits E3h of byte 3, none of bit 80h
 /// of byte 10h, not troop 3) merges into the troop BX that `loc_06d5f`
@@ -2533,14 +2526,14 @@ pub fn troop_orders_menu(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::NOTED_LOCATION_SKILL_NEEDS, 0x78a3)?;
     let mut needed = 0u8;
     for k in 0..7 {
-        needed |= c.byte(NEEDS_46FE + k);
+        needed |= c.byte(g::LOCATION_SKILL_NEEDS + k);
     }
     let troop = Troop(c.word_in(SS, c.reg(SP)));
     let bits = troop.byte_19(&mut c);
     let any = needed | bits;
     // `or al,[si]; inc si; loop` over the 7 needs, then `or al,[si+19h]`.
     c.run(0x78a3, 27 + if any != 0 { 2 } else { 1 })?;
-    c.set_reg(SI, NEEDS_46FE + 7);
+    c.set_reg(SI, g::LOCATION_SKILL_NEEDS + 7);
     c.set_reg(CX, 0);
     c.restore(&[SI]);
     c.set_reg8(r8::AL, any);
@@ -2711,7 +2704,7 @@ const PALACE_7C8: u16 = 0x07c8;
 /// Location 17 (2C0h), never picked by `pick_attack_location`.
 const PLACE_2C0: u16 = 0x02c0;
 
-/// `loc_06e20`: with [`DAY_UPDATE`] set, for the troop SI at the location
+/// `loc_06e20`: with [`g::DAY_CHANGED`] set, for the troop SI at the location
 /// DI: a taken location (bit 8 of byte 0Ah) whose day (byte 0Bh) is past
 /// (today minus it below FEh) is freed: the bit cleared, byte 8 kept to
 /// its low three bits, [`g::SIETCHES_HELD`] counted, `loc_06dbb`, byte 0Bh 5. Then
@@ -2722,7 +2715,7 @@ const PLACE_2C0: u16 = 0x02c0;
 pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6e20)?;
     let mut c = Ctx::new(m);
-    if c.byte(DAY_UPDATE) == 0 {
+    if c.byte(g::DAY_CHANGED) == 0 {
         c.run(start, 3)?;
         return c.ret();
     }
@@ -2785,8 +2778,6 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// Set while the day's updates run ([46DEh], `troop_day_update`).
-const DAY_UPDATE: u16 = 0x46de;
 
 /// `loc_0329d`: for a troop SI with byte 3 set, bits Ch of word 10h
 /// cleared (AX 0); else [`g::TOPIC_TROOP_AVERAGE`] = its word 0Eh over the age
@@ -3145,7 +3136,7 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_06c6f`: the troops' tick. [`TICK_PLACE`] = the location of record
+/// `loc_06c6f`: the troops' tick. [`g::TICK_LOCATION`] = the location of record
 /// 1018h when its byte 2 is 80h (else 0), `phase_30_check`; then each
 /// troop in turn:
 /// - one with bits 430h of word 12h waits: travelling, it is
@@ -3159,7 +3150,7 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// - else its job's handler (the table at CS:[`JOB_HANDLERS`], DI its
 ///   location; SI kept), then `troop_skills_decay`.
 ///
-/// [`g::TROOPS_RECHECK`] = [`TICK_NEXT`] at the end (AL).
+/// [`g::TROOPS_RECHECK`] = [`g::TROOPS_TICK_RECHECK`] at the end (AL).
 pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6c6f)?;
     let mut c = Ctx::new(m);
@@ -3170,10 +3161,10 @@ pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let place = if at_place { ((w >> 8) as u8).wrapping_sub(1) as u16 * Location::SIZE + Location::FIRST } else { 0 };
     c.set_reg(AX, if at_place { place } else { w });
     c.set_reg(SI, place);
-    c.set_word(TICK_PLACE, place);
+    c.set_word(g::TICK_LOCATION, place);
     c.call(entry::PHASE_30_CHECK, 0x6c8a)?;
     c.run(0x6c8a, 2)?;
-    c.set_byte(TICK_NEXT, 0);
+    c.set_byte(g::TROOPS_TICK_RECHECK, 0);
     c.set_reg(SI, g::TROOPS);
 
     enum Step {
@@ -3246,7 +3237,7 @@ pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
             Step::AtOwn => {
                 let id = troop.id(&mut c);
-                if id == c.byte(SHOWN_TROOP) {
+                if id == c.byte(g::SHOWN_TROOP) {
                     c.run(0x6ced, 3)?;
                 } else {
                     c.run(0x6ced, 5)?;
@@ -3264,7 +3255,7 @@ pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.run(0x6cc3, if more { 3 } else { 6 })?;
                 c.set_reg(SI, next);
                 if !more {
-                    let again = c.byte(TICK_NEXT);
+                    let again = c.byte(g::TROOPS_TICK_RECHECK);
                     c.set_reg8(r8::AL, again);
                     c.update_situation(|t| t.troops_recheck = again);
                     return c.ret();
@@ -3275,21 +3266,17 @@ pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// The location of record 1018h for this tick, or 0 ([473Ch]).
-const TICK_PLACE: u16 = 0x473c;
-/// Set during a tick for the next one ([4737h]).
-const TICK_NEXT: u16 = 0x4737;
 /// The job handlers: words in the code segment, by job.
 const JOB_HANDLERS: u16 = 0x6c26;
 
 /// `loc_07be0`: for the selected troop ([46EFh] = SI): [47BAh] 0.
 /// With its skills panel up ([46F4h], [46F5h]), a click on a need (the
 /// rect 1936h, `loc_0d6fe`; which one by `find_range` over 4C7Ch) moves
-/// one point from the spread bits at [`SPREAD_BITS`] to [`NEEDS_46FE`]
+/// one point from the spread bits at [`SPREAD_BITS`] to [`g::LOCATION_SKILL_NEEDS`]
 /// and redraws the panel (`loc_07d0c`). Else the full refresh:
 /// `loc_07ba3`, `loc_031f6`, its location (`loc_02e98`); when it is
 /// farther than [1176h] (`troop_map_distance`), [4Ch] FFh and the marked
-/// particle [`PARTICLE_4752`] gets 1916h in words 0Dh and 0Fh;
+/// particle [`g::TROOP_MARKER_PARTICLE`] gets 1916h in words 0Dh and 0Fh;
 /// `loc_09719` until CF clear; `loc_09efd`; [46F4h] 0, or 1 for an order
 /// panel ([47A5h] 80h) with the bits spread (`spread_location_bits`) and
 /// the skill bars (`loc_07e1e`); with bit 80h of [`g::MAP_MODE`]
@@ -3323,8 +3310,8 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let k = c.reg(DI);
         let from = c.byte(SPREAD_BITS.wrapping_add(k)).wrapping_sub(1);
         c.set_byte(SPREAD_BITS.wrapping_add(k), from);
-        let to = c.byte(NEEDS_46FE.wrapping_add(k)).wrapping_add(1);
-        c.set_byte(NEEDS_46FE.wrapping_add(k), to);
+        let to = c.byte(g::LOCATION_SKILL_NEEDS.wrapping_add(k)).wrapping_add(1);
+        c.set_byte(g::LOCATION_SKILL_NEEDS.wrapping_add(k), to);
         c.call(entry::DRAW_SKILLS_PANEL, 0x7ee1)?;
         c.run(0x7ee1, 1)?;
         return c.ret();
@@ -3344,7 +3331,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if c.reg(AX) <= c.word(g::REACH) {
         c.run(0x7c11, 3)?;
     } else {
-        let marked = c.word(PARTICLE_4752);
+        let marked = c.word(g::TROOP_MARKER_PARTICLE);
         c.run(0x7c11, if marked != 0 { 10 } else { 7 })?;
         c.update_topic_troop(|t| t.out_of_reach = 0xff);
         c.set_reg(DI, marked);
@@ -4078,7 +4065,7 @@ fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
     let troop = Troop(c.word_in(SS, c.reg(SP)));
     let carried = troop.carried(c);
     let need = carried & 0xff;
-    let needed = c.byte(NEEDS_46FE.wrapping_add(need)) != 0;
+    let needed = c.byte(g::LOCATION_SKILL_NEEDS.wrapping_add(need)) != 0;
     c.run(0x842b, if needed { 13 } else { 10 })?;
     c.restore(&[SI]);
     c.set_reg(BX, need);
@@ -4680,7 +4667,7 @@ pub(super) fn set_job_at_6ad4(c: &mut Ctx) -> Result<(), Bail> {
     let id = troop.id(c);
     c.run(0x6b19, 4)?;
     c.set_reg8(r8::AL, id);
-    let shown = c.byte(SHOWN_TROOP);
+    let shown = c.byte(g::SHOWN_TROOP);
     if id != shown {
         c.cmp(B, id as u16, shown as u16);
         return c.ret();
@@ -4692,8 +4679,6 @@ pub(super) fn set_job_at_6ad4(c: &mut Ctx) -> Result<(), Bail> {
 
 /// The location where job 8 can become 0Ah (`set_troop_job`).
 const SPECIAL_PLACE: u16 = 0x07c8;
-/// The number of the troop the panel shows ([1954h]).
-const SHOWN_TROOP: u16 = 0x1954;
 
 /// `loc_06ecb` (for each troop SI): with bit 10h of byte 12h, its job
 /// set again ([`set_troop_job`] with CL its job).
@@ -5454,19 +5439,19 @@ pub fn job_4(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_08751` (a callback, called through a register): with a troop shown
-/// ([`SHOWN_TROOP`]), its particle taken off (`loc_069a3`), none shown,
+/// ([`g::SHOWN_TROOP`]), its particle taken off (`loc_069a3`), none shown,
 /// then on at `loc_07b58`. Flags exact (its callers are not known).
 pub fn hide_shown_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8751)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(SHOWN_TROOP);
+    let k = c.byte(g::SHOWN_TROOP);
     c.run(start, 3)?; // cmp; je 878Bh; ret | call
     if k == 0 {
         return c.ret();
     }
     c.call(entry::REMOVE_TROOP_MARKER_PARTICLE, 0x875b)?;
     c.run(0x875b, 2)?; // mov [1954h], 0; jmp
-    c.set_byte(SHOWN_TROOP, 0);
+    c.set_byte(g::SHOWN_TROOP, 0);
     c.jump(entry::DROP_SELECTED_TROOP)
 }
 

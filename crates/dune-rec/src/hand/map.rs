@@ -22,16 +22,14 @@ mod code {
 
 /// The map's view rect: left, top, right, bottom.
 const VIEW: u16 = 0x46e3;
-/// A point on the map (x, y words).
-const POINT_4710: u16 = 0x4710;
 const SPRITE_LIST_MAP: u16 = 0x194a;
 
-/// `loc_0557b`: DX, BX = the point at [`POINT_4710`].
+/// `loc_0557b`: DX, BX = the point at [`g::PLACE_BOX`].
 pub fn place_box_origin(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x557b)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let (x, y) = (c.word(POINT_4710), c.word(POINT_4710 + 2));
+    let (x, y) = (c.word(g::PLACE_BOX), c.word(g::PLACE_BOX + 2));
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     c.ret()
@@ -101,7 +99,7 @@ pub fn map_click_handler_and_rect(m: &mut Machine, start: u16) -> Result<(), Bai
 }
 
 /// `loc_05b10`: `loc_08850`, then with bit 40h of [46EBh] the mouse rect
-/// = the rect at [`POINT_4710`].
+/// = the rect at [`g::PLACE_BOX`].
 pub fn redraw_and_reclip_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5b10)?;
     let mut c = Ctx::new(m);
@@ -113,7 +111,7 @@ pub fn redraw_and_reclip_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> 
     if !on {
         return c.ret();
     }
-    c.set_reg(SI, POINT_4710);
+    c.set_reg(SI, g::PLACE_BOX);
     super::input::set_some_mouse_rect(c.m, 0xdaaa)
 }
 
@@ -883,7 +881,7 @@ pub fn heading_for_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0578b`: for AL (not negative), the driver's function at 3961h at
-/// [`POINT_4710`] + (5Eh + 4 AL, 62h), 5 x 7. AX kept.
+/// [`g::PLACE_BOX`] + (5Eh + 4 AL, 62h), 5 x 7. AX kept.
 pub fn toggle_box_cell_highlight(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x578b)?;
     let mut c = Ctx::new(m);
@@ -925,7 +923,7 @@ pub fn drop_point_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.call(code::SAVE_REGS, 0x5904)?;
-    let first = c.word(g::SPRITE_LIST) == POINT_4710;
+    let first = c.word(g::SPRITE_LIST) == g::PLACE_BOX;
     c.run(0x5904, 4 + (!first) as u32 + 3)?;
     let k = c.map_view().mode;
     let k = pure::and(B, k as u16, 0xbf);
@@ -1630,15 +1628,15 @@ pub fn pick_map_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     // Added to the picks (the oldest dropped when there are 3).
-    let full = c.byte(PICKED) >= 3;
+    let full = c.byte(g::PICKED_COUNT) >= 3;
     c.run(0x8259, 7 + if kind >= 0x20 { 2 } else { 0 } + full as u32)?;
     c.set_reg8(r8::AL, kind);
     if full {
         c.call(entry::CLEAR_PICKED_LOCATIONS, 0x8276)?;
     }
     c.run(0x8276, 6)?;
-    let picked = c.byte(PICKED);
-    c.set_byte(PICKED, picked.wrapping_add(1));
+    let picked = c.byte(g::PICKED_COUNT);
+    c.set_byte(g::PICKED_COUNT, picked.wrapping_add(1));
     let slot = (picked as u16) << 1;
     c.set_reg(BX, slot);
     c.set_word(slot.wrapping_add(0x4718), location);
@@ -1647,7 +1645,7 @@ pub fn pick_map_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::MAP_MODE_FLAG, 0x828c)?;
     c.run(0x828c, 1)?;
     c.call(entry::INSTALL_UI_LIST, 0x828f)?;
-    if c.byte(PICKED) < 3 {
+    if c.byte(g::PICKED_COUNT) < 3 {
         c.run(0x828f, 4)?;
         c.set_flag(CF, true); // `stc`: more to pick
         return c.ret();
@@ -1660,8 +1658,6 @@ pub fn pick_map_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// How many locations are picked (at 4718h, up to 3).
-const PICKED: u16 = 0x4738;
 
 /// `loc_09bb1`: `loc_09bee`; with no [4540h] the rect D834h from 1BF0h
 /// (`loc_05b99`, its first word then 80h), else `loc_09c2d` (done when

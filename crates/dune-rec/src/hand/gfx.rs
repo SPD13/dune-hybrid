@@ -563,10 +563,9 @@ pub fn gfx_call_18(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// A ring of points (x, y words) in the code segment, E40Ch..E85Ch; the
-/// next free slot at [`POINTS_NEXT`].
+/// next free slot at [`g::MAP_POINTS_NEXT`].
 const POINTS_RING: u16 = 0xe40c;
 const POINTS_RING_END: u16 = 0xe85c;
-const POINTS_NEXT: u16 = 0x149a;
 
 /// `loc_049ea`: [4728h] cleared, every point of the ring to (800h, 800h).
 pub fn clear_points_ring(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -595,7 +594,7 @@ pub fn clear_points_ring(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn add_point_to_ring(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4a00)?;
     let mut c = Ctx::new(m);
-    let di = c.word(POINTS_NEXT);
+    let di = c.word(g::MAP_POINTS_NEXT);
     let step = c.string_step(W);
     let end = di.wrapping_add(step.wrapping_mul(2));
     let wrap = end >= POINTS_RING_END;
@@ -612,7 +611,7 @@ pub fn add_point_to_ring(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.stos(W);
     let next = if wrap { POINTS_RING } else { end };
     c.set_reg(DI, next);
-    c.set_word(POINTS_NEXT, next);
+    c.set_word(g::MAP_POINTS_NEXT, next);
     c.ret()
 }
 
@@ -685,7 +684,7 @@ pub fn draw_last_ring_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg(SI, 0x148a);
     c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x4a27)?;
-    let p = c.word(POINTS_NEXT);
+    let p = c.word(g::MAP_POINTS_NEXT);
     let wrap = p == POINTS_RING;
     let at = (if wrap { POINTS_RING_END } else { p }).wrapping_sub(4);
     let y = c.code_word(at.wrapping_add(2));
