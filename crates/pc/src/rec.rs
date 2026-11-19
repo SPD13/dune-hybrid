@@ -1495,7 +1495,11 @@ impl Machine {
         let (cs, ss, sp) = (self.cpu.sregs[CS], self.cpu.sregs[SS], self.cpu.regs[SP]);
         let from_port = self.rec.as_mut().is_some_and(|r| std::mem::take(&mut r.from_port));
         self.rec_settle()?;
-        if let Some(f) = self.rec_routine(cs, target, true) {
+        // A target that is no routine's entry but a block leader (a callback
+        // called through a register: `loc_0316e`, `loc_08751`, ...): the code
+        // from there, to its `ret`, as the run loop would go on after a bail.
+        let f = self.rec_routine(cs, target, true).or_else(|| if nested { None } else { self.rec_routine(cs, target, false) });
+        if let Some(f) = f {
             if let Some(rec) = self.rec.as_mut()
                 && self.cpu.sregs[CS] == crate::LOAD_SEG
                 && rec.generated[target as usize].is_some_and(|g| g as usize == f as usize)

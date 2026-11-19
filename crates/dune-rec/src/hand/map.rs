@@ -6389,8 +6389,11 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DI, b1);
         c.call(0xd6fe, 0x5c87)?;
         if c.flag(CF) {
-            c.m.cpu.ip = 0x5c87;
-            return Err(Bail);
+            // The mouse over the first list: on at 5923h for the map
+            // point (4710h), else at 7E97h.
+            c.run(0x5c87, 4)?; // jnb; cmp; jne; jmp
+            c.cmp(W, b1, 0x4710);
+            return c.jump(if b1 == 0x4710 { 0x5923 } else { 0x7e97 });
         }
         c.run(0x5c87, 1)?;
     } else {
@@ -6403,8 +6406,8 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DI, b2);
         c.call(0xd6fe, 0x5ca0)?;
         if c.flag(CF) {
-            c.m.cpu.ip = 0x5ca0;
-            return Err(Bail);
+            c.run(0x5ca0, 2)?; // jnb; jmp
+            return c.jump(0x7eb8);
         }
         c.run(0x5ca0, 1)?;
     } else {
@@ -6419,8 +6422,8 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5ca5, 3)?;
     c.call(0x6946, 0x5cb2)?;
     if c.flag(CF) {
-        c.m.cpu.ip = 0x5cb2;
-        return Err(Bail);
+        c.run(0x5cb2, 2)?; // jnb; jmp
+        return c.jump(0x872c);
     }
     c.run(0x5cb2, 3)?;
     c.set_reg8(r8::AL, 0x31);
@@ -6429,8 +6432,11 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let di = c.reg(DI);
     let cur = c.map_selection().caption;
     if ax < 0x14 && di != cur {
-        c.m.cpu.ip = 0x5cbc;
-        return Err(Bail);
+        // Near and another place than the caption's: on at 5FB0h.
+        c.run(0x5cbc, 5)?; // cmp; jnb; cmp; je; jmp
+        c.cmp(W, ax, 0x14);
+        c.cmp(W, di, cur);
+        return c.jump(0x5fb0);
     }
     c.run(0x5cbc, if ax < 0x14 { 5 } else { 3 })?;
     c.call(0x5f79, 0x5ccd)?;

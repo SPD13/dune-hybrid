@@ -430,10 +430,23 @@ Most bails were not interrupts. Each game had about 190000 bails in some
   (`get_mouse_cursor_image_addr`'s DC8Fh: `image_near` gives the count,
   the image and AX).
 
+- **Callbacks without an entry.** A port calling an address that is
+  no routine's entry but a block leader (a callback called through a
+  register: `loc_0316e`, `loc_08751`, `loc_06e82`, `loc_0a219`, ...)
+  bailed in `rec_call`; it now runs the code from that leader to its
+  `ret` (the generated resume, as the run loop would after the bail;
+  `Ctx::jump` already did). Ports for them are still to write; 1803
+  (`head_down_from_picture`) has one. Explicit bails at unported tails
+  (`place_panel_back` with the cursor low, `sub_5c76`'s jumps) are
+  ported.
+
 With `REC_INPLACE` a game now has about 60000 interrupts taken in place
-in 300 s (2800-4400 of them in generated code); bails: 39-76 in hand
-ports (mostly `main_loop_top`'s, from a callee's bail), 12-31 in
-generated code, 0-204 in the drivers' lifted code (before the hand-off:
+in 300 s (2800-4400 of them in generated code); bails: 26-31 in hand
+ports, 9-15 in generated code, 0-204 in the drivers' lifted code: the
+start-up (`start`'s STI, the PIT measurement, the HSQ decompression of
+the loading) and single ones at the run's remaining stops (shots,
+load/save) (before the callbacks: 39-76 in hand ports, mostly
+`main_loop_top`'s from a callee's bail; before the hand-off:
 230-355 in generated code, the hand resume's bails counted there too;
 before the inputs in
 place: 50-100, about 1450 and 1300-2300; before generated code took
