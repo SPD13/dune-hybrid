@@ -3,6 +3,7 @@
 //! starts with a byte: its kind in the low 4 bits (0Fh: none to leave),
 //! FFh at the end of the stack.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -53,7 +54,7 @@ fn pop(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Result<
     let bp = c.word(si);
     c.set_reg(BP, bp);
     c.set_reg8(r8::CL, 0xff);
-    c.call(0xd36d, 0xd315)?;
+    c.call(entry::REPLACE_UI_LIST, 0xd315)?;
     c.run(0xd315, 1)?;
     c.ret()
 }
@@ -113,7 +114,7 @@ pub fn leave_screens(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_byte(TRANSITION, ax as u8);
             return c.ret();
         }
-        c.call(0xd2ea, 0xd2d8)?;
+        c.call(entry::LEAVE_SCREEN, 0xd2d8)?;
         (at, extra) = (0xd2d8, 1);
     }
 }
@@ -203,9 +204,9 @@ fn set_cursor_sprite(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ct
             let cx = c.reg(CX);
             c.xor(W, cx, cx);
             c.set_reg(CX, 0);
-            c.call(0xd454, 0xd63e)?;
+            c.call(entry::ITEM_PLACE, 0xd63e)?;
             c.run(0xd63e, 1)?;
-            c.call(0xd48a, 0xd641)?;
+            c.call(entry::BUTTON_LABEL, 0xd641)?;
             c.run(0xd641, 2)?;
             c.set_byte(g::HOVERED_ITEM, 0xff);
             c.call(code::DRAW_MOUSE, 0xd649)?;
@@ -374,7 +375,7 @@ pub fn move_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (dx, bx) = (c.reg(pc::cpu::DX), c.reg(BX));
     c.update_mouse_state(|t| t.x = dx);
     c.update_mouse_state(|t| t.y = bx);
-    c.call(0xdae3, 0xdb11)?;
+    c.call(entry::SET_MOUSE_POS, 0xdb11)?;
     c.run(0xdb11, 1)?;
     super::mouse::draw_mouse(c.m, 0xdbec)
 }
@@ -393,9 +394,9 @@ pub fn draw_1b48_and_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xdf14, 2)?;
     let ax = c.pop();
     c.set_reg(AX, ax);
-    c.call(0xc13e, 0xdf18)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xdf18)?;
     c.run(0xdf18, 1)?;
-    c.call(0xd397, 0xdf1b)?;
+    c.call(entry::REDRAW_UI_SLOTS, 0xdf1b)?;
     c.run(0xdf1b, 1)?;
     super::mouse::draw_mouse(c.m, 0xdbec)
 }
@@ -414,7 +415,7 @@ pub(super) fn set_buttons(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&m
     c.set_reg(CX, 0x2a);
     c.rep_counted(0xa5);
     c.run(0xd735, 1)?;
-    c.call(0xd741, 0xd738)?;
+    c.call(entry::DRAW_PANEL_BUTTON_FRAME, 0xd738)?;
     c.run(0xd738, 3)?;
     c.set_reg(SI, BUTTONS);
     c.set_reg(CX, 6);
@@ -485,7 +486,7 @@ pub fn element_under_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd6b7)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xd694, 0xd6ba)?;
+    c.call(entry::UI_ELEMENTS_FOR_CURSOR, 0xd6ba)?;
     if c.flag(pc::cpu::ZF) {
         c.run(0xd6ba, 2)?;
         return c.ret();
@@ -589,7 +590,7 @@ pub fn cursor_over_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(start, 4)?;
         c.set_reg(SI, 0x1492);
-        c.call(0xc46f, 0x4b38)?;
+        c.call(entry::COPY_RECT_BACKBUFFER_TO_FB1, 0x4b38)?;
         c.run(0x4b38, 1)?;
     }
     let y = c.mouse_state().cursor[1];
@@ -627,10 +628,10 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, 3)?;
     c.cmp(B, k as u16, 0);
-    c.call(0xe270, 0xd28a)?;
+    c.call(entry::SAVE_REGS, 0xd28a)?;
     c.run(0xd28a, 2)?;
     c.set_byte(g::TRANSITION_ACTIVE, 0);
-    c.call(0xd239, 0xd292)?;
+    c.call(entry::STEP_TIME_PANEL_TO_PHASE_2, 0xd292)?;
     c.run(0xd292, 1)?;
     c.set_reg(CX, 0x11);
     // The ticks, read right after a stretch of their instruction alone
@@ -646,7 +647,7 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let si = c.screen_buffers().second;
         c.set_reg(SI, si);
         c.set_reg8(r8::AL, 0x18);
-        c.call(0xc0d5, 0xd2a3)?;
+        c.call(entry::TRANSITION_FRONT_BUFFER_TO_SCREEN, 0xd2a3)?;
         c.run(0xd2a3, 1)?;
         let bx = c.pop();
         c.set_reg(BX, bx);
@@ -654,7 +655,7 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xd2a4, 2)?;
             let bx = c.reg(BX);
             c.push(bx);
-            c.call(0xa7c2, 0xd2a8)?;
+            c.call(entry::LIP_SYNC_FRAME_TASK, 0xd2a8)?;
             c.run(0xd2a8, 1)?;
             let bx = c.pop();
             c.set_reg(BX, bx);
@@ -678,9 +679,9 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.run(0xd2b6, 1)?;
-    c.call(0xd23d, 0xd2b9)?;
+    c.call(entry::NUDGE_PANEL, 0xd2b9)?;
     c.run(0xd2b9, 1)?;
-    c.call(0xe283, 0xd2bc)?;
+    c.call(entry::RESTORE_REGS, 0xd2bc)?;
     c.run(0xd2bc, 1)?;
     c.ret()
 }
@@ -725,12 +726,12 @@ pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word(0x1af4 + off, v);
     }
     c.set_reg(CX, 2);
-    c.call(0xd1f2, 0xd265)?;
+    c.call(entry::DRAW_UI_ELEMENTS_LIST_AT_DS_SI, 0xd265)?;
     c.run(0xd265, 1)?;
-    c.call(0x1a34, 0xd268)?;
+    c.call(entry::UI_DRAW_DATE_AND_TIME_INDICATOR, 0xd268)?;
     c.run(0xd268, 2)?;
     c.set_reg(AX, 0x0a);
-    c.call(0xe387, 0xd26e)?;
+    c.call(entry::WAIT_A_BIT, 0xd26e)?;
     c.run(0xd26e, 6)?;
     let si = c.pop();
     c.set_reg(SI, si);
@@ -742,9 +743,9 @@ pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word(si.wrapping_add(off), v);
     }
     c.set_reg(CX, 2);
-    c.call(0xd1f2, 0xd27c)?;
+    c.call(entry::DRAW_UI_ELEMENTS_LIST_AT_DS_SI, 0xd27c)?;
     c.run(0xd27c, 1)?;
-    c.call(0x1a34, 0xd27f)?;
+    c.call(entry::UI_DRAW_DATE_AND_TIME_INDICATOR, 0xd27f)?;
     c.run(0xd27f, 1)?;
     c.ret()
 }
@@ -774,10 +775,10 @@ pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let t = pure::and(W, t, 0xfff0);
     c.set_reg(AX, t);
     c.set_word(g::RESULTS_DATE, t);
-    c.call(0xd075, 0xbdda)?;
+    c.call(entry::FONT_SELECT_SMALL_FONT, 0xbdda)?;
     c.run(0xbdda, 2)?;
     c.set_reg(SI, 0x2494);
-    c.call(0xd1a6, 0xbde0)?;
+    c.call(entry::FONT_DRAW_PHRASE_LIST, 0xbde0)?;
     let step = c.string_step(B);
     let (mut si, mut di, mut cx) = (0xdd11u16, 0xdd17u16, 6u16);
     let mut n = 5;
@@ -836,7 +837,7 @@ pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     if call {
-        c.call(0xdbec, 0xbdf9)?;
+        c.call(entry::DRAW_MOUSE, 0xbdf9)?;
         c.run(0xbdf9, 1)?;
     }
     c.ret()
@@ -907,17 +908,17 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if k == 0 {
         let r = c.word(g::RESOURCE_ID);
         c.push(r);
-        c.call(0xc137, 0xd803)?;
+        c.call(entry::LOAD_ICONES_SPRITES, 0xd803)?;
         c.run(0xd803, 1)?;
-        c.call(0xdbb2, 0xd806)?;
+        c.call(entry::CALL_RESTORE_CURSOR, 0xd806)?;
         c.run(0xd806, 1)?;
-        c.call(0xd763, 0xd809)?;
+        c.call(entry::DRAW_GAUGES, 0xd809)?;
         c.run(0xd809, 1)?;
-        c.call(0xdbec, 0xd80c)?;
+        c.call(entry::DRAW_MOUSE, 0xd80c)?;
         c.run(0xd80c, 2)?;
         let a = c.pop();
         c.set_reg(AX, a);
-        c.call(0xc13e, 0xd810)?;
+        c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xd810)?;
         c.run(0xd810, 2)?;
     }
     let v = c.pop();
@@ -945,7 +946,7 @@ pub fn open_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(0xdd0a, d);
     c.set_word(0xdd0c, b);
     c.set_byte(0xdd0e, 7);
-    c.call(0xc08e, 0xbcb1)?;
+    c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xbcb1)?;
     c.run(0xbcb1, 1)?;
     c.set_reg(CX, 8);
     loop {
@@ -983,9 +984,9 @@ pub fn open_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DX, dx);
         c.set_reg(DI, 0x2448);
         c.set_reg(SI, 0xdd06);
-        c.call(0xc551, 0xbcf9)?;
+        c.call(entry::DRAW_RECT_OUTLINE_AT_SI, 0xbcf9)?;
         c.run(0xbcf9, 1)?;
-        c.call(0xbd00, 0xbcfc)?;
+        c.call(entry::TRANSITION_BORDERED_RECT, 0xbcfc)?;
         let cx = c.word_in(SS, c.reg(SP)).wrapping_sub(1);
         c.run(0xbcfc, 2 + (cx == 0) as u32)?;
         c.pop();
@@ -1011,14 +1012,14 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(0x4751, v as u8);
     let fb = c.screen_buffers().active;
     c.push(fb);
-    c.call(0xc08e, 0x44b6)?;
+    c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x44b6)?;
     c.run(0x44b6, 1)?;
-    c.call(0x5b93, 0x44b9)?;
+    c.call(entry::COPY_VIEW_TO_CLIP_RECT, 0x44b9)?;
     c.run(0x44b9, 1)?;
-    c.call(0xc137, 0x44bc)?;
+    c.call(entry::LOAD_ICONES_SPRITES, 0x44bc)?;
     c.run(0x44bc, 2)?;
     c.set_reg(SI, 0x4749);
-    c.call(0xdb74, 0x44c2)?;
+    c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x44c2)?;
     let si = c.reg(SI);
     let r = [c.word(si), c.word(si.wrapping_add(2)), c.word(si.wrapping_add(4)), c.word(si.wrapping_add(6))];
     let b = [c.word(g::RECT_D834), c.word(0xd836), c.word(0xd838), c.word(0xd83a)];
@@ -1033,7 +1034,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     c.set_reg(BP, bp);
     c.set_reg(AX, ax);
-    c.call(0xc4fb, 0x44f1)?;
+    c.call(entry::DRAW_HEAD_IF_NEEDED_AND_UPDATE_SCREEN_RECT, 0x44f1)?;
     let k = c.byte(0x4751);
     let odd = k & 1 != 0;
     c.run(0x44f1, 3 + if odd { 4 } else { 0 })?;
@@ -1046,7 +1047,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let (x, y) = (c.word(0x4749), c.word(0x474b));
         c.set_reg(DX, x);
         c.set_reg(BX, y);
-        c.call(0xc30d, 0x4507)?;
+        c.call(entry::DRAW_SPRITE_CLIPPED_CLOBBERING, 0x4507)?;
     }
     c.run(0x4507, 2)?;
     let fb = c.pop();
@@ -1059,7 +1060,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn buttons_from_d735(c: &mut Ctx, at: u16, n: u32, ops: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
     c.run(at, n + 1)?;
     ops(c);
-    c.call(0xd741, 0xd738)?;
+    c.call(entry::DRAW_PANEL_BUTTON_FRAME, 0xd738)?;
     c.run(0xd738, 3)?;
     c.set_reg(SI, BUTTONS);
     c.set_reg(CX, 6);
@@ -1142,7 +1143,7 @@ pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ct
     c.cmp(B, 0x80, 0x80);
     c.set_reg(DX, dx);
     c.cmp(B, dx >> 8, 0x21);
-    c.call(0x3efe, 0x3035)?;
+    c.call(entry::LIST_ENTRY, 0x3035)?;
     let si = c.reg(SI).wrapping_add(1);
     let here = c.word(g::PLACE);
     let dl = c.reg8(r8::DL);
@@ -1191,7 +1192,7 @@ pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ct
         c.set_reg(CX, 3 - i);
     }
     c.set_reg(DI, di);
-    c.call(0xd741, 0xd738)?;
+    c.call(entry::DRAW_PANEL_BUTTON_FRAME, 0xd738)?;
     c.run(0xd738, 3)?;
     c.set_reg(SI, BUTTONS);
     c.set_reg(CX, 6);
@@ -1213,21 +1214,21 @@ pub fn place_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn place_map_pointer_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x445d, 2)?;
     c.set_reg(SI, 0x44ab);
-    c.call(0xda5f, 0x4463)?;
+    c.call(entry::REMOVE_FRAME_TASK, 0x4463)?;
     c.run(0x4463, 1)?;
-    c.call(0x407e, 0x4466)?;
+    c.call(entry::GET_MAP_POSITION, 0x4466)?;
     c.run(0x4466, 1)?;
-    c.call(0x62d6, 0x4469)?;
+    c.call(entry::MAP_POINT_OUTSIDE_VIEW, 0x4469)?;
     if c.flag(CF) {
         c.run(0x4469, 3)?;
         c.set_word(0x4749, 0);
         return c.ret();
     }
     c.run(0x4469, 2)?;
-    c.call(0xc137, 0x4475)?;
+    c.call(entry::LOAD_ICONES_SPRITES, 0x4475)?;
     c.run(0x4475, 2)?;
     c.set_reg(AX, 0x4c);
-    c.call(0xc1f4, 0x447b)?;
+    c.call(entry::GET_SUBRESOURCE_POINTER, 0x447b)?;
     c.run(0x447b, 17)?;
     let a = c.lods(W, ES);
     let a = a & 0x0fff;
@@ -1253,7 +1254,7 @@ fn place_map_pointer_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_word(0x474f, ax);
     c.set_reg(SI, 0x44ab);
     c.set_reg(BP, 0x12c);
-    c.call(0xda25, 0x44a6)?;
+    c.call(entry::ADD_FRAME_TASK, 0x44a6)?;
     c.run(0x44a6, 1)?;
     c.set_byte(0x4751, 0);
     blink_map_pointer(c.m, 0x44ab)
@@ -1274,13 +1275,13 @@ pub fn redraw_map_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x4386, if f != 0 { 4 } else { 3 })?;
     if f != 0 {
         c.set_reg(AX, 0x24);
-        c.call(0xc13e, 0x4393)?;
+        c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x4393)?;
         c.run(0x4393, 2)?;
         c.set_reg(SI, 0x14c0);
-        c.call(0xc21b, 0x4399)?;
+        c.call(entry::DRAW_ICONS_LIST_AT_SI, 0x4399)?;
         c.run(0x4399, 1)?;
     }
-    c.call(0xc4ed, 0x439c)?;
+    c.call(entry::UPDATE_SCREEN_AT_SPRITE_RECT_UPDATING_HEAD, 0x439c)?;
     c.run(0x439c, 1)?;
     place_map_pointer_at(&mut c)
 }
@@ -1291,9 +1292,9 @@ pub fn leave_and_fade(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd2e2)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xd316, 0xd2e5)?;
+    c.call(entry::ASK_REDRAW, 0xd2e5)?;
     c.run(0xd2e5, 1)?;
-    c.call(0xd2ea, 0xd2e8)?;
+    c.call(entry::LEAVE_SCREEN, 0xd2e8)?;
     c.run(0xd2e8, 1)?;
     fade_panel(c.m, 0xd280)
 }
@@ -1304,9 +1305,9 @@ pub fn unwind_and_fade(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd32f)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xd316, 0xd332)?;
+    c.call(entry::ASK_REDRAW, 0xd332)?;
     c.run(0xd332, 1)?;
-    c.call(0xd33a, 0xd335)?;
+    c.call(entry::INSTALL_UI_LIST, 0xd335)?;
     c.run(0xd335, 1)?;
     fade_panel(c.m, 0xd280)
 }
@@ -1340,23 +1341,23 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if k != 0 {
         c.run(start, 3)?;
         c.cmp(B, k as u16, 0);
-        c.call(0x301a, 0x2ebc)?;
+        c.call(entry::SET_MODE_BUTTONS, 0x2ebc)?;
         c.run(0x2ebc, 1)?;
-        c.call(0x98e6, 0x2ebf)?;
+        c.call(entry::RESET_DIALOGUE, 0x2ebf)?;
         return list_2220_at(&mut c);
     }
     c.run(start, 4)?;
     c.cmp(B, 0, 0);
     let di = c.word(g::PLACE);
     c.set_reg(DI, di);
-    c.call(0x2e98, 0x2ed0)?;
+    c.call(entry::NOTE_POINT, 0x2ed0)?;
     c.run(0x2ed0, 1)?;
-    c.call(0x2efb, 0x2ed3)?;
+    c.call(entry::BUILD_ACTION_LIST, 0x2ed3)?;
     let mode = c.travel().screen_kind;
     c.run(0x2ed3, if mode == 0 { 3 } else { 2 })?;
     c.cmp(B, mode as u16, 0);
     if mode == 0 {
-        c.call(0x3090, 0x2edd)?;
+        c.call(entry::RESET_DIALOGUE_THEN_SET_UP_PLACE, 0x2edd)?;
     }
     // Low on the screen (y 74h on), the cursor hidden (`call_restore_cursor`)
     // with `draw_mouse` (DBECh) pushed: the tail's `ret` goes there, which
@@ -1369,12 +1370,12 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if hide {
         c.set_reg(AX, 0xdbec);
         c.push(0xdbec);
-        c.call(0xdbb2, 0x2eec)?;
+        c.call(entry::CALL_RESTORE_CURSOR, 0x2eec)?;
         c.run(0x2eec, 1)?;
     }
-    c.call(0x2ffb, 0x2eef)?;
+    c.call(entry::PANEL_BUTTONS, 0x2eef)?;
     c.run(0x2eef, 1)?;
-    c.call(0xd763, 0x2ef2)?;
+    c.call(entry::DRAW_GAUGES, 0x2ef2)?;
     c.run(0x2ef2, 3)?;
     c.set_reg(BP, 0x1f0e);
     c.set_reg(BX, 0x0f66);
@@ -1449,7 +1450,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.push(di);
                 let p = c.word(g::PLACE);
                 c.set_reg(DI, p);
-                c.call(0x7f27, 0x2f45)?;
+                c.call(entry::NOTED_LOCATION_SKILL_NEEDS, 0x2f45)?;
                 c.run(0x2f45, 9)?;
                 let d = c.pop();
                 c.set_reg(DI, d);
@@ -1506,7 +1507,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.lods(W, DS);
         let phase = c.progress().phase;
         flagged(&mut c, v, phase < 0x4f);
-        c.call(0x1ae0, 0x2fc9)?;
+        c.call(entry::GET_INGAME_TIME_OF_DAY, 0x2fc9)?;
         // By the time of day (`loc_01ae0`): 21E0h or, from 0Bh, 21E4h.
         let hour = c.reg8(r8::AL);
         c.run(0x2fc9, 3 + if hour >= 0x0b { 1 } else { 0 } + 3)?;
@@ -1564,7 +1565,7 @@ pub fn press_panel_button(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 3)?;
     }
     c.set_reg(CX, n);
-    c.call(0xd454, 0xd448)?;
+    c.call(entry::ITEM_PLACE, 0xd448)?;
     let (ax, bx) = (c.reg(AX), c.reg(BX));
     if bx == 0 {
         c.run(0xd448, 3)?;

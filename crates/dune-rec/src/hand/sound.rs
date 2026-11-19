@@ -1,5 +1,6 @@
 //! Sound: PCM voice state, lip sync, the PIT timer rate.
 
+use super::entry;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -190,7 +191,7 @@ pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0xde0c, 3)?;
-    c.call(0xe270, 0xde16)?;
+    c.call(entry::SAVE_REGS, 0xde16)?;
     c.run(0xde16, 3)?;
     c.set_byte(g::KEY_HIT, 0);
     c.set_reg(SI, 0xffff);
@@ -217,7 +218,7 @@ pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0xde41, 2)?;
         c.push(bx);
-        c.call(0xdd63, 0xde45)?;
+        c.call(entry::STC_ON_USER_INPUT, 0xde45)?;
         let cf = c.flag(CF);
         c.run(0xde45, 2 + (!cf) as u32)?;
         let v = c.pop();
@@ -229,11 +230,11 @@ pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xdde7, 2)?;
     let f = c.m.cpu.flags();
     c.push(f);
-    c.call(0xde4e, 0xddeb)?;
+    c.call(entry::KB_CLEAR_SCANCODE, 0xddeb)?;
     c.run(0xddeb, 2)?;
     let f = c.pop();
     c.m.cpu.set_flags(f);
-    c.call(0xe283, 0xddef)?;
+    c.call(entry::RESTORE_REGS, 0xddef)?;
     c.run(0xddef, 1)?;
     c.ret()
 }

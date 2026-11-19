@@ -1,5 +1,6 @@
 //! Arithmetic helpers: trig table, random numbers, register save/restore.
 
+use super::entry;
 use super::pure;
 use super::{Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -354,7 +355,7 @@ pub fn unpack_signed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let al = pure::neg(Width::B, dl as u16);
     c.set_reg8(r8::AL, al as u8);
-    c.call(0x0cf2, 0x0d0a)?;
+    c.call(entry::UNPACK_UNSIGNED, 0x0d0a)?;
     c.run(0x0d0a, 2)?;
     let dh = c.reg8(r8::DH);
     let dh = pure::neg(Width::B, dh as u16);

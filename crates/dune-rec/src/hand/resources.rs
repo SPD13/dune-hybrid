@@ -1,6 +1,7 @@
 //! Resources in memory: opening one as the current sprite sheet, and the
 //! condition evaluator over the CONDIT script.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g};
 use pc::{
@@ -339,7 +340,7 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(ds);
     let v = c.pop();
     c.set_sreg(ES, v);
-    c.call(0xf0b9, 0xcff9)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, 0xcff9)?;
     c.run(0xcff9, 6)?;
     let k = c.byte(g::LANGUAGE);
     let a = pure::add(B, 0xc0, k as u16);
@@ -348,9 +349,9 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (di, es) = (c.conversation().commands[0], c.conversation().commands[1]);
     c.set_reg(DI, di);
     c.set_sreg(ES, es);
-    c.call(0xf0b9, 0xd00a)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, 0xd00a)?;
     c.run(0xd00a, 1)?;
-    c.call(0x0098, 0xd00d)?;
+    c.call(entry::ADJUST_SUB_RESOURCE_POINTERS, 0xd00d)?;
     let k = c.byte(g::LANGUAGE);
     let a = (0x9au8).wrapping_add(k);
     let cur = c.phrase().loaded;
@@ -368,11 +369,11 @@ pub fn startup_tables(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (di, es) = (c.conversation().phrases[0], c.conversation().phrases[1]);
     c.set_reg(DI, di);
     c.set_sreg(ES, es);
-    c.call(0xf0b9, 0xd035)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, 0xd035)?;
     c.run(0xd035, 2)?;
     let cx = c.reg(CX);
     c.push(cx);
-    c.call(0x0098, 0xd039)?;
+    c.call(entry::ADJUST_SUB_RESOURCE_POINTERS, 0xd039)?;
     c.run(0xd039, 3)?;
     let x = c.pop();
     c.set_reg(CX, x);

@@ -952,6 +952,7 @@ places), [4722h] (a toggle of the map panel), [118Fh], [0DCE4h].
 | `tools/lift/flags_used.py` | Which routines' returned flags any caller reads. |
 | `tools/lift/add_table.py`, `drop_consts.py` | Not checks: add a table of one and route the ports' accesses to it; drop the globals left unused. |
 | `tools/lift/merge_runs.py` | Not a check: merge back-to-back stretches of a port (`--dry` lists them). |
+| `tools/lift/name_calls.py` | Not a check: regenerate `hand/entry.rs` (a constant per routine with a name: the port's, else the listing's label) and write `c.call(entry::NAME, ret)` / `c.jump(entry::NAME)` for the numbers (2106 sites; run again after adding or renaming ports). |
 | `--save FILE` + event `T:load:1` | Real play from any point of the game (the test saves, Day 1 to 23). |
 | event `T:save:N` | The game's state as it serialises it (`DUNE37SN.SAV` in the output folder). |
 

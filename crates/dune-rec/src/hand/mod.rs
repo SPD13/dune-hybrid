@@ -27,6 +27,7 @@ use pc::{
     rec::{Bail, Routine},
 };
 
+pub mod entry;
 mod audio;
 pub mod clock;
 pub mod native;

@@ -1,6 +1,7 @@
 //! Game-phase handlers (called by `set_game_phase` through its table) and
 //! the discovery of locations they trigger.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -107,7 +108,7 @@ fn discover_list(c: &mut Ctx) -> Result<(), Bail> {
         c.lods(W, CS);
         c.or(W, next, next);
         c.set_reg(DI, next);
-        c.call(0x425b, 0x1066)?;
+        c.call(entry::DISCOVER_LOCATION, 0x1066)?;
         c.run(0x1066, 1)?; // jmp 105Bh
     }
 }

@@ -3,6 +3,7 @@
 //! shadow check can't see them; `--rec on` runs them, checked by whole-run
 //! state hashes (`STATE_HASH=1`, against plain emulation).
 
+use super::entry;
 use super::globals as g;
 use super::{B, Ctx, W, entered, r8};
 use pc::{
@@ -22,38 +23,38 @@ pub fn start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x0000, 2)?;
     c.set_reg(AX, 0xdd1d);
-    c.call(0xe4ad, 0x0006)?;
+    c.call(entry::PARSE_COMMAND_LINE, 0x0006)?;
     c.run(0x0006, 1)?;
-    c.call(0xe594, 0x0009)?;
+    c.call(entry::INITIALIZE_SYSTEM, 0x0009)?;
     c.run(0x0009, 1)?;
     c.call(0x00b0, 0x000c)?;
     c.run(0x000c, 2)?;
     // STI; its one-instruction hold is over: the next instruction is
     // already in the `run` above.
     c.set_flag(IF, true);
-    c.call(0x0580, 0x0010)?;
+    c.call(entry::PLAY_INTRO, 0x0010)?;
     c.run(0x0010, 1)?;
     c.call(0x0309, 0x0013)?;
     c.run(0x0013, 1)?;
-    c.call(0x021c, 0x0016)?;
+    c.call(entry::PLAY_INTRO2, 0x0016)?;
     c.run(0x0016, 1)?;
-    c.call(0xaeb7, 0x0019)?;
+    c.call(entry::MIDI_FUNC_2_0, 0x0019)?;
     c.run(0x0019, 3)?;
     c.set_byte(g::MUSIC_SETTINGS, 0);
     c.update_clock(|k| k.time = 2);
-    c.call(0x0083, 0x0027)?;
+    c.call(entry::DRAW_HEAD_PANEL_AFTER_LANGUAGE_CHECK, 0x0027)?;
     c.run(0x0027, 2)?;
     c.set_reg8(r8::CL, 0xff);
-    c.call(0xb389, 0x002c)?;
+    c.call(entry::CREATE_SAVE_CL, 0x002c)?;
     c.run(0x002c, 1)?;
-    c.call(0x1860, 0x002f)?;
+    c.call(entry::BLINK_AND_TOGGLE_MAP_SCREEN, 0x002f)?;
     c.run(0x002f, 2)?;
     c.set_byte(g::PAUSE_ALLOWED, 0xff);
-    c.call(0xb2be, 0x0037)?;
+    c.call(entry::START_CLOCK, 0x0037)?;
     c.run(0x0037, 1)?;
-    c.call(0xd815, 0x003a)?;
+    c.call(entry::GAME_LOOP, 0x003a)?;
     // The main loop does not return; past it is `exit_with_error`.
-    c.jump(0x003a)
+    c.jump(entry::EXIT_WITH_ERROR)
 }
 
 /// `play_intro` (0580): the intro script (`loc_00945` from 337h, each
@@ -72,7 +73,7 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     'top: loop {
         c.run(0x0580, 1)?;
-        c.call(0xde54, 0x0583)?;
+        c.call(entry::KB_CHECK_FOR_ESC_KEY_HIT, 0x0583)?;
         if c.flag(ZF) {
             c.run(0x0583, 1)?;
             return intro_end(&mut c);
@@ -80,16 +81,16 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x0583, 1)?;
         c.interp(0x0585, 0x0589)?;
         c.run(0x0589, 1)?;
-        c.call(0xaeb7, 0x058c)?;
+        c.call(entry::MIDI_FUNC_2_0, 0x058c)?;
         c.run(0x058c, 2)?;
         c.set_reg(SI, 0x0337);
-        c.call(0x0945, 0x0592)?;
+        c.call(entry::INTRO_SCRIPT_SET_OFFSET, 0x0592)?;
         loop {
             c.run(0x0592, 1)?;
             c.set_reg(AX, 0x18);
             c.interp(0x0595, 0x0599)?;
             c.run(0x0599, 1)?;
-            c.call(0x093f, 0x059c)?;
+            c.call(entry::INTRO_SCRIPT_LOAD_WORD, 0x059c)?;
             let ax = c.reg(AX);
             c.run(0x059c, 3 + (ax == 0xffff) as u32)?;
             c.set_reg(BX, ax);
@@ -99,62 +100,62 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 continue 'top;
             }
             c.run(0x05a3, 1)?;
-            c.call(0xde0c, 0x05a6)?;
+            c.call(entry::CHECK_MIDI, 0x05a6)?;
             if c.flag(CF) {
                 c.run(0x05a6, 1)?;
                 return intro_end(&mut c);
             }
             c.run(0x05a6, 2)?;
-            c.call(0x0911, 0x05ab)?;
+            c.call(entry::REMOVE_ALL_FRAME_TASKS, 0x05ab)?;
             c.interp(0x05ab, 0x05af)?;
             c.run(0x05af, 1)?;
-            c.call(0x093f, 0x05b2)?;
+            c.call(entry::INTRO_SCRIPT_LOAD_WORD, 0x05b2)?;
             c.run(0x05b2, 2)?;
             let bp = c.reg(AX);
             c.set_reg(BP, bp);
-            c.call(0xc097, 0x05b7)?;
+            c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x05b7)?;
             c.run(0x05b7, 2)?;
             let v = c.dialogue_text().flags;
             let v = c.and(B, v as u16, 0x7f);
             c.update_dialogue_text(|t| t.flags = v as u8);
-            c.call(0x39e6, 0x05bf)?;
+            c.call(entry::REMOVE_ROOM_FRAME_TASK, 0x05bf)?;
             c.run(0x05bf, 1)?;
-            c.call(0x093f, 0x05c2)?;
+            c.call(entry::INTRO_SCRIPT_LOAD_WORD, 0x05c2)?;
             c.run(0x05c2, 2)?;
             let bx = c.reg(AX);
             c.set_reg(BX, bx);
-            c.call(0xde0c, 0x05c7)?;
+            c.call(entry::CHECK_MIDI, 0x05c7)?;
             if c.flag(CF) {
                 c.run(0x05c7, 1)?;
                 return intro_end(&mut c);
             }
             c.run(0x05c7, 2)?;
-            c.call(0x093f, 0x05cc)?;
+            c.call(entry::INTRO_SCRIPT_LOAD_WORD, 0x05cc)?;
             let ax = c.reg(AX);
             let neg = ax & 0x8000 != 0;
             c.run(0x05cc, 2 + if neg { 0 } else { 2 })?;
             c.or(W, ax, ax);
             if !neg {
                 c.set_reg(BP, 0x0f66);
-                c.call(0xc108, 0x05d6)?;
+                c.call(entry::TRANSITION_AL, 0x05d6)?;
                 c.run(0x05d6, 1)?;
-                c.call(0xc0f4, 0x05d9)?;
+                c.call(entry::UPDATE_SCREEN_PALETTE, 0x05d9)?;
                 c.run(0x05d9, 1)?;
-                c.call(0x3a7c, 0x05dc)?;
+                c.call(entry::ADD_ROOM_FRAME_TASK, 0x05dc)?;
             }
             c.run(0x05dc, 1)?;
-            c.call(0xc07c, 0x05df)?;
+            c.call(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0x05df)?;
             c.run(0x05df, 2)?;
             let v = c.dialogue_text().flags;
             let v = c.or(B, v as u16, 0x80);
             c.update_dialogue_text(|t| t.flags = v as u8);
-            c.call(0xdd63, 0x05e7)?;
+            c.call(entry::STC_ON_USER_INPUT, 0x05e7)?;
             if c.flag(CF) {
                 c.run(0x05e7, 1)?;
                 return intro_end(&mut c);
             }
             c.run(0x05e7, 2)?;
-            c.call(0x093f, 0x05ec)?;
+            c.call(entry::INTRO_SCRIPT_LOAD_WORD, 0x05ec)?;
             c.run(0x05ec, 2)?;
             c.set_flag(CF, false);
             let f = c.reg(AX);
@@ -164,7 +165,7 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 return intro_end(&mut c);
             }
             c.run(0x05ef, 2)?;
-            c.call(0x093f, 0x05f4)?;
+            c.call(entry::INTRO_SCRIPT_LOAD_WORD, 0x05f4)?;
             let ax = c.reg(AX);
             c.run(0x05f4, 2)?;
             c.or(W, ax, ax);
@@ -172,7 +173,7 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 continue;
             }
             c.run(0x05f8, 1)?;
-            c.call(0xddf0, 0x05fb)?;
+            c.call(entry::WAIT_FOR_PCM_VOICE, 0x05fb)?;
             c.run(0x05fb, 1)?;
             if !c.flag(CF) {
                 continue;
@@ -187,7 +188,7 @@ fn intro_end(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x05fd, 2)?;
     let f = c.m.cpu.flags();
     c.push(f);
-    c.call(0x9985, 0x0601)?;
+    c.call(entry::FINISH_TWO_HEADS_TEXT, 0x0601)?;
     c.run(0x0601, 1)?;
     let es = c.screen_buffers().screen;
     c.set_sreg(ES, es);
@@ -196,12 +197,12 @@ fn intro_end(c: &mut Ctx) -> Result<(), Bail> {
     let f = c.pop();
     c.m.cpu.set_flags(f);
     c.push(f);
-    c.call(0x0579, 0x060e)?;
+    c.call(entry::CLEAR_GLOBAL_Y_OFFSET, 0x060e)?;
     c.run(0x060e, 1)?;
-    c.call(0xca01, 0x0611)?;
+    c.call(entry::HNM_CLOSE_RESOURCE, 0x0611)?;
     c.run(0x0611, 2)?;
     c.update_clock(|k| k.time = 2);
-    c.call(0x0911, 0x061a)?;
+    c.call(entry::REMOVE_ALL_FRAME_TASKS, 0x061a)?;
     c.run(0x061a, 2)?;
     let f = c.pop();
     c.m.cpu.set_flags(f);
@@ -255,7 +256,7 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
         let ctrl_v = v == 0xff;
         c.run(0xd82c, 1 + ctrl_v as u32)?;
         if ctrl_v {
-            c.call(0xb270, 0xd831)?;
+            c.call(entry::HANDLE_CTRL_V_ONCE, 0xd831)?;
         }
     } else {
         c.run(0xd825, 1)?;
@@ -264,20 +265,20 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xd831, 2 + if caller == 0 { 1 } else { 0 })?;
     c.cmp(B, caller as u16, 0);
     if caller == 0 {
-        c.call(0xd7b7, 0xd83b)?;
+        c.call(entry::BLINK_GAUGES, 0xd83b)?;
         c.run(0xd83b, 1)?;
-        c.call(0x1b0d, 0xd83e)?;
+        c.call(entry::TIME_STEP, 0xd83e)?;
     }
     c.run(0xd83e, 1)?;
-    c.call(0xd9d2, 0xd841)?;
+    c.call(entry::PROCESS_FRAME_TASKS, 0xd841)?;
     let caller = c.byte(g::COMM_CALLER);
     c.run(0xd841, 2 + (caller != 0) as u32)?;
     c.cmp(B, caller as u16, 0);
     if caller != 0 {
-        c.call(0x0d8e, 0xd84b)?;
+        c.call(entry::START_COMM_CALL, 0xd84b)?;
     }
     c.run(0xd84b, 1)?;
-    c.call(0xe3cc, 0xd84e)?;
+    c.call(entry::RAND, 0xd84e)?;
     c.run(0xd84e, 2)?;
     let r = c.reg(AX);
     c.set_word(0, r);
@@ -286,15 +287,15 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xd854, 3)?;
     c.cmp(B, busy as u16, 0);
     if busy != 0 {
-        c.call(0xd962, 0xd85e)?;
+        c.call(entry::CURSOR_GLIDE, 0xd85e)?;
         c.run(0xd85e, 1)?;
     } else {
-        c.call(0xdf1e, 0xd863)?;
+        c.call(entry::GET_MOUSE_POS_ETC, 0xd863)?;
         c.run(0xd863, 1)?;
-        c.call(0xdb4c, 0xd866)?;
+        c.call(entry::MOUSE_STUFF, 0xd866)?;
     }
     c.run(0xd866, 1)?;
-    c.call(0xdc20, 0xd869)?;
+    c.call(entry::REDRAW_MOUSE, 0xd869)?;
     let (ax, bx, dx) = (c.reg(AX), c.reg(BX), c.reg(DX));
     let buttons = ax & 0x0f;
     c.run(0xd869, 11)?;
@@ -315,7 +316,7 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
     if buttons == 0 {
         // No button: the hover handler [SI].
         c.run(0xd886, 1)?;
-        c.call(0xd50f, 0xd889)?;
+        c.call(entry::HIGHLIGHT_HOVERED_TEXT_ACTION_ITEM, 0xd889)?;
         c.run(0xd889, 4)?;
         let (cx, di, si) = (c.reg(CX), c.reg(DI), c.reg(SI));
         c.set_reg(AX, cx);
@@ -349,9 +350,9 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
         c.cmp(B, al, 5);
         if both {
             c.run(0xd8a8, 1)?;
-            c.call(0xdbb2, 0xd8ab)?;
+            c.call(entry::CALL_RESTORE_CURSOR, 0xd8ab)?;
             c.run(0xd8ab, 1)?;
-            c.call(0x1707, 0xd8ae)?;
+            c.call(entry::RUN_SCRIPT_NEXT_STEP, 0xd8ae)?;
             c.run(0xd8ae, 1)?;
         } else {
             c.run(0xd8d7, 1)?;
@@ -385,7 +386,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
             c.or(W, cx, di);
             c.set_reg(AX, cx | di);
             if moved {
-                c.call(0xdbb2, 0xd8d1)?;
+                c.call(entry::CALL_RESTORE_CURSOR, 0xd8d1)?;
                 c.run(0xd8d1, 2)?;
                 let a = c.mouse_state().buttons_seen;
                 c.set_reg8(r8::AL, a);
@@ -406,7 +407,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
         if d < 0x32 {
             return Ok(());
         }
-        c.call(0xd6b7, 0xd8e9)?;
+        c.call(entry::ELEMENT_UNDER_CURSOR, 0xd8e9)?;
         if !c.flag(CF) {
             c.run(0xd8e9, 2)?;
             return Ok(());
@@ -417,12 +418,12 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
         if di != held {
             return Ok(());
         }
-        c.call(0xdbb2, 0xd8f2)?;
+        c.call(entry::CALL_RESTORE_CURSOR, 0xd8f2)?;
         c.run(0xd8f2, 1)?;
         return release_at_d92b(c);
     }
     c.run(0xd8f4, 1)?;
-    c.call(0xdbb2, 0xd8f7)?;
+    c.call(entry::CALL_RESTORE_CURSOR, 0xd8f7)?;
     c.run(0xd8f7, 1)?;
     c.call(0xe26f, 0xd8fa)?;
     let al = c.reg(AX) & 0xff;
@@ -453,13 +454,13 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
     c.cmp(W, si, top);
     if si == top {
         c.run(0xd904, 1)?;
-        c.call(0xd6b7, 0xd907)?;
+        c.call(entry::ELEMENT_UNDER_CURSOR, 0xd907)?;
         if c.flag(CF) {
             c.run(0xd907, 1)?;
             let di = c.reg(DI);
             c.run(0xd918, 2)?;
             c.set_word(0xdc60, di);
-            c.call(0xd65a, 0xd91f)?;
+            c.call(entry::DRAW_ELEMENT_PRESSED, 0xd91f)?;
             let di = c.reg(DI);
             let b = c.byte(di.wrapping_add(9));
             c.run(0xd91f, 2)?;
@@ -474,7 +475,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
         c.run(0xd907, 3)?;
         let si = c.reg(SI);
         c.push(si);
-        c.call(0x9215, 0xd90d)?;
+        c.call(entry::DIALOGUE_CLICK, 0xd90d)?;
         c.run(0xd90d, 1)?;
         let si = c.pop();
         c.set_reg(SI, si);
@@ -558,7 +559,7 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.push(cs);
                 let es = c.pop();
                 c.set_sreg(ES, es);
-                c.call(0xe56b, 0xe4bc)?;
+                c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe4bc)?;
                 // Blanks before the word.
                 loop {
                     if c.flag(CF) {
@@ -569,12 +570,12 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                         break;
                     }
                     c.run(0xe4bc, 3)?;
-                    c.call(0xe56b, 0xe4bc)?;
+                    c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe4bc)?;
                 }
                 c.run(0xe4bc, 4)?;
                 let al = c.reg8(r8::AL);
                 c.set_reg8(r8::DL, al);
-                c.call(0xe56b, 0xe4c5)?;
+                c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe4c5)?;
                 if c.flag(CF) || c.flag(ZF) {
                     c.run(0xe4c5, 1)?;
                     Parse::Skip
@@ -582,7 +583,7 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     c.run(0xe4c5, 3)?;
                     let al = c.reg8(r8::AL);
                     c.set_reg8(r8::AH, al);
-                    c.call(0xe56b, 0xe4cc)?;
+                    c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe4cc)?;
                     if c.flag(CF) || c.flag(ZF) {
                         c.run(0xe4cc, 1)?;
                         Parse::Skip
@@ -612,7 +613,7 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 if to == 0 {
                     Parse::Skip
                 } else {
-                    c.call(0xe56b, 0xe507)?;
+                    c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe507)?;
                     if c.flag(CF) {
                         c.run(0xe507, 2)?;
                         return c.ret();
@@ -629,12 +630,12 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                         c.cmp(W, to, 0x3826);
                         if path {
                             c.set_reg(DI, to);
-                            c.call(0xe56b, 0xe552)?;
+                            c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe552)?;
                             Parse::Path
                         } else {
                             c.xor(W, 0, 0);
                             c.set_reg(DX, 0);
-                            c.call(0xe56b, 0xe517)?;
+                            c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe517)?;
                             Parse::Number
                         }
                     }
@@ -679,7 +680,7 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                         let dx = c.shl1(W, dx, 4);
                         let dl = c.or(B, dx & 0xff, d);
                         c.set_reg(DX, (dx & 0xff00) | dl);
-                        c.call(0xe56b, 0xe517)?;
+                        c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe517)?;
                         Parse::Number
                     }
                     None => {
@@ -693,7 +694,7 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                         if more {
                             c.xor(W, 0, 0);
                             c.set_reg(DX, 0);
-                            c.call(0xe56b, 0xe517)?;
+                            c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe517)?;
                             Parse::Number
                         } else {
                             Parse::Skip
@@ -712,7 +713,7 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     let di = c.reg(DI);
                     c.cmp(W, di, 0x3898);
                     if more {
-                        c.call(0xe56b, 0xe552)?;
+                        c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe552)?;
                         continue;
                     }
                 }
@@ -733,7 +734,7 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let si = c.reg(SI);
                 let si = c.dec(W, si);
                 c.set_reg(SI, si);
-                c.call(0xe56b, 0xe546)?;
+                c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe546)?;
                 loop {
                     if c.flag(CF) {
                         c.run(0xe546, 2)?;
@@ -743,7 +744,7 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     if c.flag(ZF) {
                         break;
                     }
-                    c.call(0xe56b, 0xe546)?;
+                    c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe546)?;
                 }
                 Parse::Word
             }

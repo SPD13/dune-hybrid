@@ -4,6 +4,7 @@
 //! 20h, 21h..27h, 28h..2Fh and 30h and up the kinds that
 //! `get_location_type_string_offset` and `calc_SAL_index` tell apart.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -282,9 +283,9 @@ pub fn update_flagged_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let both = f & 0x40 != 0 && f & 2 != 0;
     c.run(start, if f & 0x40 == 0 { 3 } else { 5 })?;
     if both {
-        c.call(0x9556, 0x40f5)?;
+        c.call(entry::RELEASE_RECORD, 0x40f5)?;
         c.run(0x40f5, 1)?;
-        c.call(0x9655, 0x40f8)?;
+        c.call(entry::DROP_SPEAKER_GAUGE, 0x40f8)?;
         c.run(0x40f8, 1)?;
     }
     c.ret()

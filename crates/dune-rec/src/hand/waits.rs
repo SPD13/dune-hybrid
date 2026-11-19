@@ -3,6 +3,7 @@
 //! so the port bails (or, in a shadow replay, settles the interrupt) at
 //! the tick, as the original meets it.
 
+use super::entry;
 use super::globals as g;
 use super::pure;
 use super::{B, Ctx, W, r8, entered};
@@ -97,7 +98,7 @@ pub fn wait_interruptable(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xddb0, 1)?;
-    c.call(0xe270, 0xddb3)?;
+    c.call(entry::SAVE_REGS, 0xddb3)?;
     let k = c.byte(g::CINEMATIC);
     c.run(0xddb3, 4 + (k == 0) as u32)?;
     let ax = c.reg(AX);
@@ -105,7 +106,7 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
     c.set_byte(g::KEY_HIT, 0);
     c.cmp(B, k as u16, 0);
     if k == 0 {
-        c.call(0xd64e, 0xddc3)?;
+        c.call(entry::HIGHLIGHT_AT_ORIGIN, 0xddc3)?;
     }
     c.run(0xddc3, 4)?;
     c.set_reg(SI, 0xffff);
@@ -122,7 +123,7 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0xddce, 2)?;
         let cx = c.reg(CX);
         c.push(cx);
-        c.call(0xdd63, 0xddd2)?;
+        c.call(entry::STC_ON_USER_INPUT, 0xddd2)?;
         let input = c.flag(CF);
         c.run(0xddd2, 3 + (!input) as u32)?;
         let cx = c.pop();
@@ -159,10 +160,10 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xdde7, 2)?;
     let f = c.m.cpu.flags();
     c.push(f);
-    c.call(0xde4e, 0xddeb)?;
+    c.call(entry::KB_CLEAR_SCANCODE, 0xddeb)?;
     c.run(0xddeb, 2)?;
     popf(c);
-    c.call(0xe283, 0xddef)?;
+    c.call(entry::RESTORE_REGS, 0xddef)?;
     c.run(0xddef, 1)?;
     c.ret()
 }
@@ -181,26 +182,26 @@ pub fn wait_for_pcm_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return nz_ret(&mut c, 0xde07);
     }
     c.run(0xddf7, 1)?;
-    c.call(0xaba3, 0xddfa)?;
+    c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xddfa)?;
     if c.flag(ZF) {
         c.run(0xddfa, 1)?;
         return wait_at_ddb0(&mut c);
     }
     c.run(0xddfa, 2)?;
-    c.call(0xaba3, 0xddff)?;
+    c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xddff)?;
     loop {
         if c.flag(ZF) {
             c.run(0xddff, 1)?;
             return nz_ret(&mut c, 0xde07);
         }
         c.run(0xddff, 2)?;
-        c.call(0xdd63, 0xde04)?;
+        c.call(entry::STC_ON_USER_INPUT, 0xde04)?;
         if c.flag(CF) {
             c.run(0xde04, 2)?;
             return c.ret();
         }
         c.run(0xde04, 2)?;
-        c.call(0xaba3, 0xddff)?;
+        c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xddff)?;
     }
 }
 
@@ -224,27 +225,27 @@ pub fn audio_test_frequency(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xa87e, 3)?;
     pushf_sti(&mut c, false);
-    c.call(0xae2f, 0xa883)?;
+    c.call(entry::CHECK_PCM_ENABLED, 0xa883)?;
     if c.flag(ZF) {
         c.run(0xa883, 3)?;
         popf(&mut c);
         return c.ret();
     }
     c.run(0xa883, 2)?;
-    c.call(0xac14, 0xa888)?;
+    c.call(entry::PCM_STOP_VOC, 0xa888)?;
     c.run(0xa888, 2)?;
     c.set_reg8(r8::AL, 0x0b);
-    c.call(0xabe9, 0xa88d)?;
+    c.call(entry::OPEN_VOC_RESOURCE, 0xa88d)?;
     c.run(0xa88d, 1)?;
     c.set_reg(SI, 0x3811);
     c.interp(0xa890, 0xa894)?;
     c.run(0xa894, 2)?;
     let t0 = c.timer();
     c.push(t0);
-    c.call(0xa9e7, 0xa89b)?;
+    c.call(entry::PCM_TEST_AUDIO_DONE, 0xa89b)?;
     while c.flag(ZF) {
         c.run(0xa89b, 2)?;
-        c.call(0xa9e7, 0xa89b)?;
+        c.call(entry::PCM_TEST_AUDIO_DONE, 0xa89b)?;
     }
     c.run(0xa89b, 10)?;
     let t = c.timer();
@@ -273,7 +274,7 @@ pub fn measure_pit_speed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xe85c, 2)?;
     c.set_flag(IF, false);
-    c.call(0xe913, 0xe860)?;
+    c.call(entry::INSTALL_INTERRUPT_HANDLERS, 0xe860)?;
     c.run(0xe860, 6)?;
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
@@ -338,5 +339,5 @@ pub fn measure_pit_speed(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.m.cpu.write8(&mut c.m.hw, CS, 0xefd9, a as u8);
     }
     c.set_reg(AX, 0x1745);
-    c.jump(0xe8a8)
+    c.jump(entry::SET_PIT_TIMER_FREQUENCY)
 }

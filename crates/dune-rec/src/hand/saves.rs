@@ -1,6 +1,7 @@
 //! Saved games (their RLE, restoring the map's bits and the game's
 //! state), particles, numbers in strings, reading resources.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -193,10 +194,10 @@ pub fn load_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::CL, cl);
     c.set_byte(0x38af, cl);
     c.set_reg(CX, 0x578);
-    c.call(0xf11c, 0xb3c7)?;
+    c.call(entry::ALLOC_CHECK_CX_PAGES_AVAILABLE, 0xb3c7)?;
     c.run(0xb3c7, 2)?;
     c.set_reg(DX, 0x38a8);
-    c.call(0xf255, 0xb3cd)?;
+    c.call(entry::OPEN_NONRES_FILE, 0xb3cd)?;
     // The file (CX bytes at ES:DI) moved to end at 5779h, backwards (the
     // `rep`'s iterations counted in the `run`).
     let (cx, di) = (c.reg(CX), c.reg(DI));
@@ -221,11 +222,11 @@ pub fn load_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let di = c.reg(DI);
     c.set_reg(SI, di.wrapping_add(1));
     c.set_reg(DI, 0);
-    c.call(0xb4bb, 0xb3eb)?;
+    c.call(entry::DECOMPRESS_SAV, 0xb3eb)?;
     c.run(0xb3eb, 2)?;
     let di = c.reg(DI);
     c.set_reg(SI, di);
-    c.call(0xb473, 0xb3f0)?;
+    c.call(entry::RESTORE_FROM_SAVE_MEMORY, 0xb3f0)?;
     after_restore(&mut c)
 }
 
@@ -247,12 +248,12 @@ fn after_restore(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xb3f0, 2)?;
     let v = c.pop();
     c.set_sreg(DS, v);
-    c.call(0x3ae9, 0xb3f4)?;
+    c.call(entry::CLEAR_SPEAKER_PLACES, 0xb3f4)?;
     c.run(0xb3f4, 1)?;
-    c.call(0xda53, 0xb3f7)?;
+    c.call(entry::CLEAR_FRAME_TASKS, 0xb3f7)?;
     c.run(0xb3f7, 2)?;
     c.set_word(0x22a6, 0xffff);
-    c.call(0xb2be, 0xb400)?;
+    c.call(entry::START_CLOCK, 0xb400)?;
     let sp = c.reg(SP);
     let fb = c.word_in(SS, sp) as u8;
     if fb & 0x80 == 0 {
@@ -260,13 +261,13 @@ fn after_restore(c: &mut Ctx) -> Result<(), Bail> {
         let ax = c.pop();
         c.set_reg(AX, ax);
         c.update_situation(|t| t.map_interface = fb);
-        c.call(0xd2bd, 0xb41e)?;
+        c.call(entry::LEAVE_SCREENS, 0xb41e)?;
         for (at, to) in [(0xb41eu16, 0x1a0fu16), (0xb421, 0xadbe)] {
             c.run(at, 1)?;
             c.call(to, at + 3)?;
         }
         c.run(0xb424, 1)?;
-        return c.jump(0x2db1);
+        return c.jump(entry::ROOM_ARRIVE);
     }
     let zoomed = c.byte(g::MAP_GFX_ARG) != 0;
     c.run(0xb400, 4 + 2 + zoomed as u32)?;
@@ -274,14 +275,14 @@ fn after_restore(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     c.update_situation(|t| t.map_interface = fb);
     if zoomed {
-        c.call(0xb915, 0xb412)?;
+        c.call(entry::GLOBE_SLIDE_DECORATIONS_CLOSE, 0xb412)?;
     }
     for (at, to) in [(0xb412u16, 0xb96bu16), (0xb415, 0xb8ea)] {
         c.run(at, 1)?;
         c.call(to, at + 3)?;
     }
     c.run(0xb418, 1)?;
-    c.jump(0xba9e)
+    c.jump(entry::GLOBE_TURN_TO)
 }
 
 /// `particles_remove_particle` (C58A): removes the particle at DI (if it
@@ -745,7 +746,7 @@ fn save_slot_label(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)
     let v = c.shr1(W, v, 4);
     let v = c.inc(W, v);
     c.set_reg(AX, v);
-    c.call(0xe2e3, 0xb2f2)?;
+    c.call(entry::STRING_REPLACE_NUMBER_ENDING_AT_ES_SI, 0xb2f2)?;
     c.run(0xb2f2, 3)?;
     let si = c.reg(SI);
     c.set_reg(DI, si.wrapping_add(3));
@@ -813,7 +814,7 @@ pub fn particles_spawn_variant(m: &mut Machine, start: u16) -> Result<(), Bail> 
         return particles_spawn_particle(c.m, 0xc60b);
     }
     c.push(bp);
-    c.call(0xc60b, 0xc5de)?;
+    c.call(entry::PARTICLES_SPAWN_PARTICLE, 0xc5de)?;
     // The variants, purely: SI from BP by 3 while not 0.
     let mut k = 0u16;
     let mut p = bp;
@@ -850,7 +851,7 @@ pub fn particles_spawn_variant(m: &mut Machine, start: u16) -> Result<(), Bail> 
         c.set_reg(SI, si);
         return c.ret();
     }
-    c.call(0xe3df, 0xc5fa)?;
+    c.call(entry::RAND_BELOW, 0xc5fa)?;
     c.run(0xc5fa, 8)?;
     let ax = c.reg(AX);
     c.set_reg(BX, ax);
@@ -939,7 +940,7 @@ pub fn load_save_game_timestamp(m: &mut Machine, start: u16) -> Result<(), Bail>
         c.run(0xb316, 2)?;
         let di = c.reg(DI);
         c.set_reg(DX, di);
-        c.call(0xf2fc, 0xb31b)?;
+        c.call(entry::STRCPY_TO_FILENAME_BUF, 0xb31b)?;
         c.run(0xb31b, 1)?;
         c.set_reg(AX, 0x3d00);
         c.interp(0xb31e, 0xb320)?;
@@ -964,7 +965,7 @@ pub fn load_save_game_timestamp(m: &mut Machine, start: u16) -> Result<(), Bail>
                 c.set_reg8(r8::AH, 0x3e);
                 c.interp(0xb336, 0xb338)?;
                 c.run(0xb338, 1)?;
-                c.call(0xb2c4, 0xb33b)?;
+                c.call(entry::SAVE_SLOT_LABEL_SI, 0xb33b)?;
                 c.run(0xb33b, 1)?;
                 c.set_flag(CF, false);
             }
@@ -1179,7 +1180,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     entered(start, 0xc6ad)?;
     let mut c = Ctx::new(m);
     c.run(0xc6ad, 1)?;
-    c.call(0xc13b, 0xc6b0)?;
+    c.call(entry::OPEN_ONMAP_RESOURCE, 0xc6b0)?;
     let si = c.reg(SI);
     let k = c.mouse_state().cursor_shown;
     let (my, mx) = (c.mouse_state().cursor[1], c.mouse_state().cursor[0]);
@@ -1222,7 +1223,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
                         c.set_reg(AX, 0xdbec);
                         c.push(0xdbec);
                         c.push(si);
-                        c.call(0xdbb2, 0xc6e3)?;
+                        c.call(entry::CALL_RESTORE_CURSOR, 0xc6e3)?;
                         c.run(0xc6e3, 1)?;
                         let v = c.pop();
                         c.set_reg(SI, v);
@@ -1270,7 +1271,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
         }
         c.stos(W);
     }
-    c.call(0xc443, 0xc71b)?;
+    c.call(entry::COPY_CLIP_RECT_TO_SCREEN_FROM_FB2, 0xc71b)?;
     // The particles meeting the rectangle, listed on the stack.
     let count = c.word(g::PARTICLES);
     c.run(0xc71b, 4)?;
@@ -1357,7 +1358,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
                 c.set_reg(DX, dx);
                 let b = c.word(s.wrapping_add(2));
                 c.set_reg(BX, b);
-                c.call(0xc30d, 0xc77c)?;
+                c.call(entry::DRAW_SPRITE_CLIPPED_CLOBBERING, 0xc77c)?;
                 c.run(0xc77c, 2)?;
                 let v = c.pop();
                 c.set_reg(CX, v);
@@ -1381,7 +1382,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     c.run(0xc780, n)?;
     if f == 0 {
         if n == 9 {
-            c.call(0x1797, 0xc7a2)?;
+            c.call(entry::UI_DRAW_HEAD_AND_SHOULDERS, 0xc7a2)?;
         }
     }
     for (at, ov, ret) in [(0xc7a2u16, 0xdbe0u16, 0xc7b0u16), (0xc7b0, 0xdbe2, 0xc7be)] {
@@ -1392,7 +1393,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
             break;
         }
         c.set_reg(DI, 0xd834);
-        c.call(0xc7d4, ret)?;
+        c.call(entry::COPY_RECT_CLIPPED, ret)?;
     }
     c.run(0xc7be, 6)?;
     c.set_reg(SI, 0xd834);
@@ -1401,7 +1402,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     c.set_reg(BX, bx);
     c.set_reg(BP, bp);
     c.set_reg(AX, ax);
-    c.call(0xc51e, 0xc7cf)?;
+    c.call(entry::PARTICLES_UPDATE_SCREEN_RECT, 0xc7cf)?;
     c.run(0xc7cf, 2)?;
     let sp = c.reg(SP);
     let s = pure::add(W, sp, 0x200);

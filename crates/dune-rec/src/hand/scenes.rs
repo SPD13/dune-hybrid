@@ -3,6 +3,7 @@
 //! task, the IRUL videos (with subtitles), the font glyph routines, the
 //! pause key.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -684,7 +685,7 @@ pub fn stats_numbers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0x115e);
     c.set_reg(BP, 0x116a);
     c.set_reg(SI, 0xc4);
-    c.call(0xcf70, 0xbf32)?;
+    c.call(entry::GET_PHRASE_OR_COMMAND_STRING_SI, 0xbf32)?;
     for (at, src, to) in [
         (0xbf32u16, 0xa4u16, 0xbf73u16),
         (0xbf38, 0xa2, 0xbf73),

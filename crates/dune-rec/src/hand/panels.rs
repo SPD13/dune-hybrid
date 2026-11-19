@@ -2,6 +2,7 @@
 //! device's animations, the ornithopter, the settings sliders, talking
 //! heads without lip sync, lip sync start and stop.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::cpu::Bus;
@@ -653,14 +654,14 @@ pub fn settings_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa594)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xa672, 0xa597)?;
+    c.call(entry::SETTINGS_ON_A_SLIDER, 0xa597)?;
     if c.flag(CF) {
         c.run(0xa597, 3)?;
         c.set_byte(g::SETTINGS_HOVER, 1);
         return c.ret();
     }
     c.run(0xa597, 2)?;
-    c.call(0xa69f, 0xa5a2)?;
+    c.call(entry::SETTINGS_ON_A_SWITCH, 0xa5a2)?;
     let on = c.flag(CF);
     c.run(0xa5a2, 3)?;
     c.set_byte(g::SETTINGS_HOVER, if on { 2 } else { 0 });
@@ -1054,19 +1055,19 @@ pub fn redraw_date_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if v != 0 {
         return c.ret();
     }
-    c.call(0xdbb2, 0x1a19)?;
+    c.call(entry::CALL_RESTORE_CURSOR, 0x1a19)?;
     c.run(0x1a19, 2)?;
     let sheet = c.word(g::RESOURCE_ID);
     c.push(sheet);
-    c.call(0xc137, 0x1a20)?;
+    c.call(entry::LOAD_ICONES_SPRITES, 0x1a20)?;
     c.run(0x1a20, 2)?;
     c.set_reg(SI, 0x1af4);
-    c.call(0xd200, 0x1a26)?;
+    c.call(entry::DRAW_UI_ELEMENT, 0x1a26)?;
     c.run(0x1a26, 1)?;
-    c.call(0x1a34, 0x1a29)?;
+    c.call(entry::UI_DRAW_DATE_AND_TIME_INDICATOR, 0x1a29)?;
     c.run(0x1a29, 2)?;
     c.set_reg(SI, 0x1f06);
-    c.call(0xc4aa, 0x1a2f)?;
+    c.call(entry::GFX_COPY_RECT_TO_SCREEN, 0x1a2f)?;
     c.run(0x1a2f, 2)?;
     let ax = c.pop();
     c.set_reg(AX, ax);
@@ -1081,7 +1082,7 @@ pub fn draw_script_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x15a8)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xd08f, 0x15ab)?;
+    c.call(entry::FONT_USE_PLAIN_GLYPHS, 0x15ab)?;
     c.run(0x15ab, 4)?;
     let p = c.word(g::PHRASE_ARGS);
     c.set_reg(AX, p);
@@ -1101,7 +1102,7 @@ pub fn leave_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for at in [0x1c06, 0x1c14, 0x1c22] {
         c.set_word(at, 0);
     }
-    c.call(0x39e6, 0x18cf)?;
+    c.call(entry::REMOVE_ROOM_FRAME_TASK, 0x18cf)?;
     let mut at = 0x18cf;
     for target in [0xac30, 0x4d00, 0xd2bd, 0x4aca, 0x98e6] {
         c.run(at, 1)?;
@@ -1114,7 +1115,7 @@ pub fn leave_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if v == 0 {
         return c.ret();
     }
-    c.call(0x0b21, 0x18ed)?;
+    c.call(entry::STOP_SCENE_VOICE_AND_PARTICLES, 0x18ed)?;
     c.run(0x18ed, 1)?;
     c.ret()
 }
@@ -1144,20 +1145,20 @@ pub fn scene_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x0d22, 1)?;
         return c.ret();
     }
-    c.call(0xc13b, 0x0d26)?;
+    c.call(entry::OPEN_ONMAP_RESOURCE, 0x0d26)?;
     c.run(0x0d26, 3)?;
     let dl = c.reg8(r8::DL);
     c.set_reg(AX, dl as u16);
-    c.call(0xc1f4, 0x0d2d)?;
+    c.call(entry::GET_SUBRESOURCE_POINTER, 0x0d2d)?;
     c.run(0x0d2d, 1)?;
     let si = c.reg(SI);
     c.set_reg(DX, si.wrapping_add(6));
     c.interp(0x0d30, 0x0d34)?;
     c.run(0x0d34, 1)?;
-    c.call(0xc0f4, 0x0d37)?;
+    c.call(entry::UPDATE_SCREEN_PALETTE, 0x0d37)?;
     c.run(0x0d37, 2)?;
     c.set_reg(AX, 0x35);
-    c.call(0xc1f4, 0x0d3d)?;
+    c.call(entry::GET_SUBRESOURCE_POINTER, 0x0d3d)?;
     c.run(0x0d3d, 1)?;
     let si = c.reg(SI);
     c.set_reg(DX, si.wrapping_add(6));
@@ -1176,20 +1177,20 @@ pub fn settings_ui_draw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 2)?;
     let fb = c.screen_buffers().active;
     c.push(fb);
-    c.call(0xc08e, 0xa400)?;
+    c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xa400)?;
     c.run(0xa400, 2)?;
     c.set_reg(AX, 0x55);
-    c.call(0xc13e, 0xa406)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xa406)?;
     c.run(0xa406, 4)?;
     c.set_reg(AX, 0);
     let (dx, bx) = (c.word(g::SETTINGS_UI_ORIGIN_X), c.word(g::SETTINGS_UI_ORIGIN_Y));
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
-    c.call(0xc22f, 0xa413)?;
+    c.call(entry::DRAW_SPRITE_CLOBBERING_BX_DX, 0xa413)?;
     c.run(0xa413, 2)?;
     let fb = c.pop();
     c.update_screen_buffers(|t| t.active = fb);
-    c.call(0xa4c6, 0xa41a)?;
+    c.call(entry::SETTINGS_UI_DRAW_VOLUME_SLIDERS, 0xa41a)?;
     for (at, to) in [(0xa41au16, 0xa47du16), (0xa41d, 0xa42c), (0xa420, 0xa44c), (0xa423, 0xac3a)] {
         c.run(at, 1)?;
         c.call(to, at + 3)?;
@@ -1211,19 +1212,19 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     c.set_reg(DI, 0x2886);
-    c.call(0xd6fe, 0xa57c)?;
+    c.call(entry::POINT_IN_RECT, 0xa57c)?;
     if !c.flag(CF) {
         c.run(0xa57c, 2)?;
         return super::screens::leave_and_fade(c.m, 0xd2e2);
     }
     c.run(0xa57c, 2)?;
-    c.call(0xa453, 0xa584)?;
+    c.call(entry::SETTINGS_UI_SUB_GLOBAL_OFFSET, 0xa584)?;
     c.run(0xa584, 2)?;
     c.set_reg(DI, 0x28bf);
-    c.call(0xd6fe, 0xa58a)?;
+    c.call(entry::POINT_IN_RECT, 0xa58a)?;
     if c.flag(CF) {
         c.run(0xa58a, 2)?;
-        c.call(0xae2f, 0xa556)?;
+        c.call(entry::CHECK_PCM_ENABLED, 0xa556)?;
         if c.flag(ZF) {
             c.run(0xa556, 2)?;
             return c.ret();
@@ -1231,11 +1232,11 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xa556, 4)?;
         c.set_reg(AX, 4);
         c.set_reg(BX, 5);
-        c.call(0xa8bc, 0xa561)?;
+        c.call(entry::CREATE_VOC_FILE_NAME_FROM_BX, 0xa561)?;
         c.run(0xa561, 1)?;
-        c.call(0xa83f, 0xa564)?;
+        c.call(entry::VOC_GET_LIPSYNC_DATA, 0xa564)?;
         c.run(0xa564, 1)?;
-        c.call(0xade0, 0xa567)?;
+        c.call(entry::SETTINGS_APPLY_VOICE_VOLUME, 0xa567)?;
         c.run(0xa567, 3)?;
         c.set_byte(g::VOC_PCM_PLAYING, 1);
         c.set_reg(SI, 0x3811);
@@ -1246,17 +1247,17 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xa58a, 3)?;
     c.set_reg(DI, 0x28c7);
-    c.call(0xd6fe, 0xa592)?;
+    c.call(entry::POINT_IN_RECT, 0xa592)?;
     if !c.flag(CF) {
         c.run(0xa592, 2)?;
-        c.call(0xa672, 0xa597)?;
+        c.call(entry::SETTINGS_ON_A_SLIDER, 0xa597)?;
         if c.flag(CF) {
             c.run(0xa597, 3)?;
             c.set_byte(g::SETTINGS_HOVER, 1);
             return c.ret();
         }
         c.run(0xa597, 2)?;
-        c.call(0xa69f, 0xa5a2)?;
+        c.call(entry::SETTINGS_ON_A_SWITCH, 0xa5a2)?;
         let v = if c.flag(CF) { 2 } else { 0 };
         c.run(0xa5a2, 3)?;
         c.set_byte(g::SETTINGS_HOVER, v);
@@ -1301,7 +1302,7 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte(g::VOICE_LANGUAGE) & 0xfd;
     c.set_byte(g::VOICE_LANGUAGE, v);
     c.set_byte(g::LANGUAGE, al);
-    c.call(0xcfe4, 0xa5db)?;
+    c.call(entry::LOAD_LANGUAGE_PHRASES, 0xa5db)?;
     c.run(0xa5db, 1)?;
     settings_ui_draw(c.m, 0xa3f9)
 }
@@ -1318,12 +1319,12 @@ pub fn settings_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa5df)?;
     let mut c = Ctx::new(m);
     c.run(0xa5df, 1)?;
-    c.call(0xa453, 0xa5e2)?;
+    c.call(entry::SETTINGS_UI_SUB_GLOBAL_OFFSET, 0xa5e2)?;
     c.run(0xa5e2, 2)?;
     let (bx, cx) = (c.reg(BX), c.reg(CX));
     let b = pure::sub(W, bx, cx);
     c.set_reg(BX, b);
-    c.call(0xa594, 0xa5e7)?;
+    c.call(entry::SETTINGS_HOVER, 0xa5e7)?;
     let mode = c.byte(g::SETTINGS_HOVER);
     let si = c.reg(SI);
     let cx = c.reg(CX);
@@ -1352,7 +1353,7 @@ pub fn settings_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(si, v as u8);
         let h = c.word(si.wrapping_add(6));
         c.push(h);
-        return c.jump(0xa502);
+        return c.jump(entry::SETTINGS_UI_DRAW_SLIDER);
     }
     if mode != 2 {
         c.run(0xa5e7, 5)?;
@@ -1389,5 +1390,5 @@ pub fn settings_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(si, v);
     let h = c.word(si.wrapping_add(6));
     c.push(h);
-    c.jump(0xa49c)
+    c.jump(entry::DRAW_COUNTER)
 }

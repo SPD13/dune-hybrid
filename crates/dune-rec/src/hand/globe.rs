@@ -1,6 +1,7 @@
 //! The globe view (its background, decorations sliding open and shut, the
 //! rotation table) and the frieze sides of the game screen.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -220,7 +221,7 @@ pub fn remove_globe_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.run(start, 3)?;
     c.set_byte(g::GLOBE_DD03, 0);
     c.set_reg(SI, GLOBE_TASK);
-    c.call(0xda5f, 0xb93b)?;
+    c.call(entry::REMOVE_FRAME_TASK, 0xb93b)?;
     remove_task_2(&mut c)
 }
 
@@ -682,7 +683,7 @@ pub fn read_map_rows(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         let ax = c.reg(AX);
         c.push(ax);
-        c.call(0xb53b, 0xb582)?;
+        c.call(entry::READ_MAP_ROW, 0xb582)?;
         let cx = c.reg(CX).wrapping_sub(1);
         c.run(0xb582, 3 + if cx == 0 { 3 } else { 2 })?;
         let ax = c.pop();
@@ -795,22 +796,22 @@ pub fn globe_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb98b)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xb977, 0xb98e)?;
+    c.call(entry::MAP_FUNC_GFX, 0xb98e)?;
     globe_frame_from_b98e(&mut c, 0xb98e, 0)
 }
 
 /// [`globe_frame`] from B98Eh, after `pre` instructions from `at`.
 fn globe_frame_from_b98e(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.run(at, pre + 1)?;
-    c.call(0xbaf2, 0xb991)?;
+    c.call(entry::GLOBE_CELL_AT, 0xb991)?;
     c.run(0xb991, 4)?;
     let (bx, dx) = (c.reg(BX), c.reg(DX));
     c.push(bx);
     c.push(dx);
     c.set_reg(SI, 0xd834);
-    c.call(0xdb74, 0xb999)?;
+    c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0xb999)?;
     c.run(0xb999, 1)?;
-    c.call(0xc4ed, 0xb99c)?;
+    c.call(entry::UPDATE_SCREEN_AT_SPRITE_RECT_UPDATING_HEAD, 0xb99c)?;
     c.run(0xb99c, 5)?;
     let d = c.pop();
     c.set_reg(DX, d);
@@ -818,10 +819,10 @@ fn globe_frame_from_b98e(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.set_reg(BX, b);
     c.or(W, d, d);
     if d != 0 {
-        c.call(0xbc0c, 0xb9a5)?;
+        c.call(entry::DRAW_GLOBE_CURSOR_AT_DX_BX, 0xb9a5)?;
         c.run(0xb9a5, 1)?;
     }
-    c.call(0xdb67, 0xb9a8)?;
+    c.call(entry::DRAW_MOUSE_CURSOR_IF_NEEDED, 0xb9a8)?;
     c.run(0xb9a8, 2)?;
     c.set_reg(AX, 1);
     globe_rotation_increment_ax(c.m, 0xb9e0)
@@ -836,7 +837,7 @@ pub fn globe_turn_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     loop {
         c.run(0xba9e, 1)?;
-        c.call(0x407e, 0xbaa1)?;
+        c.call(entry::GET_MAP_POSITION, 0xbaa1)?;
         c.run(0xbaa1, 6)?;
         c.set_reg(AX, 0x18e);
         let dx = c.reg(DX);
@@ -847,7 +848,7 @@ pub fn globe_turn_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let r = c.word(g::GLOBE_ROTATION);
         let dx = c.sub(W, dx, r); // `loc_0b683` reads its SF
         c.set_reg(DX, dx);
-        c.call(0xb683, 0xbab3)?;
+        c.call(entry::GLOBE_ROW_SPAN, 0xbab3)?;
         let (dx, bx) = (c.reg(DX), c.reg(BX));
         let top = c.word(0x2460);
         let y = bx.wrapping_sub(top);
@@ -871,13 +872,13 @@ pub fn globe_turn_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, x);
         c.push(cx);
         c.push(yv);
-        c.call(0xb9e0, 0xbae7)?;
+        c.call(entry::GLOBE_ROTATION_INCREMENT_AX, 0xbae7)?;
         c.run(0xbae7, 2)?;
         let a = c.pop();
         c.set_reg(AX, a);
-        c.call(0xba15, 0xbaeb)?;
+        c.call(entry::GLOBE_INCREMENT_TILT, 0xbaeb)?;
         c.run(0xbaeb, 1)?;
-        c.call(0xb98b, 0xbaee)?;
+        c.call(entry::GLOBE_FRAME, 0xbaee)?;
         let cx = c.word_in(SS, c.m.cpu.regs[pc::cpu::SP]).wrapping_sub(1);
         c.run(0xbaee, 2 + (cx == 0) as u32)?;
         c.pop();
@@ -1117,7 +1118,7 @@ pub fn set_globe_tilt_and_rotation(m: &mut Machine, start: u16) -> Result<(), Ba
     c.set_word(0x494e, 0);
     c.set_reg(AX, a);
     c.set_word(0x2460, a);
-    c.call(0xb9f6, 0xba9c)?;
+    c.call(entry::RECALCULATE_GLOBE_ROTATION_TABLE, 0xba9c)?;
     let saved = c.m.cpu.flags();
     let n = tilt_walk(&mut c, false, false);
     c.m.cpu.set_flags(saved);
@@ -1148,12 +1149,12 @@ pub fn draw_globe_cursor_at_dx_bx(m: &mut Machine, start: u16) -> Result<(), Bai
     entered(start, 0xbc0c)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xc08e, 0xbc0f)?;
+    c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xbc0f)?;
     c.run(0xbc0f, 1)?;
-    c.call(0xc137, 0xbc12)?;
+    c.call(entry::LOAD_ICONES_SPRITES, 0xbc12)?;
     c.run(0xbc12, 2)?;
     c.set_reg(AX, 0x36);
-    c.call(0xc1f4, 0xbc18)?;
+    c.call(entry::GET_SUBRESOURCE_POINTER, 0xbc18)?;
     c.run(0xbc18, 2)?;
     let si = c.reg(SI);
     let h = c.byte_in(ES, si.wrapping_add(2));
@@ -1174,7 +1175,7 @@ pub fn globe_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (bx, dx) = (c.reg(BX), c.reg(DX));
     c.push(bx);
     c.push(dx);
-    c.call(0xbc4e, 0xbc69)?;
+    c.call(entry::ON_GLOBE, 0xbc69)?;
     let miss = |c: &mut Ctx, at: u16| -> Result<(), Bail> {
         c.run(at, 4)?;
         let d = c.pop();
@@ -1187,7 +1188,7 @@ pub fn globe_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return miss(&mut c, 0xbc69);
     }
     c.run(0xbc69, 2)?;
-    c.call(0xbd25, 0xbc6e)?;
+    c.call(entry::GLOBE_POINT, 0xbc6e)?;
     if !c.flag(CF) {
         return miss(&mut c, 0xbc6e);
     }
@@ -1195,17 +1196,17 @@ pub fn globe_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (ax, bx) = (c.reg(AX), c.reg(BX));
     c.set_word(g::MAP_MARK, ax);
     c.set_word(g::MAP_MARK_Y, bx);
-    c.call(0xb98b, 0xbc7a)?;
+    c.call(entry::GLOBE_FRAME, 0xbc7a)?;
     c.run(0xbc7a, 4)?;
     let d = c.pop();
     c.set_reg(DX, d);
     let b = c.pop();
     c.set_reg(BX, b);
-    c.call(0xdbb2, 0xbc90)?;
+    c.call(entry::CALL_RESTORE_CURSOR, 0xbc90)?;
     c.run(0xbc90, 1)?;
-    c.call(0xbc99, 0xbc93)?;
+    c.call(entry::OPEN_BOX, 0xbc93)?;
     c.run(0xbc93, 1)?;
-    c.call(0xadbe, 0xbc96)?;
+    c.call(entry::FADE_OUT_MUSIC, 0xbc96)?;
     c.run(0xbc96, 1)?;
     super::ui::ui_transition_to_map_interface(c.m, 0x5a3d)
 }
@@ -1227,14 +1228,14 @@ pub fn enter_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, 0);
     c.set_reg(DX, 0xffff);
     c.set_reg(BP, 0xb827);
-    c.call(0xc108, 0xb8de)?;
+    c.call(entry::TRANSITION_AL, 0xb8de)?;
     c.run(0xb8de, 1)?;
-    c.call(0xae04, 0xb8e1)?;
+    c.call(entry::MUSIC_STEP_IF_ENABLED, 0xb8e1)?;
     c.run(0xb8e1, 2)?;
     c.set_reg(AX, 0x2562);
-    c.call(0xd95e, 0xb8e7)?;
+    c.call(entry::SET_CLICK_HANDLER, 0xb8e7)?;
     c.run(0xb8e7, 1)?;
-    c.call(0x17e6, 0xb8ea)?;
+    c.call(entry::UI_HEAD_ANIMATE_UP, 0xb8ea)?;
     c.run(0xb8ea, 3)?;
     c.set_reg(SI, 0xb9ae);
     c.set_reg(BP, 1);
@@ -1256,7 +1257,7 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, 2)?;
     c.set_reg(AX, 0x3a);
-    c.call(0xc13e, 0x016f)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x016f)?;
     if c.flag(pc::cpu::DF) {
         c.m.cpu.ip = 0x016f;
         return Err(Bail);
@@ -1301,7 +1302,7 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let (dx, bx) = (c.word(si.wrapping_add(2)), c.word(si.wrapping_add(4)));
         c.set_reg(DX, dx);
         c.set_reg(BX, bx);
-        c.call(0xb5c5, 0x019b)?;
+        c.call(entry::MAP_CELL_SCALED, 0x019b)?;
         let si = c.reg(SI);
         let nx = c.byte(si.wrapping_add(0x1c));
         c.run(0x019b, 16)?;
@@ -1338,7 +1339,7 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let (dx, bx) = (c.word(di.wrapping_add(2)), c.word(di.wrapping_add(4)));
         c.set_reg(DX, dx);
         c.set_reg(BX, bx);
-        c.call(0x6603, 0x01d7)?;
+        c.call(entry::FOR_EACH_TROOP, 0x01d7)?;
         let di = c.reg(DI);
         let nx = c.byte(di.wrapping_add(0x1c));
         c.run(0x01d7, if nx == 0xff { 4 } else { 3 })?;
@@ -1378,14 +1379,14 @@ pub fn globe_or_map_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xbc1f)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xd41b, 0xbc22)?;
+    c.call(entry::CURRENT_UI_ELEMENTS, 0xbc22)?;
     let bp = c.reg(BP);
     if bp != 0x204a && bp != 0x2062 {
         c.run(0xbc22, 5)?;
         return c.ret();
     }
     c.run(0xbc22, if bp == 0x204a { 4 } else { 5 })?;
-    c.call(0xbc4e, 0xbc31)?;
+    c.call(entry::ON_GLOBE, 0xbc31)?;
     let bp = c.reg(BP);
     if c.flag(CF) {
         if bp == 0x2062 {
@@ -1535,17 +1536,17 @@ pub fn draw_globe_and_ui(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xb827, 2)?;
     c.set_byte(g::MAP_GFX_ARG, 0);
-    c.call(0xb84a, 0xb82f)?;
+    c.call(entry::GLOBE_FILL_BLUE_BACKGROUND, 0xb82f)?;
     c.run(0xb82f, 2)?;
     c.set_word(g::GLOBE_DECORATIONS_X, 0);
-    c.call(0xb87e, 0xb838)?;
+    c.call(entry::DRAW_GLOBE_SIDE_DECORATIONS, 0xb838)?;
     for (at, to) in [(0xb838u16, 0x1797u16), (0xb83b, 0xb941), (0xb83e, 0xd7b2)] {
         c.run(at, 1)?;
         c.call(to, at + 3)?;
     }
     c.run(0xb841, 2)?;
     c.set_reg(SI, 0x1dc6);
-    c.call(0xd72b, 0xb847)?;
+    c.call(entry::SET_BUTTONS_SI, 0xb847)?;
     c.run(0xb847, 1)?;
     super::voice::pick_music(c.m, 0xad5e)
 }
@@ -1572,7 +1573,7 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if k != 0 {
         return c.ret();
     }
-    c.call(0x407e, 0xbafe)?;
+    c.call(entry::GET_MAP_POSITION, 0xbafe)?;
     let bx0 = c.reg(BX);
     let bneg = (bx0 << 3) & 0x8000 != 0;
     c.run(0xbafe, 7 + 2 * bneg as u32)?;
@@ -1925,11 +1926,11 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_reg(CX, w0.wrapping_neg());
                 if empty {
                     backward = false;
-                    c.call(0xb7d2, 0xb7a8)?;
+                    c.call(entry::GLOBE_ROW, 0xb7a8)?;
                     resume_b7a5 = true;
                     continue;
                 }
-                c.call(0xb7d2, 0xb794)?;
+                c.call(entry::GLOBE_ROW, 0xb794)?;
                 let sp = c.reg(SP);
                 let cx = c.word_in(SS, sp).wrapping_sub(1);
                 c.run(0xb794, 3 + (cx == 0) as u32)?;
@@ -1946,7 +1947,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.push(cx);
             c.set_reg(CX, w0);
             c.set_reg(BX, w1);
-            c.call(0xb7d2, 0xb7a8)?;
+            c.call(entry::GLOBE_ROW, 0xb7a8)?;
         }
         resume_b7a5 = false;
         let sp = c.reg(SP);
@@ -2092,7 +2093,7 @@ pub fn map_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb58b)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xb5a0, 0xb58e)?;
+    c.call(entry::TRIG_LOOKUP, 0xb58e)?;
     let (ax, bp, dx) = (c.reg(AX), c.reg(BP), c.reg(DX));
     let (base, seg) = (c.word(0xdcfe), c.word(0xdd00));
     c.run(0xb58e, 8)?;

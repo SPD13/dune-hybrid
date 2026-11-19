@@ -1,5 +1,6 @@
 //! Game time: day, time of day, the sky's palette.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -126,7 +127,7 @@ fn clock_steps(c: &mut Ctx, mut at: u16) -> Result<(), Bail> {
             0x0fd9 => {
                 c.run(0x0fd9, 2)?;
                 c.set_byte(TICKING, 1);
-                c.call(0xb2be, 0x0fe1)?;
+                c.call(entry::START_CLOCK, 0x0fe1)?;
                 at = 0x0fe1;
             }
             0x0fe1 => {

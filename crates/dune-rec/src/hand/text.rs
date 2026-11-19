@@ -1,5 +1,6 @@
 //! Text: the phrase and command strings, the font, drawing strings.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -270,7 +271,7 @@ pub fn font_draw_phrase_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, string);
         let si = c.reg(SI);
         c.push(si);
-        c.call(0xd194, 0xd1b8)?;
+        c.call(entry::FONT_DRAW_STRING_WITH_COLOR_AT_POS, 0xd1b8)?;
         c.run(0xd1b8, 2)?; // pop si; jmp
         let si = c.pop();
         c.set_reg(SI, si);
@@ -292,7 +293,7 @@ pub fn text_8b11_unless_command(m: &mut Machine, start: u16) -> Result<(), Bail>
         return c.ret();
     }
     c.set_reg(SI, si);
-    c.call(0x8b11, 0x88ea)?;
+    c.call(entry::LAYOUT_TEXT, 0x88ea)?;
     let si = c.reg(SI);
     let v = c.byte(si);
     c.run(0x88ea, if v >= 0xfe { 3 } else { 4 })?;
@@ -380,7 +381,7 @@ pub fn word_width(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x8eda, n1)?;
         c.lods(B, DS);
         if sp {
-            c.call(0xd0e3, 0x8efe)?;
+            c.call(entry::SPECIAL_CHAR, 0x8efe)?;
             if !c.flag(pc::cpu::CF) {
                 c.run(0x8efe, 3)?;
                 let a = c.reg8(r8::AL);
@@ -419,9 +420,9 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd0ff)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xd068, 0xd102)?;
+    c.call(entry::FONT_SELECT_TALL_FONT, 0xd102)?;
     c.run(0xd102, 1)?;
-    c.call(0xd0e3, 0xd105)?;
+    c.call(entry::SPECIAL_CHAR, 0xd105)?;
     if c.flag(pc::cpu::CF) {
         c.run(0xd105, 19)?;
         let saved = [AX, BX, CX, DX, SI, DI, BP].map(|r| c.reg(r));
@@ -438,7 +439,7 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, 0xceec);
         let w = c.byte(0xceecu16.wrapping_add(ax));
         c.set_reg8(r8::AL, w);
-        c.call(0xd05f, 0xd0b5)?;
+        c.call(entry::FONT_GET_DRAW_POSITION, 0xd0b5)?;
         c.run(0xd0b5, 5)?;
         let ax = c.reg(AX);
         let x = c.font_pen().at[0];
@@ -461,16 +462,16 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0xd105, 2)?;
-    c.call(0xe270, 0xd10a)?;
+    c.call(entry::SAVE_REGS, 0xd10a)?;
     c.run(0xd10a, 4)?;
     let es = c.sreg(ES);
     c.push(es);
     let ax = c.reg(AX);
     c.push(ax);
     c.set_reg(AX, 0x32);
-    c.call(0xc13e, 0xd112)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xd112)?;
     c.run(0xd112, 1)?;
-    c.call(0xd05f, 0xd115)?;
+    c.call(entry::FONT_GET_DRAW_POSITION, 0xd115)?;
     let bx = c.reg(BX);
     c.run(0xd115, 7 + if bx < 0x13 { 1 } else { 0 } + 1)?;
     let ax = c.pop();
@@ -479,11 +480,11 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_font_pen(|t| t.at[0] = x);
     c.set_reg(AX, ax >> 8);
     c.set_reg(BX, bx.saturating_sub(0x13));
-    c.call(0xc22f, 0xd12a)?;
+    c.call(entry::DRAW_SPRITE_CLOBBERING_BX_DX, 0xd12a)?;
     c.run(0xd12a, 2)?;
     let es = c.pop();
     c.set_sreg(ES, es);
-    c.call(0xe283, 0xd12e)?;
+    c.call(entry::RESTORE_REGS, 0xd12e)?;
     c.run(0xd12e, 1)?;
     c.ret()
 }

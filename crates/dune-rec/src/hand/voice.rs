@@ -1,6 +1,7 @@
 //! Voice files (streamed in 8 KB parts into two buffers) and music
 //! loading.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -428,7 +429,7 @@ pub fn swap_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, seg);
     let di = c.add(W, off, 6);
     c.set_reg(DI, di);
-    c.call(0xaa70, 0xaa00)?;
+    c.call(entry::TRANSFER_SD_BLOCK, 0xaa00)?;
     c.interp(0xaa00, 0xaa04)?;
     c.run(0xaa04, 4)?;
     let x = c.xor(W, 0x3811, 0x3819);
@@ -445,12 +446,12 @@ pub fn while_voice_playing(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     loop {
         c.run(0xabd5, 1)?;
-        c.call(0xabcc, 0xabd8)?;
+        c.call(entry::IS_VOC_PCM_PLAYING, 0xabd8)?;
         c.run(0xabd8, 2)?;
         if c.flag(ZF) {
             return c.ret();
         }
-        c.call(0xa7c2, 0xabd5)?;
+        c.call(entry::LIP_SYNC_FRAME_TASK, 0xabd5)?;
     }
 }
 
@@ -477,7 +478,7 @@ pub fn fade_out_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xadbe)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xaec6, 0xadc1)?;
+    c.call(entry::SOUND_OFF, 0xadc1)?;
     if c.flag(CF) {
         c.run(0xadc1, 2)?;
         return c.ret();
@@ -520,7 +521,7 @@ pub fn shuffle_music_playlist(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         c.run(0xacc5, 2)?;
         c.set_reg(BX, 8);
-        c.call(0xe3df, 0xaccb)?;
+        c.call(entry::RAND_BELOW, 0xaccb)?;
         c.run(0xaccb, 5)?;
         let a = c.reg(AX);
         c.set_reg(SI, a);
@@ -531,7 +532,7 @@ pub fn shuffle_music_playlist(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let s = c.word(g::RAND_BELOW_SEED);
         let s = pure::add(W, s, t);
         c.set_word(g::RAND_BELOW_SEED, s);
-        c.call(0xe3df, 0xacd9)?;
+        c.call(entry::RAND_BELOW, 0xacd9)?;
         let cx = c.reg(CX).wrapping_sub(1);
         c.run(0xacd9, 5 + if cx == 0 { 2 } else { 0 })?;
         let b = c.reg(AX);
@@ -556,7 +557,7 @@ pub fn wait_voice_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xaba9)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xae2f, 0xabac)?;
+    c.call(entry::CHECK_PCM_ENABLED, 0xabac)?;
     if c.flag(ZF) {
         c.run(0xabac, 2)?;
         return c.ret();
@@ -567,9 +568,9 @@ pub fn wait_voice_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         let bx = c.reg(BX);
         c.push(bx);
-        c.call(0xab92, 0xabb6)?;
+        c.call(entry::VOICE_STREAM_TASK, 0xabb6)?;
         c.run(0xabb6, 1)?;
-        c.call(0xaba3, 0xabb9)?;
+        c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xabb9)?;
         let closed = c.flag(ZF);
         if closed {
             c.run(0xabb9, 4)?;
@@ -600,10 +601,10 @@ pub fn voice_2_and_transition(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb02c)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xac14, 0xb02f)?;
+    c.call(entry::PCM_STOP_VOC, 0xb02f)?;
     c.run(0xb02f, 2)?;
     c.set_reg8(r8::AL, 2);
-    c.call(0xab15, 0xb034)?;
+    c.call(entry::AUDIO_START_VOC, 0xb034)?;
     c.run(0xb034, 2)?;
     c.set_reg8(r8::AL, 0x0e);
     super::screen::transition_al(c.m, 0xc108)
@@ -615,15 +616,15 @@ pub fn voice_stream_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xab92)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xa9b9, 0xab95)?;
+    c.call(entry::REFILL_VOICE_BUFFER, 0xab95)?;
     c.run(0xab95, 1)?;
-    c.call(0xaba3, 0xab98)?;
+    c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xab98)?;
     if !c.flag(pc::cpu::ZF) {
         c.run(0xab98, 2)?;
         return c.ret();
     }
     c.run(0xab98, 2)?;
-    c.call(0xaded, 0xab9d)?;
+    c.call(entry::SET_PCM_VOLUME, 0xab9d)?;
     c.run(0xab9d, 2)?;
     c.set_reg(SI, 0xab92);
     super::tasks::remove_frame_task(c.m, 0xda5f)
@@ -638,7 +639,7 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc868)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xabcc, 0xc86b)?;
+    c.call(entry::IS_VOC_PCM_PLAYING, 0xc86b)?;
     if !c.flag(pc::cpu::ZF) {
         c.run(0xc86b, 2)?;
         return c.ret();
@@ -669,7 +670,7 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if cinematic == 0 {
         c.push(bx);
         c.set_reg(BX, 1);
-        c.call(0xe3b7, 0xc89a)?;
+        c.call(entry::RAND_MASKED, 0xc89a)?;
         let z = c.flag(pc::cpu::ZF);
         c.run(0xc89a, 3 + (!z) as u32)?;
         let b = c.pop();
@@ -682,7 +683,7 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if al == 0 {
             c.run(0xc8a3, 4)?;
             c.lods(B, DS);
-            c.call(0xc4dd, 0xc8c0)?;
+            c.call(entry::UPDATE_GAME_AREA_ON_SCREEN, 0xc8c0)?;
             c.run(0xc8c0, 1)?;
             return c.ret();
         }
@@ -691,7 +692,7 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.lods(B, DS);
             c.or(B, al as u16, al as u16); // the wait (`loc_0e387`) pushes these flags
             c.set_reg(AX, 0x12c);
-            c.call(0xe387, 0xc8b0)?;
+            c.call(entry::WAIT_A_BIT, 0xc8b0)?;
             c.run(0xc8b0, 1)?;
             continue;
         }
@@ -701,7 +702,7 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(si);
         c.set_reg(AX, al as u16);
         c.set_reg(BP, al as u16);
-        c.call(0xc8c1, 0xc8ba)?;
+        c.call(entry::DRAW_VIDEO_SPRITE_AND_WAIT, 0xc8ba)?;
         c.run(0xc8ba, 2)?;
         let s = c.pop();
         c.set_reg(SI, s);
@@ -756,7 +757,7 @@ pub fn play_voice_lowering_music(m: &mut Machine, start: u16) -> Result<(), Bail
     entered(start, 0xab45)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xae2f, 0xab48)?;
+    c.call(entry::CHECK_PCM_ENABLED, 0xab48)?;
     if c.flag(ZF) {
         c.run(0xab48, 2)?;
         return c.ret();
@@ -764,7 +765,7 @@ pub fn play_voice_lowering_music(m: &mut Machine, start: u16) -> Result<(), Bail
     c.run(0xab48, 3)?;
     let ax = c.reg(AX);
     c.push(ax);
-    c.call(0xade0, 0xab4e)?;
+    c.call(entry::SETTINGS_APPLY_VOICE_VOLUME, 0xab4e)?;
     c.run(0xab4e, 1)?;
     let a = c.pop();
     c.set_reg(AX, a);
@@ -786,16 +787,16 @@ fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xab4f, 3)?;
     c.update_sentence(|t| t.voice_part = 0);
     c.set_reg(BX, 0x19);
-    c.call(0xa8bc, 0xab5a)?;
+    c.call(entry::CREATE_VOC_FILE_NAME_FROM_BX, 0xab5a)?;
     c.run(0xab5a, 2)?;
     c.set_byte(0x37e2, 0x49);
-    c.call(0xabcc, 0xab62)?;
+    c.call(entry::IS_VOC_PCM_PLAYING, 0xab62)?;
     if !c.flag(ZF) {
         c.run(0xab62, 2)?;
         return c.ret();
     }
     c.run(0xab62, 2)?;
-    c.call(0xae2f, 0xab67)?;
+    c.call(entry::CHECK_PCM_ENABLED, 0xab67)?;
     if c.flag(ZF) {
         c.run(0xab67, 2)?;
         return c.ret();
@@ -803,21 +804,21 @@ fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xab67, 3)?;
     let es = c.sreg(ES);
     c.push(es);
-    c.call(0xe270, 0xab6d)?;
+    c.call(entry::SAVE_REGS, 0xab6d)?;
     c.run(0xab6d, 1)?;
-    c.call(0xac14, 0xab70)?;
+    c.call(entry::PCM_STOP_VOC, 0xab70)?;
     c.run(0xab70, 1)?;
-    c.call(0xa90b, 0xab73)?;
+    c.call(entry::OPEN_PCM_VOICE_FILE, 0xab73)?;
     if !c.flag(CF) {
         c.run(0xab73, 3)?;
         let v = c.voice_buffer(0).data[0];
         let v = c.add(W, v, 0x1a);
         c.update_voice_buffer(0, |b| b.data[0] = v);
-        c.call(0xa9b9, 0xab7d)?;
+        c.call(entry::REFILL_VOICE_BUFFER, 0xab7d)?;
         c.run(0xab7d, 3)?;
         c.set_reg(SI, 0xab92);
         c.set_reg(BP, 1);
-        c.call(0xda25, 0xab86)?;
+        c.call(entry::ADD_FRAME_TASK, 0xab86)?;
         c.run(0xab86, 1)?;
         c.set_reg(SI, 0x3811);
         c.interp(0xab89, 0xab8d)?;
@@ -825,7 +826,7 @@ fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
     } else {
         c.run(0xab73, 2)?;
     }
-    c.call(0xe283, 0xab90)?;
+    c.call(entry::RESTORE_REGS, 0xab90)?;
     c.run(0xab90, 2)?;
     let es = c.pop();
     c.set_sreg(ES, es);
@@ -968,7 +969,7 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xace6)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xabcc, 0xace9)?;
+    c.call(entry::IS_VOC_PCM_PLAYING, 0xace9)?;
     if !c.flag(ZF) {
         c.run(0xace9, 2)?;
         return c.ret();
@@ -976,7 +977,7 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(g::MUSIC_SETTINGS);
     if f & 1 == 0 {
         c.run(0xace9, 4)?;
-        c.call(0xaec6, 0xad3a)?;
+        c.call(entry::SOUND_OFF, 0xad3a)?;
         if c.flag(CF) {
             c.run(0xad3a, 2)?;
             return c.ret();
@@ -1044,7 +1045,7 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.lods(B, DS);
         let _ = (b2, step);
         if two {
-            c.call(0xacbf, 0xad2f)?;
+            c.call(entry::SHUFFLE_MUSIC_PLAYLIST, 0xad2f)?;
             c.run(0xad2f, 3)?;
             c.lods(B, DS);
         }
@@ -1063,7 +1064,7 @@ fn music_start_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     let al = c.reg8(r8::AL);
     c.xor(B, 0, 0);
     c.set_reg(AX, al as u16);
-    c.call(0xaec6, 0xad9a)?;
+    c.call(entry::SOUND_OFF, 0xad9a)?;
     if c.flag(CF) {
         c.run(0xad9a, 2)?;
         return c.ret();
@@ -1077,7 +1078,7 @@ fn music_start_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     }
     c.run(0xad9a, 4)?;
     c.cmp(B, al as u16, cur as u16);
-    c.call(0xae62, 0xada5)?;
+    c.call(entry::LOAD_MUSIC, 0xada5)?;
     c.run(0xada5, 4)?;
     let al = c.reg8(r8::AL);
     c.update_sound_state(|t| t.current_music = al);
@@ -1106,13 +1107,13 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xad5e)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xaec6, 0xad61)?;
+    c.call(entry::SOUND_OFF, 0xad61)?;
     if c.flag(CF) {
         c.run(0xad61, 2)?;
         return c.ret();
     }
     c.run(0xad61, 2)?;
-    c.call(0xaa96, 0xad66)?;
+    c.call(entry::MUSIC_FOR_SITUATION, 0xad66)?;
     let f = c.byte(g::MUSIC_SETTINGS);
     if f != 0 {
         let s = c.sound_state().present;
@@ -1184,7 +1185,7 @@ fn song_list_at(c: &mut Ctx, at: u16, pre: u32, f: u8, ops: impl FnOnce(&mut Ctx
         c.lods(B, DS);
         c.test(B, f as u16, 2);
         if two {
-            c.call(0xacbf, 0xad2f)?;
+            c.call(entry::SHUFFLE_MUSIC_PLAYLIST, 0xad2f)?;
             c.run(0xad2f, 3)?;
             c.lods(B, DS);
         }
@@ -1201,7 +1202,7 @@ pub fn alloc_music_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xae3f)?;
     let mut c = Ctx::new(m);
     c.run(0xae3f, 1)?;
-    c.call(0xae28, 0xae42)?;
+    c.call(entry::MUSIC_ENABLED, 0xae42)?;
     if c.flag(ZF) {
         c.run(0xae42, 2)?;
         return c.ret();
@@ -1220,7 +1221,7 @@ pub fn alloc_music_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, a);
     c.set_reg(AX, 0);
     c.set_reg(CX, 0x9c40);
-    c.jump(0xf0f6)
+    c.jump(entry::BUMP_ALLOC)
 }
 
 /// `loc_0ae54`: with voices on (`loc_0ae2f`) a voice buffer of 4E20h
@@ -1229,7 +1230,7 @@ pub fn alloc_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xae54)?;
     let mut c = Ctx::new(m);
     c.run(0xae54, 1)?;
-    c.call(0xae2f, 0xae57)?;
+    c.call(entry::CHECK_PCM_ENABLED, 0xae57)?;
     if c.flag(ZF) {
         c.run(0xae57, 2)?;
         return c.ret();
@@ -1237,7 +1238,7 @@ pub fn alloc_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xae57, 4)?;
     c.set_reg(DI, 0x3811);
     c.set_reg(CX, 0x4e20);
-    c.jump(0xf0f6)
+    c.jump(entry::BUMP_ALLOC)
 }
 
 /// `lip_sync_frame_task`: the speaking head's frame task. With a voice
@@ -1254,7 +1255,7 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa7c2)?;
     let mut c = Ctx::new(m);
     c.run(0xa7c2, 1)?;
-    c.call(0xabcc, 0xa7c5)?;
+    c.call(entry::IS_VOC_PCM_PLAYING, 0xa7c5)?;
     if c.flag(ZF) {
         c.run(0xa7c5, 2)?;
         return c.ret();
@@ -1262,7 +1263,7 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.word(g::LIPSYNC_PTR);
     if k == 0 {
         c.run(0xa7c5, 4)?;
-        c.call(0xa9e7, 0xa7d1)?;
+        c.call(entry::PCM_TEST_AUDIO_DONE, 0xa7d1)?;
         if !c.flag(ZF) {
             c.run(0xa7d1, 1)?;
             return next_phrase_a789(&mut c);
@@ -1292,7 +1293,7 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xa7f3, 2)?;
         let di = c.reg(DI);
         c.push(di);
-        c.call(0xa814, 0xa7f7)?;
+        c.call(entry::ADVANCE_LIPSYNC, 0xa7f7)?;
         let cf = c.flag(CF);
         let sp = c.reg(SP);
         let di = c.word_in(SS, sp);
@@ -1324,7 +1325,7 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (bx, bp) = (c.reg(BX), c.reg(BP));
     c.set_word(0xdc2c, bx);
     c.set_word(0xdc2e, bp);
-    c.call(0xa82e, 0xa811)?;
+    c.call(entry::SET_LIPSYNC_DATA_TO_AL, 0xa811)?;
     c.run(0xa811, 1)?;
     feed_a9b9(&mut c)
 }
@@ -1358,25 +1359,25 @@ fn next_phrase_a789(c: &mut Ctx) -> Result<(), Bail> {
     }
     c.run(0xa793, 2)?;
     c.push(p);
-    c.call(0xa7a5, 0xa797)?;
+    c.call(entry::LIP_SYNC_STOP, 0xa797)?;
     c.run(0xa797, 4)?;
     let p = c.pop();
     let o = c.word(0xd810);
     let a = c.add(W, p, o);
     c.set_reg(AX, a);
     c.set_reg8(r8::BL, 0x0e);
-    c.call(0xa6cc, 0xa7a1)?;
+    c.call(entry::LOAD_VOC_AND_LIPSYNC_DATA, 0xa7a1)?;
     if !c.flag(CF) {
         c.run(0xa7a1, 2)?;
         return c.ret();
     }
     c.run(0xa7a1, 2)?;
     c.run(0xa75c, 1)?;
-    c.call(0x9197, 0xa75f)?;
+    c.call(entry::SETUP_LIP_SYNC_DATA_FROM_CURRENT, 0xa75f)?;
     c.run(0xa75f, 3)?;
     c.set_reg(BP, 0);
     c.set_reg(SI, 0xa7c2);
-    c.call(0xda25, 0xa768)?;
+    c.call(entry::ADD_FRAME_TASK, 0xa768)?;
     c.run(0xa768, 2)?;
     c.set_byte(g::VOC_PCM_PLAYING, 1);
     c.set_reg(SI, 0x3811);
@@ -1386,13 +1387,13 @@ fn next_phrase_a789(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(AX, t);
     c.set_word(0xdc2c, t);
     c.set_word(0xdc2e, 0x8000);
-    c.call(0xa814, 0xa783)?;
+    c.call(entry::ADVANCE_LIPSYNC, 0xa783)?;
     if !c.flag(CF) {
         c.run(0xa783, 2)?;
         return c.ret();
     }
     c.run(0xa783, 2)?;
-    c.call(0xa82e, 0xa788)?;
+    c.call(entry::SET_LIPSYNC_DATA_TO_AL, 0xa788)?;
     c.run(0xa788, 1)?;
     c.ret()
 }
@@ -1403,20 +1404,20 @@ fn next_phrase_a789(c: &mut Ctx) -> Result<(), Bail> {
 fn stop_a7a5(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xa7a5, 2)?;
     c.set_reg(SI, 0xa7c2);
-    c.call(0xda5f, 0xa7ab)?;
+    c.call(entry::REMOVE_FRAME_TASK, 0xa7ab)?;
     c.run(0xa7ab, 2)?;
     c.set_word(g::LIPSYNC_PTR, 0);
-    c.call(0xd61d, 0xa7b4)?;
+    c.call(entry::CURSOR_SPRITE_9F, 0xa7b4)?;
     c.run(0xa7b4, 1)?;
-    c.call(0xabcc, 0xa7b7)?;
+    c.call(entry::IS_VOC_PCM_PLAYING, 0xa7b7)?;
     if c.flag(ZF) {
         c.run(0xa7b7, 2)?;
         return c.ret();
     }
     c.run(0xa7b7, 2)?;
-    c.call(0xabc6, 0xa7bc)?;
+    c.call(entry::SET_VOC_PCM_IS_NOT_PLAYING, 0xa7bc)?;
     c.run(0xa7bc, 1)?;
-    c.call(0xa9a1, 0xa7bf)?;
+    c.call(entry::CLOSE_PCM_VOICE_FILE_HANDLE, 0xa7bf)?;
     let bl = c.byte(g::SLIDER_MUSIC);
     let bh = c.byte(g::BYTE_28AE);
     c.run(0xa7bf, 1 + 5 + (bl < 4) as u32)?;
@@ -1438,7 +1439,7 @@ fn stop_a7a5(c: &mut Ctx) -> Result<(), Bail> {
 /// (far [39A1h]).
 fn feed_a9b9(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xa9b9, 1)?;
-    c.call(0xaba3, 0xa9bc)?;
+    c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xa9bc)?;
     if c.flag(ZF) {
         c.run(0xa9bc, 2)?;
         return c.ret();
@@ -1467,7 +1468,7 @@ fn feed_a9b9(c: &mut Ctx) -> Result<(), Bail> {
     let dx = c.add(W, dx, 6);
     c.set_reg(DX, dx);
     c.push(si);
-    c.call(0xa93f, 0xa9df)?;
+    c.call(entry::READ_AUDIO_FILE, 0xa9df)?;
     let cf = c.flag(CF);
     c.run(0xa9df, 2 + (cf as u32))?;
     let v = c.pop();
@@ -1498,7 +1499,7 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.set_byte(g::VOC_LOADED, 0xff);
-    c.call(0xac14, 0xaa1d)?;
+    c.call(entry::PCM_STOP_VOC, 0xaa1d)?;
     c.run(0xaa1d, 7)?;
     c.set_reg(AX, 0);
     c.update_voice_buffer(0, |b| b.data[0] = 0);
@@ -1508,7 +1509,7 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let [d, e] = c.voice_buffer(0).data;
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
-    c.call(0xaa70, 0xaa30)?;
+    c.call(entry::TRANSFER_SD_BLOCK, 0xaa30)?;
     // (The `rep movsb` iterations counted in the `run`.)
     let v = c.voice_buffer(0).size.wrapping_sub(0x20);
     let moved = v.wrapping_add(6);
@@ -1596,7 +1597,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     c.push(ax);
     let si = c.reg(SI);
     c.push(si);
-    c.call(0x9197, 0x9def)?;
+    c.call(entry::SETUP_LIP_SYNC_DATA_FROM_CURRENT, 0x9def)?;
     let f = c.map_view().mode;
     let neg = f & 0x80 != 0;
     c.run(0x9def, 4 + if neg { 0 } else { 2 })?;
@@ -1609,7 +1610,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
         return lip_sprite_9e75(c);
     }
     c.set_reg(DI, 0xd834);
-    c.call(0x5b99, 0x9dfe)?;
+    c.call(entry::COPY_RECT_AT_SI_TO_DI, 0x9dfe)?;
     let d = c.dialogue_text().sentence_kind;
     let none = d.wrapping_sub(1) & 0x80 != 0;
     let kind = c.word(0x22a6);
@@ -1647,7 +1648,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     let si = c.add(W, si, ax);
     c.set_reg(SI, si);
-    c.call(0x9bee, 0x9e36)?;
+    c.call(entry::SETUP_NON_LIP_SYNC_DATA_STRUCTURE, 0x9e36)?;
     let e = c.situation().event_kind;
     let skip = (e as i8) > 0;
     c.run(0x9e36, 3 + skip as u32)?;
@@ -1660,34 +1661,34 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     if n >= 2 {
         c.run(0x9e40, 3)?;
         c.cmp(W, n, 2);
-        c.call(0x9d2d, 0x9e48)?;
+        c.call(entry::DRAW_TALKING_HEAD_AT_SI, 0x9e48)?;
         c.run(0x9e48, 1)?;
-        c.call(0x908c, 0x9e4b)?;
+        c.call(entry::BLIT_DIALOGUE_FRAME, 0x9e4b)?;
         c.run(0x9e4b, 2)?;
         c.set_reg(SI, 0xd834);
-        c.call(0xdb74, 0x9e51)?;
+        c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x9e51)?;
         c.run(0x9e51, 1)?;
-        c.call(0xc4f0, 0x9e54)?;
+        c.call(entry::DRAW_HEAD_IF_NEEDED_AND_UPDATE_SCREEN_RECT_AT_SI, 0x9e54)?;
         c.run(0x9e54, 1)?;
-        return c.jump(0xdb67);
+        return c.jump(entry::DRAW_MOUSE_CURSOR_IF_NEEDED);
     }
     c.run(0x9e40, 4)?;
     c.cmp(W, n, 2);
     c.set_reg(SI, 0xd834);
-    c.call(0xdb74, 0x9e5d)?;
+    c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x9e5d)?;
     c.run(0x9e5d, 2)?;
     let v = c.screen_buffers().active;
     c.push(v);
-    c.call(0xc08e, 0x9e64)?;
+    c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x9e64)?;
     c.run(0x9e64, 2)?;
     c.set_reg(SI, 0x4608);
-    c.call(0x9d2d, 0x9e6a)?;
+    c.call(entry::DRAW_TALKING_HEAD_AT_SI, 0x9e6a)?;
     c.run(0x9e6a, 1)?;
-    c.call(0x908c, 0x9e6d)?;
+    c.call(entry::BLIT_DIALOGUE_FRAME, 0x9e6d)?;
     c.run(0x9e6d, 2)?;
     let v = c.pop();
     c.update_screen_buffers(|t| t.active = v);
-    c.jump(0xdb67)
+    c.jump(entry::DRAW_MOUSE_CURSOR_IF_NEEDED)
 }
 
 /// 9E75h: the mouth as a sprite of the sheet [0DBB2h]: the frame's byte
@@ -1720,7 +1721,7 @@ fn lip_sprite_9e75(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(SI, si);
     c.push(si);
     c.set_reg(SI, 0x47d4);
-    c.call(0xdb74, 0x9e99)?;
+    c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x9e99)?;
     let sp = c.reg(SP);
     let s0 = c.word_in(SS, sp);
     let seg = c.word_in(SS, 0xdbb2);
@@ -1750,22 +1751,22 @@ fn lip_sprite_9e75(c: &mut Ctx) -> Result<(), Bail> {
     if shown {
         let es = c.word_in(SS, 0xdbd6);
         c.set_sreg(ES, es);
-        c.call(0x9d94, 0x9ebf)?;
+        c.call(entry::DRAW_DIALOGUE_SPRITES, 0x9ebf)?;
         c.run(0x9ebf, 3)?;
         let v = c.pop();
         c.set_sreg(DS, v);
         c.set_reg(SI, 0x47d4);
-        c.call(0xc4f0, 0x9ec6)?;
+        c.call(entry::DRAW_HEAD_IF_NEEDED_AND_UPDATE_SCREEN_RECT_AT_SI, 0x9ec6)?;
         c.run(0x9ec6, 1)?;
-        return c.jump(0xdb67);
+        return c.jump(entry::DRAW_MOUSE_CURSOR_IF_NEEDED);
     }
     let es = c.word_in(SS, 0xdbd8);
     c.set_sreg(ES, es);
-    c.call(0x9d94, 0x9ed1)?;
+    c.call(entry::DRAW_DIALOGUE_SPRITES, 0x9ed1)?;
     c.run(0x9ed1, 2)?;
     let v = c.pop();
     c.set_sreg(DS, v);
-    c.jump(0xdb67)
+    c.jump(entry::DRAW_MOUSE_CURSOR_IF_NEEDED)
 }
 
 /// `load_voc_and_lipsync_data` (A6CC): phrase AX of talking head BL
@@ -1794,9 +1795,9 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
         c.m.cpu.write8(&mut c.m.hw, CS, 0xa6d3, b);
         let h = c.word(0x22a6);
         c.set_reg(BX, h);
-        c.call(0xa8bc, 0xa6e1)?;
+        c.call(entry::CREATE_VOC_FILE_NAME_FROM_BX, 0xa6e1)?;
         c.run(0xa6e1, 1)?;
-        c.call(0xa7a5, 0xa6e4)?;
+        c.call(entry::LIP_SYNC_STOP, 0xa6e4)?;
         c.run(0xa6e4, 1)?;
     } else {
         let ax = c.reg(AX);
@@ -1838,13 +1839,13 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
                 c.push(v);
             }
         }
-        c.call(0xa8bc, 0xa72a)?;
+        c.call(entry::CREATE_VOC_FILE_NAME_FROM_BX, 0xa72a)?;
         c.run(0xa72a, 1)?;
-        c.call(0xa7a5, 0xa72d)?;
+        c.call(entry::LIP_SYNC_STOP, 0xa72d)?;
         c.run(0xa72d, 2)?;
         let v = c.pop();
         c.set_reg(AX, v);
-        c.call(0x9123, 0xa731)?;
+        c.call(entry::PICK_SENTENCE, 0xa731)?;
         c.run(0xa731, 6)?;
         // Its lip-sync table: 8 bytes a head from 27FAh.
         let a = (c.reg(AX) << 3).wrapping_add(0x27fa);
@@ -1854,13 +1855,13 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
     }
     c.run(0xa740, 2)?;
     c.set_byte(0xdc2a, 0xff);
-    c.call(0xa83f, 0xa748)?;
+    c.call(entry::VOC_GET_LIPSYNC_DATA, 0xa748)?;
     let mut fail = c.flag(CF);
     if !fail {
         c.run(0xa748, 3)?;
         let v = c.byte(0x37e2) ^ 6;
         c.set_byte(0x37e2, v);
-        c.call(0xa83f, 0xa752)?;
+        c.call(entry::VOC_GET_LIPSYNC_DATA, 0xa752)?;
         fail = c.flag(CF);
         c.run(0xa752, 1 + if fail { 1 } else { 1 })?;
         if !fail {
@@ -1869,9 +1870,9 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
     } else {
         c.run(0xa748, 2)?;
     }
-    c.call(0xade0, 0xa757)?;
+    c.call(entry::SETTINGS_APPLY_VOICE_VOLUME, 0xa757)?;
     c.run(0xa757, 1)?;
-    c.call(0xd617, 0xa75a)?;
+    c.call(entry::CURSOR_SPRITE_90, 0xa75a)?;
     c.run(0xa75a, 2)?;
     c.set_flag(CF, true);
     c.ret()

@@ -1,6 +1,7 @@
 //! Files: DUNE.DAT and loose files, the memory allocator's helpers, the
 //! keyboard buffer, waiting on the timer.
 
+use super::entry;
 use super::pure;
 use super::{Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -498,7 +499,7 @@ pub fn evict_oldest(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.or(W, bx, bx);
     if bx != 0 {
         c.set_reg(SI, di);
-        c.call(0xebaa, 0xeba7)?;
+        c.call(entry::FREE_CHAIN, 0xeba7)?;
         c.run(0xeba7, 3)?;
     }
     let s = c.pop();
@@ -558,7 +559,7 @@ pub fn open_file_size(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 2)?;
     let dx = c.reg(DX);
     c.push(dx);
-    c.call(0xf2fc, 0xf208)?;
+    c.call(entry::STRCPY_TO_FILENAME_BUF, 0xf208)?;
     c.run(0xf208, 1)?;
     c.set_reg(AX, 0x3d00);
     c.interp(0xf20b, 0xf20d)?;
@@ -608,7 +609,7 @@ pub fn scan_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(start, 3)?;
-    c.call(0xe741, 0xe830)?;
+    c.call(entry::READ_DUNE_DAT_TOC, 0xe830)?;
     c.run(0xe830, 6)?;
     let ds = c.sreg(DS);
     c.push(ds);
@@ -625,7 +626,7 @@ pub fn scan_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let (cx, si) = (c.reg(CX), c.reg(SI));
         c.push(cx);
         c.push(si);
-        c.call(0xf314, 0xe83e)?;
+        c.call(entry::GET_RES_INDEX_BY_NAME, 0xe83e)?;
         let cf = c.flag(pc::cpu::CF);
         if cf {
             c.run(0xe83e, 2)?;
@@ -635,10 +636,10 @@ pub fn scan_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xe83e, 3)?;
             let s = c.pop();
             c.set_reg(SI, s);
-            c.call(0xf3a7, 0xe844)?;
+            c.call(entry::RES_LOCATE_IN_LOOKUP_TABLE, 0xe844)?;
             if c.flag(pc::cpu::ZF) {
                 c.run(0xe844, 2)?;
-                c.call(0xe75b, 0xe849)?;
+                c.call(entry::RES_STORE_IN_LOOKUP_TABLE, 0xe849)?;
             } else {
                 c.run(0xe844, 1)?;
             }
@@ -668,7 +669,7 @@ pub fn open_res_or_file_or_die(m: &mut Machine, start: u16) -> Result<(), Bail> 
     entered(start, 0xf229)?;
     let mut c = Ctx::new(m);
     c.run(0xf229, 1)?;
-    c.call(0xf1fb, 0xf22c)?;
+    c.call(entry::OPEN_RES_OR_FILE, 0xf22c)?;
     if !c.flag(CF) {
         c.run(0xf22c, 2)?;
         return c.ret();
@@ -696,18 +697,18 @@ pub fn open_resource_by_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let dx = p.wrapping_add(2);
     c.set_reg(DX, dx);
     if ax == 0 {
-        return c.jump(0xf0d6);
+        return c.jump(entry::READ_AND_MAYBE_HSQ);
     }
     c.run(0xf0ca, 3)?;
     c.set_reg(CX, ax);
     c.push(dx);
-    c.call(0xf11c, 0xf0d0)?;
+    c.call(entry::ALLOC_CHECK_CX_PAGES_AVAILABLE, 0xf0d0)?;
     c.run(0xf0d0, 2)?;
     let v = c.pop();
     c.set_reg(DX, v);
-    c.call(0xf0d6, 0xf0d4)?;
+    c.call(entry::READ_AND_MAYBE_HSQ, 0xf0d4)?;
     c.run(0xf0d4, 1)?;
-    c.jump(0xf0ff)
+    c.jump(entry::BUMP_ALLOCATE_BUMP_CX_BYTES)
 }
 
 /// `read_and_maybe_hsq` (F0D6): resource [0CE78h] into ES:DI: from
@@ -728,13 +729,13 @@ pub fn read_and_maybe_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     c.cmp(B, ax & 0xff, lim as u16);
     if below {
-        c.call(0xebe3, 0xf0e2)?;
+        c.call(entry::ALLOC_EXTENDED_MEMORY, 0xf0e2)?;
         c.run(0xf0e2, 2)?;
         if c.flag(CF) {
-            return c.jump(0xf3d3);
+            return c.jump(entry::CHECK_HSQ_CHECKSUM);
         }
     }
-    c.call(0xf244, 0xf0e7)?;
+    c.call(entry::READ_RESOURCE_TO_ESDI, 0xf0e7)?;
     let ax = c.word(0xce78);
     let lim = c.byte(0xce70);
     let below = (ax as u8) < lim;
@@ -742,10 +743,10 @@ pub fn read_and_maybe_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     c.cmp(B, ax & 0xff, lim as u16);
     if below {
-        c.call(0xeab7, 0xf0f3)?;
+        c.call(entry::MEMORY_FUNC_QQ, 0xf0f3)?;
         c.run(0xf0f3, 1)?;
     }
-    c.jump(0xf3d3)
+    c.jump(entry::CHECK_HSQ_CHECKSUM)
 }
 
 /// `open_resource_force_hsq` (F0A0): resource SI read into DS:4C60h as
@@ -768,7 +769,7 @@ pub fn open_resource_force_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let v = c.pop();
     c.set_sreg(ES, v);
     c.set_reg(DI, 0x4c60);
-    c.call(0xf0b9, 0xf0ae)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, 0xf0ae)?;
     c.run(0xf0ae, 5)?;
     let k = c.byte(g::DISABLE_HSQ);
     let k = pure::dec(B, k as u16);
@@ -779,7 +780,7 @@ pub fn open_resource_force_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.set_sreg(ES, v);
     let v = c.pop();
     c.set_reg(DI, v);
-    c.jump(0xf403)
+    c.jump(entry::HSQ_DECOMP_SKIP_HEADER)
 }
 
 /// `open_nonres_file` (F255): the loose file named at DS:DX
@@ -795,7 +796,7 @@ pub fn open_nonres_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(dx);
     c.push(di);
     c.push(es);
-    c.call(0xf204, 0xf25b)?;
+    c.call(entry::OPEN_FILE_SIZE, 0xf25b)?;
     if c.flag(CF) {
         c.run(0xf25b, 1)?;
         c.m.cpu.ip = 0xf22f;
@@ -1031,7 +1032,7 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, v);
     c.set_reg(DI, 0x4948);
     c.set_reg(SI, 0xba);
-    c.call(0xf0b9, 0x00dc)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, 0x00dc)?;
     c.run(0x00dc, 2 + 0x18c * 4)?;
     c.set_reg(CX, 0x18c);
     let di = c.reg(DI);
@@ -1071,7 +1072,7 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, 0x62 - k);
     }
     c.set_reg(SI, 0xbf);
-    c.call(0xf0b9, 0x010c)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, 0x010c)?;
     c.run(0x010c, 9)?;
     let di = c.reg(DI);
     c.set_reg(AX, di);
@@ -1086,17 +1087,17 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, v);
     c.set_reg(DI, 0xaa76);
     c.set_reg(SI, 0xbd);
-    c.call(0xf0a0, 0x0123)?;
+    c.call(entry::OPEN_RESOURCE_FORCE_HSQ, 0x0123)?;
     c.run(0x0123, 1)?;
-    c.call(0x0098, 0x0126)?;
+    c.call(entry::ADJUST_SUB_RESOURCE_POINTERS, 0x0126)?;
     c.run(0x0126, 2)?;
     c.set_reg(SI, 0xbc);
-    c.call(0xf0b9, 0x012c)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, 0x012c)?;
     c.run(0x012c, 3)?;
     let (di, es) = (c.reg(DI), c.sreg(ES));
     c.set_word(g::CONDITIONS, di);
     c.set_word(0xaa74, es);
-    c.call(0x0098, 0x0137)?;
+    c.call(entry::ADJUST_SUB_RESOURCE_POINTERS, 0x0137)?;
     for (at, slot, n, ret) in [(0x0137u16, 0x47acu16, 0x1d4cu16, 0x0148u16), (0x0148, 0x47b0, 0xadd4, 0x0159)] {
         c.run(at, 5)?;
         let (a, e) = (c.word(g::ALLOCATOR_NEXT_OFFSET), c.word(g::ALLOCATOR_NEXT_SEGMENT));
@@ -1105,13 +1106,13 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word(slot, a);
         c.set_word(slot + 2, e);
         c.set_reg(CX, n);
-        c.call(0xf0ff, ret)?;
+        c.call(entry::BUMP_ALLOCATE_BUMP_CX_BYTES, ret)?;
     }
     c.run(0x0159, 1)?;
-    c.call(0xcfb9, 0x015c)?;
+    c.call(entry::STARTUP_TABLES, 0x015c)?;
     c.run(0x015c, 1)?;
     let _ = B;
-    c.jump(0xc137)
+    c.jump(entry::LOAD_ICONES_SPRITES)
 }
 
 /// `allocator_attempt_to_free_space` (F13F): the loaded resource used

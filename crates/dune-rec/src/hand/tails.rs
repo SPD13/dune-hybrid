@@ -3,6 +3,7 @@
 //! into the next one. The routine they go on to runs as its own port
 //! when it has one, else in the original from there.
 
+use super::entry;
 use super::globals as g;
 use super::pure;
 use super::{B, Ctx, W, entered, r8};
@@ -18,7 +19,7 @@ pub fn intro_part_2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x02de, 1)?;
     c.set_reg(CX, 0);
-    c.jump(0x02e0)
+    c.jump(entry::DRAW_STARS)
 }
 
 /// `draw_stars` (02E0): on at 0A44h.
@@ -60,7 +61,7 @@ pub fn intro_lady_jessica_2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x0771, 2)?;
     c.set_reg(DX, 0x2004);
-    c.call(0x0978, 0x0777)?;
+    c.call(entry::INTRO_SHOW_PLACE_EMPTY, 0x0777)?;
     c.run(0x0777, 2)?;
     c.set_reg8(r8::AL, 1);
     c.jump(0x099d)
@@ -73,13 +74,13 @@ pub fn intro_duke_leto(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x0995, 2)?;
     c.set_reg(DX, 0x200a);
-    c.call(0x0978, 0x099b)?;
+    c.call(entry::INTRO_SHOW_PLACE_EMPTY, 0x099b)?;
     c.run(0x099b, 3)?;
     c.set_reg8(r8::AL, 0);
     c.set_reg(DX, 0);
-    c.call(0x09c7, 0x09a2)?;
+    c.call(entry::SETUP_INTRO_TALKING_HEAD, 0x09a2)?;
     c.run(0x09a2, 1)?;
-    c.jump(0x978e)
+    c.jump(entry::REDRAW_DIALOGUE_SCENE)
 }
 
 /// `intro_paul_on_red_background` (07EE): sheet 30h, the sprite list
@@ -89,10 +90,10 @@ pub fn intro_paul_on_red_background(m: &mut Machine, start: u16) -> Result<(), B
     let mut c = Ctx::new(m);
     c.run(0x07ee, 2)?;
     c.set_reg(AX, 0x30);
-    c.call(0xc13e, 0x07f4)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x07f4)?;
     c.run(0x07f4, 2)?;
     c.set_reg(SI, 0x1526);
-    c.call(0xc21b, 0x07fa)?;
+    c.call(entry::DRAW_ICONS_LIST_AT_SI, 0x07fa)?;
     c.run(0x07fa, 1)?;
     c.jump(0x0960)
 }
@@ -103,7 +104,7 @@ pub fn ui_click_room_left(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x3f24, 1)?;
     c.set_reg(BP, 4);
-    c.jump(0x3f27)
+    c.jump(entry::UI_CLICK_MOVE_ROOM)
 }
 
 /// `loc_0d239`: CH 2, then (D23Fh) the UI element list 1AF4h nudged toward phase CH (its +0Ah mod 3), two steps of 1 with the date and time redrawn (`fade_panel`'s helper).
@@ -121,10 +122,10 @@ pub fn book_turn_page_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xb024, 2)?;
     c.set_reg8(r8::DH, 0xff);
-    c.call(0xb1af, 0xb029)?;
+    c.call(entry::UI_DRAW_BOOK_TURNING_PAGE, 0xb029)?;
     c.run(0xb029, 1)?;
     c.set_reg(BP, 0xaf43);
-    c.jump(0xb02c)
+    c.jump(entry::VOICE_2_AND_TRANSITION)
 }
 
 /// `loc_0b2aa`: the clock stopped (`loc_0b2b9`), then the screen BP pushed with the return B2B3h (`loc_0d323`); the save and load menus (BP 207Ah, 208Ah) come here.
@@ -132,10 +133,10 @@ pub fn stop_clock_and_push_screen(m: &mut Machine, start: u16) -> Result<(), Bai
     entered(start, 0xb2aa)?;
     let mut c = Ctx::new(m);
     c.run(0xb2aa, 1)?;
-    c.call(0xb2b9, 0xb2ad)?;
+    c.call(entry::STOP_CLOCK, 0xb2ad)?;
     c.run(0xb2ad, 2)?;
     c.set_reg(BX, 0xb2b3);
-    c.jump(0xd323)
+    c.jump(entry::PUSH_SCREEN)
 }
 
 /// `loc_01860`: unless [11C9h], `loc_01843` then `loc_0186b`.
@@ -147,8 +148,8 @@ pub fn blink_and_toggle_map_screen(m: &mut Machine, start: u16) -> Result<(), Ba
     if f != 0 {
         return c.ret();
     }
-    c.call(0x1843, 0x186b)?;
-    c.jump(0x186b)
+    c.call(entry::HEAD_BLINK, 0x186b)?;
+    c.jump(entry::TOGGLE_MAP_SCREEN)
 }
 
 /// `loc_06acb`: the troop SI takes the job CL (`set_troop_job`) unless it
@@ -195,7 +196,7 @@ pub fn intro_somebody_in_sietch(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.set_reg(BX, 0x1080);
     c.set_reg(DX, 0x802);
     c.update_progress(|t| t.present = 0x100);
-    c.call(0x0981, 0x07d5)?;
+    c.call(entry::SET_PLACE_AND_DRAW_ROOM, 0x07d5)?;
     c.run(0x07d5, 3)?;
     c.update_progress(|t| t.present = 0);
     c.set_reg8(r8::AL, 5);
@@ -214,12 +215,12 @@ pub fn center_map_and_open_place_view(m: &mut Machine, start: u16) -> Result<(),
     c.set_reg(BX, bx);
     c.set_word(0x4710, dx);
     c.set_word(0x4712, bx);
-    c.call(0x5beb, 0x5419)?;
+    c.call(entry::DROP_MAP_SPRITE_LIST, 0x5419)?;
     c.run(0x5419, 1)?;
-    c.call(0x5f79, 0x541c)?;
+    c.call(entry::DROP_CAPTION, 0x541c)?;
     c.run(0x541c, 1)?;
-    c.call(0x79de, 0x541f)?;
-    c.jump(0x541f)
+    c.call(entry::REDRAW_DIRTY_PANEL, 0x541f)?;
+    c.jump(entry::OPEN_PLACE_VIEW)
 }
 
 /// `loc_0d323`: `loc_0d316`, `loc_0d338`, `loc_0d280`, then D410h.
@@ -227,11 +228,11 @@ pub fn push_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd323)?;
     let mut c = Ctx::new(m);
     c.run(0xd323, 1)?;
-    c.call(0xd316, 0xd326)?;
+    c.call(entry::ASK_REDRAW, 0xd326)?;
     c.run(0xd326, 1)?;
-    c.call(0xd338, 0xd329)?;
+    c.call(entry::INSTALL_UI_LIST_UNHIGHLIGHTED, 0xd329)?;
     c.run(0xd329, 1)?;
-    c.call(0xd280, 0xd32c)?;
+    c.call(entry::FADE_PANEL, 0xd32c)?;
     c.run(0xd32c, 1)?;
     c.jump(0xd410)
 }
@@ -242,19 +243,19 @@ pub fn leave_globe_to_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xbc81)?;
     let mut c = Ctx::new(m);
     c.run(0xbc81, 1)?;
-    c.call(0xba9e, 0xbc84)?;
+    c.call(entry::GLOBE_TURN_TO, 0xbc84)?;
     c.run(0xbc84, 1)?;
-    c.call(0x5b5d, 0xbc87)?;
+    c.call(entry::SET_MARK_AT_MAP_POSITION, 0xbc87)?;
     c.run(0xbc87, 3)?;
     c.set_reg(DX, 0xa0);
     c.set_reg(BX, 0x4f);
-    c.call(0xdbb2, 0xbc90)?;
+    c.call(entry::CALL_RESTORE_CURSOR, 0xbc90)?;
     c.run(0xbc90, 1)?;
-    c.call(0xbc99, 0xbc93)?;
+    c.call(entry::OPEN_BOX, 0xbc93)?;
     c.run(0xbc93, 1)?;
-    c.call(0xadbe, 0xbc96)?;
+    c.call(entry::FADE_OUT_MUSIC, 0xbc96)?;
     c.run(0xbc96, 1)?;
-    c.jump(0x5a3d)
+    c.jump(entry::UI_TRANSITION_TO_MAP_INTERFACE)
 }
 
 /// `sub_06d8`: the music stopped (`loc_0ac14`), [46DFh] 1, sound 12h
@@ -263,18 +264,18 @@ pub fn intro_start_video_12(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x06d8)?;
     let mut c = Ctx::new(m);
     c.run(0x06d8, 1)?;
-    c.call(0xac14, 0x06db)?;
+    c.call(entry::PCM_STOP_VOC, 0x06db)?;
     c.run(0x06db, 4)?;
     c.set_reg8(r8::AL, 1);
     c.set_byte(g::SKY_PALETTE_SET, 1);
     c.set_reg8(r8::BL, 0x12);
-    c.call(0x38a2, 0x06e5)?;
+    c.call(entry::SKY_PALETTE_WITH_TASKS, 0x06e5)?;
     c.run(0x06e5, 4)?;
     c.set_reg(AX, 0x12);
     let v = c.screen_buffers().active;
     let v = pure::add(W, v, 0x1e0);
     c.update_screen_buffers(|t| t.active = v);
-    c.jump(0xca1b)
+    c.jump(entry::HNM_LOAD_FIRST_FRAME)
 }
 
 /// `loc_00802`: `loc_00820`, the driver's far [38BDh] (CX F0h, BX 180h),
@@ -283,7 +284,7 @@ pub fn intro_show_desert_sky(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0802)?;
     let mut c = Ctx::new(m);
     c.run(0x0802, 1)?;
-    c.call(0x0820, 0x0805)?;
+    c.call(entry::OPEN_SKYRS_PALETTE, 0x0805)?;
     c.run(0x0805, 2)?;
     c.set_reg(CX, 0xf0);
     c.set_reg(BX, 0x180);
@@ -291,10 +292,10 @@ pub fn intro_show_desert_sky(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x080f, 3)?;
     c.set_byte(g::FRAME_TASKS_ACTIVE, 0);
     c.set_reg(AX, 0x2e);
-    c.call(0xc13e, 0x081a)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x081a)?;
     c.run(0x081a, 2)?;
     c.set_reg(SI, 0x1500);
-    c.jump(0xc21b)
+    c.jump(entry::DRAW_ICONS_LIST_AT_SI)
 }
 
 /// `intro_26_baron` (09AD): sheet 30h, the sprite list 153Ah,
@@ -304,18 +305,18 @@ pub fn intro_26_baron(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x09ad, 2)?;
     c.set_reg(AX, 0x30);
-    c.call(0xc13e, 0x09b3)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x09b3)?;
     c.run(0x09b3, 2)?;
     c.set_reg(SI, 0x153a);
-    c.call(0xc21b, 0x09b9)?;
+    c.call(entry::DRAW_ICONS_LIST_AT_SI, 0x09b9)?;
     c.run(0x09b9, 1)?;
-    c.call(0xc412, 0x09bc)?;
+    c.call(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0x09bc)?;
     c.run(0x09bc, 3)?;
     c.set_reg8(r8::AL, 9);
     c.set_reg(DX, 0x52);
-    c.call(0x09c7, 0x09c4)?;
+    c.call(entry::SETUP_INTRO_TALKING_HEAD, 0x09c4)?;
     c.run(0x09c4, 1)?;
-    c.jump(0x978e)
+    c.jump(entry::REDRAW_DIALOGUE_SCENE)
 }
 
 /// `loc_07ba3`: `loc_0c08e`; a new SI (not [46EFh]) becomes [46F1h]
@@ -324,7 +325,7 @@ pub fn select_and_open_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7ba3)?;
     let mut c = Ctx::new(m);
     c.run(0x7ba3, 1)?;
-    c.call(0xc08e, 0x7ba6)?;
+    c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x7ba6)?;
     let si = c.reg(SI);
     let cur = c.map_selection().selected;
     if si == cur {
@@ -334,9 +335,9 @@ pub fn select_and_open_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7ba6, 5)?;
     c.push(si);
     c.update_map_selection(|t| t.shown = si);
-    c.call(0x79ee, 0x7bb4)?;
+    c.call(entry::OPEN_PLACE_PANEL, 0x7bb4)?;
     c.run(0x7bb4, 1)?;
-    c.call(0x9f40, 0x7bb7)?;
+    c.call(entry::SPEAKER_TEXT_SETUP, 0x7bb7)?;
     c.run(0x7bb7, 2)?;
     let v = c.pop();
     c.set_reg(SI, v);
@@ -361,11 +362,11 @@ pub fn start_script_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let s = pure::add(W, si, n);
     c.set_reg(SI, s);
     c.update_sequence(|t| t.next = s);
-    c.call(0x1392, 0x13de)?;
+    c.call(entry::SELECT_SCENE_UI_LIST, 0x13de)?;
     c.run(0x13de, 1)?;
-    c.call(0x2db1, 0x13e1)?;
+    c.call(entry::ROOM_ARRIVE, 0x13e1)?;
     c.run(0x13e1, 1)?;
-    c.jump(0x1707)
+    c.jump(entry::RUN_SCRIPT_NEXT_STEP)
 }
 
 /// `sub_b18b`: the music stopped (`loc_0adbe`), [2788h], [0C6h], [1C30h]
@@ -375,19 +376,19 @@ pub fn b18b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb18b)?;
     let mut c = Ctx::new(m);
     c.run(0xb18b, 1)?;
-    c.call(0xadbe, 0xb18e)?;
+    c.call(entry::FADE_OUT_MUSIC, 0xb18e)?;
     c.run(0xb18e, 4)?;
     c.update_clock(|k| k.start());
     c.update_economy(|t| t.book = 0);
     c.set_byte(0x1c30, 0);
-    c.call(0xca01, 0xb1a0)?;
+    c.call(entry::HNM_CLOSE_RESOURCE, 0xb1a0)?;
     c.run(0xb1a0, 1)?;
-    c.call(0x0a3e, 0xb1a3)?;
+    c.call(entry::STOP_KEEP_FRAMEBUFFER_TASK, 0xb1a3)?;
     c.run(0xb1a3, 1)?;
-    c.call(0x9901, 0xb1a6)?;
+    c.call(entry::HIDE_TEXT_BOX, 0xb1a6)?;
     c.run(0xb1a6, 2)?;
     c.set_reg(AX, 0x26);
-    c.call(0xc13e, 0xb1ac)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xb1ac)?;
     c.run(0xb1ac, 1)?;
     c.jump(0x1877)
 }
@@ -402,19 +403,19 @@ pub fn redraw_room_by_transition(m: &mut Machine, start: u16) -> Result<(), Bail
     c.run(0x189a, 3 + if f != 0 { 1 } else { 2 })?;
     c.set_reg(BP, 0x2db1);
     if f != 0 {
-        return c.jump(0x2db1);
+        return c.jump(entry::ROOM_ARRIVE);
     }
     c.set_reg(DX, 0);
-    c.call(0xc108, 0x18ab)?;
+    c.call(entry::TRANSITION_AL, 0x18ab)?;
     c.run(0x18ab, 1)?;
-    c.call(0xc07c, 0x18ae)?;
+    c.call(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0x18ae)?;
     c.run(0x18ae, 1)?;
-    c.call(0xae04, 0x18b1)?;
+    c.call(entry::MUSIC_STEP_IF_ENABLED, 0x18b1)?;
     c.run(0x18b1, 3)?;
     let t = c.timer();
     c.set_reg(AX, t);
     c.set_word(g::LAST_ACTION_TIME, t);
-    c.jump(0x17e6)
+    c.jump(entry::UI_HEAD_ANIMATE_UP)
 }
 
 /// `intro_kynes` (07A3): sheet 2Eh, the sprite list 1500h, sprite 1 at
@@ -424,17 +425,17 @@ pub fn intro_kynes(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x07a3, 2)?;
     c.set_reg(AX, 0x2e);
-    c.call(0xc13e, 0x07a9)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x07a9)?;
     c.run(0x07a9, 2)?;
     c.set_reg(SI, 0x1500);
-    c.call(0xc21b, 0x07af)?;
+    c.call(entry::DRAW_ICONS_LIST_AT_SI, 0x07af)?;
     c.run(0x07af, 4)?;
     c.set_reg(AX, 1);
     c.set_reg(DX, 0x54);
     c.set_reg(BX, 0xb);
-    c.call(0xc22f, 0x07bb)?;
+    c.call(entry::DRAW_SPRITE_CLOBBERING_BX_DX, 0x07bb)?;
     c.run(0x07bb, 1)?;
-    c.call(0xc412, 0x07be)?;
+    c.call(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0x07be)?;
     c.run(0x07be, 3)?;
     c.set_reg8(r8::AL, 6);
     c.set_reg(BP, 0x12);
@@ -448,20 +449,20 @@ pub fn play_credits_with_music(m: &mut Machine, start: u16) -> Result<(), Bail> 
     entered(start, 0x09f5)?;
     let mut c = Ctx::new(m);
     c.run(0x09f5, 1)?;
-    c.call(0x09ef, 0x09f8)?;
+    c.call(entry::PLAY_CREDITS_HNM, 0x09f8)?;
     c.run(0x09f8, 1)?;
-    c.call(0xc0f4, 0x09fb)?;
+    c.call(entry::UPDATE_SCREEN_PALETTE, 0x09fb)?;
     let f = c.byte(g::CINEMATIC);
     let v = c.byte(g::MUSIC_SETTINGS);
     let skip = f == 0 && v & 1 != 0;
     c.run(0x09fb, 2 + if f == 0 { 2 } else { 0 } + (!skip) as u32)?;
     if !skip {
-        c.call(0xad50, 0x0a0c)?;
+        c.call(entry::PLAY_MUSIC_WORMSUIT, 0x0a0c)?;
     }
     c.run(0x0a0c, 3)?;
     c.set_reg(SI, 0xa16);
     c.set_reg(BP, 0);
-    c.call(0xda25, 0x0a14)?;
+    c.call(entry::ADD_FRAME_TASK, 0x0a14)?;
     c.run(0x0a14, 2)?;
     c.set_flag(CF, false);
     c.ret()
@@ -472,15 +473,15 @@ pub fn intro_draw_sky_and_sheet_2d(m: &mut Machine, start: u16) -> Result<(), Ba
     entered(start, 0x094a)?;
     let mut c = Ctx::new(m);
     c.run(0x094a, 1)?;
-    c.call(0x38b4, 0x094d)?;
+    c.call(entry::DRAW_SKY, 0x094d)?;
     c.run(0x094d, 2)?;
     c.set_reg(AX, 0x2d);
-    c.call(0xc13e, 0x0953)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x0953)?;
     c.run(0x0953, 4)?;
     c.set_reg(AX, 0);
     c.set_reg(DX, 0);
     c.set_reg(BX, 0x3c);
-    c.jump(0xc22f)
+    c.jump(entry::DRAW_SPRITE_CLOBBERING_BX_DX)
 }
 
 /// `loc_0586e`: on through the table at CS:588Bh by BL, CH, CL being
@@ -509,7 +510,7 @@ pub fn step_orni_rotor(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x47fb, 3)?;
         c.set_reg(BP, 0x4821);
         c.set_reg(AX, 0x14);
-        c.call(0xe353, 0x4804)?;
+        c.call(entry::WAIT_PROCESSING_FRAME_TASKS_INTERRUPTABLE, 0x4804)?;
         let cl = c.reg8(r8::CL);
         let v = c.byte(g::ORNI_SPEED).wrapping_add(cl);
         let sound = v == 0x1a && cl & 0x80 == 0;
@@ -520,13 +521,13 @@ pub fn step_orni_rotor(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::AL, v as u8);
         if v == 0x1a {
             if sound {
-                c.call(0xac30, 0x4816)?;
+                c.call(entry::CALL_PCM_AUDIO_VTABLE_FUNC_5, 0x4816)?;
             }
         }
         if v == 0x1a && sound {
             c.run(0x4816, 1)?;
         }
-        c.call(0xae04, 0x4819)?;
+        c.call(entry::MUSIC_STEP_IF_ENABLED, 0x4819)?;
         let k = c.byte(g::ORNI_SPEED);
         c.run(0x4819, 2 + (k >= 0x21) as u32)?;
         if k >= 0x21 {
@@ -555,17 +556,17 @@ pub fn open_book(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xaee7, 2)?;
     c.update_economy(|t| t.book = 1);
-    c.call(0xb2b9, 0xaeef)?;
+    c.call(entry::STOP_CLOCK, 0xaeef)?;
     c.run(0xaeef, 1)?;
-    c.call(0xd95b, 0xaef2)?;
+    c.call(entry::SET_MAP_CLICK_HANDLER, 0xaef2)?;
     c.run(0xaef2, 1)?;
-    c.call(0xad5e, 0xaef5)?;
+    c.call(entry::PICK_MUSIC, 0xaef5)?;
     c.run(0xaef5, 3)?;
     c.set_reg8(r8::AL, 0x34);
     c.set_reg(BP, 0xaf26);
-    c.call(0xc108, 0xaefd)?;
+    c.call(entry::TRANSITION_AL, 0xaefd)?;
     c.run(0xaefd, 1)?;
-    c.jump(0xae04)
+    c.jump(entry::MUSIC_STEP_IF_ENABLED)
 }
 
 /// `loc_009c7`: talking head AL ([47C4h]) set up (`loc_091a0`),
@@ -580,7 +581,7 @@ pub fn setup_intro_talking_head(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.set_reg8(r8::AH, 0);
     let ax = c.reg(AX);
     c.update_conversation(|t| t.talker = ax);
-    c.call(0x91a0, 0x09d0)?;
+    c.call(entry::SETUP_LIP_SYNC_DATA_FROM_SPRITE_SHEET, 0x09d0)?;
     let sp = c.reg(pc::cpu::SP);
     let d = c.word_in(pc::cpu::SS, sp);
     let x = c.word(g::HEAD_ORIGIN_X);
@@ -619,7 +620,7 @@ pub fn intro_25_sting_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x0886, 2)?;
     c.set_reg(AX, 0x30);
-    c.call(0xc13e, 0x088c)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x088c)?;
     c.run(0x088c, 3)?;
     c.set_reg(SI, 0x1470);
     c.set_reg8(r8::AL, 0xde);
@@ -628,20 +629,20 @@ pub fn intro_25_sting_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.interp(0x0895, 0x0899)?;
     c.run(0x0899, 2)?;
     c.set_reg(SI, 0x154e);
-    c.call(0xc21b, 0x089f)?;
+    c.call(entry::DRAW_ICONS_LIST_AT_SI, 0x089f)?;
     c.run(0x089f, 1)?;
-    c.call(0x5ba8, 0x08a2)?;
+    c.call(entry::COPY_GAME_AREA_RECT_TO_CLIP_RECT, 0x08a2)?;
     c.run(0x08a2, 2)?;
     c.set_reg(SI, 0x155c);
-    c.call(0xc32f, 0x08a8)?;
+    c.call(entry::DRAW_SPRITE_LIST, 0x08a8)?;
     c.run(0x08a8, 1)?;
-    c.call(0xc412, 0x08ab)?;
+    c.call(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0x08ab)?;
     c.run(0x08ab, 3)?;
     c.set_reg8(r8::AL, 0xa);
     c.set_reg(DX, 0x3a);
-    c.call(0x09c7, 0x08b3)?;
+    c.call(entry::SETUP_INTRO_TALKING_HEAD, 0x08b3)?;
     c.run(0x08b3, 1)?;
-    c.jump(0x978e)
+    c.jump(entry::REDRAW_DIALOGUE_SCENE)
 }
 
 /// `loc_028b5`: sheet 15h, sound 0Ah; the device's caller [47A9h]: its
@@ -652,10 +653,10 @@ pub fn comm_draw_caller(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x28b5, 2)?;
     c.set_reg(AX, 0x15);
-    c.call(0xc13e, 0x28bb)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x28bb)?;
     c.run(0x28bb, 2)?;
     c.set_reg8(r8::AL, 0xa);
-    c.call(0xab15, 0x28c0)?;
+    c.call(entry::AUDIO_START_VOC, 0x28c0)?;
     c.run(0x28c0, 12)?;
     let k = c.conversation().caller as u16;
     c.set_reg8(r8::AL, k as u8);
@@ -673,7 +674,7 @@ pub fn comm_draw_caller(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, si);
     c.set_word(si.wrapping_add(0x47f8), dx);
     c.set_word(si.wrapping_add(0x47fa), bx);
-    c.jump(0xc22f)
+    c.jump(entry::DRAW_SPRITE_CLOBBERING_BX_DX)
 }
 
 /// `loc_0cfe4`: the sprites for the screen kind [0CEEBh]: BBh (C7h for
@@ -695,7 +696,7 @@ pub fn load_language_phrases(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(ds);
     let v = c.pop();
     c.set_sreg(ES, v);
-    c.call(0xf0b9, 0xcff9)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, 0xcff9)?;
     c.run(0xcff9, 6)?;
     let k = c.byte(g::LANGUAGE);
     let a = pure::add(B, 0xc0, k as u16);
@@ -704,9 +705,9 @@ pub fn load_language_phrases(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (d, e) = (c.conversation().commands[0], c.conversation().commands[1]);
     c.set_reg(DI, d);
     c.set_sreg(ES, e);
-    c.call(0xf0b9, 0xd00a)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, 0xd00a)?;
     c.run(0xd00a, 1)?;
-    c.call(0x0098, 0xd00d)?;
+    c.call(entry::ADJUST_SUB_RESOURCE_POINTERS, 0xd00d)?;
     c.run(0xd00d, 1)?;
     c.jump(0xd01a)
 }
@@ -720,32 +721,32 @@ pub fn open_palace_plan_overview(m: &mut Machine, start: u16) -> Result<(), Bail
     let mut c = Ctx::new(m);
     c.run(0x0ed0, 2)?;
     c.set_reg8(r8::AL, 0x3b);
-    c.call(0xc2f2, 0x0ed5)?;
+    c.call(entry::OPEN_RESOURCE_AND_DRAW_SPRITE_0, 0x0ed5)?;
     c.run(0x0ed5, 2)?;
     c.set_reg(AX, 1);
-    c.call(0xc22f, 0x0edb)?;
+    c.call(entry::DRAW_SPRITE_CLOBBERING_BX_DX, 0x0edb)?;
     c.run(0x0edb, 1)?;
-    c.call(0x0f08, 0x0ede)?;
+    c.call(entry::DRAW_JESSICA_ON_PALACE_PLAN, 0x0ede)?;
     c.run(0x0ede, 2)?;
     c.set_reg(AX, 0x3b);
-    c.call(0xc13e, 0x0ee4)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x0ee4)?;
     c.run(0x0ee4, 4)?;
     c.set_reg(AX, 2);
     c.set_reg(DX, 0);
     c.set_reg(BX, 0);
-    c.call(0xc22f, 0x0eee)?;
+    c.call(entry::DRAW_SPRITE_CLOBBERING_BX_DX, 0x0eee)?;
     c.run(0x0eee, 1)?;
-    c.call(0x1797, 0x0ef1)?;
+    c.call(entry::UI_DRAW_HEAD_AND_SHOULDERS, 0x0ef1)?;
     c.run(0x0ef1, 2)?;
     c.set_reg(SI, 0x1d1e);
-    c.call(0xd72b, 0x0ef7)?;
+    c.call(entry::SET_BUTTONS_SI, 0x0ef7)?;
     c.run(0x0ef7, 1)?;
-    c.call(0x98f5, 0x0efa)?;
+    c.call(entry::CLEAR_TEXT_STATE, 0x0efa)?;
     c.run(0x0efa, 4)?;
     c.set_byte(g::PICTURE_FLAGS, 0x80);
     c.set_reg(BP, 0x20c2);
     c.set_reg(BX, 0xeb9);
-    c.jump(0xd338)
+    c.jump(entry::INSTALL_UI_LIST_UNHIGHLIGHTED)
 }
 
 /// `loc_082da`: the troop at SI moved to DI: unless it is the player's
@@ -769,26 +770,26 @@ pub fn move_troop_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !same {
         c.push(bp);
         c.set_word(si.wrapping_add(4), di);
-        c.call(0x31f6, 0x82f2)?;
+        c.call(entry::DESCRIBE_TROOP, 0x82f2)?;
         c.run(0x82f2, 1)?;
-        c.call(0x2e98, 0x82f5)?;
+        c.call(entry::NOTE_POINT, 0x82f5)?;
         c.run(0x82f5, 3)?;
         let v = c.pop();
         let s = c.reg(SI);
         c.set_word(s.wrapping_add(4), v);
         c.set_reg8(r8::AL, 0xb);
     }
-    c.call(0x9f82, 0x82fd)?;
+    c.call(entry::TALL_FONT_COLOUR_F0, 0x82fd)?;
     c.run(0x82fd, 1)?;
-    c.call(0xa1c4, 0x8300)?;
+    c.call(entry::ALLOW_SCRIPTED_ACTION, 0x8300)?;
     c.run(0x8300, 1)?;
-    c.call(0x7bbe, 0x8303)?;
+    c.call(entry::SHOW_MESSAGE_0F, 0x8303)?;
     c.run(0x8303, 3)?;
     let v = c.pop();
     c.set_reg(SI, v);
     let v = c.pop();
     c.set_reg(DI, v);
-    c.jump(0xa1e2)
+    c.jump(entry::IS_SCRIPTED_ACTION_ALLOWED)
 }
 
 /// `results_draw_text_and_icones` (BE1D): sheet 1, the sprite list
@@ -800,14 +801,14 @@ pub fn results_draw_text_and_icons(m: &mut Machine, start: u16) -> Result<(), Ba
     let mut c = Ctx::new(m);
     c.run(0xbe1d, 2)?;
     c.set_reg(AX, 1);
-    c.call(0xc13e, 0xbe23)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xbe23)?;
     c.run(0xbe23, 2)?;
     c.set_reg(SI, 0x2506);
-    c.call(0xc21b, 0xbe29)?;
+    c.call(entry::DRAW_ICONS_LIST_AT_SI, 0xbe29)?;
     c.run(0xbe29, 1)?;
-    c.call(0xbed7, 0xbe2c)?;
+    c.call(entry::RESULT_BARS, 0xbe2c)?;
     c.run(0xbe2c, 1)?;
-    c.call(0xbdfa, 0xbe2f)?;
+    c.call(entry::UI_STATS_DRAW_INGAME_DAY_AND_CHARISMA, 0xbe2f)?;
     c.run(0xbe2f, 9)?;
     c.set_reg(SI, 0xdd17);
     c.set_reg(AX, 0);
@@ -818,15 +819,15 @@ pub fn results_draw_text_and_icons(m: &mut Machine, start: u16) -> Result<(), Ba
     let d = pure::and(W, d, 0xfff0);
     c.set_reg(AX, d);
     c.set_word(g::RESULTS_DATE, d);
-    c.call(0xd075, 0xbe48)?;
+    c.call(entry::FONT_SELECT_SMALL_FONT, 0xbe48)?;
     c.run(0xbe48, 2)?;
     c.set_reg(SI, 0x2494);
-    c.call(0xd1a6, 0xbe4e)?;
+    c.call(entry::FONT_DRAW_PHRASE_LIST, 0xbe4e)?;
     c.run(0xbe4e, 3)?;
     c.set_reg(SI, 0xbe57);
     c.set_reg(BP, 0xc);
-    c.call(0xda25, 0xbe57)?;
-    c.jump(0xbe57)
+    c.call(entry::ADD_FRAME_TASK, 0xbe57)?;
+    c.jump(entry::ANIMATE_RESULT_BARS)
 }
 
 /// `sub_0826`: the intro's next picture once the last has shown
@@ -840,7 +841,7 @@ pub fn intro_desert_sky_next_picture(m: &mut Machine, start: u16) -> Result<(), 
     let k = c.byte(g::FRAME_TASKS_ACTIVE);
     if k != 0 {
         c.run(0x0826, 3)?;
-        return c.jump(0x391d);
+        return c.jump(entry::SKY_FADE_STEP);
     }
     let al = c.byte(g::PALETTE_SUB);
     let ax = (c.reg(AX) & 0xff00 | al as u16).wrapping_add(1);
@@ -855,7 +856,7 @@ pub fn intro_desert_sky_next_picture(m: &mut Machine, start: u16) -> Result<(), 
     c.set_reg(AX, ax);
     if n == 0xb {
         c.set_reg(AX, 9);
-        return c.jump(0xc13e);
+        return c.jump(entry::OPEN_RESOURCE_BY_INDEX);
     }
     if n == 0xe {
         c.cmp(B, n as u16, 0xe); // 0867h reads these flags
@@ -865,13 +866,13 @@ pub fn intro_desert_sky_next_picture(m: &mut Machine, start: u16) -> Result<(), 
     c.set_reg8(r8::AH, ah);
     c.set_byte(g::FRAME_TASKS_ACTIVE, ah);
     c.set_reg8(r8::BL, n);
-    c.call(0x0820, 0x084a)?;
+    c.call(entry::OPEN_SKYRS_PALETTE, 0x084a)?;
     c.run(0x084a, 2)?;
     c.set_reg(CX, 0xf0);
     c.set_reg(BX, 0x180);
     c.interp(0x0850, 0x0854)?;
     c.run(0x0854, 1)?;
-    c.jump(0x391d)
+    c.jump(entry::SKY_FADE_STEP)
 }
 
 /// `loc_09719`: unless [4Ch] is negative, the speaker's place moved to
@@ -892,14 +893,14 @@ pub fn say_next_place_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let di = c.word(si.wrapping_add(4));
         c.set_reg(DI, di);
         c.set_reg8(r8::AL, 0xf);
-        c.call(0x2a51, 0x972c)?;
+        c.call(entry::DROP_EVENTS, 0x972c)?;
         c.run(0x972c, 1)?;
     }
-    c.call(0x9f82, 0x972f)?;
+    c.call(entry::TALL_FONT_COLOUR_F0, 0x972f)?;
     c.run(0x972f, 3)?;
     c.update_conversation(|t| t.talker = 0xf);
     c.update_conversation(|t| t.speaker = 0x10c8);
-    c.call(0xa1c4, 0x973e)?;
+    c.call(entry::ALLOW_SCRIPTED_ACTION, 0x973e)?;
     let v = c.conversation().pending;
     let n = if v == 0xffff { 3 + 1 } else if v != 0 { 3 + 2 } else { 3 + 2 + 1 };
     c.run(0x973e, n + 2)?;
@@ -915,7 +916,7 @@ pub fn say_next_place_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, w);
     }
     c.update_conversation(|t| t.mode = 0x20);
-    c.call(0x9f9e, 0x9754)?;
+    c.call(entry::SAY_DIALOGUE_ENTRY, 0x9754)?;
     let cf = c.flag(CF);
     c.run(0x9754, 2 + if cf { 1 } else { 0 } + 1)?;
     let si = c.reg(SI);
@@ -932,14 +933,14 @@ pub fn globe_open_and_redraw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb96b)?;
     let mut c = Ctx::new(m);
     c.run(0xb96b, 1)?;
-    c.call(0xb8f3, 0xb96e)?;
+    c.call(entry::GLOBE_SLIDE_DECORATIONS_OPEN, 0xb96e)?;
     c.run(0xb96e, 2)?;
     let v = c.byte(g::MAP_GFX_ARG);
     let v = pure::dec(B, v as u16);
     c.set_byte(g::MAP_GFX_ARG, v as u8);
-    c.call(0xb98b, 0xb975)?;
+    c.call(entry::GLOBE_FRAME, 0xb975)?;
     c.run(0xb975, 1)?;
-    c.jump(0xb941)
+    c.jump(entry::GLOBE_LIST)
 }
 
 /// `loc_0c02e`: `map_func`; the spice stock [0A6h] capped at [0A0h] +
@@ -1021,24 +1022,24 @@ pub fn intro_night_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0acd, 3)?;
     c.set_word(0x2786, 0xc827);
     c.m.cpu.write8(&mut c.m.hw, CS, 0xc13c, 0x2b);
-    c.call(0xc13b, 0x0adc)?;
+    c.call(entry::OPEN_ONMAP_RESOURCE, 0x0adc)?;
     c.run(0x0adc, 1)?;
-    c.call(0xc07c, 0x0adf)?;
+    c.call(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0x0adf)?;
     c.run(0x0adf, 4)?;
     c.set_reg(SI, 0x1582);
     let es = c.screen_buffers().active;
     c.set_sreg(ES, es);
     c.set_reg(AX, 2);
-    c.call(0xc370, 0x0aec)?;
+    c.call(entry::BLIT_REPEATED_X, 0x0aec)?;
     c.run(0x0aec, 3)?;
     c.set_reg(SI, 0x158a);
     c.set_reg(AX, 3);
-    c.call(0xc370, 0x0af5)?;
+    c.call(entry::BLIT_REPEATED_X, 0x0af5)?;
     c.run(0x0af5, 2)?;
     c.set_reg(SI, 0x11dd);
-    c.call(0xc21b, 0x0afb)?;
+    c.call(entry::DRAW_ICONS_LIST_AT_SI, 0x0afb)?;
     c.run(0x0afb, 1)?;
-    c.call(0x5ba0, 0x0afe)?;
+    c.call(entry::COPY_GAME_AREA_RECT_TO_UNKNOWN_RECT, 0x0afe)?;
     c.run(0x0afe, 6 + 8 + 2)?; // the `rep` iterations too
     c.set_reg(DI, 0x4856);
     c.set_reg(AX, 0);
@@ -1049,16 +1050,16 @@ pub fn intro_night_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 8);
     c.rep_counted(0xaa);
     c.set_reg(SI, 0xb45);
-    c.call(0xda5f, 0x0b10)?;
+    c.call(entry::REMOVE_FRAME_TASK, 0x0b10)?;
     c.run(0x0b10, 3)?;
     c.set_reg(SI, 0xb45);
     c.set_reg(BP, 3);
-    c.call(0xda25, 0x0b19)?;
+    c.call(entry::ADD_FRAME_TASK, 0x0b19)?;
     c.run(0x0b19, 1)?;
-    c.call(0xc412, 0x0b1c)?;
+    c.call(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0x0b1c)?;
     c.run(0x0b1c, 2)?;
     c.set_reg8(r8::AL, 3);
-    c.jump(0xab15)
+    c.jump(entry::AUDIO_START_VOC)
 }
 
 /// `loc_06dbb`: the place BX's people (`loc_040ae`; the 0Ch records at
@@ -1072,7 +1073,7 @@ pub fn set_people_state_at_place(m: &mut Machine, start: u16) -> Result<(), Bail
     c.run(0x6dbb, 2)?;
     let si = c.reg(SI);
     c.push(si);
-    c.call(0x40ae, 0x6dbf)?;
+    c.call(entry::LOCATION_COORDS, 0x6dbf)?;
     c.run(0x6dbf, 2)?;
     c.set_reg(SI, 0xfd8);
     c.set_reg(CX, 0xc);
@@ -1119,8 +1120,8 @@ pub fn set_people_state_at_place(m: &mut Machine, start: u16) -> Result<(), Bail
     let v = c.pop();
     c.set_reg(SI, v);
     c.set_reg(BP, 0x6e0f);
-    c.call(0x6603, 0x6e02)?;
-    c.jump(0x6e02)
+    c.call(entry::FOR_EACH_TROOP, 0x6e02)?;
+    c.jump(entry::LOSE_ALL_HARKONNEN_TROOPS)
 }
 
 /// `sub_afc7`: the book's next page (unless [0C6h] bit 1 forbids it):
@@ -1144,9 +1145,9 @@ pub fn book_next_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.word(g::BOOK_POSITION);
         let v = pure::add(W, v, 2);
         c.set_word(g::BOOK_POSITION, v);
-        c.call(0x0a3e, 0xafdd)?;
+        c.call(entry::STOP_KEEP_FRAMEBUFFER_TASK, 0xafdd)?;
         c.run(0xafdd, 1)?;
-        c.call(0xad5e, 0xafe0)?;
+        c.call(entry::PICK_MUSIC, 0xafe0)?;
         c.run(0xafe0, 5)?;
     }
     c.set_reg(CX, 1);
@@ -1155,24 +1156,24 @@ pub fn book_next_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     let si = c.word(g::BOOK_POSITION);
     c.set_reg(SI, si);
-    c.call(0xb150, 0xaff1)?;
+    c.call(entry::SCAN_DIALOGUES_FROM, 0xaff1)?;
     if !c.flag(ZF) {
         c.run(0xaff1, 3)?;
         let di = c.reg(DI);
         c.set_word(g::BOOK_POSITION, di);
-        c.call(0xb1af, 0xaffa)?;
+        c.call(entry::UI_DRAW_BOOK_TURNING_PAGE, 0xaffa)?;
         c.run(0xaffa, 2)?;
         c.set_reg(BP, 0xb039);
-        c.call(0xb02c, 0xb000)?;
+        c.call(entry::VOICE_2_AND_TRANSITION, 0xb000)?;
         c.run(0xb000, 1)?;
-        c.call(0x9901, 0xb003)?;
+        c.call(entry::HIDE_TEXT_BOX, 0xb003)?;
         c.run(0xb003, 1)?;
-        return c.jump(0xd397);
+        return c.jump(entry::REDRAW_UI_SLOTS);
     }
     let dx = c.reg(DX);
     if dx & 0x8000 != 0 {
         c.run(0xaff1, 3)?;
-        return c.jump(0xb024);
+        return c.jump(entry::BOOK_TURN_PAGE_BACK);
     }
     let f = c.economy().book;
     if f & 4 != 0 {
@@ -1182,13 +1183,13 @@ pub fn book_next_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xaff1, 5 + 2)?;
     let f = pure::or(B, f as u16, 4);
     c.update_economy(|t| t.book = f as u8);
-    c.call(0x09f5, 0xb019)?;
+    c.call(entry::PLAY_CREDITS_WITH_MUSIC, 0xb019)?;
     c.run(0xb019, 2)?;
     c.set_reg(DX, 0);
-    c.call(0xb1af, 0xb01e)?;
+    c.call(entry::UI_DRAW_BOOK_TURNING_PAGE, 0xb01e)?;
     c.run(0xb01e, 2)?;
     c.set_reg(BP, 0x1797);
-    c.jump(0xb02c)
+    c.jump(entry::VOICE_2_AND_TRANSITION)
 }
 
 /// `sub_941d`: a click in the dialogue: with the communication device
@@ -1206,11 +1207,11 @@ pub fn dialogue_area_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.jump(0x2993);
     }
     c.run(0x941d, 3)?;
-    c.call(0xd41b, 0x942a)?;
+    c.call(entry::CURRENT_UI_ELEMENTS, 0x942a)?;
     let bp = c.reg(BP);
     if bp == 0x20c2 {
         c.run(0x942a, 3)?;
-        c.call(0xd2ea, 0x9433)?;
+        c.call(entry::LEAVE_SCREEN, 0x9433)?;
         c.run(0x9433, 1)?;
         return c.jump(0x0eb9);
     }
@@ -1223,18 +1224,18 @@ pub fn dialogue_area_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.jump(0x4aad);
     }
     if open != 0 {
-        return c.jump(0xd2e2);
+        return c.jump(entry::LEAVE_AND_FADE);
     }
     let (bx, dx) = (c.reg(BX), c.reg(DX));
     c.push(bx);
     c.push(dx);
-    c.call(0x2db1, 0x9453)?;
+    c.call(entry::ROOM_ARRIVE, 0x9453)?;
     c.run(0x9453, 3)?;
     let v = c.pop();
     c.set_reg(DX, v);
     let v = c.pop();
     c.set_reg(BX, v);
-    c.jump(0x9215)
+    c.jump(entry::DIALOGUE_CLICK)
 }
 
 /// `loc_00f08`: without [10h] bit 7 on at 0960h; else Jessica's head
@@ -1250,25 +1251,25 @@ pub fn draw_jessica_on_palace_plan(m: &mut Machine, start: u16) -> Result<(), Ba
         return c.jump(0x0960);
     }
     c.run(0x0f08, 3)?;
-    c.call(0xc412, 0x0f16)?;
+    c.call(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0x0f16)?;
     c.run(0x0f16, 2)?;
     c.update_conversation(|t| t.talker = 7);
-    c.call(0x9197, 0x0f1f)?;
+    c.call(entry::SETUP_LIP_SYNC_DATA_FROM_CURRENT, 0x0f1f)?;
     c.run(0x0f1f, 3)?;
     c.update_text_box(|t| t.words = 0);
     let v = c.word(g::HEAD_ORIGIN_Y);
     let v = pure::add(W, v, 0xf);
     c.set_word(g::HEAD_ORIGIN_Y, v);
-    c.call(0x978e, 0x0f2c)?;
+    c.call(entry::REDRAW_DIALOGUE_SCENE, 0x0f2c)?;
     c.run(0x0f2c, 1)?;
-    c.call(0x998e, 0x0f2f)?;
+    c.call(entry::SWAP_GAME_STATE, 0x0f2f)?;
     c.run(0x0f2f, 4)?;
     c.set_word(0x22a6, 0xffff);
     let v = c.conversation().two_heads;
     let v = pure::inc(B, v as u16);
     c.update_conversation(|t| t.two_heads = v as u8);
     c.update_dialogue_text(|t| t.next = 1);
-    c.call(0xc412, 0x0f42)?;
+    c.call(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0x0f42)?;
     c.run(0x0f42, 2)?;
     c.set_reg(DX, 0x2d);
     c.jump(0x0965)
@@ -1289,7 +1290,7 @@ pub fn run_script_next_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if scr == 0x1fae {
         c.run(0x1707, 4)?;
         c.set_reg(DI, 0x1b56);
-        c.call(0xd6fe, 0x1715)?;
+        c.call(entry::POINT_IN_RECT, 0x1715)?;
         if c.flag(CF) {
             c.run(0x1715, 2)?;
             return c.jump(0x9ed5);
@@ -1318,7 +1319,7 @@ pub fn run_script_next_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x1736, 2)?;
     c.set_reg(SI, 0x176b);
-    c.call(0xda5f, 0x173c)?;
+    c.call(entry::REMOVE_FRAME_TASK, 0x173c)?;
     let ph = c.progress().phase;
     c.run(0x173c, 7 + (ph != 0x48) as u32)?;
     let ax = c.sequence().return_to;
@@ -1328,21 +1329,21 @@ pub fn run_script_next_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, 0);
     c.update_sequence(|t| t.playing = 0);
     if ph != 0x48 {
-        c.call(0xadbe, 0x1755)?;
+        c.call(entry::FADE_OUT_MUSIC, 0x1755)?;
     }
     c.run(0x1755, 1)?;
-    c.call(0xb2be, 0x1758)?;
+    c.call(entry::START_CLOCK, 0x1758)?;
     let f = c.situation().map_interface;
     if f & 0x80 == 0 {
         c.run(0x1758, 3)?;
         return c.jump(0x0fa7);
     }
     c.run(0x1758, 3)?;
-    c.call(0xad5e, 0x1765)?;
+    c.call(entry::PICK_MUSIC, 0x1765)?;
     c.run(0x1765, 1)?;
-    c.call(0x68eb, 0x1768)?;
+    c.call(entry::SHOWN_TROOP, 0x1768)?;
     c.run(0x1768, 1)?;
-    c.jump(0x780a)
+    c.jump(entry::OPEN_SELECTION_ORDERS_SCREEN)
 }
 
 /// `ui_draw_palace_plan` (18EE): after `loc_0d41b`, unless the plan is
@@ -1357,11 +1358,11 @@ pub fn ui_draw_palace_plan(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x18ee)?;
     let mut c = Ctx::new(m);
     c.run(0x18ee, 1)?;
-    c.call(0xd41b, 0x18f1)?;
+    c.call(entry::CURRENT_UI_ELEMENTS, 0x18f1)?;
     let bp = c.reg(BP);
     if bp == 0x2012 {
         c.run(0x18f1, 3)?;
-        return c.jump(0xd2e2);
+        return c.jump(entry::LEAVE_AND_FADE);
     }
     let ax = c.player().x;
     let (al, ah) = (ax as u8, (ax >> 8) as u8);
@@ -1372,11 +1373,11 @@ pub fn ui_draw_palace_plan(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.set_reg(AX, 0x1aba);
-    c.call(0xd95e, 0x190c)?;
+    c.call(entry::SET_CLICK_HANDLER, 0x190c)?;
     c.run(0x190c, 1)?;
-    c.call(0xd2bd, 0x190f)?;
+    c.call(entry::LEAVE_SCREENS, 0x190f)?;
     c.run(0x190f, 1)?;
-    c.call(0xc07c, 0x1912)?;
+    c.call(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0x1912)?;
     c.run(0x1912, 3)?;
     c.set_reg(SI, 0x143c);
     c.set_reg8(r8::AL, 0xf1);
@@ -1386,23 +1387,23 @@ pub fn ui_draw_palace_plan(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x191f, 3)?;
     c.set_reg(SI, 0x1444);
     c.set_reg8(r8::AL, 0xf7);
-    c.call(0x5b6e, 0x1927)?;
+    c.call(entry::FRAME_RECT_SI, 0x1927)?;
     c.run(0x1927, 2)?;
     c.set_reg(AX, 0x21);
-    c.call(0xc13e, 0x192d)?;
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x192d)?;
     c.run(0x192d, 2)?;
     c.set_reg(SI, 0x120b);
-    c.call(0xc21b, 0x1933)?;
+    c.call(entry::DRAW_ICONS_LIST_AT_SI, 0x1933)?;
     c.run(0x1933, 1)?;
-    c.call(0x1948, 0x1936)?;
+    c.call(entry::PEOPLE_PANEL, 0x1936)?;
     c.run(0x1936, 3)?;
     c.set_reg(SI, 0x143c);
     c.set_reg8(r8::AL, 0x10);
-    c.call(0xc0d5, 0x193e)?;
+    c.call(entry::TRANSITION_FRONT_BUFFER_TO_SCREEN, 0x193e)?;
     c.run(0x193e, 3)?;
     c.set_reg(BP, 0x2012);
     c.set_reg(BX, 0x19fc);
-    c.jump(0xd323)
+    c.jump(entry::PUSH_SCREEN)
 }
 
 /// `loc_07c02`: the place SI chosen (`loc_07ba3`, `loc_031f6`, the
@@ -1415,16 +1416,16 @@ pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7c02)?;
     let mut c = Ctx::new(m);
     c.run(0x7c02, 1)?;
-    c.call(0x7ba3, 0x7c05)?;
+    c.call(entry::SELECT_AND_OPEN_PANEL, 0x7c05)?;
     c.run(0x7c05, 1)?;
-    c.call(0x31f6, 0x7c08)?;
+    c.call(entry::DESCRIBE_TROOP, 0x7c08)?;
     c.run(0x7c08, 2)?;
     let si = c.reg(SI);
     let di = c.word(si.wrapping_add(4));
     c.set_reg(DI, di);
-    c.call(0x2e98, 0x7c0e)?;
+    c.call(entry::NOTE_POINT, 0x7c0e)?;
     c.run(0x7c0e, 1)?;
-    c.call(0x7c63, 0x7c11)?;
+    c.call(entry::TROOP_MAP_DISTANCE, 0x7c11)?;
     let ax = c.reg(AX);
     let shown = c.word(g::REACH);
     if ax <= shown {
@@ -1444,7 +1445,7 @@ pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     loop {
-        c.call(0x9719, 0x7c30)?;
+        c.call(entry::SAY_NEXT_PLACE_LINE, 0x7c30)?;
         let cf = c.flag(CF);
         c.run(0x7c30, 2 + if cf { 1 } else { 0 })?;
         let si = c.map_selection().selected;
@@ -1456,7 +1457,7 @@ pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7c36, 2)?;
     let si = c.reg(SI);
     c.push(si);
-    c.call(0x9efd, 0x7c3a)?;
+    c.call(entry::START_TEXT_VOICE, 0x7c3a)?;
     let k = c.conversation().flag_47a5;
     c.run(0x7c3a, 4 + if k == 0x80 { 2 } else { 0 })?;
     let v = c.pop();
@@ -1467,11 +1468,11 @@ pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.map_selection().panel;
         let v = c.inc(B, v as u16);
         c.update_map_selection(|t| t.panel = v as u8);
-        c.call(0x7efb, 0x7c4e)?;
+        c.call(entry::SPREAD_LOCATION_BITS, 0x7c4e)?;
         c.run(0x7c4e, 2)?;
         let si = c.reg(SI);
         c.push(si);
-        c.call(0x7e1e, 0x7c52)?;
+        c.call(entry::DRAW_PLACE_SKILL_BARS, 0x7c52)?;
         c.run(0x7c52, 2)?;
         let v = c.pop();
         c.set_reg(SI, v);
@@ -1480,10 +1481,10 @@ pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7c56, 2 + if f & 0x80 != 0 { 1 } else { 1 })?;
     c.cmp(B, f as u16, 0);
     if f & 0x80 != 0 {
-        c.call(0x9901, 0x7c60)?;
+        c.call(entry::HIDE_TEXT_BOX, 0x7c60)?;
         c.run(0x7c60, 1)?;
     }
-    c.jump(0xc07c)
+    c.jump(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER)
 }
 
 /// `loc_0bed7`: the results' figures: [115Ch] the day, the totals
@@ -1500,9 +1501,9 @@ pub fn result_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let d = pure::and(W, d, 0xfff0);
     c.set_reg(AX, d);
     c.set_word(g::RESULTS_DATE, d);
-    c.call(0xc02e, 0xbee3)?;
+    c.call(entry::UPDATE_TOTALS, 0xbee3)?;
     c.run(0xbee3, 1)?;
-    c.call(0xbf26, 0xbee6)?;
+    c.call(entry::STATS_NUMBERS, 0xbee6)?;
     c.run(0xbee6, 34)?;
     let ds = c.sreg(DS);
     c.push(ds);
@@ -1548,12 +1549,12 @@ pub fn set_room_light_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x380c, 2)?;
     c.set_byte(g::SKY_VARIANT, 1);
-    c.call(0x388d, 0x3814)?;
+    c.call(entry::SET_SKY_PALETTE, 0x3814)?;
     c.run(0x3814, 3)?;
     let si = c.word(g::LAST_PLACE);
     c.set_reg(SI, si);
     c.set_reg(AX, 0x1972);
-    c.call(0x5e4f, 0x381e)?;
+    c.call(entry::CALC_SAL_INDEX, 0x381e)?;
     let ax = c.reg(AX);
     let (dx, w6) = (c.player().x, c.player().y);
     let si = c.reg(SI);
@@ -1589,7 +1590,7 @@ pub fn set_room_light_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let v = pure::sub(B, v, 5);
                 c.set_reg8(r8::AL, v as u8);
             }
-            return c.jump(0xc2f2);
+            return c.jump(entry::OPEN_RESOURCE_AND_DRAW_SPRITE_0);
         }
         c.run(0x381e, n)?;
         c.set_reg(BX, ax);
@@ -1616,9 +1617,9 @@ pub fn set_room_light_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x384a, 3 + 1)?;
         c.set_reg(DI, di);
-        c.call(0x407e, 0x3857)?;
+        c.call(entry::GET_MAP_POSITION, 0x3857)?;
         c.run(0x3857, 1)?;
-        c.call(0xb58b, 0x385a)?;
+        c.call(entry::MAP_FUNC, 0x385a)?;
         c.run(0x385a, 2)?;
         let di = c.reg(DI);
         let mut di = pure::dec(W, di);
@@ -1663,7 +1664,7 @@ pub fn set_room_light_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let d = c.reg(DX);
     let a = pure::add(W, d, cx);
     c.set_reg(AX, a);
-    c.jump(0xc2f2)
+    c.jump(entry::OPEN_RESOURCE_AND_DRAW_SPRITE_0)
 }
 
 /// `loc_01c46`: a day passes. [`g::DAYS_IN_PHASE`] (reset when
@@ -1694,9 +1695,9 @@ pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.situation().days_in_phase;
     let v = pure::inc(B, v as u16);
     c.update_situation(|t| t.days_in_phase = v as u8);
-    c.call(0x1d66, 0x1c5f)?;
+    c.call(entry::REFRESH_RECORDS_FD8, 0x1c5f)?;
     c.run(0x1c5f, 1)?;
-    c.call(0x1e43, 0x1c62)?;
+    c.call(entry::PICK_ATTACK_LOCATION, 0x1c62)?;
     let d = c.situation().character_1_days.wrapping_add(1);
     let (shipped, spice, at_start, before) = (c.word(g::SPICE_PAID), c.economy().spice, c.word(g::SPICE_YESTERDAY), c.economy().income_before);
     let s = shipped.wrapping_add(spice);
@@ -1730,13 +1731,13 @@ pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, lost);
     c.update_economy(|t| t.income_fall = gain);
     c.update_economy(|t| t.income_rise = lost);
-    c.call(0x1cda, 0x1ca0)?;
+    c.call(entry::ESTIMATE_FIELD_SPICE, 0x1ca0)?;
     c.run(0x1ca0, 1)?;
-    c.call(0xc02e, 0x1ca3)?;
+    c.call(entry::UPDATE_TOTALS, 0x1ca3)?;
     c.run(0x1ca3, 1)?;
-    c.call(0xbf26, 0x1ca6)?;
+    c.call(entry::STATS_NUMBERS, 0x1ca6)?;
     c.run(0x1ca6, 1)?;
-    c.call(0xe3cc, 0x1ca9)?;
+    c.call(entry::RAND, 0x1ca9)?;
     c.run(0x1ca9, 2)?;
     let mut bx = c.reg(AX);
     c.set_reg(BX, bx);
@@ -1801,7 +1802,7 @@ pub fn create_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cl = pure::add(B, cl as u16, 0x31);
     c.set_reg8(r8::CL, cl as u8);
     c.set_byte(0x38af, cl as u8);
-    c.call(0xb427, 0xb393)?;
+    c.call(entry::CREATE_SAVE_IN_MEMORY, 0xb393)?;
     c.run(0xb393, 8)?;
     let d = c.game_time();
     c.set_reg(AX, d);
@@ -1815,12 +1816,12 @@ pub fn create_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, di);
     c.set_reg(DI, 0);
     c.stos(W);
-    c.call(0xb4ea, 0xb3a1)?;
+    c.call(entry::COMPRESS_SAV, 0xb3a1)?;
     c.run(0xb3a1, 3)?;
     let v = c.pop();
     c.set_sreg(DS, v);
     c.set_reg(DX, 0x38a8);
-    c.call(0xf2fc, 0xb3a8)?;
+    c.call(entry::STRCPY_TO_FILENAME_BUF, 0xb3a8)?;
     c.run(0xb3a8, 3)?;
     c.set_reg(DI, 0);
     let cx = c.reg(CX);
@@ -1863,7 +1864,7 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x79ee, 2)?;
     let si = c.reg(SI);
     c.update_map_selection(|t| t.selected = si);
-    c.call(0x6917, 0x79f5)?;
+    c.call(entry::TROOP_PARTICLE, 0x79f5)?;
     let z = c.flag(ZF);
     if z {
         let di = c.reg(DI);
@@ -1887,7 +1888,7 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_word(g::SPRITE_LIST, 0x18e9);
     c.set_reg8(r8::AL, 2);
-    c.call(0x7b0f, 0x7a27)?;
+    c.call(entry::REDRAW_PANEL_BOX, 0x7a27)?;
     c.run(0x7a27, 23)?;
     c.set_reg(DI, 0x18e9);
     c.set_reg(SI, 0x18f3);
@@ -1915,7 +1916,7 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     c.set_word(0x18f7, dx);
     c.set_word(0x18f9, bx);
-    c.call(0x7b1b, 0x7a6a)?;
+    c.call(entry::FILL_AND_OUTLINE, 0x7a6a)?;
     let si = c.map_selection().selected;
     let k = c.byte(si.wrapping_add(3));
     let sietch = k & 0x20 != 0;
@@ -1932,7 +1933,7 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x7a6a, 3 + 3 + 1)?;
             c.set_reg(SI, si);
             c.set_reg(DI, di);
-            c.call(0x5d36, 0x7a80)?;
+            c.call(entry::LOCATION_KIND_CHECK, 0x7a80)?;
             let cf = c.flag(CARRY);
             c.run(0x7a80, 1)?;
             troop = !cf;
@@ -1945,9 +1946,9 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x7a82, 3)?;
         c.set_reg(AX, 0xc);
         c.update_conversation(|t| t.talker = 0xc);
-        c.call(0x91a0, 0x7a8b)?;
+        c.call(entry::SETUP_LIP_SYNC_DATA_FROM_SPRITE_SHEET, 0x7a8b)?;
         c.run(0x7a8b, 1)?;
-        c.call(0xc0f4, 0x7a8e)?;
+        c.call(entry::UPDATE_SCREEN_PALETTE, 0x7a8e)?;
         c.run(0x7a8e, 3)?;
         c.set_reg(AX, 0xc);
         c.set_reg(BP, 0);
@@ -1959,9 +1960,9 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let si = c.reg(SI);
         c.set_word(0x4758, si);
         c.set_byte(0x476c, 0);
-        c.call(0x91a0, 0x7aa8)?;
+        c.call(entry::SETUP_LIP_SYNC_DATA_FROM_SPRITE_SHEET, 0x7aa8)?;
         c.run(0x7aa8, 1)?;
-        c.call(0xc0f4, 0x7aab)?;
+        c.call(entry::UPDATE_SCREEN_PALETTE, 0x7aab)?;
         c.run(0x7aab, 9)?;
         let h = c.word(0x22a6);
         let a = pure::sub(W, h, 0xe);
@@ -2003,14 +2004,14 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     c.set_word_in(SS, 0x47d8, dx);
     c.set_word_in(SS, 0x47da, bx);
-    c.call(0x9d6a, 0x7b05)?;
+    c.call(entry::SAY_PHRASE_LIST, 0x7b05)?;
     c.run(0x7b05, 3)?;
     let v = c.pop();
     c.set_sreg(pc::cpu::DS, v);
     c.set_reg(SI, 0x47d4);
-    c.call(0xc4aa, 0x7b0c)?;
+    c.call(entry::GFX_COPY_RECT_TO_SCREEN, 0x7b0c)?;
     c.run(0x7b0c, 1)?;
-    c.jump(0xc13b)
+    c.jump(entry::OPEN_ONMAP_RESOURCE)
 }
 
 /// `loc_02806`: `loc_0274e`, `loc_0275f` with AL 2, the incoming call
@@ -2020,18 +2021,18 @@ pub fn comm_ring_incoming_call(m: &mut Machine, start: u16) -> Result<(), Bail> 
     entered(start, 0x2806)?;
     let mut c = Ctx::new(m);
     c.run(0x2806, 1)?;
-    c.call(0x274e, 0x2809)?;
+    c.call(entry::COMM_DRAW_PANELS, 0x2809)?;
     c.run(0x2809, 2)?;
     c.set_reg8(r8::AL, 2);
-    c.call(0x275f, 0x280e)?;
+    c.call(entry::COMM_DRAW_GLOW, 0x280e)?;
     c.run(0x280e, 2)?;
     c.set_reg(CX, 0x14);
-    c.call(0x281c, 0x2814)?;
+    c.call(entry::COMM_ANIMATE_INCOMING_CALL, 0x2814)?;
     c.run(0x2814, 1)?;
-    c.call(0xaba9, 0x2817)?;
+    c.call(entry::WAIT_VOICE_DONE, 0x2817)?;
     c.run(0x2817, 2)?;
     c.set_reg8(r8::AL, 1);
-    c.jump(0x275f)
+    c.jump(entry::COMM_DRAW_GLOW)
 }
 
 /// `loc_028a1`: [47A9h] AL; `comm_fade_in_glow`, `loc_0c49a`,
@@ -2042,15 +2043,15 @@ pub fn comm_open_caller(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x28a1, 2)?;
     let al = c.reg8(r8::AL);
     c.update_conversation(|t| t.caller = al);
-    c.call(0x2795, 0x28a7)?;
+    c.call(entry::COMM_FADE_IN_GLOW, 0x28a7)?;
     c.run(0x28a7, 1)?;
-    c.call(0xc49a, 0x28aa)?;
+    c.call(entry::GFX_COPY_FRAMEBUFFER_TO_SCREEN, 0x28aa)?;
     c.run(0x28aa, 1)?;
-    c.call(0xaba9, 0x28ad)?;
+    c.call(entry::WAIT_VOICE_DONE, 0x28ad)?;
     c.run(0x28ad, 3)?;
     c.set_reg(BP, 0x28b5);
     c.set_reg8(r8::AL, 8);
-    c.jump(0xc108)
+    c.jump(entry::TRANSITION_AL)
 }
 
 /// `loc_02c92`: transition 6 into the talk screen (BP 2C9Ah, `transition`), after the speaker [47C4h] is chosen.
@@ -2060,7 +2061,7 @@ pub fn transition_to_talk_screen(m: &mut Machine, start: u16) -> Result<(), Bail
     c.run(0x2c92, 3)?;
     c.set_reg8(r8::AL, 6);
     c.set_reg(BP, 0x2c9a);
-    c.jump(0xc108)
+    c.jump(entry::TRANSITION_AL)
 }
 
 /// `loc_0780a`: the place SI's panel (`loc_07c63`): the screen 2122h
@@ -2073,7 +2074,7 @@ pub fn open_selection_orders_screen(m: &mut Machine, start: u16) -> Result<(), B
     entered(start, 0x780a)?;
     let mut c = Ctx::new(m);
     c.run(0x780a, 1)?;
-    c.call(0x7c63, 0x780d)?;
+    c.call(entry::TROOP_MAP_DISTANCE, 0x780d)?;
     let (ax, si) = (c.reg(AX), c.reg(SI));
     let shown = c.word(g::REACH);
     let k = c.byte(si.wrapping_add(3));
@@ -2116,16 +2117,16 @@ pub fn open_selection_orders_screen(m: &mut Machine, start: u16) -> Result<(), B
                 let a = c.adc(W, 0x52, 0);
                 c.set_reg(AX, a);
                 c.set_word_in(SS, 0x210a + 0x12, a);
-                c.call(0x7847, 0x783e)?;
+                c.call(entry::TROOP_ORDERS_MENU, 0x783e)?;
                 c.run(0x783e, 2)?;
             }
         }
     }
     let _ = bp;
     c.set_reg(BX, 0x8751);
-    c.call(0xd323, 0x7844)?;
+    c.call(entry::PUSH_SCREEN, 0x7844)?;
     c.run(0x7844, 1)?;
-    c.jump(0xc13b)
+    c.jump(entry::OPEN_ONMAP_RESOURCE)
 }
 
 /// `loc_00f95`: time moved on to AX: `loc_0390a`, `loc_04d00`,
@@ -2138,24 +2139,24 @@ pub fn advance_time_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0f95, 2)?;
     let ax = c.reg(AX);
     c.push(ax);
-    c.call(0x390a, 0x0f99)?;
+    c.call(entry::FINISH_SKY_FADE, 0x0f99)?;
     c.run(0x0f99, 1)?;
-    c.call(0x4d00, 0x0f9c)?;
+    c.call(entry::STOP_ALARM_TASK, 0x0f9c)?;
     c.run(0x0f9c, 1)?;
-    c.call(0xb2be, 0x0f9f)?;
+    c.call(entry::START_CLOCK, 0x0f9f)?;
     c.run(0x0f9f, 3)?;
     let v = c.pop();
     let t = c.game_time();
     let n = pure::sub(W, v, t);
     c.set_reg(CX, n);
-    c.call(0x0fd9, 0x0fa7)?;
+    c.call(entry::RUN_CLOCK_TICKS, 0x0fa7)?;
     c.run(0x0fa7, 1)?;
-    c.call(0xdbb2, 0x0faa)?;
+    c.call(entry::CALL_RESTORE_CURSOR, 0x0faa)?;
     c.run(0x0faa, 2)?;
     c.set_reg8(r8::AL, 0x2a);
-    c.call(0x189a, 0x0faf)?;
+    c.call(entry::REDRAW_ROOM_BY_TRANSITION, 0x0faf)?;
     c.run(0x0faf, 1)?;
-    c.jump(0xd763)
+    c.jump(entry::DRAW_GAUGES)
 }
 
 /// `loc_00d8e`: the communication device's call (unless already on
@@ -2191,9 +2192,9 @@ pub fn start_comm_call(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(g::REDRAW, 0);
     c.update_map_view(|t| t.changes = 0);
     if map_ui & 0x80 != 0 {
-        c.call(0xdbb2, 0x0dad)?;
+        c.call(entry::CALL_RESTORE_CURSOR, 0x0dad)?;
         c.run(0x0dad, 1)?;
-        return c.jump(0x186b);
+        return c.jump(entry::TOGGLE_MAP_SCREEN);
     }
     for (at, to, ret) in [(0x0db0u16, 0xd2bdu16, 0x0db3u16), (0x0db3, 0x0d45, 0x0db6), (0x0db6, 0xdbb2, 0x0db9), (0x0db9, 0x98e6, 0x0dbc)] {
         if at != 0x0db0 {
@@ -2203,10 +2204,10 @@ pub fn start_comm_call(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x0dbc, 2)?;
     c.update_clock(|k| k.time = 0x16c5);
-    c.call(0x0e66, 0x0dc5)?;
+    c.call(entry::PLAY_COMM_DEVICE_VIDEO, 0x0dc5)?;
     c.run(0x0dc5, 2)?;
     c.update_travel(|t| t.held = 1);
-    c.call(0x9f40, 0x0dcd)?;
+    c.call(entry::SPEAKER_TEXT_SETUP, 0x0dcd)?;
     c.run(0x0dcd, 7)?;
     c.update_conversation(|t| t.talker = 0xffff);
     let who = c.byte(g::COMM_CALLER);
@@ -2214,16 +2215,16 @@ pub fn start_comm_call(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = who as u16;
     c.push(ax);
     c.set_reg(AX, ax + 0xba);
-    c.call(0x9901, 0x0de2)?;
+    c.call(entry::HIDE_TEXT_BOX, 0x0de2)?;
     c.run(0x0de2, 1)?;
-    c.call(0x88af, 0x0de5)?;
+    c.call(entry::SHOW_PHRASE, 0x0de5)?;
     c.run(0x0de5, 1)?;
-    c.call(0x9901, 0x0de8)?;
+    c.call(entry::HIDE_TEXT_BOX, 0x0de8)?;
     c.run(0x0de8, 2)?;
     c.set_reg(SI, 0x2254);
-    c.call(0x7b1b, 0x0dee)?;
+    c.call(entry::FILL_AND_OUTLINE, 0x0dee)?;
     c.run(0x0dee, 1)?;
-    c.call(0xda53, 0x0df1)?;
+    c.call(entry::CLEAR_FRAME_TASKS, 0x0df1)?;
     let sp = c.reg(pc::cpu::SP);
     let who = c.word_in(pc::cpu::SS, sp);
     let face = c.byte(0x225du16.wrapping_add(who & 0xff));
@@ -2233,7 +2234,7 @@ pub fn start_comm_call(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, 0x225d);
     c.set_reg8(r8::AL, face);
     if face & 0x80 == 0 {
-        c.call(0x91a0, 0x0dfd)?;
+        c.call(entry::SETUP_LIP_SYNC_DATA_FROM_SPRITE_SHEET, 0x0dfd)?;
         c.run(0x0dfd, 10)?;
         let (s, e) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
         c.set_reg(SI, s);
@@ -2246,27 +2247,27 @@ pub fn start_comm_call(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let y = c.word(0x2256).wrapping_add(1);
         c.set_reg(BX, y);
         c.push(face);
-        c.call(0xc2fd, 0x0e16)?;
+        c.call(entry::DRAW_SPRITE, 0x0e16)?;
         c.run(0x0e16, 3)?;
         let face = c.pop().wrapping_add(1);
         c.set_reg(AX, face);
-        c.call(0xc22f, 0x0e1b)?;
+        c.call(entry::DRAW_SPRITE_CLOBBERING_BX_DX, 0x0e1b)?;
         c.interp(0x0e1b, 0x0e1f)?;
         c.run(0x0e1f, 1)?;
-        c.call(0x9efd, 0x0e22)?;
+        c.call(entry::START_TEXT_VOICE, 0x0e22)?;
     }
     c.run(0x0e22, 1)?;
-    c.call(0xc4cd, 0x0e25)?;
+    c.call(entry::GFX_COPY_WHOLE_FRAMEBUF_TO_SCREEN, 0x0e25)?;
     c.run(0x0e25, 2)?;
     c.update_flight(|t| t.flying = 0);
-    c.call(0xd741, 0x0e2d)?;
+    c.call(entry::DRAW_PANEL_BUTTON_FRAME, 0x0e2d)?;
     c.run(0x0e2d, 4)?;
     c.update_conversation(|t| t.scene_count = 1);
     c.set_reg(BP, 0x20a2);
     c.set_reg(BX, 0xf66);
-    c.call(0xd323, 0x0e3b)?;
+    c.call(entry::PUSH_SCREEN, 0x0e3b)?;
     c.run(0x0e3b, 1)?;
-    c.jump(0xdbec)
+    c.jump(entry::DRAW_MOUSE)
 }
 
 /// `loc_06a33`: job 3 (AL) for the shown troop, its bits 2-3 kept (`loc_06a35`).
@@ -2275,7 +2276,7 @@ pub fn set_shown_troop_job_3(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x6a33, 1)?;
     c.set_reg8(r8::AL, 3);
-    c.jump(0x6a35)
+    c.jump(entry::SET_SHOWN_TROOP_JOB_KEEPING_BITS)
 }
 
 /// `loc_06a35`: `loc_068eb` (AX kept), then CL the record's kind bits
@@ -2286,7 +2287,7 @@ pub fn set_shown_troop_job_keeping_bits(m: &mut Machine, start: u16) -> Result<(
     c.run(0x6a35, 2)?;
     let ax = c.reg(AX);
     c.push(ax);
-    c.call(0x68eb, 0x6a39)?;
+    c.call(entry::SHOWN_TROOP, 0x6a39)?;
     c.run(0x6a39, 5)?;
     let v = c.pop();
     c.set_reg(AX, v);
@@ -2295,7 +2296,7 @@ pub fn set_shown_troop_job_keeping_bits(m: &mut Machine, start: u16) -> Result<(
     let cl = pure::and(B, k as u16, 0xc);
     let cl = pure::or(B, cl, v & 0xff);
     c.set_reg8(r8::CL, cl as u8);
-    c.jump(0x6a89)
+    c.jump(entry::CHANGE_SHOWN_TROOP_JOB)
 }
 
 /// `loc_06a89`: `loc_068eb`; when the record SI's kind ([si+3] low
@@ -2309,7 +2310,7 @@ pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6a89)?;
     let mut c = Ctx::new(m);
     c.run(0x6a89, 1)?;
-    c.call(0x68eb, 0x6a8c)?;
+    c.call(entry::SHOWN_TROOP, 0x6a8c)?;
     let si = c.reg(SI);
     let k = c.byte(si.wrapping_add(3));
     let cl = c.reg8(r8::CL);
@@ -2319,21 +2320,21 @@ pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = pure::and(B, k as u16, 0xf);
     c.set_reg8(r8::AL, a as u8);
     if same {
-        return c.jump(0xd2e2);
+        return c.jump(entry::LEAVE_AND_FADE);
     }
     let w3 = c.word(si.wrapping_add(3));
     c.push(w3);
     c.push(si);
     let w12 = c.word(si.wrapping_add(0x12));
     c.push(w12);
-    c.call(0x6acb, 0x6a9f)?;
+    c.call(entry::GIVE_TROOP_JOB_UNLESS_SAME, 0x6a9f)?;
     c.run(0x6a9f, 1)?;
-    c.call(0xa1c4, 0x6aa2)?;
+    c.call(entry::ALLOW_SCRIPTED_ACTION, 0x6aa2)?;
     c.run(0x6aa2, 2)?;
     c.set_reg8(r8::AL, 0xa);
-    c.call(0x7bb9, 0x6aa7)?;
+    c.call(entry::COMMENT_ON_TROOP, 0x6aa7)?;
     c.run(0x6aa7, 1)?;
-    c.call(0xa1e2, 0x6aaa)?;
+    c.call(entry::IS_SCRIPTED_ACTION_ALLOWED, 0x6aaa)?;
     let z = c.flag(ZF);
     c.run(0x6aaa, 4 + if z { 1 } else { 2 })?;
     let ax = c.pop();
@@ -2343,7 +2344,7 @@ pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cx = c.pop();
     c.set_reg(CX, cx);
     if z {
-        c.call(0x693b, 0x6abb)?;
+        c.call(entry::TROOP_ACTIVITY, 0x6abb)?;
         let al = c.reg8(r8::AL);
         c.run(0x6abb, 2 + if al == 0 { 1 } else { 3 })?;
         if al != 0 {
@@ -2352,12 +2353,12 @@ pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let v = pure::and(B, v as u16, 0x7f);
             c.set_byte(si.wrapping_add(0x19), v as u8);
         }
-        return c.jump(0xd2e2);
+        return c.jump(entry::LEAVE_AND_FADE);
     }
     c.set_word(si.wrapping_add(0x12), ax);
-    c.call(0x6acb, 0x6ab5)?;
+    c.call(entry::GIVE_TROOP_JOB_UNLESS_SAME, 0x6ab5)?;
     c.run(0x6ab5, 1)?;
-    c.jump(0xd2e2)
+    c.jump(entry::LEAVE_AND_FADE)
 }
 
 /// `loc_049d9`: the map redrawn: with [`g::MAP_MODE`] negative on through [46EDh]; else the zoomed map (`loc_049a0`), then its points (4A5Ah).
@@ -2372,9 +2373,9 @@ pub fn redraw_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.jump(to);
     }
     c.run(0x49d9, 3)?;
-    c.call(0x49a0, 0x49e3)?;
+    c.call(entry::ZOOMED_MAP_REDRAW_HANDLER, 0x49e3)?;
     c.run(0x49e3, 1)?;
-    c.jump(0x4a5a)
+    c.jump(entry::DRAW_MAP_POINTS)
 }
 
 /// `create_save_in_memory` (B427): the save image at ES:100h (CX 578h
@@ -2388,7 +2389,7 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xb427, 2)?;
     c.set_reg(CX, 0x578);
-    c.call(0xf11c, 0xb42d)?;
+    c.call(entry::ALLOC_CHECK_CX_PAGES_AVAILABLE, 0xb42d)?;
     c.run(0xb42d, 9)?;
     c.set_reg(DI, 0x100);
     c.push(0x100);
@@ -2466,7 +2467,7 @@ pub fn run_night_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let al = c.reg8(r8::AL);
     if al == 4 {
         c.run(0x4795, 5)?;
-        c.call(0xce53, 0x47d1)?;
+        c.call(entry::PRELOAD_RESOURCES_63_TO_68, 0x47d1)?;
         let old = c.byte(g::SAL_FLAGS);
         let set = old & 0x80 != 0;
         c.run(0x47d1, 4 + if set { 1 } else { 1 })?;
@@ -2476,43 +2477,43 @@ pub fn run_night_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if !set {
             return c.ret();
         }
-        c.call(0x181e, 0x47de)?;
+        c.call(entry::UI_HEAD_ANIMATE_DOWN, 0x47de)?;
         c.run(0x47de, 2)?;
         c.set_byte(g::ORNI_SPEED, 0xff);
-        c.call(0xc07c, 0x47e6)?;
+        c.call(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0x47e6)?;
         c.run(0x47e6, 1)?;
-        c.call(0x37b2, 0x47e9)?;
+        c.call(entry::DRAW_ROOM, 0x47e9)?;
         c.run(0x47e9, 1)?;
-        c.call(0xc412, 0x47ec)?;
+        c.call(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0x47ec)?;
         c.run(0x47ec, 1)?;
-        c.call(0x5ba0, 0x47ef)?;
+        c.call(entry::COPY_GAME_AREA_RECT_TO_UNKNOWN_RECT, 0x47ef)?;
         c.run(0x47ef, 3)?;
         c.set_byte(g::ORNI_SPEED, 0);
         c.set_reg8(r8::AL, 6);
-        c.call(0xab15, 0x47f9)?;
+        c.call(entry::AUDIO_START_VOC, 0x47f9)?;
         c.run(0x47f9, 1)?;
         c.set_reg8(r8::CL, 1);
-        return c.jump(0x47fb);
+        return c.jump(entry::STEP_ORNI_ROTOR);
     }
     c.run(0x4795, 5)?;
-    c.call(0x98af, 0x47a3)?;
+    c.call(entry::CLOSE_DIALOGUE, 0x47a3)?;
     c.run(0x47a3, 3)?;
     c.set_byte(g::KEY_HIT, 0);
     c.set_reg8(r8::AL, 0x50);
-    c.call(0x121f, 0x47ad)?;
+    c.call(entry::SET_GAME_PHASE, 0x47ad)?;
     c.run(0x47ad, 2)?;
     c.update_situation(|t| t.head_animation_step = 0);
-    c.call(0x1797, 0x47b5)?;
+    c.call(entry::UI_DRAW_HEAD_AND_SHOULDERS, 0x47b5)?;
     c.run(0x47b5, 3)?;
     c.set_reg8(r8::AL, 0x10);
     c.set_reg(BP, 0x4913);
-    c.call(0xc108, 0x47bd)?;
+    c.call(entry::TRANSITION_AL, 0x47bd)?;
     c.run(0x47bd, 2)?;
     c.set_byte(g::CINEMATIC, 1);
-    c.call(0x491c, 0x47c5)?;
+    c.call(entry::PLAY_NIGHT_VIDEO, 0x47c5)?;
     c.run(0x47c5, 2)?;
     c.set_byte(g::CINEMATIC, 0);
-    c.jump(0xac14)
+    c.jump(entry::PCM_STOP_VOC)
 }
 
 /// `loc_05692`: the map's place panel: `loc_05605`; without a place (DI
@@ -2528,12 +2529,12 @@ pub fn draw_map_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5692, 2)?;
     let di = c.reg(DI);
     c.push(di);
-    c.call(0x5605, 0x5696)?;
+    c.call(entry::CLEAR_MAP_HEADER, 0x5696)?;
     let di = c.pop();
     c.set_reg(DI, di);
     if di == 0 {
         c.run(0x5696, 3)?;
-        return c.jump(0x563e);
+        return c.jump(entry::ZOOM_LEGEND);
     }
     c.run(0x5696, 3 + 4)?;
     let bx = c.reg(BX);
@@ -2543,12 +2544,12 @@ pub fn draw_map_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let dx = pure::add(W, dx, 6);
     c.set_reg(DX, dx);
     c.set_reg(CX, 0xf5fe);
-    c.call(0x629d, 0x56a7)?;
+    c.call(entry::DRAW_STRING_LOCATION_TYPE, 0x56a7)?;
     c.run(0x56a7, 1)?;
-    c.call(0xd05f, 0x56aa)?;
+    c.call(entry::FONT_GET_DRAW_POSITION, 0x56aa)?;
     c.run(0x56aa, 2)?;
     c.set_reg(CX, 0xf5fe);
-    c.call(0x62a6, 0x56b0)?;
+    c.call(entry::DRAW_LOCATION_NAME, 0x56b0)?;
     let di = c.reg(DI);
     let kind = c.byte(di.wrapping_add(8));
     if di < 0x138 {
@@ -2563,7 +2564,7 @@ pub fn draw_map_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, 0);
     c.set_reg(CX, 0);
     c.set_reg(BP, 0x5728);
-    c.call(0x6639, 0x56c6)?;
+    c.call(entry::FOR_TROOPS_AT_LOCATION, 0x56c6)?;
     let (cx, bx) = (c.reg(CX), c.reg(BX));
     let none = cx | bx == 0;
     c.run(0x56c6, 5 + if none { 0 } else { 1 })?;
@@ -2576,23 +2577,23 @@ pub fn draw_map_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if none {
         return c.jump(0x571a);
     }
-    c.call(0xc13b, 0x56d6)?;
+    c.call(entry::OPEN_ONMAP_RESOURCE, 0x56d6)?;
     c.run(0x56d6, 3)?;
     let v = c.byte(g::TEXT_COLOUR);
     let v = pure::sub(B, v as u16, 3);
     c.set_byte(g::TEXT_COLOUR, v as u8);
     c.set_reg(AX, 0);
-    c.call(0x56ed, 0x56e0)?;
+    c.call(entry::DRAW_MAP_LABEL, 0x56e0)?;
     c.run(0x56e0, 3)?;
     let ch = c.reg8(r8::CH);
     c.set_reg8(r8::BL, ch);
     c.set_reg(AX, 1);
-    c.call(0x56ed, 0x56e8)?;
+    c.call(entry::DRAW_MAP_LABEL, 0x56e8)?;
     c.run(0x56e8, 2)?;
     let cl = c.reg8(r8::CL);
     c.set_reg8(r8::BL, cl);
     c.set_reg(AX, 2);
-    c.jump(0x56ed)
+    c.jump(entry::DRAW_MAP_LABEL)
 }
 
 /// `loc_00981`: `loc_008f0`, the room drawn (`loc_037b2`), then on into
@@ -2601,11 +2602,11 @@ pub fn set_place_and_draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> 
     entered(start, 0x0981)?;
     let mut c = Ctx::new(m);
     c.run(0x0981, 1)?;
-    c.call(0x08f0, 0x0984)?;
+    c.call(entry::SET_CURRENT_PLACE, 0x0984)?;
     c.run(0x0984, 1)?;
-    c.call(0x37b2, 0x0987)?;
+    c.call(entry::DRAW_ROOM, 0x0987)?;
     c.run(0x0987, 1)?;
-    c.jump(0xc412)
+    c.jump(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2)
 }
 
 /// `loc_04913` (BP of the night's transition): HNM 0Eh's first frame
@@ -2615,9 +2616,9 @@ pub fn load_night_video_first_frame(m: &mut Machine, start: u16) -> Result<(), B
     let mut c = Ctx::new(m);
     c.run(0x4913, 2)?;
     c.set_reg(AX, 0x0e);
-    c.call(0xca1b, 0x4919)?;
+    c.call(entry::HNM_LOAD_FIRST_FRAME, 0x4919)?;
     c.run(0x4919, 1)?;
-    c.jump(0x388d)
+    c.jump(entry::SET_SKY_PALETTE)
 }
 
 /// `loc_0a1d0`: [47A5h] FFh.
@@ -2673,24 +2674,24 @@ pub fn set_up_talk_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x2c9a, 3)?;
     c.update_situation(|t| t.head_animation_step = 0);
     c.set_reg8(r8::AL, 0x23);
-    c.call(0xc2f2, 0x2ca4)?;
+    c.call(entry::OPEN_RESOURCE_AND_DRAW_SPRITE_0, 0x2ca4)?;
     c.run(0x2ca4, 1)?;
-    c.call(0xc412, 0x2ca7)?;
+    c.call(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0x2ca7)?;
     c.run(0x2ca7, 2)?;
     let state = c.conversation().talker;
     c.set_reg(AX, state);
-    c.call(0x96d8, 0x2cad)?;
+    c.call(entry::TALK_AS, 0x2cad)?;
     c.run(0x2cad, 6)?;
     c.set_reg(AX, 0);
     c.set_word(g::TEXT_BOX_FLAGS, 0);
     c.set_word(g::HEAD_BOX_FLAGS, 0);
     c.set_byte(g::SKY_PALETTE_SET, 0);
     c.set_reg(SI, 0xc0b6);
-    c.call(0xda5f, 0x2cbe)?;
+    c.call(entry::REMOVE_FRAME_TASK, 0x2cbe)?;
     c.run(0x2cbe, 3)?;
     c.set_reg(SI, 0x2cc7);
     c.set_reg(BP, 6);
-    c.jump(0xda25)
+    c.jump(entry::ADD_FRAME_TASK)
 }
 
 /// `loc_02540`: a bare `ret` (a callback that does nothing).
@@ -2717,11 +2718,11 @@ pub fn start_sequence_for_phase(m: &mut Machine, start: u16) -> Result<(), Bail>
     for &(ax, lim) in &steps {
         c.set_reg(AX, ax);
         if day < lim {
-            return c.jump(0x1771);
+            return c.jump(entry::START_SEQUENCE);
         }
     }
     c.set_reg(AX, 0x12db);
-    c.jump(0x1771)
+    c.jump(entry::START_SEQUENCE)
 }
 
 /// `loc_002c1`: an intro scene by SI: the screen cleared, its routine
@@ -2733,7 +2734,7 @@ pub fn play_intro_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x02c1, 2)?;
     let si = c.reg(SI);
     c.push(si);
-    c.call(0xc0ad, 0x02c5)?;
+    c.call(entry::GFX_CLEAR_ACTIVE_FRAMEBUFFER, 0x02c5)?;
     c.run(0x02c5, 3)?;
     let si = c.reg(SI);
     let si = c.add(W, si, si);
@@ -2745,11 +2746,11 @@ pub fn play_intro_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.pop();
     let ax = c.add(W, ax, 0x117);
     c.set_reg(AX, ax);
-    c.call(0xd068, 0x02d5)?;
+    c.call(entry::FONT_SELECT_TALL_FONT, 0x02d5)?;
     c.run(0x02d5, 1)?;
-    c.call(0x9901, 0x02d8)?;
+    c.call(entry::HIDE_TEXT_BOX, 0x02d8)?;
     c.run(0x02d8, 1)?;
-    c.call(0x88af, 0x02db)?;
+    c.call(entry::SHOW_PHRASE, 0x02db)?;
     c.run(0x02db, 1)?;
-    c.jump(0x9901)
+    c.jump(entry::HIDE_TEXT_BOX)
 }

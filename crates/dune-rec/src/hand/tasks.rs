@@ -6,6 +6,7 @@
 //! (the current entry, and the entries left), which adding or removing a
 //! task keeps right.
 
+use super::entry;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -175,7 +176,7 @@ pub fn add_room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3a7c)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0x39e6, 0x3a7f)?;
+    c.call(entry::REMOVE_ROOM_FRAME_TASK, 0x3a7f)?;
     let place = c.player().x;
     let (low, high) = (place & 0xff, place >> 8);
     let animated = low == 4 && high < 0x20;
@@ -188,7 +189,7 @@ pub fn add_room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if animated {
         c.set_reg(SI, ROOM_ANIMATION_TASK);
         c.set_reg(BP, 0x0c);
-        c.call(0xda25, 0x3a94)?;
+        c.call(entry::ADD_FRAME_TASK, 0x3a94)?;
         c.run(0x3a94, 1)?;
     }
     c.ret()
@@ -234,5 +235,5 @@ pub fn sky_fade_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_byte(g::FRAME_TASKS_ACTIVE, 0);
     c.set_reg(SI, 0x3916);
-    c.jump(0xda5f)
+    c.jump(entry::REMOVE_FRAME_TASK)
 }

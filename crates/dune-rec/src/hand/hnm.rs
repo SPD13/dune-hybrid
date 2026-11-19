@@ -1,5 +1,6 @@
 //! HNM video files: reading and closing.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -36,7 +37,7 @@ pub fn hnm_close_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, handle);
     c.or(W, handle, handle);
     if handle != 0 {
-        c.call(0xce01, 0xca0e)?; // hnm_reset_frame_counter
+        c.call(entry::HNM_RESET_FRAME_COUNTER, 0xca0e)?; // hnm_reset_frame_counter
         let dat = c.word(g::DUNE_DAT_HANDLE);
         if handle == dat {
             c.run(0xca0e, 4)?; // cmp; je; xor cx; ret

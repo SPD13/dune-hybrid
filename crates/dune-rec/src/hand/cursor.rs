@@ -7,6 +7,7 @@
 //! best point (x, y). DX, BX are the cursor. A candidate is scored with DX,
 //! BX as they are and AX, SI its point; a lower score wins.
 
+use super::entry;
 use super::globals as g;
 use super::pure;
 use super::{B, Ctx, W, entered, r8};
@@ -360,7 +361,7 @@ pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 6)?;
     c.set_reg(CX, k as u16);
     c.set_reg(DI, 0x1c0c);
-    c.call(0xd6fe, 0x92da)?;
+    c.call(entry::POINT_IN_RECT, 0x92da)?;
     if c.flag(CF) {
         c.run(0x92da, 2)?;
         return c.ret();
@@ -506,7 +507,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
         c.set_reg8(r8::CL, cl);
         at = 0;
     } else {
-        c.call(0xd41b, 0xd526)?;
+        c.call(entry::CURRENT_UI_ELEMENTS, 0xd526)?;
         let bp = c.reg(BP);
         let mode = c.travel().screen_kind;
         if bp != 0x1f0e || mode != 0 {
@@ -519,7 +520,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
             if f & 0x80 != 0 {
                 c.run(0xd526, 8)?;
                 c.set_reg(DI, 0x1bf0);
-                c.call(0xd6fe, 0xd53f)?;
+                c.call(entry::POINT_IN_RECT, 0xd53f)?;
                 let cf = c.flag(CF);
                 c.run(0xd53f, 2)?;
                 let sp = c.conversation().talker;
@@ -538,7 +539,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 c.run(0xd545, 2)?;
                 let bp = c.reg(BP);
                 c.push(bp);
-                c.call(0x9285, 0xd549)?;
+                c.call(entry::DIALOGUE_HIT, 0xd549)?;
                 let cf = c.flag(CF);
                 let cl = c.reg8(r8::CL);
                 if !cf {
@@ -573,7 +574,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 c.set_reg(CX, 0);
                 loop {
                     c.run(0xd565, 1)?;
-                    c.call(0xd454, 0xd568)?;
+                    c.call(entry::ITEM_PLACE, 0xd568)?;
                     let ax = c.reg(AX);
                     let bp = c.reg(BP);
                     if ax == bp {
@@ -609,7 +610,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 c.run(0xd575, 7)?;
                 c.set_reg(DI, g::TEXT_BOX);
                 c.set_reg(CX, 0);
-                c.call(0xd6fe, 0xd589)?;
+                c.call(entry::POINT_IN_RECT, 0xd589)?;
                 if c.flag(CF) {
                     c.run(0xd589, 1)?;
                     at = 0;
@@ -617,7 +618,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 }
                 c.run(0xd589, 3)?;
                 c.set_reg(DI, 0x1bf0);
-                c.call(0xd6fe, 0xd591)?;
+                c.call(entry::POINT_IN_RECT, 0xd591)?;
                 c.run(0xd591, 1)?;
                 at = if c.flag(CF) { 0 } else { 6 };
             }
@@ -630,7 +631,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 }
                 c.run(0xd593, 4)?;
                 c.set_reg(DI, 0x1bfe);
-                c.call(0xd6fe, 0xd5a0)?;
+                c.call(entry::POINT_IN_RECT, 0xd5a0)?;
                 let cf = c.flag(CF);
                 if cf {
                     c.run(0xd5a0, 2)?;
@@ -640,7 +641,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 }
                 c.run(0xd5a0, 3)?;
                 c.set_reg8(r8::CL, 3);
-                c.call(0x92c9, 0xd5a7)?;
+                c.call(entry::IN_DIALOGUE_RECTS, 0xd5a7)?;
                 if !c.flag(CF) {
                     c.run(0xd5a7, 1)?;
                     at = 2;
@@ -719,7 +720,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
     c.set_reg8(r8::AL, cl);
     c.set_byte(g::HOVERED_ITEM, cl);
     c.set_reg8(r8::CL, old);
-    c.call(0xdbb2, 0xd5ea)?;
+    c.call(entry::CALL_RESTORE_CURSOR, 0xd5ea)?;
     let n = c.byte(g::ITEM_COUNT);
     let cl = c.reg8(r8::CL);
     if cl & 0x80 != 0 || cl >= n {
@@ -730,9 +731,9 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
         c.run(0xd5ea, 6)?;
         let ax = c.reg(AX);
         c.push(ax);
-        c.call(0xd454, 0xd5f8)?;
+        c.call(entry::ITEM_PLACE, 0xd5f8)?;
         c.run(0xd5f8, 1)?;
-        c.call(0xd48a, 0xd5fb)?;
+        c.call(entry::BUTTON_LABEL, 0xd5fb)?;
         c.run(0xd5fb, 1)?;
         let a = c.pop();
         c.set_reg(AX, a);
@@ -746,15 +747,15 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
         c.run(0xd5fc, 4)?;
         let ax = c.reg(AX);
         c.set_reg(CX, ax);
-        c.call(0xd454, 0xd607)?;
+        c.call(entry::ITEM_PLACE, 0xd607)?;
         c.run(0xd607, 2)?;
         let ah = (c.reg(AX) >> 8) as u8;
         let h = ah | 0x80;
         c.set_reg8(r8::AH, h as u8);
-        c.call(0xd48a, 0xd60d)?;
+        c.call(entry::BUTTON_LABEL, 0xd60d)?;
         c.run(0xd60d, 1)?;
     }
-    c.call(0xdbec, 0xd610)?;
+    c.call(entry::DRAW_MOUSE, 0xd610)?;
     c.run(0xd610, 7)?;
     highlight_pops(&mut c)
 }
@@ -978,7 +979,7 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
         let u = c.byte(g::ITEM_COUNT);
         let u = c.inc(B, u as u16);
         c.set_byte(g::ITEM_COUNT, u as u8);
-        c.call(0xd48a, 0xd3e5)?;
+        c.call(entry::BUTTON_LABEL, 0xd3e5)?;
         let cx = c.word_in(SS, c.reg(SP).wrapping_add(2)).wrapping_add(1);
         let done = (cx as u8) >= 5;
         c.run(0xd3e5, 5 + if done { 1 } else { 0 })?;
@@ -1013,7 +1014,7 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
     loop {
         let cx = c.reg(CX);
         c.push(cx);
-        c.call(0xd48a, 0xd409)?;
+        c.call(entry::BUTTON_LABEL, 0xd409)?;
         let cx = c.word_in(SS, c.reg(SP)).wrapping_add(1);
         let done = (cx as u8) >= 5;
         c.run(0xd409, 4 + if done { 0 } else { 3 })?;

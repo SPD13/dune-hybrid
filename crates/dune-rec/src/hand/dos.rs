@@ -1,5 +1,6 @@
 //! Services: EMS (INT 67h), the XMS driver, DOS file calls.
 
+use super::entry;
 use super::{B, Ctx, W, entered, globals as g};
 use pc::{
     Machine,
@@ -201,7 +202,7 @@ pub fn ems_copy(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         c.run(at(0x15), 2)?;
         c.set_reg(AX, 0x4400);
-        c.call(0xed40, at(0x1b))?;
+        c.call(entry::GET_EMS_EMM_HANDLE, at(0x1b))?;
         if c.flag(CF) {
             c.run(at(0x1b), 2)?;
             return c.ret();
@@ -298,7 +299,7 @@ pub fn map_ems_for_midi_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.test(B, f as u16, 0x0f); // INT 67h sees the flags
     c.set_reg(BX, 3);
     c.set_reg8(super::r8::AH, 0x43);
-    c.call(0xed45, 0xedc8)?;
+    c.call(entry::CALL_EMS_FUNC, 0xedc8)?;
     if c.flag(CF) {
         c.run(0xedc8, 2)?;
         return c.ret();
@@ -310,22 +311,22 @@ pub fn map_ems_for_midi_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx = c.reg(BX);
     c.xor(W, bx, bx); // likewise
     c.set_reg(BX, 0);
-    c.call(0xed45, 0xedd7)?;
+    c.call(entry::CALL_EMS_FUNC, 0xedd7)?;
     for (at, ax, bx, ret) in [(0xedd7u16, 0x4402u16, 1u16, 0xede2u16), (0xede2, 0x4403, 2, 0xeded)] {
         if c.flag(CF) {
             c.run(at, 1 + 2)?;
             c.set_reg8(super::r8::AH, 0x45);
-            return c.jump(0xed45);
+            return c.jump(entry::CALL_EMS_FUNC);
         }
         c.run(at, 4)?;
         c.set_reg(AX, ax);
         c.set_reg(BX, bx);
-        c.call(0xed45, ret)?;
+        c.call(entry::CALL_EMS_FUNC, ret)?;
     }
     if c.flag(CF) {
         c.run(0xeded, 1 + 2)?;
         c.set_reg8(super::r8::AH, 0x45);
-        return c.jump(0xed45);
+        return c.jump(entry::CALL_EMS_FUNC);
     }
     c.run(0xeded, 5)?;
     let seg = c.word_in(CS, 0xed3c);
@@ -348,13 +349,13 @@ pub fn init_extended_memory_allocator(m: &mut Machine, start: u16) -> Result<(),
     c.run(0xea7b, 2 + (f & 0x80 != 0) as u32)?;
     c.test(B, f as u16, 0x80); // `loc_0eea0` reads the flags
     if f & 0x80 != 0 {
-        c.call(0xeea0, 0xea85)?;
+        c.call(entry::INITIALIZE_HIMEM_SYS, 0xea85)?;
     }
     let f = c.byte(g::CMD_ARGS_MEMORY);
     c.run(0xea85, 2 + (f & 0x48 != 0) as u32)?;
     c.test(B, f as u16, 0x48); // `ems_init` reads the flags
     if f & 0x48 != 0 {
-        c.call(0xed4c, 0xea8f)?;
+        c.call(entry::EMS_INIT, 0xea8f)?;
     }
     let f = c.byte(g::CMD_ARGS_MEMORY);
     if f & 0xe8 == 0 {
@@ -369,7 +370,7 @@ pub fn init_extended_memory_allocator(m: &mut Machine, start: u16) -> Result<(),
     let n = n.wrapping_add(2 * 0xb9);
     c.push(n);
     c.set_reg(CX, n << 1);
-    c.call(0xf0f6, 0xeaad)?;
+    c.call(entry::BUMP_ALLOC, 0xeaad)?;
     // The words cleared (the count pushed before; the `rep stosw`
     // iterations counted in the `run`).
     let sp = c.reg(pc::cpu::SP);
@@ -516,7 +517,7 @@ pub fn alloc_extended_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'chain;
             }
             c.push(ax);
-            c.call(0xec46, 0xec2e)?;
+            c.call(entry::CALL_MEMORY_FUNC_2, 0xec2e)?;
             let cf = c.flag(CF);
             c.run(0xec2e, 2 + !cf as u32)?;
             ax = c.pop();
@@ -532,7 +533,7 @@ pub fn alloc_extended_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, a);
     let cx = c.reg(CX).wrapping_add(a);
     c.set_reg(CX, cx);
-    c.call(0xec46, 0xec3a)?;
+    c.call(entry::CALL_MEMORY_FUNC_2, 0xec3a)?;
     end_ec3a(&mut c)
 }
 
@@ -579,7 +580,7 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xed4c, 2)?;
     c.set_reg8(super::r8::AH, 0x41);
-    c.call(0xed45, 0xed51)?;
+    c.call(entry::CALL_EMS_FUNC, 0xed51)?;
     if c.flag(CF) {
         c.run(0xed51, 1)?;
         return fail_edb3(&mut c);
@@ -590,7 +591,7 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(super::r8::AH, 0x42);
     c.xor(W, bx, bx); // INT 67h sees the flags
     c.set_reg(BX, 0);
-    c.call(0xed45, 0xed5f)?;
+    c.call(entry::CALL_EMS_FUNC, 0xed5f)?;
     let bx = c.reg(BX);
     if c.flag(CF) {
         c.run(0xed5f, 1)?;
@@ -601,7 +602,7 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return fail_edb3(&mut c);
     }
     c.run(0xed5f, 4)?;
-    c.call(0xedb9, 0xed69)?;
+    c.call(entry::MAP_EMS_FOR_MIDI_AUDIO, 0xed69)?;
     let f = c.byte(g::CMD_ARGS_MEMORY);
     if f & 8 != 0 {
         c.run(0xed69, 2)?;
@@ -612,7 +613,7 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx = c.reg(BX);
     c.xor(W, bx, bx); // likewise
     c.set_reg(BX, 0);
-    c.call(0xed45, 0xed77)?;
+    c.call(entry::CALL_EMS_FUNC, 0xed77)?;
     let bx = c.reg(BX);
     if c.flag(CF) {
         c.run(0xed77, 1)?;
@@ -636,7 +637,7 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, a);
     c.set_word(0x39a9, a);
     c.set_reg8(super::r8::AH, 0x43);
-    c.call(0xed45, 0xed9b)?;
+    c.call(entry::CALL_EMS_FUNC, 0xed9b)?;
     if c.flag(CF) {
         c.run(0xed9b, 1)?;
         return fail_edb3(&mut c);
@@ -675,14 +676,14 @@ pub fn uninitialize_memory_driver(m: &mut Machine, start: u16) -> Result<(), Bai
     c.run(0xe8d5, 2 + 2 * (h != 0) as u32)?;
     if h != 0 {
         c.set_reg8(r8::AH, 0x0a);
-        c.call(0xef2b, 0xe8e2)?;
+        c.call(entry::CALL_XMS_FUNC_ON_BLOCK, 0xe8e2)?;
     }
     let h = c.word_in(CS, 0xed3a);
     c.run(0xe8e2, 2 + 2 * (h != 0) as u32)?;
     c.cmp(W, h, 0); // `call_ems_func` reads the flags
     if h != 0 {
         c.set_reg8(r8::AH, 0x45);
-        c.call(0xed40, 0xe8ef)?;
+        c.call(entry::GET_EMS_EMM_HANDLE, 0xe8ef)?;
     }
     let d = c.word_in(CS, 0xed3e);
     c.run(0xe8ef, 3 + 2 * (d != 0) as u32)?;
@@ -690,13 +691,13 @@ pub fn uninitialize_memory_driver(m: &mut Machine, start: u16) -> Result<(), Bai
     c.or(W, d, d); // likewise (INT 67h)
     if d != 0 {
         c.set_reg8(r8::AH, 0x45);
-        c.call(0xed45, 0xe8fd)?;
+        c.call(entry::CALL_EMS_FUNC, 0xe8fd)?;
     }
     c.run(0xe8fd, 2)?;
     let ax = c.reg(AX);
     c.xor(W, ax, ax); // likewise
     c.set_reg(AX, 0);
-    c.call(0xe8a8, 0xe902)?;
+    c.call(entry::SET_PIT_TIMER_FREQUENCY, 0xe902)?;
     c.run(0xe902, 2)?;
     let dl = c.byte(0x2941);
     c.set_reg8(r8::DL, dl);
@@ -707,7 +708,7 @@ pub fn uninitialize_memory_driver(m: &mut Machine, start: u16) -> Result<(), Bai
     if f == 0 {
         return c.ret();
     }
-    c.jump(0xe913)
+    c.jump(entry::INSTALL_INTERRUPT_HANDLERS)
 }
 
 /// `bump_alloc_get_addr_in_di_and_bump` (F0F6; F0FFh skips the first
@@ -751,7 +752,7 @@ pub fn bump_alloc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = c.pop();
     c.set_reg(AX, a);
     if over {
-        return c.jump(0xf131);
+        return c.jump(entry::OUT_OF_MEMORY_ERROR);
     }
     c.ret()
 }
@@ -772,7 +773,7 @@ pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xeab7)?;
     let mut c = Ctx::new(m);
     c.run(0xeab7, 1)?;
-    c.call(0xe270, 0xeaba)?;
+    c.call(entry::SAVE_REGS, 0xeaba)?;
     c.run(0xeaba, 22)?;
     let ds = c.sreg(DS);
     c.push(ds);
@@ -833,7 +834,7 @@ pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break;
             }
             c.run(0xeb01, 1)?;
-            c.call(0xeb74, 0xeb04)?;
+            c.call(entry::EVICT_OLDEST, 0xeb04)?;
             c.run(0xeb04, 2)?;
             if !c.flag(CF) {
                 return drop_eb60(&mut c, bp);
@@ -902,7 +903,7 @@ pub fn memory_func_qq(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let b = c.word_in(SS, bp.wrapping_add(4));
         c.set_reg(BX, b);
         c.push(dx);
-        c.call(0xec59, 0xeb46)?;
+        c.call(entry::CALL_MEMORY_FUNC_1, 0xeb46)?;
         let rem = c.word_in(SS, bp.wrapping_add(2));
         let again = rem.wrapping_sub(1) <= 0xfc00;
         c.run(0xeb46, 7 + if again { 0 } else { 4 })?;
@@ -931,7 +932,7 @@ fn drop_eb60(c: &mut Ctx, bp: u16) -> Result<(), Bail> {
     c.set_reg(AX, old);
     let s = n.wrapping_add(old).wrapping_add(old);
     c.set_reg(SI, s);
-    c.call(0xebaa, 0xeb72)?;
+    c.call(entry::FREE_CHAIN, 0xeb72)?;
     c.run(0xeb72, 1 + 4)?;
     end_eb57(c)
 }
@@ -946,7 +947,7 @@ fn end_eb57(c: &mut Ctx) -> Result<(), Bail> {
     c.set_sreg(ES, v);
     let v = c.pop();
     c.set_sreg(DS, v);
-    c.call(0xe283, 0xeb5f)?;
+    c.call(entry::RESTORE_REGS, 0xeb5f)?;
     c.run(0xeb5f, 1)?;
     c.ret()
 }
@@ -991,7 +992,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(DS, v);
     c.set_word(g::ALLOCATOR_LAST_SEGMENT, lim);
     c.set_reg(CX, 0xdd1d);
-    c.call(0xf0ff, 0xe5b4)?;
+    c.call(entry::BUMP_ALLOCATE_BUMP_CX_BYTES, 0xe5b4)?;
     c.run(0xe5b4, 7)?;
     c.set_reg8(r8::CL, 4);
     let ds = c.sreg(DS);
@@ -1016,31 +1017,31 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, 0);
     c.interp(0xe5da, 0xe5dc)?;
     c.run(0xe5dc, 1)?;
-    c.call(0xe675, 0xe5df)?;
+    c.call(entry::OPEN_DUNE_DAT, 0xe5df)?;
     c.run(0xe5df, 5)?;
     let f = c.byte(g::CMD_ARGS);
     c.set_reg8(r8::AL, f);
     c.set_reg(AX, f as u16 & 1);
     c.set_reg(SI, 0x38b7);
     c.set_reg(CX, 0x2e);
-    c.call(0xe57b, 0xe5ee)?;
+    c.call(entry::LOAD_DRIVER_AX_WITH_VTABLE_AT_SI, 0xe5ee)?;
     c.interp(0xe5ee, 0xe5f2)?;
     c.run(0xe5f2, 2)?;
     let ax = c.reg(AX);
     c.update_screen_buffers(|t| t.screen = ax);
-    c.call(0xc08e, 0xe5f8)?;
+    c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xe5f8)?;
     c.run(0xe5f8, 3)?;
     let cx = c.reg(CX);
     c.set_word(g::HNM_CE74, cx);
     c.set_reg(DI, 0xdbdc);
-    c.call(0xf0f6, 0xe602)?;
+    c.call(entry::BUMP_ALLOC, 0xe602)?;
     let bp = c.reg(BP);
     c.run(0xe602, 3 + if bp == 0 { 2 } else { 0 })?;
     c.update_screen_buffers(|t| t.front = bp);
     c.or(W, bp, bp); // the driver's far call sees the flags
     if bp == 0 {
         c.set_reg(DI, 0xdbd4);
-        c.call(0xf0f6, 0xe610)?;
+        c.call(entry::BUMP_ALLOC, 0xe610)?;
     }
     c.interp(0xe610, 0xe614)?;
     let f = c.byte(g::CMD_ARGS);
@@ -1058,7 +1059,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.or(B, f as u16, f as u16);
     if joy {
         c.push(ax);
-        c.call(0xea32, 0xe62a)?;
+        c.call(entry::INITIALIZE_JOYSTICK, 0xe62a)?;
         c.run(0xe62a, 1)?;
         let ax = c.pop();
         c.set_reg(AX, ax);
@@ -1067,14 +1068,14 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xe62b, 2 + mouse as u32)?;
     c.test(B, f as u16, 0x40); // `initialize_mouse` reads the flags
     if mouse {
-        c.call(0xe97a, 0xe632)?;
+        c.call(entry::INITIALIZE_MOUSE, 0xe632)?;
         c.run(0xe632, 1)?;
     } else {
         c.run(0xe632, 1)?;
     }
-    c.call(0xe85c, 0xe635)?;
+    c.call(entry::MEASURE_PIT_SPEED, 0xe635)?;
     c.run(0xe635, 1)?;
-    c.call(0xea7b, 0xe638)?;
+    c.call(entry::INIT_EXTENDED_MEMORY_ALLOCATOR, 0xe638)?;
     c.run(0xe638, 3)?;
     let f = c.byte(g::CMD_ARGS);
     c.set_reg8(r8::AL, f);
@@ -1089,18 +1090,18 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, 0xc7);
     c.set_reg(CX, 0);
     c.set_reg(DX, 0x13f);
-    c.call(0xdb14, 0xe65c)?;
+    c.call(entry::DEFINE_MOUSE_RANGE, 0xe65c)?;
     c.run(0xe65c, 3)?;
     c.set_reg(BX, 0xab);
     c.set_reg(DX, 0xed);
-    c.call(0xdb03, 0xe665)?;
+    c.call(entry::MOVE_CURSOR, 0xe665)?;
     for (at, to, ret) in [(0xe665u16, 0xe76au16, 0xe668u16), (0xe668, 0xce6c, 0xe66b), (0xe66b, 0xc07c, 0xe66e), (0xe66e, 0xc0ad, 0xe671)] {
         c.run(at, 1)?;
         c.call(to, ret)?;
     }
     let _ = SI;
     c.run(0xe671, 1)?;
-    c.jump(0xc412)
+    c.jump(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2)
 }
 
 /// `initialize_audio` (E76A): the sound driver ([2944h] high nibble + 7,
@@ -1127,7 +1128,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, a);
         c.set_reg(SI, 0x398b);
         c.set_reg(CX, 8);
-        c.call(0xe57b, 0xe77e)?;
+        c.call(entry::LOAD_DRIVER_AX_WITH_VTABLE_AT_SI, 0xe77e)?;
         c.run(0xe77e, 1)?;
         let v = c.word(0x39b5);
         c.set_reg(AX, v);
@@ -1135,11 +1136,11 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xe785, 2)?;
         let bx = c.reg(BX);
         c.update_sound_state(|t| t.settings = bx);
-        c.call(0xa637, 0xe78c)?;
+        c.call(entry::SETTINGS_APPLY_MUSIC_VOLUME, 0xe78c)?;
         c.run(0xe78c, 1)?;
-        c.call(0xae54, 0xe78f)?;
+        c.call(entry::ALLOC_VOICE_BUFFER, 0xe78f)?;
         c.run(0xe78f, 1)?;
-        c.call(0xe851, 0xe792)?;
+        c.call(entry::CHECK_ALLOCATOR_ROOM, 0xe792)?;
         if c.flag(CF) {
             c.run(0xe792, 1)?;
             break;
@@ -1147,7 +1148,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let f = c.byte(0x2944);
         if f & 0xf0 == 0 {
             c.run(0xe792, 3 + 1)?;
-            return c.jump(0xf131);
+            return c.jump(entry::OUT_OF_MEMORY_ERROR);
         }
         c.run(0xe792, 3 + 9)?;
         // That one failed: the next.
@@ -1164,7 +1165,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.voice_buffer(0).data[1];
     c.set_reg(AX, v);
     c.update_voice_buffer(1, |b| b.data[1] = v);
-    c.call(0xa87e, 0xe7c5)?;
+    c.call(entry::AUDIO_TEST_FREQUENCY, 0xe7c5)?;
     loop {
         c.run(0xe7c5, 6)?;
         let f = c.byte(0x2944);
@@ -1173,7 +1174,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, (f & 0xf) as u16 + 2);
         c.set_reg(SI, 0x396f);
         c.set_reg(CX, 7);
-        c.call(0xe57b, 0xe7d7)?;
+        c.call(entry::LOAD_DRIVER_AX_WITH_VTABLE_AT_SI, 0xe7d7)?;
         c.run(0xe7d7, 3)?;
         c.set_reg(BP, 0x3349);
         c.set_reg(CX, 0xa);
@@ -1184,11 +1185,11 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.sound_state().settings;
         let bx = c.reg(BX);
         c.update_sound_state(|t| t.settings = v | bx);
-        c.call(0xa650, 0xe7eb)?;
+        c.call(entry::SETTINGS_APPLY_SOUND_VOLUME, 0xe7eb)?;
         c.run(0xe7eb, 1)?;
-        c.call(0xae3f, 0xe7ee)?;
+        c.call(entry::ALLOC_MUSIC_BUFFER, 0xe7ee)?;
         c.run(0xe7ee, 1)?;
-        c.call(0xe851, 0xe7f1)?;
+        c.call(entry::CHECK_ALLOCATOR_ROOM, 0xe7f1)?;
         if c.flag(CF) {
             c.run(0xe7f1, 2)?;
             break;
@@ -1196,7 +1197,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let f = c.byte(0x2944);
         if f & 0xf == 0 {
             c.run(0xe7f1, 3 + 1)?;
-            return c.jump(0xf131);
+            return c.jump(entry::OUT_OF_MEMORY_ERROR);
         }
         c.run(0xe7f1, 3 + 9)?;
         c.set_byte(0x2944, f & 0xf0);
@@ -1208,13 +1209,13 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word(g::ALLOCATOR_NEXT_SEGMENT, v);
         c.set_word(0x3cbc, 0x364b);
     }
-    c.call(0xae28, 0xe81b)?;
+    c.call(entry::MUSIC_ENABLED, 0xe81b)?;
     if c.flag(ZF) {
         c.run(0xe81b, 2)?;
         return c.ret();
     }
     c.run(0xe81b, 2)?;
-    c.call(0xe826, 0xe820)?;
+    c.call(entry::SCAN_DAT_TOC, 0xe820)?;
     c.run(0xe820, 2)?;
     let f = c.byte(g::CMD_ARGS_MEMORY);
     c.set_byte(g::CMD_ARGS_MEMORY, f & 0xef);
@@ -1240,13 +1241,13 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         c.run(0xe675, 2)?;
         c.set_reg(DX, 0x37f2);
-        c.call(0xf1fb, 0xe67b)?;
+        c.call(entry::OPEN_RES_OR_FILE, 0xe67b)?;
         if !c.flag(CF) {
             c.run(0xe67b, 3)?;
             let (d, e) = (c.word(g::ALLOCATOR_NEXT_OFFSET), c.word(g::ALLOCATOR_NEXT_SEGMENT));
             c.set_reg(DI, d);
             c.set_sreg(ES, e);
-            c.call(0xf260, 0xe684)?;
+            c.call(entry::READ_FFFF_TO_ESDI_AND_CLOSE, 0xe684)?;
             let di = c.reg(DI);
             let w = c.word_in(ES, di);
             c.run(0xe684, 2 + if w == 0xc089 { 1 } else { 0 })?;
@@ -1280,7 +1281,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xe6a4, 3)?;
     let ax = c.reg(AX);
     c.set_word(g::DUNE_DAT_HANDLE, ax);
-    c.call(0xe741, 0xe6ac)?;
+    c.call(entry::READ_DUNE_DAT_TOC, 0xe6ac)?;
     c.run(0xe6ac, 10 + 0x14d + 4)?; // the `rep` iterations too
     let di = c.reg(DI);
     c.set_reg(SI, di);
@@ -1307,13 +1308,13 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xe6cf, 2)?;
         let si = c.reg(SI);
         c.push(si);
-        c.call(0xf314, 0xe6d3)?;
+        c.call(entry::GET_RES_INDEX_BY_NAME, 0xe6d3)?;
         let cf = c.flag(CF);
         c.run(0xe6d3, 2 + if cf { 0 } else { 1 })?;
         let si = c.pop();
         c.set_reg(SI, si);
         if !cf {
-            c.call(0xf3a7, 0xe6d9)?;
+            c.call(entry::RES_LOCATE_IN_LOOKUP_TABLE, 0xe6d9)?;
             let z = c.flag(ZF);
             if z {
                 c.run(0xe6d9, 2)?;
@@ -1342,7 +1343,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     c.set_reg(r, v);
                 }
             }
-            c.call(0xe75b, 0xe6fc)?;
+            c.call(entry::RES_STORE_IN_LOOKUP_TABLE, 0xe6fc)?;
             c.run(0xe6fc, 1)?;
             let v = c.word_in(SS, 0xd820);
             let v = c.add(W, v, 0xa);
@@ -1398,5 +1399,5 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xe73a, 2)?;
     let cx = c.word(0xd820);
     c.set_reg(CX, cx);
-    c.jump(0xf0ff)
+    c.jump(entry::BUMP_ALLOCATE_BUMP_CX_BYTES)
 }

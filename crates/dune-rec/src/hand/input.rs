@@ -1,5 +1,6 @@
 //! Input: keyboard scancode, mouse buttons and position.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -98,7 +99,7 @@ pub fn joystick_as_keys(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xdd10)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(0xdce0, 0xdd13)?;
+    c.call(entry::READ_GAME_PORT, 0xdd13)?;
     let (al, dx, bx) = (c.reg8(super::r8::AL), c.reg(DX), c.reg(BX));
     let button = al & 0x30 != 0;
     let (x0, x1, y0, y1) = (c.word(0x39ab), c.word(0x39ad), c.word(0x39af), c.word(0x39b1));
@@ -237,7 +238,7 @@ pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(0xdc4b, 0);
         return mouse_stuff(c.m, 0xdb4c);
     }
-    c.call(0xdaaf, 0xd9ca)?;
+    c.call(entry::MOVE_CURSOR_BY, 0xd9ca)?;
     c.run(0xd9ca, 2)?;
     c.update_mouse_state(|t| t.buttons = 0);
     mouse_stuff(c.m, 0xdb4c)
@@ -360,7 +361,7 @@ pub fn initialize_joystick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if acc != 0 {
         return c.ret();
     }
-    c.call(0xdce0, 0xea46)?;
+    c.call(entry::READ_GAME_PORT, 0xea46)?;
     for (at, r) in [(0xea46u16, DX), (0xea50, BX)] {
         let v = c.reg(r);
         let a = v.wrapping_sub(4);
@@ -520,7 +521,7 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xdf1e)?;
     let mut c = Ctx::new(m);
     c.run(0xdf1e, 1)?;
-    c.call(0xde7b, 0xdf21)?;
+    c.call(entry::PAUSE_IF_P_KEY_PRESSED, 0xdf21)?;
     let f = c.byte(g::CMD_ARGS);
     let kb = f & 0x40 != 0;
     c.run(0xdf21, 3 + if kb { 0 } else { 1 })?;
@@ -552,7 +553,7 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_mouse_state(|t| t.buttons = al);
     c.test(B, f as u16, 0x80); // `joystick_as_keys` reads them
     if joy {
-        c.call(0xdd10, 0xdf56)?;
+        c.call(entry::JOYSTICK_AS_KEYS, 0xdf56)?;
     }
     // The keyboard's interrupt writes the keys' states: each is read right
     // after a stretch of its instruction alone (see `ticks.rs`).

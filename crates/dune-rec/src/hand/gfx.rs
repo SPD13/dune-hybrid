@@ -2,6 +2,7 @@
 //! DS:38B5, Cryogenic's `gfxVtable`), the sprite drawing wrappers, HNM
 //! frame steps and UI drawing.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g};
 use pc::{
@@ -316,7 +317,7 @@ pub fn ui_head_animate_down(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.cmp(super::B, step as u16, 0);
         let step = c.dec(super::B, step as u16) as u8;
         c.update_situation(|t| t.head_animation_step = step);
-        c.call(0x17be, 0x182c)?;
+        c.call(entry::REDRAW_HEAD_PANEL, 0x182c)?;
         c.run(0x182c, 2)?;
         c.set_reg(AX, 8);
         c.call(code::WAIT_A_BIT, 0x1832)?;
@@ -343,7 +344,7 @@ pub fn head_down_from_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, 6)?; // cmp; jne; cmp; je; mov [0CE66h], 1; call
     c.set_byte(0xce66, 1);
-    c.call(0x181e, 0x1819)?;
+    c.call(entry::UI_HEAD_ANIMATE_DOWN, 0x1819)?;
     let k = c.byte(0xce66);
     c.run(0x1819, 2)?; // dec [0CE66h]; ret
     let k = pure::dec(B, k as u16) as u8;
@@ -683,7 +684,7 @@ pub fn draw_last_ring_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.set_reg(SI, 0x148a);
-    c.call(0xdb74, 0x4a27)?;
+    c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x4a27)?;
     let p = c.word(POINTS_NEXT);
     let wrap = p == POINTS_RING;
     let at = (if wrap { POINTS_RING_END } else { p }).wrapping_sub(4);
@@ -702,7 +703,7 @@ pub fn draw_last_ring_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if off_map {
         return c.ret();
     }
-    c.call(0x62d6, 0x4a46)?;
+    c.call(entry::MAP_POINT_OUTSIDE_VIEW, 0x4a46)?;
     if c.flag(CF) {
         c.run(0x4a46, 2)?;
         return c.ret();
@@ -717,7 +718,7 @@ pub fn draw_last_ring_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::LOAD_ICONES_SPRITES, 0x4a4d)?;
     c.run(0x4a4d, 2)?;
     c.set_reg(AX, 0x2f);
-    c.call(0xc085, 0x4a53)?;
+    c.call(entry::SET_BACKBUFFER_AS_FRAME_BUFFER, 0x4a53)?;
     c.run(0x4a53, 1)?;
     c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0x4a56)?;
     c.run(0x4a56, 1)?;
@@ -808,7 +809,7 @@ pub fn redraw_panel_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(si);
     c.set_reg(DI, si);
     c.set_reg(SI, di);
-    c.call(0xc0e8, 0x7b1a)?;
+    c.call(entry::GFX_CALL_30, 0x7b1a)?;
     c.run(0x7b1a, 1)?;
     let s = c.pop();
     c.set_reg(SI, s);

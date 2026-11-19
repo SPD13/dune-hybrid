@@ -3,6 +3,7 @@
 //! the interrupt, not by a call: the shadow check never sees it, `--rec
 //! on` runs it (checked by whole-run state hashes, `STATE_HASH=1`).
 
+use super::entry;
 use super::globals as g;
 use super::{B, Ctx, W, entered, r8};
 use pc::{
@@ -67,7 +68,7 @@ fn timer_tick(c: &mut Ctx) -> Result<(), Bail> {
         c.set_reg(AX, clock.period);
     }
     clock.set(c);
-    c.call(0xefba, 0xefa2)
+    c.call(entry::PIT_TIMER_CALLBACK_MIDI, 0xefa2)
 }
 
 /// EFA2h on: the BIOS's handler chained every tenth tick or so, else the
@@ -103,7 +104,7 @@ fn timer_end(c: &mut Ctx) -> Result<(), Bail> {
     c.count(3 + (frame != 0) as u32);
     c.cmp(B, frame as u16, 0);
     if frame != 0 {
-        c.call(0xcec9, 0xefb7)?;
+        c.call(entry::HNM_RENDER_TIMER_CALLBACK, 0xefb7)?;
     }
     c.run(0xefb7, 3)?;
     let ds = c.pop();
@@ -138,7 +139,7 @@ pub fn hnm_render_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail
     // already in the `run` above.
     c.set_flag(IF, true);
     c.push(due as u16);
-    c.call(0xcaa0, 0xcedc)?;
+    c.call(entry::HNM_DECODE_FRAME_IF_READ, 0xcedc)?;
     if c.flag(CF) || c.flag(ZF) {
         c.run(0xcedc, 1)?;
     } else {
@@ -148,14 +149,14 @@ pub fn hnm_render_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail
         let ax = c.inc(W, f.wrapping_sub(1));
         c.set_reg(AX, ax);
         if f == 0 {
-            c.call(0xcad4, 0xcee7)?;
+            c.call(entry::HNM_WAIT_FOR_FRAME, 0xcee7)?;
             if c.flag(CF) {
                 c.run(0xcee7, 1)?;
             } else {
                 c.run(0xcee7, 2)?;
-                c.call(0xcc96, 0xceec)?;
+                c.call(entry::HNM_DECODE_VIDEO_FRAME, 0xceec)?;
                 c.run(0xceec, 1)?;
-                c.call(0xcc4e, 0xceef)?;
+                c.call(entry::HNM_CONSUME_CHUNK, 0xceef)?;
             }
         }
     }
