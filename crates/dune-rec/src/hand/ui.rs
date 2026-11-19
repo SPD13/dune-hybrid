@@ -955,9 +955,9 @@ pub fn close_settings_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa541)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let v = c.byte(g::VOICE_LANGUAGE);
+    let v = c.byte(g::TALK_MODE);
     c.set_reg8(r8::AL, v);
-    c.set_byte(g::VOICE_LANGUAGE_SAVED, v);
+    c.set_byte(g::TALK_MODE_SAVED, v);
     c.call(entry::CLEAR_SOME_MOUSE_RECT, 0xa54a)?;
     c.run(0xa54a, 1)?;
     c.call(entry::SET_MAP_CLICK_HANDLER, 0xa54d)?;

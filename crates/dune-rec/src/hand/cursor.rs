@@ -349,7 +349,7 @@ pub fn accelerated_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x92c9)?;
     let mut c = Ctx::new(m);
-    let k = c.byte(g::BOOK_PAGE);
+    let k = c.byte(g::SPEAKER_SLOTS);
     if k == 0xff {
         c.run(start, 5)?;
         c.set_reg(CX, 0xff);
@@ -364,7 +364,7 @@ pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x92da, 2)?;
         return c.ret();
     }
-    let k = c.byte(g::BOOK_PAGE_2);
+    let k = c.byte(g::SPEAKER_SLOT_2);
     if k == 0xff {
         c.run(0x92da, 5)?;
         c.set_reg8(r8::CL, k);

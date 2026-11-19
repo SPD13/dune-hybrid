@@ -413,8 +413,11 @@ pub const VOICE_PHRASE: u16 = 0x4780;
 pub const TEXT_SHEET_TOP: u16 = 0x4782;
 /// The language (Cryogenic: `languageSetting`).
 pub const LANGUAGE: u16 = 0xceeb;
-/// The voices' language, two bytes.
-pub const VOICE_LANGUAGE: u16 = 0x28e7;
+/// [28E7h]: how the people talk, 0, 1 or 2: the settings' choice - 8;
+/// 2 set at the start for the languages 0 and 3 ([`LANGUAGE`]), 1 in the
+/// intro and on the map (kept meanwhile in [`TALK_MODE_SAVED`]); with 0
+/// no text box is drawn (8C98h). Was taken for the voices' language.
+pub const TALK_MODE: u16 = 0x28e7;
 /// Text colour (also the outline colour of `draw_rect_outline`).
 pub const TEXT_COLOUR: u16 = 0xdbe4;
 
@@ -589,8 +592,11 @@ pub const FRIEZE_ELEMENTS: u16 = 0x1ae6;
 /// The closed book's two page counters (UI elements) and their pages
 /// (signed bytes, FFh: none; `draw_gauges`, `in_dialogue_rects`).
 pub const BOOK_COUNTERS: u16 = 0x1c0c;
-pub const BOOK_PAGE: u16 = 0x1152;
-pub const BOOK_PAGE_2: u16 = 0x1153;
+/// [1152h], [1153h]: the two people shown in the frieze with their gauges
+/// (sprite 41h + the character, in the UI elements 1C0Ch and 1C1Ah; FFh
+/// none); the blink every other step of [2222h] hides one (FFh).
+pub const SPEAKER_SLOTS: u16 = 0x1152;
+pub const SPEAKER_SLOT_2: u16 = 0x1153;
 /// The open book's page (a pointer `book_next_page` moves on, two pages at a
 /// time).
 pub const BOOK_POSITION: u16 = 0x11bf;
@@ -1181,8 +1187,8 @@ pub const LIP_SYNC_STEP_HIGH: u16 = 0x2882;
 pub const LIP_SYNC_STEP_LOW: u16 = 0x2884;
 /// [28CFh]: the settings panel's language row: the choice per 7-pixel column (`xlat`). Below 7 a language, above 7 the mode 8 + n for [28E7h] (`settings_click`).
 pub const SETTINGS_ROW_CHOICES: u16 = 0x28cf;
-/// [28E8h]: the copy of [28E7h] ([`VOICE_LANGUAGE`], in fact the text/voice mode) kept while the map or a dialogue forces it. Saved on closing the settings (`close_settings_panel`), put back on leaving the map.
-pub const VOICE_LANGUAGE_SAVED: u16 = 0x28e8;
+/// [28E8h]: the copy of [28E7h] ([`TALK_MODE`]) kept while the map or a dialogue forces it. Saved on closing the settings (`close_settings_panel`), put back on leaving the map.
+pub const TALK_MODE_SAVED: u16 = 0x28e8;
 /// [2941h]: DOS's Ctrl-Break flag as it was at start (INT 21h AX 3301h DL); turned off meanwhile and given back on exit.
 pub const CTRL_BREAK_SAVED: u16 = 0x2941;
 /// [2944h]: the sound drivers chosen: high nibble the sound/voice driver (+7), low nibble the music driver (+2). Each is cleared when its driver fails to start; the low one also gates EMS for MIDI.

@@ -332,7 +332,7 @@ pub fn ui_head_animate_down(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn head_down_from_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1803)?;
     let mut c = Ctx::new(m);
-    let voice = c.byte(g::VOICE_LANGUAGE);
+    let voice = c.byte(g::TALK_MODE);
     if voice != 0 {
         c.run(start, 3)?; // cmp; jne 181Dh; ret
         return c.ret();

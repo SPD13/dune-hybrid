@@ -138,8 +138,8 @@ pub fn check_amr_or_eng_language(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_reg8(r8::AL, language);
     if english {
         c.set_reg8(r8::AL, 2);
-        c.set_byte(g::VOICE_LANGUAGE, 2);
-        c.set_byte(g::VOICE_LANGUAGE + 1, 2);
+        c.set_byte(g::TALK_MODE, 2);
+        c.set_byte(g::TALK_MODE + 1, 2);
     }
     c.ret()
 }

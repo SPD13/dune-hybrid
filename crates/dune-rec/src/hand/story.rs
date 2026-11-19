@@ -599,7 +599,7 @@ pub fn measure_place_forces(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn pick_one_of_two_speakers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x366f)?;
     let mut c = Ctx::new(m);
-    let ax = c.word(g::BOOK_PAGE);
+    let ax = c.word(g::SPEAKER_SLOTS);
     let w0 = c.word(0);
     let n = if ax == 0xffff {
         5
@@ -5333,7 +5333,7 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
         scene_flags(&mut c, was, true);
         return c.ret();
     }
-    let p = c.word(g::BOOK_PAGE);
+    let p = c.word(g::SPEAKER_SLOTS);
     c.run(start, 12)?;
     scene_flags(&mut c, was, true);
     if p != 0xffff {

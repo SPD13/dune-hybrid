@@ -468,10 +468,10 @@ pub fn draw_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::DRAW_UI_ELEMENTS_LIST, 0xd775)?;
     c.run(0xd775, 11)?;
     c.set_reg(SI, si);
-    let a = c.byte(g::BOOK_PAGE) as i8 as u16;
+    let a = c.byte(g::SPEAKER_SLOTS) as i8 as u16;
     let a = pure::add(W, a, 0x41);
     c.set_word(si + 0x0a, a);
-    let b = c.byte(g::BOOK_PAGE_2) as i8 as u16;
+    let b = c.byte(g::SPEAKER_SLOT_2) as i8 as u16;
     let b = pure::add(W, b, 0x41);
     c.set_reg(AX, b);
     c.set_word(si + 0x18, b);
@@ -873,7 +873,7 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let (al, ah2) = (ax as u8, (ax >> 8) as u8);
-    let g = c.word(g::BOOK_PAGE);
+    let g = c.word(g::SPEAKER_SLOTS);
     let a1 = al != 0;
     let odd1 = a1 && al.wrapping_sub(1) & 1 != 0;
     let a2 = ah2 != 0;
@@ -904,7 +904,7 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax2);
     c.set_reg(BX, bx);
     c.set_word(g::GAUGE_BLINK, ax2);
-    c.set_word(g::BOOK_PAGE, bx);
+    c.set_word(g::SPEAKER_SLOTS, bx);
     if k == 0 {
         let r = c.word(g::RESOURCE_ID);
         c.push(r);
@@ -922,7 +922,7 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xd810, 2)?;
     }
     let v = c.pop();
-    c.set_word(g::BOOK_PAGE, v);
+    c.set_word(g::SPEAKER_SLOTS, v);
     c.ret()
 }
 

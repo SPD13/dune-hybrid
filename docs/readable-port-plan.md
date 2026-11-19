@@ -922,7 +922,7 @@ named and tables of one (`sequence:`, `phrase:`, `sentence:` gated):
 left in memory; 476Eh-4773h (the head's zooms) stays with 4710h-476Fh.
 
 In 1140h-11FFh, the remaining bytes the ports touch are named:
-`BOOK_PAGE_2`, `BOOK_POSITION`, `REGIONS_TO_UNMARK`, `RESULTS_DATE`,
+`SPEAKER_SLOT_2`, `BOOK_POSITION`, `REGIONS_TO_UNMARK`, `RESULTS_DATE`,
 `LAST_TIME`, `SPICE_DEMAND_LAPSED`, `SKIP_HARKONNEN_TAKE`,
 `TOPIC_PLACE_RECORD` (the location talked about, [11CEh]),
 `ATTACK_TARGET`, `HARKONNEN_PLACE_ICONS`, `FOLLOWED_TROOP_PLACE` (troop
@@ -1033,7 +1033,7 @@ listing and the ports (the two others, `leave_and_fade` and
 About 30 of the names are guesses from the code's shape (a troop bit
 moved, a list selected) where the game meaning is still open; their doc
 comments say what the code does. Still unclear: [1152h], named
-`BOOK_PAGE`, which `pick_one_of_two_speakers` uses as a speaker pick, and
+`SPEAKER_SLOTS`, which `pick_one_of_two_speakers` uses as a speaker pick, and
 [1B0Ch] (`draw_panel_button_frame`).
 
 ## Names for the memory the ports read by number (2026-11-19)
@@ -1065,21 +1065,28 @@ the records' layouts) and the ports. What came out of it:
 - D818h-D81Ch are scratch words several routines share (the map's span
   walks, `gfx_zero_block`, `location_balance`).
 
+Settled from all their uses in the listing: [28E7h] is `TALK_MODE`
+(was `VOICE_LANGUAGE`; dialogue.rs had it as `MAP_SCREEN`, panels.rs as
+`SETTINGS_SECOND_BUTTON`): 0, 1 or 2, the settings' choice - 8, 2 set at
+the start for the languages 0 and 3, 1 in the intro and on the map, no
+text box with 0. [1152h]/[1153h] are `SPEAKER_SLOTS` (was `BOOK_PAGE`;
+dialogue.rs's `GAUGES`): the two people the frieze shows with their
+gauges (sprite 41h + the character, FFh none). dialogue.rs's own
+`BOOK_PAGE` (11BFh) was `g::BOOK_POSITION`.
+
 Doubts about older names, not renamed yet (each needs a look at all its
-uses): `VOICE_LANGUAGE` (28E7h) looks like the text/voice display mode
-(the settings set it to the column chosen - 8; 1 in the intro and on the
-map); `TRIG_TABLE` (4948h) is where resource BAh (the locations' data) is
+uses): `TRIG_TABLE` (4948h) is where resource BAh (the locations' data) is
 read and the globe reads it as its latitude rows, so not sine/cosine;
 `UI_ELEMENTS_BY_CURSOR` (1B9Ch) is panel button 1 (1B8Eh + 0Eh);
 `COUNTER_122A` is palace room 2's label phrase (`on_phase_04` decrements
-it); `BOOK_PAGE` (1152h) is used as a pick of one of two speakers; the
+it); the
 local `KEYS_GLIDE` (cursor.rs, CE9Eh) is the Ctrl key's state;
 `POINT_4710` (map.rs) is `PLACE_BOX`. The module-local constants that
 were the same memory under the same or a weaker name now use the global
 (`SHOWN_TROOP`, `MAP_BOX`, the glide fields, `PLACE_BOX`, the troops'
 tick words, ...); the local `KEYS_GLIDE` is `g::KEY_CTRL` now. Locals
 whose meaning differs from the global's at the same address are left:
-`GAUGES` / `BOOK_PAGE` (1152h), `MAP_SCREEN` / `VOICE_LANGUAGE` (28E7h),
+`GAUGES` / `SPEAKER_SLOTS` (1152h), `MAP_SCREEN` / `TALK_MODE` (28E7h),
 `EIGHT_POINTS_ON` / `MAP_POINTER_BOX` (4749h), `NEEDS_4C60` /
 `GLOBE_MAP` (4C60h, a buffer used for both), `SHOWN_LIST`,
 `SHOWN_INDEX`, `REDRAWING`, `FIRST_400`.

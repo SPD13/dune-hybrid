@@ -532,7 +532,7 @@ pub fn settings_ui_draw_second_buttons(m: &mut Machine, start: u16) -> Result<()
     entered(start, 0xa44c)?;
     let mut c = Ctx::new(m);
     lit_button(&mut c, start, 3, |c| {
-        let v = c.byte(SETTINGS_SECOND_BUTTON);
+        let v = c.byte(g::TALK_MODE);
         let al = pure::add(B, v as u16, 8);
         c.set_reg8(r8::AL, al as u8);
     })
@@ -564,8 +564,6 @@ pub fn settings_ui_button_position(m: &mut Machine, start: u16) -> Result<(), Ba
     c.ret()
 }
 
-/// The setting whose button [`settings_ui_draw_second_buttons`] lights.
-const SETTINGS_SECOND_BUTTON: u16 = 0x28e7;
 /// The buttons: their row's two words, and a column per button.
 const BUTTONS_Y: u16 = 0x28c7;
 const BUTTON_COLUMNS: u16 = 0x28dc;
@@ -1293,14 +1291,14 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if al > 7 {
         let mode = al - 8;
         c.set_reg8(r8::AL, mode);
-        c.set_byte(g::VOICE_LANGUAGE, mode);
+        c.set_byte(g::TALK_MODE, mode);
         return settings_ui_draw(c.m, 0xa3f9);
     }
     if al == lang {
         return c.ret();
     }
-    let v = c.byte(g::VOICE_LANGUAGE) & 0xfd;
-    c.set_byte(g::VOICE_LANGUAGE, v);
+    let v = c.byte(g::TALK_MODE) & 0xfd;
+    c.set_byte(g::TALK_MODE, v);
     c.set_byte(g::LANGUAGE, al);
     c.call(entry::LOAD_LANGUAGE_PHRASES, 0xa5db)?;
     c.run(0xa5db, 1)?;

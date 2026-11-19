@@ -383,7 +383,7 @@ pub fn frieze_sides_closed_book(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.call(code::DRAW_UI_ELEMENTS_LIST, 0xd775)?;
     c.run(0xd775, 11)?;
     c.set_reg(SI, g::BOOK_COUNTERS);
-    for (from, to) in [(g::BOOK_PAGE, 0x0a), (g::BOOK_PAGE + 1, 0x18)] {
+    for (from, to) in [(g::SPEAKER_SLOTS, 0x0a), (g::SPEAKER_SLOTS + 1, 0x18)] {
         let v = c.byte(from) as i8 as u16;
         c.set_reg(AX, v);
         let v = pure::add(W, v, 0x41);

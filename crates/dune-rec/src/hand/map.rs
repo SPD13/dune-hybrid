@@ -1468,7 +1468,7 @@ pub fn open_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5a1a)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_byte(g::VOICE_LANGUAGE, 1);
+    c.set_byte(g::TALK_MODE, 1);
     c.call(entry::LEAVE_PLACE, 0x5a22)?;
     c.run(0x5a22, 1)?;
     c.call(entry::SET_MARK_AT_MAP_POSITION, 0x5a25)?;
@@ -4363,9 +4363,9 @@ fn toggle_map_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.run(0x187a, 1)?;
     c.call(entry::LEAVE_MAP_SCREEN, 0x187d)?;
     c.run(0x187d, 3)?;
-    let a = c.byte(g::VOICE_LANGUAGE_SAVED);
+    let a = c.byte(g::TALK_MODE_SAVED);
     c.set_reg8(r8::AL, a);
-    c.set_byte(g::VOICE_LANGUAGE, a);
+    c.set_byte(g::TALK_MODE, a);
     c.call(entry::REMOVE_GLOBE_FRAME_TASKS, 0x1886)?;
     c.run(0x1886, 4)?;
     c.set_word(g::BOOK_COUNTER_1_FLAGS, 0x80);

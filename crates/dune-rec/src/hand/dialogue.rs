@@ -1104,7 +1104,7 @@ fn close_box_at(c: &mut Ctx) -> Result<(), Bail> {
         c.cmp(W, shown, 2);
         return c.ret();
     }
-    let on_map = c.byte(MAP_SCREEN) != 0;
+    let on_map = c.byte(g::TALK_MODE) != 0;
     c.run(0x8c8a, if on_map { 10 } else { 8 })?;
     c.update_text_box(|t| t.shown = 0);
     c.set_reg(AX, shown);
@@ -1134,8 +1134,6 @@ fn close_box_at(c: &mut Ctx) -> Result<(), Bail> {
     c.ret()
 }
 
-/// The map screen's mode ([28E7h]): 0 off.
-const MAP_SCREEN: u16 = 0x28e7;
 
 /// `loc_0a0f1`: on the map screen in mode 2, a record SI with bit 10h of
 /// byte 2 makes it mode 1; one without closes the dialogue box
@@ -1143,7 +1141,7 @@ const MAP_SCREEN: u16 = 0x28e7;
 pub fn map_mode_2_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa0f1)?;
     let mut c = Ctx::new(m);
-    let mode = c.byte(MAP_SCREEN);
+    let mode = c.byte(g::TALK_MODE);
     if mode != 2 {
         c.run(start, 3)?;
         return c.ret();
@@ -1151,7 +1149,7 @@ pub fn map_mode_2_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let b = c.byte(c.reg(SI).wrapping_add(2));
     if b & 0x10 != 0 {
         c.run(start, 6)?;
-        c.set_byte(MAP_SCREEN, 1);
+        c.set_byte(g::TALK_MODE, 1);
         return c.ret();
     }
     c.run(start, 5)?;
@@ -1218,28 +1216,28 @@ pub fn drop_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_09655`: the speaker SI's number (byte 0Eh, CL) taken off the two
-/// gauges at [`GAUGES`]: the second becomes FFh, or the first takes the
+/// gauges at [`g::SPEAKER_SLOTS`]: the second becomes FFh, or the first takes the
 /// second's and that becomes FFh; its marker (+10D0h) cleared and the
 /// gauges redrawn ([`draw_gauges`]). DI the gauge, AL its new value.
 pub fn drop_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9655)?;
     let mut c = Ctx::new(m);
     let speaker = c.byte(c.reg(SI).wrapping_add(0x0e));
-    let (first, second) = (c.byte(GAUGES), c.byte(GAUGES + 1));
+    let (first, second) = (c.byte(g::SPEAKER_SLOTS), c.byte(g::SPEAKER_SLOTS + 1));
     c.set_reg8(r8::CL, speaker);
     if second != speaker && first != speaker {
         c.run(start, 9)?;
-        c.set_reg(DI, GAUGES);
+        c.set_reg(DI, g::SPEAKER_SLOTS);
         c.set_reg8(r8::AL, 0xff);
         return c.ret();
     }
     let in_second = second == speaker;
     c.run(start, if in_second { 8 } else { 12 })?;
     let (gauge, value) = if in_second {
-        (GAUGES + 1, 0xff)
+        (g::SPEAKER_SLOTS + 1, 0xff)
     } else {
-        c.set_byte(GAUGES + 1, 0xff);
-        (GAUGES, second)
+        c.set_byte(g::SPEAKER_SLOTS + 1, 0xff);
+        (g::SPEAKER_SLOTS, second)
     };
     c.set_reg(DI, gauge);
     c.set_reg8(r8::AL, value);
@@ -1248,8 +1246,6 @@ pub fn drop_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
     super::screens::draw_gauges(c.m, 0xd763)
 }
 
-/// The two speakers' gauges ([1152h], [1153h]; FFh none).
-const GAUGES: u16 = 0x1152;
 
 /// `loc_098e6`: `clear_text_state` (AX 0) into [47C8h], [47AAh] and
 /// [`g::BOX_SHOWN`], then [`drop_dialogue_text`].
@@ -1405,7 +1401,7 @@ pub fn grow_dialogue_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 
 /// `loc_09673`: the speaker SI's number (byte 0Eh, CL) put on a gauge
-/// ([`GAUGES`]; the first free, DI). Nothing when it has one already.
+/// ([`g::SPEAKER_SLOTS`]; the first free, DI). Nothing when it has one already.
 /// With both taken by others, the first one's speaker leaves: [23h] its
 /// number + 64h (AL), `release_record`, and the second moves down. Its
 /// marker (+10D0h) 10h and the gauges redrawn ([`draw_gauges`]).
@@ -1413,26 +1409,26 @@ pub fn add_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9673)?;
     let mut c = Ctx::new(m);
     let speaker = c.byte(c.reg(SI).wrapping_add(0x0e));
-    let (first, second) = (c.byte(GAUGES), c.byte(GAUGES + 1));
+    let (first, second) = (c.byte(g::SPEAKER_SLOTS), c.byte(g::SPEAKER_SLOTS + 1));
     c.set_reg8(r8::CL, speaker);
     if first == speaker {
         c.run(start, 5)?;
-        c.set_reg(DI, GAUGES);
+        c.set_reg(DI, g::SPEAKER_SLOTS);
         return c.ret();
     }
     let gauge = if first == 0xff {
         c.run(start, 9)?;
-        GAUGES
+        g::SPEAKER_SLOTS
     } else if second == speaker {
         c.run(start, 10)?;
-        c.set_reg(DI, GAUGES + 1);
+        c.set_reg(DI, g::SPEAKER_SLOTS + 1);
         return c.ret();
     } else if second == 0xff {
         c.run(start, 14)?;
-        GAUGES + 1
+        g::SPEAKER_SLOTS + 1
     } else {
         c.run(start, 22)?;
-        c.set_reg(DI, GAUGES);
+        c.set_reg(DI, g::SPEAKER_SLOTS);
         c.save(&[CX]);
         c.set_reg8(r8::CL, first);
         let leaving = 0x10 * first as u16 + 0x0fd8;
@@ -1443,10 +1439,10 @@ pub fn add_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(entry::RELEASE_RECORD, 0x96a4)?;
         c.run(0x96a4, 7)?;
         c.restore(&[CX]);
-        let moved = c.byte(GAUGES + 1);
+        let moved = c.byte(g::SPEAKER_SLOTS + 1);
         c.set_reg8(r8::AL, moved);
-        c.set_byte(GAUGES, moved);
-        GAUGES + 1
+        c.set_byte(g::SPEAKER_SLOTS, moved);
+        g::SPEAKER_SLOTS + 1
     };
     c.set_reg(DI, gauge);
     let speaker = c.reg8(r8::CL);
@@ -1938,7 +1934,7 @@ fn phrase_on_map_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) 
 /// [`show_phrase_on_map`]. Else it is fetched
 /// (`get_phrase_or_command_string_si`) and expanded (`expand_phrase`,
 /// `format_interpolated_string` into A6B0h). On the map screen
-/// ([`MAP_SCREEN`] 2 and up) out of [46D9h] the box 1BE2h is reset (its
+/// ([`g::TALK_MODE`] 2 and up) out of [46D9h] the box 1BE2h is reset (its
 /// flag at 1C06h from [0FBh]); else, unless it starts with a control
 /// code, laid out (`layout_text`). Callers read the flags.
 pub fn show_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -2443,7 +2439,7 @@ fn view_back_9879(c: &mut Ctx) -> Result<(), Bail> {
 /// `last_entry` was set). Outside the map views for a speaker below
 /// 10h: the portrait brought (before the phrase) and the scene redrawn,
 /// `loc_02ebf` with [4774h], and with no [0EAh] above 0 the voice started
-/// and the hook [`g::DIALOGUE_ENTRY_HOOK`] (reset to F66h) run. [`MAP_SCREEN`] =
+/// and the hook [`g::DIALOGUE_ENTRY_HOOK`] (reset to F66h) run. [`g::TALK_MODE`] =
 /// [28E8h] unless [0FBh] is negative. CF clear.
 pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::CF;
@@ -2572,7 +2568,7 @@ pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// From A03Fh (`say_dialogue_entry`'s end, which `loc_0a03f` jumps to):
 /// `loc_0c85b`; unless a phrase runs the entry's action and marks; the
-/// scene and the voice; [`MAP_SCREEN`]; CF clear.
+/// scene and the voice; [`g::TALK_MODE`]; CF clear.
 pub(super) fn entry_said_a03f(c: &mut Ctx) -> Result<(), Bail> {
     use pc::cpu::{CF, CS};
     c.run(0xa03f, 1)?;
@@ -2667,9 +2663,9 @@ pub(super) fn entry_said_a03f(c: &mut Ctx) -> Result<(), Bail> {
     let map_ui = c.situation().map_interface;
     c.run(0xa0e2, if map_ui & 0x80 != 0 { 4 } else { 6 })?;
     if map_ui & 0x80 == 0 {
-        let screen = c.byte(g::VOICE_LANGUAGE_SAVED);
+        let screen = c.byte(g::TALK_MODE_SAVED);
         c.set_reg8(r8::AL, screen);
-        c.set_byte(MAP_SCREEN, screen);
+        c.set_byte(g::TALK_MODE, screen);
     }
     c.cmp(B, map_ui as u16, 0); // the exit's flags
     c.set_flag(CF, false);
@@ -2845,7 +2841,7 @@ pub fn say_entry_mask_20(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0b039`: the book page for the entry at CS:[[`BOOK_PAGE`]]: [0C6h]
+/// `loc_0b039`: the book page for the entry at CS:[[`g::BOOK_POSITION`]]: [0C6h]
 /// bits 1, 2 cleared; into the text buffer (`append_at`) the heading
 /// (`find_chapter_video` code's top 5 bits + F3h) and the entry's phrase (its
 /// record at AA7Ah + 4 · low 11 bits, kept in [477Ch]); the text ended
@@ -2860,7 +2856,7 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb039)?;
     let mut c = Ctx::new(m);
     let mode = c.economy().book;
-    let page = c.word(BOOK_PAGE);
+    let page = c.word(g::BOOK_POSITION);
     let entry = c.word_in(CS, page);
     c.run(start, 8)?;
     c.update_economy(|t| t.book = mode & 0xf9);
@@ -2913,7 +2909,7 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(entry::DRAW_SPRITE_CLOBBERING_BX_DX, 0xb0b5)?;
     }
     // The heading phrase, but on the first page.
-    let first = c.word(BOOK_PAGE) == 0xaa;
+    let first = c.word(g::BOOK_POSITION) == 0xaa;
     c.run(0xb0b5, if first { 3 } else { 11 })?;
     let record = c.pop();
     c.set_reg(AX, record);
@@ -2929,7 +2925,7 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, 0x132);
     c.call(entry::FONT_SET_DRAW_POSITION, 0xb0dd)?;
     // The page number, two digits (a leading 0 blank).
-    let number = ((c.word(BOOK_PAGE).wrapping_sub(0xaa) >> 1).wrapping_add(1)) as u8;
+    let number = ((c.word(g::BOOK_POSITION).wrapping_sub(0xaa) >> 1).wrapping_add(1)) as u8;
     let (tens, units) = (number / 10, number % 10);
     c.run(0xb0dd, if tens == 0 { 13 } else { 12 })?;
     c.set_word(super::globals::TEXT_COLOUR, 0x53);
@@ -2963,8 +2959,6 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// The book's page: an entry of the CS list (AAh the first).
-const BOOK_PAGE: u16 = 0x11bf;
 
 /// `loc_08ccd`: the text box for the phrase SI: [4799h] 9, colour F0h,
 /// then the box (BP, on the stack segment) and its margins
@@ -2972,7 +2966,7 @@ const BOOK_PAGE: u16 = 0x11bf;
 /// views 2244h (the troop's description `loc_079ee` first unless
 /// [46EFh]); no speaker 224Ch; the book ([0C6h]) 2265h in colour 64h
 /// (`loc_0d082`); in the intro ([227Dh]) 2275h in colour 6, no margins;
-/// without [`MAP_SCREEN`] 223Ch in colour 0Fh ([4799h] 1); else the
+/// without [`g::TALK_MODE`] 223Ch in colour 0Fh ([4799h] 1); else the
 /// first of the 3 boxes from 2224h whose height takes the broken lines
 /// (`break_lines`, [`LINES`] lines of 0Ah plus the margins), a smaller
 /// one kept by a coin toss, and with none fitting the last one, its top
@@ -2986,7 +2980,7 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let talker = c.conversation().talker;
     let book = c.economy().book != 0;
     let intro = c.byte(g::CINEMATIC) != 0;
-    let screen = c.byte(MAP_SCREEN) != 0;
+    let screen = c.byte(g::TALK_MODE) != 0;
     if map_view {
         let described = c.map_selection().selected != 0;
         c.run(start, if described { 6 } else { 7 })?;
@@ -3986,7 +3980,7 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
 }
 
 /// `loc_088d2`: the phrase SI formatted into the text buffer
-/// ([`format_interpolated_string`]); with [`MAP_SCREEN`] 2 or more
+/// ([`format_interpolated_string`]); with [`g::TALK_MODE`] 2 or more
 /// outside a dialogue scene ([46D9h] 0) the speech record 1BE2h reset
 /// instead ([`g::BOX_SHOWN`] 1, [1C06h] 80h unless [0FBh] is negative);
 /// else a phrase not starting with a code laid out ([`layout_text`]).
@@ -4006,7 +4000,7 @@ fn show_text_88d2(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(DI, TEXT_BUFFER);
     c.push(TEXT_BUFFER);
     c.call(entry::FORMAT_INTERPOLATED_STRING, 0x88d9)?;
-    let screen = c.byte(MAP_SCREEN);
+    let screen = c.byte(g::TALK_MODE);
     let caller = c.byte(g::COMM_CALLER) != 0;
     if screen >= 2 && !caller {
         if c.flag(pc::cpu::DF) {
@@ -4218,7 +4212,7 @@ const HEAD_SPRITES_KEPT: u16 = 0x4540;
 /// size; DX, BX the far corner). Then drawn by kind: with a talking head
 /// shown ([`g::MAP_MODE`]) the dialogue frame ([`frame_8fd1`]); for the book
 /// ([0C6h]) its page ([`book_8ff5`]); nothing in the intro ([227Dh]) or
-/// with [46D9h]; with [`MAP_SCREEN`] a parchment (from 4C60h, far [3919h]
+/// with [46D9h]; with [`g::TALK_MODE`] a parchment (from 4C60h, far [3919h]
 /// into [0DBDEh]) tiled with sprite 1Ch (`loc_0c137`, `loc_0c370`; SI
 /// kept); else the text buffer cleared ([`clear_900b`]).
 pub fn draw_speech_bubble(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -4250,7 +4244,7 @@ pub fn draw_speech_bubble(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg(DX, right);
     c.set_reg(BX, bottom);
-    let [head, book, intro, caller, map_screen] = [g::MAP_MODE, g::BOOK, g::CINEMATIC, g::COMM_CALLER, MAP_SCREEN].map(|a| c.byte(a));
+    let [head, book, intro, caller, map_screen] = [g::MAP_MODE, g::BOOK, g::CINEMATIC, g::COMM_CALLER, g::TALK_MODE].map(|a| c.byte(a));
     if head != 0 {
         c.run(0x8f7f, 2)?;
         return frame_8fd1(&mut c);
@@ -4414,7 +4408,7 @@ pub fn show_person_on_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.reg(AX);
         c.set_word(g::NEXT_PHRASE, v);
     }
-    let book = c.byte(MAP_SCREEN) == 1;
+    let book = c.byte(g::TALK_MODE) == 1;
     let person = c.sentence().noted_record;
     if book || person == game::here(&mut c) {
         c.run(0xa2a0, if book { 4 } else { 7 })?;

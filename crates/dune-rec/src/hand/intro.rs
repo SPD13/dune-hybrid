@@ -614,7 +614,7 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let z = c.flag(ZF);
     c.run(0x021c, 3 + if z { 0 } else { 1 })?;
     c.set_byte(g::SLIDER_MUSIC_2, 0x8c);
-    c.set_byte(g::VOICE_LANGUAGE, 1);
+    c.set_byte(g::TALK_MODE, 1);
     if !z {
         c.call(entry::PLAY_MUSIC_WORMSUIT, 0x022b)?;
         c.run(0x022b, 2)?;
@@ -707,7 +707,7 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_economy(|t| t.room_seat_shift = 0);
     c.call(entry::REMOVE_ALL_FRAME_TASKS, 0x02aa)?;
     c.run(0x02aa, 6)?;
-    c.set_byte(g::VOICE_LANGUAGE, 0);
+    c.set_byte(g::TALK_MODE, 0);
     c.update_video_state(|t| t.delay = 6);
     let v = c.byte(g::GAME_STARTS);
     let v = c.inc(B, v as u16);
