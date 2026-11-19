@@ -230,6 +230,7 @@ def blocker(text, consts, seen):
 
 
 def convert(path):
+    crlf = b'\r\n' in open(path, 'rb').read()
     src = open(path, encoding='utf-8').read()
     consts = {n: int(v, 16) for n, v in re.findall(r'pub const (\w+): u16 = 0x([0-9a-fA-F]+);', src)}
     lines = src.split('\n')
@@ -283,7 +284,8 @@ def convert(path):
         text = EMPTY_IF.sub('', text)
         if 'pure::' in text and not re.search(r'^use super::pure;', text, re.M):
             text = re.sub(r'^(use super::)', r'use super::pure;\n\1', text, count=1, flags=re.M)
-        open(path, 'w', encoding='utf-8', newline='\n').write(text)
+        # Keep the file's own line endings (many hand files are CRLF).
+        open(path, 'w', encoding='utf-8', newline='\r\n' if crlf else '\n').write(text)
     return done, left
 
 

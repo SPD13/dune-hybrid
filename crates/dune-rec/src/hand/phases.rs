@@ -29,7 +29,7 @@ mod location {
     pub const PHASE_10_LOCATION: u16 = 0x0603;
 }
 
-/// `sub_425b`: discovers the location at DI: clears its undiscovered bit
+/// `discover_location`: discovers the location at DI: clears its undiscovered bit
 /// and byte +0Bh; a sietch counts as found, and one of them (id 0603h)
 /// raises the game phase to 10h. Flags from the last test or compare.
 fn discover(c: &mut Ctx) -> Result<(), Bail> {
@@ -71,8 +71,9 @@ fn discover(c: &mut Ctx) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_10b8`: discovers the location at 800h.
-pub fn sub_10b8(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_10b8` (phase 28h's routine in `set_game_phase`'s table; also a BP at 319Ah):
+/// discovers the location at 800h.
+pub fn on_phase_28(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x10b8)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?; // mov di; jmp 425Bh
@@ -80,8 +81,9 @@ pub fn sub_10b8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     discover(&mut c)
 }
 
-/// `sub_1133`: discovers the location at 3D8h.
-pub fn sub_1133(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_1133` (phase 44h's routine in `set_game_phase`'s table): discovers the location
+/// at 3D8h.
+pub fn on_phase_44(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1133)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -110,8 +112,9 @@ fn discover_list(c: &mut Ctx) -> Result<(), Bail> {
     }
 }
 
-/// `sub_1053`: [0FD8h] = 0Ah, then the locations at CS:1069.
-pub fn sub_1053(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_1053` (phase 14h's routine in `set_game_phase`'s table): [0FD8h] = 0Ah, then
+/// the locations at CS:1069 discovered.
+pub fn on_phase_14(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1053)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -120,9 +123,9 @@ pub fn sub_1053(m: &mut Machine, start: u16) -> Result<(), Bail> {
     discover_list(&mut c)
 }
 
-/// `sub_10be`: a phase's set-up: game time noted, several story words
-/// set, charisma + 14h, story bit 10h, then the locations at CS:10F7.
-pub fn sub_10be(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_10be` (phase 2Ch's routine in `set_game_phase`'s table): game time noted,
+/// several story words set, charisma + 14h, story bit 10h, then the locations at CS:10F7.
+pub fn on_phase_2c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x10be)?;
     let mut c = Ctx::new(m);
     c.run(start, 10)?;
@@ -145,9 +148,10 @@ pub fn sub_10be(m: &mut Machine, start: u16) -> Result<(), Bail> {
     discover_list(&mut c)
 }
 
-/// `sub_1139`: charisma + 0Ah, `sub_1771` with 1313h, [1057h] bit 10h on
-/// and bit 2 off, [1178h] = [28h] + 2, then the locations at CS:115C.
-pub fn sub_1139(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_1139` (phase 48h's routine in `set_game_phase`'s table): charisma + 0Ah,
+/// `sub_1771` with 1313h, [1057h] bit 10h on and bit 2 off, [1178h] = [28h] + 2, then
+/// the locations at CS:115C.
+pub fn on_phase_48(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1139)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -169,9 +173,9 @@ pub fn sub_1139(m: &mut Machine, start: u16) -> Result<(), Bail> {
     discover_list(&mut c)
 }
 
-/// `sub_1196`: story bit 20h, `sub_1771` with 12FBh, then the locations
-/// at CS:11A7.
-pub fn sub_1196(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_1196` (phase 58h's routine in `set_game_phase`'s table): story bit 20h,
+/// `sub_1771` with 12FBh, then the locations at CS:11A7.
+pub fn on_phase_58(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1196)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -185,8 +189,9 @@ pub fn sub_1196(m: &mut Machine, start: u16) -> Result<(), Bail> {
     discover_list(&mut c)
 }
 
-/// `sub_425b` as a routine.
-pub fn sub_425b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_425b`: [`discover`] on the location DI (its undiscovered bit and byte 0Bh
+/// cleared; a sietch counts as found).
+pub fn discover_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x425b)?;
     discover(&mut Ctx::new(m))
 }

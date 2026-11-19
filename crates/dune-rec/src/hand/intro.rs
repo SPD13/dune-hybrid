@@ -23,7 +23,7 @@ mod code {
     pub const HNM_DO_FRAME: u16 = 0xca60;
     pub const CHECK_IF_HNM_COMPLETE: u16 = 0xcc85;
     pub const ADD_FRAME_TASK: u16 = 0xda25;
-    /// The frame task that plays the next HNM frame ([`super::sub_070c`]).
+    /// The frame task that plays the next HNM frame ([`super::intro_hnm_frame_task`]).
     pub const HNM_FRAME_TASK: u16 = 0x070c;
     /// The desert sky animation's frame task.
     pub const DESERT_SKY_TASK: u16 = 0x0826;
@@ -139,15 +139,15 @@ pub fn intro_play_hnm_with_frame_task(m: &mut Machine, start: u16) -> Result<(),
     hnm_with_frame_task(&mut Ctx::new(m))
 }
 
-/// `sub_070c`: the HNM frame task.
-pub fn sub_070c(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `intro_hnm_frame_task`: the HNM frame task.
+pub fn intro_hnm_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x070c)?;
     hnm_frame_task(&mut Ctx::new(m))
 }
 
-/// `sub_06fc`: frame tasks to 3Fh, `sub_3901`, then the video from a frame
+/// `intro_play_hnm_with_sky_fade`: frame tasks to 3Fh, `sub_3901`, then the video from a frame
 /// task.
-pub fn sub_06fc(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn intro_play_hnm_with_sky_fade(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x06fc)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -170,9 +170,9 @@ pub fn intro_talking_head_play(m: &mut Machine, start: u16) -> Result<(), Bail> 
     talking_head(&mut Ctx::new(m))
 }
 
-/// `sub_078d`: the screen palette, then `sub_c868` with [DBE6h] = 6, then
+/// `intro_talking_head_with_sound`: the screen palette, then `sub_c868` with [DBE6h] = 6, then
 /// the talking head.
-pub fn sub_078d(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn intro_talking_head_with_sound(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x078d)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -199,8 +199,8 @@ pub fn intro_play_desert_sky_animation(m: &mut Machine, start: u16) -> Result<()
     desert_sky(m, start, 0x085d, 9)
 }
 
-/// `sub_087b`: the desert sky animation every 16 frames.
-pub fn sub_087b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `intro_desert_sky_slow`: the desert sky animation every 16 frames.
+pub fn intro_desert_sky_slow(m: &mut Machine, start: u16) -> Result<(), Bail> {
     desert_sky(m, start, 0x087b, 0x10)
 }
 
@@ -347,36 +347,36 @@ fn still(m: &mut Machine, start: u16, entry: u16, resource: u8, clear: bool, jum
     draw_first_sprite(&mut c)
 }
 
-/// `sub_0737`: picture 56h.
-pub fn sub_0737(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `intro_still_56`: picture 56h.
+pub fn intro_still_56(m: &mut Machine, start: u16) -> Result<(), Bail> {
     still(m, start, 0x0737, 0x56, false, 1)
 }
-/// `sub_073c`: picture 57h.
-pub fn sub_073c(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `intro_still_57`: picture 57h.
+pub fn intro_still_57(m: &mut Machine, start: u16) -> Result<(), Bail> {
     still(m, start, 0x073c, 0x57, false, 2)
 }
-/// `sub_0740`: picture 58h on a cleared screen.
-pub fn sub_0740(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `intro_still_58_on_clear`: picture 58h on a cleared screen.
+pub fn intro_still_58_on_clear(m: &mut Machine, start: u16) -> Result<(), Bail> {
     still(m, start, 0x0740, 0x58, true, 2)
 }
-/// `sub_0747`: picture 59h.
-pub fn sub_0747(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `intro_still_59`: picture 59h.
+pub fn intro_still_59(m: &mut Machine, start: u16) -> Result<(), Bail> {
     still(m, start, 0x0747, 0x59, false, 2)
 }
-/// `sub_0752`: picture 5Bh.
-pub fn sub_0752(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `intro_still_5b`: picture 5Bh.
+pub fn intro_still_5b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     still(m, start, 0x0752, 0x5b, false, 2)
 }
-/// `sub_0756`: picture 5Ch.
-pub fn sub_0756(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `intro_still_5c`: picture 5Ch.
+pub fn intro_still_5c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     still(m, start, 0x0756, 0x5c, false, 2)
 }
-/// `sub_075a`: picture 5Dh.
-pub fn sub_075a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `intro_still_5d`: picture 5Dh.
+pub fn intro_still_5d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     still(m, start, 0x075a, 0x5d, false, 2)
 }
-/// `sub_075e`: picture 5Eh.
-pub fn sub_075e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `intro_still_5e`: picture 5Eh.
+pub fn intro_still_5e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     still(m, start, 0x075e, 0x5e, false, 2)
 }
 /// `intro_outside_of_palace` (09A5): picture 62h on a cleared screen.
@@ -535,19 +535,19 @@ fn setup_and_copy(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx))
 }
 
 /// `loc_0097e`: see [`setup_and_copy`].
-pub fn setup_and_copy_097e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn intro_show_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x097e)?;
     setup_and_copy(&mut Ctx::new(m), start, 0, |_| {})
 }
 
 /// `loc_00978`: [12h] cleared, then [`setup_and_copy`].
-pub fn setup_and_copy_0978(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn intro_show_place_empty(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0978)?;
     setup_and_copy(&mut Ctx::new(m), start, 1, |c| c.set_word(g::PRESENT, 0))
 }
 
 /// `loc_00a16`: `loc_00a23` with the active framebuffer kept; CF clear.
-pub fn keep_framebuffer_0a23(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn video_step_keep_framebuffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0a16)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;

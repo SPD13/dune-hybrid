@@ -26,7 +26,7 @@ const POINT_4710: u16 = 0x4710;
 const SPRITE_LIST_MAP: u16 = 0x194a;
 
 /// `loc_0557b`: DX, BX = the point at [`POINT_4710`].
-pub fn get_point_4710(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn place_box_origin(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x557b)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -38,7 +38,7 @@ pub fn get_point_4710(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_058e4`: `loc_057e5` with a 100h-byte buffer on the stack (BP),
 /// then the driver's function at 395Dh with BH = [4722h].
-pub fn with_stack_buffer_57e5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn recolour_map_regions(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x58e4)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -58,7 +58,7 @@ pub fn with_stack_buffer_57e5(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_05982`: the driver's function at 3961h on the screen buffer, at
 /// the point at 11C1h, SI = 0AAh, CX = 6Ch (registers kept).
-pub fn gfx_call_3961(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn toggle_drag_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5982)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -101,7 +101,7 @@ pub fn map_click_handler_and_rect(m: &mut Machine, start: u16) -> Result<(), Bai
 
 /// `loc_05b10`: `loc_08850`, then with bit 40h of [46EBh] the mouse rect
 /// = the rect at [`POINT_4710`].
-pub fn after_8850(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn redraw_and_reclip_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5b10)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -249,7 +249,7 @@ pub fn in_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_062d6`: `loc_0b647`, then CF set when (DX, BX) is outside the
 /// view (right, bottom out).
-pub fn outside_view_after_b647(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn map_point_outside_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x62d6)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -414,7 +414,7 @@ pub fn start_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_080c8`: [4738h] and the words at 4718h..471Ch cleared.
-pub fn clear_4718(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn clear_picked_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x80c8)?;
     let mut c = Ctx::new(m);
     c.run(start, 6)?;
@@ -473,7 +473,7 @@ pub fn map_list_without_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0848f`: `loc_08347` while the troop at SI is at the location at
 /// [11D3h] and without bit 40h; DI = that location, ZF from `or di, di`.
-pub fn while_at_11d3(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn drop_reached_waypoints(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x848f)?;
     let mut c = Ctx::new(m);
     let (mut at, mut jmp) = (start, 0);
@@ -501,7 +501,7 @@ pub fn while_at_11d3(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_08770`: with [1954h] set, `loc_0878c` with [46F3h] cleared, then
 /// [`g::TEXT_BOX_FLAGS`] cleared (registers kept).
-pub fn redraw_8770(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn refresh_map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8770)?;
     let mut c = Ctx::new(m);
     let v = c.byte(0x1954);
@@ -534,7 +534,7 @@ pub fn redraw_and_handle(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_08ac3`: [47E0h] = AL, bit 10h of [47DEh] cleared.
-pub fn note_47e0(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn set_sentence_voice_part(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8ac3)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -549,7 +549,7 @@ pub fn note_47e0(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_08fd1`: the record at 1BE2h drawn by the driver (function at
 /// 38DDh) in colour [18F2h], after setting it (+8 = 80h, +0Ch = 7BEDh,
 /// +2 two up); its word 2 two down after (SI kept).
-pub fn gfx_draw_1be2(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_text_box_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8fd1)?;
     let mut c = Ctx::new(m);
     c.run(start, 7)?;
@@ -578,7 +578,7 @@ pub fn gfx_draw_1be2(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_09025`: the driver's function at 38C9h on the active framebuffer:
 /// 140h wide from (0, 92h - [4793h]), [4793h] high (CH = FFh), the image
 /// at [`g::TEXT_SHEET`]; the top noted at [4782h].
-pub fn gfx_call_38c9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_text_sheet(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9025)?;
     let mut c = Ctx::new(m);
     c.run(start, 9)?;
@@ -645,7 +645,7 @@ fn draw_zoomed_map(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)
 }
 
 /// `loc_049a0` (the map's redraw handler): see [`draw_zoomed_map`].
-pub fn draw_zoomed_map_49a0(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn zoomed_map_redraw_handler(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x49a0)?;
     draw_zoomed_map(&mut Ctx::new(m), start, 0, |_| {})
 }
@@ -830,7 +830,7 @@ pub fn nearest_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (|BX| over 4Dh) against its half, turned to the side (bit 7 kept, 40h);
 /// for a move to a place (neither [11CBh] nor [11C8h]), `loc_05124`'s AL
 /// unless CF.
-pub fn heading_51cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn heading_for_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x51cb)?;
     let mut c = Ctx::new(m);
     let (a, b) = (c.travel().keep_heading, c.travel().no_target);
@@ -883,7 +883,7 @@ pub fn heading_51cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0578b`: for AL (not negative), the driver's function at 3961h at
 /// [`POINT_4710`] + (5Eh + 4 AL, 62h), 5 x 7. AX kept.
-pub fn gfx_call_3961_at_4710(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn toggle_box_cell_highlight(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x578b)?;
     let mut c = Ctx::new(m);
     let al = c.reg8(r8::AL);
@@ -1982,7 +1982,7 @@ pub fn draw_skills_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0x7b1b, 0x7d1b)?;
     c.run(0x7d1b, 1)?;
     c.call(0x7e1e, 0x7d1e)?;
-    c.run(0x7d1e, 6 + 0x0e)?; // the `rep` iterations too
+    c.run(0x7d1e, 6 + 0x0e + 9)?; // the `rep` iterations too
     let ds = c.sreg(DS);
     c.push(ds);
     let es = c.pop();
@@ -1991,7 +1991,6 @@ pub fn draw_skills_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0x4c7c);
     c.set_reg(CX, 0x0e);
     c.rep_counted(0xa5);
-    c.run(0x7d2b, 9)?;
     let bx = c.word(0x1942);
     let bx = c.add(W, bx, 4);
     c.set_reg(BX, bx);
@@ -2268,7 +2267,7 @@ fn draw_map_points_at(c: &mut Ctx) -> Result<(), Bail> {
 }
 
 /// `loc_049d4`: `loc_04988`, then [`draw_map_points`].
-pub fn map_points_after_4988(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn open_zoomed_map_with_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x49d4)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -2278,8 +2277,8 @@ pub fn map_points_after_4988(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `sub_599f`: with [4723h] set (taken, cleared): the point 4710h
-/// (`get_point_4710`); at (DX, BX) = [11C1h], [11C3h] still,
-/// [`gfx_call_3961`], else [0DBE0h] 0 and [`after_8850`].
+/// (`place_box_origin`); at (DX, BX) = [11C1h], [11C3h] still,
+/// [`toggle_drag_frame`], else [0DBE0h] 0 and [`redraw_and_reclip_mouse`].
 pub fn map_point_moved(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x599f)?;
     let mut c = Ctx::new(m);
@@ -2297,11 +2296,11 @@ pub fn map_point_moved(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (x, y) = (c.travel().kept[0], c.travel().kept[1]);
     if dx == x && bx == y {
         c.run(0x59ac, 4)?;
-        return gfx_call_3961(c.m, 0x5982);
+        return toggle_drag_frame(c.m, 0x5982);
     }
     c.run(0x59ac, if dx != x { 4 } else { 6 })?;
     c.set_word(g::SPRITE_LIST, 0);
-    after_8850(c.m, 0x5b10)
+    redraw_and_reclip_mouse(c.m, 0x5b10)
 }
 
 /// `loc_060f8`: AL = the balance of the troops of the location DI
@@ -2546,7 +2545,7 @@ pub fn leave_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_04aeb`: resource 39h opened, the front buffer active, the CS
-/// script run (`run_cs_script`), `cursor_over_panel`, then [`sub_c4dd`].
+/// script run (`run_cs_script`), `cursor_over_panel`, then [`update_game_area_on_screen`].
 pub fn scene_39(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4aeb)?;
     let mut c = Ctx::new(m);
@@ -2560,11 +2559,11 @@ pub fn scene_39(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x4af7, 1)?;
     c.call(0x4b2b, 0x4afa)?;
     c.run(0x4afa, 1)?;
-    super::draw::sub_c4dd(c.m, 0xc4dd)
+    super::draw::update_game_area_on_screen(c.m, 0xc4dd)
 }
 
 /// `loc_0644e`: the circle of radius byte 0Bh of the location DI around
-/// its map point, colour 20h ([`circle_6447`]'s drawing).
+/// its map point, colour 20h ([`draw_location_circle`]'s drawing).
 pub fn location_circle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x644e)?;
     let mut c = Ctx::new(m);
@@ -2580,7 +2579,7 @@ pub fn location_circle(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// location DI in colour 30h ([4739h]): its spans (`loc_064ef` with the
 /// handler 646Fh) by the midpoint walk at `loc_064b2`, from (word 2,
 /// word 4) in [0D81Ch], [0D818h].
-pub fn circle_6447(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_location_circle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6447)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -3219,7 +3218,7 @@ pub fn nearest_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_05605`: the map header's area (the rect 4710h less its frame:
 /// +6, +62h, -6, -2, built on the stack) filled with colour F5h by the
 /// driver (far [38DDh]) on the screen [0DBDAh]; [4724h] = FFh,
-/// `loc_0d075`; then [`get_point_4710`].
+/// `loc_0d075`; then [`place_box_origin`].
 pub fn clear_map_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5605)?;
     let mut c = Ctx::new(m);
@@ -3253,7 +3252,7 @@ pub fn clear_map_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5638, 2)?;
     let sp = c.reg(SP).wrapping_add(8);
     c.set_reg(SP, sp);
-    get_point_4710(c.m, 0x557b)
+    place_box_origin(c.m, 0x557b)
 }
 
 /// `loc_07bb9`: `loc_031f6` (AX kept), then [`show_message_0f`].
@@ -3567,7 +3566,7 @@ pub fn map_click_and_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_07e1e`: [`skill_bars`] for the needs at 4705h in the panel
 /// 18E9h (from (x + 80h, y + 2Dh) to its bottom), tall font, colour F0h.
-pub fn skill_bars_4705(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_place_skill_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7e1e)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -3597,7 +3596,7 @@ pub fn skill_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
 fn skill_bars_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x7e3d, 1)?;
     c.call(0xc13b, 0x7e40)?;
-    c.run(0x7e40, 7 + 0x0e)?; // the `rep` iterations too
+    c.run(0x7e40, 7 + 0x0e + 4)?; // the `rep` iterations too
     let di0 = c.reg(DI);
     c.push(di0);
     let ds = c.sreg(DS);
@@ -3609,7 +3608,6 @@ fn skill_bars_at(c: &mut Ctx) -> Result<(), Bail> {
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.rep_counted(0xab);
-    c.run(0x7e4d, 4)?;
     let si = c.reg(SI);
     c.set_reg(DI, si);
     c.set_reg(CX, 7);
@@ -4399,15 +4397,15 @@ fn toggle_map_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     super::ui::ui_head_animate_up(c.m, 0x17e6)
 }
 
-/// `loc_08763`: with [46F3h] set, [`redraw_8770`] and the map screen
-/// toggled ([`toggle_map_screen`]); else just [`redraw_8770`].
+/// `loc_08763`: with [46F3h] set, [`refresh_map_panel_buttons`] and the map screen
+/// toggled ([`toggle_map_screen`]); else just [`refresh_map_panel_buttons`].
 pub fn redraw_and_toggle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8763)?;
     let mut c = Ctx::new(m);
     let k = c.map_selection().map_screen;
     if k == 0 {
         c.run(start, 2)?;
-        return redraw_8770(c.m, 0x8770);
+        return refresh_map_panel_buttons(c.m, 0x8770);
     }
     c.run(start, 3)?;
     c.call(0x8770, 0x876d)?;
@@ -4760,7 +4758,7 @@ fn spread_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
 
 /// `sub_59c1`: with the map point up ([4723h]): below 98h it moves by
 /// (DI, CX), kept 5 inside 0..8Ch, 0..18h ([11C1h], [11C3h]; drawn
-/// before and after by [`gfx_call_3961`]); from 98h down
+/// before and after by [`toggle_drag_frame`]); from 98h down
 /// [`map_point_moved`].
 pub fn move_map_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x59c1)?;
@@ -4803,10 +4801,10 @@ pub fn move_map_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, overshoot);
     let ny = pure::add(W, y, d2);
     c.update_travel(|t| t.kept[1] = ny);
-    gfx_call_3961(c.m, 0x5982)
+    toggle_drag_frame(c.m, 0x5982)
 }
 
-/// `loc_05206`: a step from (DX, BX) along the heading `heading_51cb`
+/// `loc_05206`: a step from (DX, BX) along the heading `heading_for_move`
 /// sets: the `direction_step` (DX, BX) scaled by the row factor
 /// [4880h + 2|BX|] / 20h; the across part plus the fraction [11CCh] carried
 /// (above 1FFh it divides the along part instead), its whole part added
@@ -5007,7 +5005,7 @@ fn map_view_redraw(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -
 }
 
 /// `loc_08acc`: with bit 10h of [47DEh], the count AL for the phrase BP
-/// noted by [`note_47e0`]: CFh up to 8; 55h and 61h less 1, up to 4;
+/// noted by [`set_sentence_voice_part`]: CFh up to 8; 55h and 61h less 1, up to 4;
 /// 44h in mode 1 less 1, up to 8. BX kept.
 pub fn note_phrase_count(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8acc)?;
@@ -5098,7 +5096,7 @@ pub fn ui_main_view_map_interface(m: &mut Machine, start: u16) -> Result<(), Bai
 /// the room [477Fh]: by its range for the room (8Bh: from 108h; 84h:
 /// 48h, 49h..4Bh, 18h..23h above it; 83h / 8Ch: E8h..EEh; 86h..88h with
 /// [47DEh] mode 1: D1h..D7h; 85h, mode 1: 74h as 1, else 0; 89h:
-/// DAh..E1h) rebased and noted by [`note_47e0`]. BX kept.
+/// DAh..E1h) rebased and noted by [`set_sentence_voice_part`]. BX kept.
 pub fn check_room_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8a3b)?;
     let mut c = Ctx::new(m);
@@ -5725,7 +5723,7 @@ pub fn location_panel_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0541f`: the zoomed map view opened on the point [197Ch]: the
 /// point kept in [1980h], the message subject and [479Eh] cleared; the
 /// view's frame (46E3h) and its inner box (4710h) placed around the map
-/// position ([`get_point_4710`]), the frame sprite 8Dh, the zoomed globe
+/// position ([`place_box_origin`]), the frame sprite 8Dh, the zoomed globe
 /// drawn into the back buffer from resource 3Ah ([46EBh] 40h), the map
 /// layers, a rect FBh around the point's screen place (40h by 28h,
 /// clamped to the box; none when flat); the place [0DBE0h] / [0DBE2h]
@@ -5740,7 +5738,7 @@ pub fn open_place_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0542f`: [`open_place_view`] on the point [1980h] as it is.
-pub fn open_place_view_542f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn reopen_place_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x542f)?;
     let mut c = Ctx::new(m);
     place_view_at(&mut c, true)
@@ -6288,8 +6286,7 @@ pub fn ui_click_map_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0x5beb, 0x8846)?;
         c.run(0x8846, 4)?;
     } else {
-        c.run(0x8831, 4)?;
-        c.run(0x8846, 4)?;
+        c.run(0x8831, 8)?;
     }
     let point = if place_view { g::OTHER_MARK } else { g::MAP_MARK };
     for at in [point, point + 2] {
@@ -6892,7 +6889,7 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// by the caller's `loc_064ef`) further, wrapped into 0..BP; then CX
 /// bytes at ES:DI, each wrapping at BP: a byte whose bits 30h are 10h
 /// stays, others get those bits flipped and [4739h] ORed in.
-pub fn span_646f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn location_circle_span(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x646f)?;
     let mut c = Ctx::new(m);
     if !span_row(&mut c, 0x646f, 0x5d)? {
@@ -7054,14 +7051,14 @@ fn span_start(c: &mut Ctx, at: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0653a`, the span handler of a moving record's circle (CS:64EDh
-/// from `loc_06515`): as [`span_646f`] for rows -56h to 56h, each byte
+/// from `loc_06515`): as [`location_circle_span`] for rows -56h to 56h, each byte
 /// at ES:DI (bits 30h not 10h) made a trail: a byte with bit 40h that
 /// `loc_0409a` finds a location for (ZF) has the record SI's byte 12h
 /// cleared and, for a location from 138h that `loc_05d36` accepts, bit
 /// 80h of its byte 0Ah cleared and `location_raided` (registers kept by
 /// `save_regs`/`restore_regs`, ES kept); then AX AND 0ECFh, AL OR 20h, and
 /// for AH below 8, when [4736h] rotated left gives CF, bits 30h of AL 10h.
-pub fn span_653a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn move_trail_span(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x653a)?;
     let mut c = Ctx::new(m);
     if !span_row(&mut c, 0x653a, 0x56)? {
@@ -7214,4 +7211,114 @@ fn trail_end(c: &mut Ctx, recolour: bool) -> bool {
     let cx = c.reg(CX).wrapping_sub(1);
     c.set_reg(CX, cx);
     cx == 0
+}
+
+/// `loc_0824d` (a map click handler, BX at 807Ch and 80C3h for
+/// `loc_0d323`, called through a register): the map's marks redrawn
+/// ([`redraw_map_marks`]), then on at `loc_08250`
+/// ([`map_click_and_resource`]).
+pub fn marks_then_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x824d)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0x82b7, 0x8250)?;
+    c.jump(0x8250)
+}
+
+/// `loc_081ec` (a map click handler, called through a register): with
+/// the on-map resource open and the click in the map's rect ([DBE2h],
+/// `point_in_rect`), the place view's click (`place_view_click`) and the
+/// nearest shown location ([`g::MAP_MODE`] 40h meanwhile, C0h after); a
+/// location (AX below 9) picked (`pick_map_location`, CF clear) gets the
+/// marks redrawn and the shown troop (`shown_troop`); for the followed
+/// troop (8E0h) its note's map point copied from 4718h to
+/// [`g::FOLLOWED_TROOP_PLACE`], and with one there (or for any other
+/// troop) and `loc_082da` giving ZF, the troop set out, the screen popped,
+/// the click handler and the map panel's buttons. A click outside, no
+/// note, or NZ from `loc_082da`: `leave_and_fade` and the resource opened
+/// again. Flags exact (its callers are not known).
+pub fn map_click_pick(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x81ec)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 1)?;
+    c.call(0xc13b, 0x81ef)?;
+    c.run(0x81ef, 2)?; // mov di; call
+    let rect = c.word(0xdbe2);
+    c.set_reg(DI, rect);
+    c.call(0xd6fe, 0x81f6)?;
+    if !c.flag(CF) {
+        return leave_81ec(&mut c, 0x81f6, 2); // jnb; call
+    }
+    c.run(0x81f6, 2)?; // jnb; call
+    c.call(0x5944, 0x81fb)?;
+    c.run(0x81fb, 3)?; // mov [46EBh]; mov al; call
+    c.update_map_view(|t| t.mode = 0x40);
+    c.set_reg8(r8::AL, 0xff);
+    c.call(0x5e6d, 0x8205)?;
+    let ax = c.reg(AX);
+    c.run(0x8205, 4)?; // mov [46EBh]; cmp; jnb; ret | call
+    c.update_map_view(|t| t.mode = 0xc0);
+    if ax >= 9 {
+        return c.ret();
+    }
+    c.call(0x8256, 0x8212)?;
+    if c.flag(CF) {
+        c.run(0x8212, 2)?; // jb; ret
+        return c.ret();
+    }
+    c.run(0x8212, 2)?; // jb; call
+    c.call(0x82b7, 0x8217)?;
+    c.run(0x8217, 1)?;
+    c.call(0x68eb, 0x821a)?;
+    let si = c.reg(SI);
+    if si == 0x08e0 {
+        let place = c.word(0x4718);
+        // cmp; jnz; push si; mov si; mov di; push ds; pop es; movsw x3;
+        // pop si; mov di; or; jz
+        c.run(0x821a, 14)?;
+        c.save(&[SI]);
+        c.set_reg(SI, 0x4718);
+        c.set_reg(DI, g::FOLLOWED_TROOP_PLACE);
+        let ds = c.sreg(DS);
+        c.push(ds);
+        let v = c.pop();
+        c.set_sreg(ES, v);
+        c.movs(W);
+        c.movs(W);
+        c.movs(W);
+        c.restore(&[SI]);
+        c.set_reg(DI, place);
+        if place == 0 {
+            return leave_81ec(&mut c, 0x8246, 0);
+        }
+        c.run(0x8235, 1)?;
+    } else {
+        c.run(0x821a, 3)?; // cmp; jnz; call
+    }
+    c.call(0x82da, 0x8238)?;
+    if !c.flag(ZF) {
+        return leave_81ec(&mut c, 0x8238, 2); // jnz; call
+    }
+    c.run(0x8238, 2)?; // jnz; call
+    c.call(0x84a6, 0x823d)?;
+    c.run(0x823d, 1)?;
+    c.call(0xd2fd, 0x8240)?;
+    c.run(0x8240, 1)?;
+    c.call(0x8250, 0x8243)?;
+    c.run(0x8243, 1)?; // jmp
+    c.jump(0x878c)
+}
+
+/// `loc_081ec`'s way out at 8246h: `leave_and_fade`, then the on-map
+/// resource opened again (a tail jump). `n` instructions from `at` up to
+/// and with the call (0 when the stretch before counted it).
+fn leave_81ec(c: &mut Ctx, at: u16, n: u32) -> Result<(), Bail> {
+    if n > 0 {
+        c.run(at, n)?;
+    } else {
+        c.run(0x8246, 1)?;
+    }
+    c.call(0xd2e2, 0x8249)?;
+    c.run(0x8249, 1)?; // jmp
+    c.jump(0xc13b)
 }

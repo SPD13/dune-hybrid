@@ -185,7 +185,6 @@ pub fn load_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let caller = c.byte(g::COMM_CALLER);
     c.run(0xb3b0, if caller != 0 { 3 } else { 2 })?;
-    c.cmp(B, caller as u16, 0); // the flags the jump's target gets
     if caller != 0 {
         return c.jump(0x0e49);
     }
@@ -202,7 +201,7 @@ pub fn load_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // `rep`'s iterations counted in the `run`).
     let (cx, di) = (c.reg(CX), c.reg(DI));
     let n = cx.wrapping_sub(2);
-    c.run(0xb3cd, 12 + n as u32)?;
+    c.run(0xb3cd, 12 + n as u32 + 4)?;
     let al = c.situation().map_interface;
     c.set_reg8(r8::AL, al);
     let ax = c.reg(AX);
@@ -218,7 +217,6 @@ pub fn load_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, n);
     c.set_flag(DF, true);
     c.rep_counted(0xa4);
-    c.run(0xb3e2, 4)?;
     c.set_flag(DF, false);
     let di = c.reg(DI);
     c.set_reg(SI, di.wrapping_add(1));
@@ -1382,10 +1380,6 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     };
     c.run(0xc780, n)?;
     if f == 0 {
-        if n > 4 {
-        }
-        if n > 6 {
-        }
         if n == 9 {
             c.call(0x1797, 0xc7a2)?;
         }

@@ -55,7 +55,7 @@ mod code {
 /// `loc_00b21`: PCM driver function 5; the on-map resource back to 25h
 /// (patched into `open_onmap_resource`); task B45h removed; [3CBEh] = 0
 /// unless, outside a cinematic ([227Dh]), the sign of [FBh] is set.
-pub fn sub_0b21(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn stop_scene_voice_and_particles(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0b21)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -841,8 +841,8 @@ fn pcm_volume(c: &mut Ctx) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0aded`.
-pub fn sub_aded(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0aded`: [`pcm_volume`]: PCM driver function 4 with the voice volume.
+pub fn set_pcm_volume(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xaded)?;
     pcm_volume(&mut Ctx::new(m))
 }
@@ -929,7 +929,7 @@ pub fn voc_get_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0c0d5`: transition AL from the front buffer to the screen (driver
 /// function 30, paced by the timer).
-pub fn sub_c0d5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn transition_front_buffer_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc0d5)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
@@ -949,7 +949,7 @@ pub fn sub_c0d5(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0c85b`: the talking head's next zoom in 6000 (1770h) ticks from
 /// now. AX = the timer.
-pub fn sub_c85b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn schedule_head_zoom(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc85b)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
@@ -1077,7 +1077,7 @@ pub fn redraw_date_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_015a8`: [11EBh]'s phrase drawn at (0Ah, 9Dh) with the glyphs of
 /// `font_draw_glyph_func`, in colour CX.
-pub fn draw_phrase_11eb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_script_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x15a8)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;

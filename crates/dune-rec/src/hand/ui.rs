@@ -115,8 +115,8 @@ pub fn ui_head_animate_up(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// `sub_d95b`: the map's click handler to 2572h. AX = it.
-pub fn sub_d95b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `set_map_click_handler`: the map's click handler to 2572h. AX = it.
+pub fn set_map_click_handler(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd95b)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -129,9 +129,10 @@ fn set_click_handler(c: &mut Ctx) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_19fc`: no mouse rectangle; the rectangle at 143Ch from the second
-/// framebuffer; `sub_c0d5` with 12h; the click handler to 2572h.
-pub fn sub_19fc(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_19fc` (the people panel's close handler, BX at 1941h): no mouse rectangle;
+/// the rectangle at 143Ch back from the second framebuffer; transition 12h
+/// (`sub_c0d5`); the map's click handler.
+pub fn close_people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x19fc)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -199,10 +200,10 @@ pub fn draw_moon_and_sun(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_1ae7`: after `sub_d41b`, when BP is 1F7Eh: once per timer tick,
+/// `talking_head_zoom_tick`: after `sub_d41b`, when BP is 1F7Eh: once per timer tick,
 /// and once [4772h] ticks have passed since [476Eh], the talking head's
-/// next zoom (`sub_c85b`, `sub_c868`).
-pub fn sub_1ae7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// next zoom (`schedule_head_zoom`, `sub_c868`).
+pub fn talking_head_zoom_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1ae7)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -215,7 +216,6 @@ pub fn sub_1ae7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // The ticks, read right after a stretch of their `mov` alone (see
     // `ticks.rs`).
     c.run(0x1aea, 2)?;
-    c.cmp(W, bp, 0x1f7e);
     c.run(0x1af0, 1)?;
     let now = c.timer();
     c.set_reg(AX, now);
@@ -241,10 +241,10 @@ pub fn sub_1ae7(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_1dda`: `sub_29ee` with 30Bh when bit 10h of [BFh] is set, bit 8 of
+/// `note_shipment_event_if_due`: `sub_29ee` with 30Bh when bit 10h of [BFh] is set, bit 8 of
 /// [10h] clear, [0Bh] not 8 and [`g::ENDGAME_STAGE`] 0. Flags from the check that ended
 /// it.
-pub fn sub_1dda(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn note_shipment_event_if_due(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1dda)?;
     let mut c = Ctx::new(m);
     let (a, b, d, e) = (c.economy().shipment_flags, c.progress().party, c.progress().room, c.economy().endgame_stage);
@@ -263,10 +263,10 @@ pub fn sub_1dda(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_1dfe` (jumps to 1D10): every 2nd call (bit 15 of [0] rotated
-/// out), troops with bit 80h of +10h grow their +1Ah by 1 (up to C8h).
+/// `sub_1dfe` (jumps to 1D10): every 2nd call (bit 15 of [0] rotated out), each
+/// Harkonnen troop (bit 80h of byte 10h) grows its size (byte 1Ah) by 1, up to C8h.
 /// Flags from the last check.
-pub fn sub_1dfe(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn grow_harkonnen_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1dfe)?;
     let mut c = Ctx::new(m);
     let bits = c.word(g::RANDOM_BITS);
@@ -512,7 +512,7 @@ fn sky_rows_at(c: &mut Ctx, base: u16) -> Result<(), Bail> {
 
 /// `loc_0398c`: [`sky_palette_rows`]' twin (the driver's function at
 /// 38BDh).
-pub fn sky_palette_rows_38bd(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn send_sky_palette_rows_default_driver(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x398c)?;
     sky_rows_at(&mut Ctx::new(m), 0x398c)
 }
@@ -529,8 +529,8 @@ pub fn sky_palette_with_tasks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     sky_palette_rows(&mut c)
 }
 
-/// `loc_039b9`.
-pub fn sub_39b9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_039b9`: [`sky_palette_rows`] through the driver's palette function at [394Dh].
+pub fn send_sky_palette_rows(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x39b9)?;
     sky_palette_rows(&mut Ctx::new(m))
 }
@@ -658,9 +658,9 @@ pub fn draw_gradient_section(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_4ad7`: `sub_4e8d`; if it returned bit 0 of AL, [11C8h] = 1 and
+/// `travel_no_target_if_al_odd`: `sub_4e8d`; if it returned bit 0 of AL, [11C8h] = 1 and
 /// `sub_5119` with AL = 4.
-pub fn sub_4ad7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn travel_no_target_if_al_odd(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4ad7)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -717,8 +717,9 @@ fn music_step(c: &mut Ctx) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0ae04`.
-pub fn sub_ae04(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0ae04`: [`music_step`]: `sub_ad43` when sound and music are on and the
+/// driver is ready (registers kept).
+pub fn music_step_if_enabled(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xae04)?;
     music_step(&mut Ctx::new(m))
 }
@@ -885,8 +886,8 @@ pub fn draw_counters(m: &mut Machine, start: u16) -> Result<(), Bail> {
     draw_counter_at(&mut c)
 }
 
-/// `loc_00fb2`: `table_2280`, the sky palette (`loc_03971`), then the sky
-/// rows: [`sub_39b9`] while [46D7h] runs, else [`sky_palette_rows_38bd`].
+/// `loc_00fb2`: `sky_palette_for_time`, the sky palette (`loc_03971`), then the sky
+/// rows: [`send_sky_palette_rows`] while [46D7h] runs, else [`send_sky_palette_rows_default_driver`].
 pub fn sky_refresh(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0fb2)?;
     let mut c = Ctx::new(m);
@@ -897,14 +898,14 @@ pub fn sky_refresh(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(g::FRAME_TASKS_ACTIVE);
     c.run(0x0fb8, 3)?;
     if k != 0 {
-        sub_39b9(c.m, 0x39b9)
+        send_sky_palette_rows(c.m, 0x39b9)
     } else {
-        sky_palette_rows_38bd(c.m, 0x398c)
+        send_sky_palette_rows_default_driver(c.m, 0x398c)
     }
 }
 
 /// `loc_038f1`: the sky palette and rows redrawn (`loc_03971`,
-/// [`sub_39b9`]); unless [46D7h] already ran (it becomes 40h), the frame
+/// [`send_sky_palette_rows`]); unless [46D7h] already ran (it becomes 40h), the frame
 /// task 3916h every 10h ticks.
 pub fn start_sky_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x38f1)?;
@@ -947,9 +948,9 @@ pub fn sky_if_changed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     start_sky_task(c.m, 0x38f1)
 }
 
-/// `sub_a541`: [28E8h] = [28E7h], `clear_some_mouse_rect`, `sub_d95b`,
+/// `sub_a541`: [28E8h] = [28E7h], `clear_some_mouse_rect`, `set_map_click_handler`,
 /// then the rect 2886h drawn ([`draw_head_if_needed_and_update_screen_rect_at_si`]).
-pub fn redraw_2886(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn close_settings_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa541)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -1046,7 +1047,7 @@ pub fn sky_fade_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_043e3`: the view brought to the screen: normally the rect 14ACh
 /// (`loc_0c446`, then [`draw_head_if_needed_and_update_screen_rect_at_si`]);
 /// with [473Eh] at a place [6] 80h, the sky palette, the game area and
-/// `sub_c4dd`, then the palette ([`update_screen_palette`]); else
+/// `update_game_area_on_screen`, then the palette ([`update_screen_palette`]); else
 /// (or with [0DBEAh]) `loc_04abe` and the palette.
 pub fn show_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x43e3)?;
@@ -1108,7 +1109,7 @@ pub fn head_blink(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `chankiss`: `loc_01392`, `loc_037b2`, the driver's copy (far
 /// [3949h]: the front buffer [0DBDAh] to [0DBDEh], from (0, 32h), mode 3),
 /// the game area to the screen, resource 27h opened with SI 2298h,
-/// `loc_0c21b`, the palette, then [`sub_c4dd`].
+/// `loc_0c21b`, the palette, then [`update_game_area_on_screen`].
 pub fn chankiss(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1442)?;
     let mut c = Ctx::new(m);
@@ -1141,7 +1142,7 @@ pub fn chankiss(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x146e, 1)?;
     c.call(0xc0f4, 0x1471)?;
     c.run(0x1471, 1)?;
-    super::draw::sub_c4dd(c.m, 0xc4dd)
+    super::draw::update_game_area_on_screen(c.m, 0xc4dd)
 }
 
 /// `loc_03af9`: the speaker's portrait brought in: outside a dialogue
@@ -1238,7 +1239,7 @@ fn head_and_shoulders_at(c: &mut Ctx) -> Result<(), Bail> {
 
 /// `loc_00086`: on the front buffer, `loc_0c0ad`, the panel 1AE4h
 /// (`loc_0c097`, BP D1EFh), then [`ui_draw_head_and_shoulders`].
-pub fn draw_head_panel_0086(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_head_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0086)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -1256,7 +1257,7 @@ pub fn draw_head_panel_0086(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0439f`: the scene 24h on the front buffer: outside [473Eh] its
 /// frame (`loc_0c49a`, `loc_0c412`, the driver's palette far [3935h],
 /// `loc_05b69`, the rect 14A4h filled F5h by far [38DDh]) and
-/// [`sub_c4dd`]; else (`loc_038b4` out of a dialogue) only the rect 14B4h
+/// [`update_game_area_on_screen`]; else (`loc_038b4` out of a dialogue) only the rect 14B4h
 /// (`loc_0c21b`).
 pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x439f)?;
@@ -1282,7 +1283,7 @@ pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_sreg(ES, es);
         c.interp(0x43c5, 0x43c9)?;
         c.run(0x43c9, 1)?;
-        return super::draw::sub_c4dd(c.m, 0xc4dd);
+        return super::draw::update_game_area_on_screen(c.m, 0xc4dd);
     }
     let d = c.progress().harkonnen_place;
     c.run(0x43a2, 4 + if d == 0 { 1 } else { 2 })?;
@@ -1309,7 +1310,7 @@ pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1948)?;
     let mut c = Ctx::new(m);
-    c.run(start, 7 + 0x24)?; // the `rep` iterations too
+    c.run(start, 7 + 0x24 + 4)?; // the `rep` iterations too
     let sp = c.reg(SP);
     let sp = pure::sub(W, sp, 0x24);
     c.set_reg(SP, sp);
@@ -1321,7 +1322,6 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0x24);
     c.set_reg(AX, 0);
     c.rep_counted(0xaa);
-    c.run(0x1956, 4)?;
     let tab = sp;
     c.set_reg(SI, 0xfd8);
     c.set_reg(DI, tab);
@@ -1442,20 +1442,20 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_00083`: `loc_0cfa0`, then [`draw_head_panel_0086`].
-pub fn draw_head_panel_0083(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_00083`: `loc_0cfa0`, then [`draw_head_panel`].
+pub fn draw_head_panel_after_language_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0083)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(0xcfa0, 0x0086)?;
-    draw_head_panel_0086(c.m, 0x0086)
+    draw_head_panel(c.m, 0x0086)
 }
 
 /// `sub_4821`: scene 2Ah drawn (game area, palette, front buffer,
 /// `loc_03a95`; for [4731h] 0Dh `loc_0ac30`); past 0Eh the place (DX, BX)
 /// moved by the zoom ([4731h] - 0Eh steps of 5 along x, by CL's sign;
 /// y up by its square / 2); `loc_03aa9`, `loc_03a95`; with [46FFh] the
-/// overlay `loc_03a73` with [4731h] 0 meanwhile; `sub_c4dd`, and
+/// overlay `loc_03a73` with [4731h] 0 meanwhile; `update_game_area_on_screen`, and
 /// `sky_fade_task` while [46D7h] runs. CX kept.
 pub fn scene_2a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4821)?;
@@ -1550,7 +1550,7 @@ pub fn scene_2a(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `sub_af26`: `loc_0d7ad`, the buttons 1E1Ah, `loc_0af00`, [2406h] 0,
 /// `loc_0d33a` (BP 2032h, BX D917h, CX 0), then [`panel_with_head`].
-pub fn open_panel_af26(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn open_dialogue_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xaf26)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;

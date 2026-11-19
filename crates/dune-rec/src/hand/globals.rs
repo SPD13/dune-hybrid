@@ -207,7 +207,7 @@ pub const LAST_TIME: u16 = 0x1174;
 pub const RESULTS_DATE: u16 = 0x115c;
 
 /// The phrases a phrase's codes 81h..8Fh stand for (a word each, by the
-/// code's low nibble; `loc_08979`): slot 0 the phrase `draw_phrase_11eb`
+/// code's low nibble; `loc_08979`): slot 0 the phrase `draw_script_caption`
 /// draws, and from the code 81h:
 pub const PHRASE_ARGS: u16 = 0x11eb;
 /// 81h, 82h: a place's name, its two words (`note_point`: its byte 0,
@@ -589,7 +589,7 @@ pub const FRIEZE_ELEMENTS: u16 = 0x1ae6;
 pub const BOOK_COUNTERS: u16 = 0x1c0c;
 pub const BOOK_PAGE: u16 = 0x1152;
 pub const BOOK_PAGE_2: u16 = 0x1153;
-/// The open book's page (a pointer `book_afc7` moves on, two pages at a
+/// The open book's page (a pointer `book_next_page` moves on, two pages at a
 /// time).
 pub const BOOK_POSITION: u16 = 0x11bf;
 
@@ -757,7 +757,7 @@ pub const NUMBER_PART: u16 = 0x47e1;
 pub const NUMBER_ENTRY: u16 = 0x47e2;
 pub const NUMBER_RECORD: u16 = 0x47e4;
 /// The record whose point `note_point` noted (DI): the portrait of a
-/// talker from 0Eh is drawn from it (`portrait_a28e`).
+/// talker from 0Eh is drawn from it (`show_person_on_map`).
 pub const NOTED_RECORD: u16 = 0x47e6;
 
 /// The room the player is in at a place.

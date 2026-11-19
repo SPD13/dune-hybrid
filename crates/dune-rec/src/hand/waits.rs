@@ -267,7 +267,7 @@ pub fn audio_test_frequency(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// the count CS:[0E8D2h] it measured, when both its bytes are set, gives
 /// CS:[0EFD9h] (rounded count / 1745h, less 1, from 0 to 0Ah); then the
 /// PIT set to 1745h (on into `set_pit_timer_frequency`).
-pub fn measure_pit_e85c(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn measure_pit_speed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{CS, DX, ES};
     entered(start, 0xe85c)?;
     let mut c = Ctx::new(m);

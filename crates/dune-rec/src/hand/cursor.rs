@@ -769,7 +769,7 @@ fn highlight_pops(c: &mut Ctx) -> Result<(), Bail> {
 }
 
 /// `loc_0d338`: [`install_ui_list`] with no item highlighted (CL FFh).
-pub fn install_ui_list_d338(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn install_ui_list_unhighlighted(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd338)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;

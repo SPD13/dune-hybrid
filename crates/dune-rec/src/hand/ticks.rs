@@ -23,7 +23,7 @@
 /// REC_INPLACE_DIAG=1` (this list ignored, the conflicts listed by
 /// stretch and address: `inplace where ENTRY: KIND@STRETCH:ADDRESS`).
 const SHARED: &[u16] = &[
-    0xe85c, // measure_pit_e85c (start-up: CS:[0E8D4h] while the PIT is measured)
+    0xe85c, // measure_pit_speed (start-up: CS:[0E8D4h] while the PIT is measured)
 ];
 
 /// Whether the port entered at `entry` shares memory with the handlers.

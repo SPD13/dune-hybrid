@@ -204,9 +204,8 @@ pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cx: u16 = if gap < 0x0c { 2 } else if gap < 0x18 { 1 } else { 0 };
     c.run(0xd965, 3 + 3 + if gap >= 0x0c { 3 + (gap >= 0x18) as u32 } else { 0 })?;
     c.set_reg8(r8::AL, gap);
-    c.cmp(B, gap as u16, if gap < 0x0c { 0x0c } else { 0x18 });
     if gap >= 0x18 {
-        let _ = c.dec(W, 1);
+        let _ = pure::dec(W, 1);
     }
     c.set_reg(CX, cx);
     c.run(0xd97a, 1)?;

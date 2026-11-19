@@ -231,8 +231,8 @@ fn remove_task_2(c: &mut Ctx) -> Result<(), Bail> {
     super::tasks::remove_frame_task(c.m, 0xda5f)
 }
 
-/// `loc_0b93b`.
-pub fn sub_b93b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0b93b`: the second globe task removed.
+pub fn remove_second_globe_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb93b)?;
     remove_task_2(&mut Ctx::new(m))
 }
@@ -298,13 +298,12 @@ pub fn globe_rotation_increment_ax(m: &mut Machine, start: u16) -> Result<(), Ba
     c.set_reg(SI, g::GLOBE_ROTATION);
     c.set_reg(DX, rotation);
     c.set_reg(CX, ROTATION_STEPS);
-    let mut dx = c.add(W, rotation, ax);
+    let mut dx = pure::add(W, rotation, ax);
     if wrapped_low {
-        dx = c.add(W, dx, ROTATION_STEPS);
+        dx = pure::add(W, dx, ROTATION_STEPS);
     }
-    c.cmp(W, dx, ROTATION_STEPS);
     if wrapped_high {
-        dx = c.sub(W, dx, ROTATION_STEPS);
+        dx = pure::sub(W, dx, ROTATION_STEPS);
     }
     c.set_reg(DX, dx);
     c.set_word(g::GLOBE_ROTATION, dx);
@@ -530,7 +529,7 @@ pub fn map_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0b683`: with SF from the caller: BP, DX made a span (DX the
 /// larger part, at most -BP).
-pub fn span_b683(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn globe_row_span(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb683)?;
     let mut c = Ctx::new(m);
     let sf = c.flag(pc::cpu::SF);
@@ -547,7 +546,7 @@ pub fn span_b683(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0b5cf`: DX += AL (signed), BH += AH with the carry into BL (the
 /// row), BL kept in 62h..9Eh (the step undone at the edge).
-pub fn step_b5cf(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn step_globe_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb5cf)?;
     let mut c = Ctx::new(m);
     let (ax, bx) = (c.reg(AX), c.reg(BX));
@@ -780,7 +779,7 @@ pub fn screen_to_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0b8ea`: the frame task B9AEh every tick.
-pub fn add_task_b9ae(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn start_globe_drag_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb8ea)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -1262,7 +1261,7 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.m.cpu.ip = 0x016f;
         return Err(Bail);
     }
-    c.run(0x016f, 7 + 0x100)?; // the `rep` iterations too
+    c.run(0x016f, 7 + 0x100 + 3 + 5 * 0xc5f9)?; // the `rep` iterations too
     let ds = c.sreg(DS);
     c.push(ds);
     let v = c.pop();
@@ -1272,14 +1271,12 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 7);
     c.set_reg(CX, 0x100);
     c.rep_counted(0xab);
-    c.run(0x017d, 3)?;
     let d = c.pop();
     c.set_reg(DI, d);
     let (p, s) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
     c.set_reg(SI, p);
     c.set_sreg(ES, s);
     c.set_reg(CX, 0xc5f9);
-    c.run(0x0185, 5 * 0xc5f9)?;
     for i in 0..0xc5f9u16 {
         let v = c.lods(B, ES);
         let bx = pure::shl1(W, v, 1);
@@ -1371,7 +1368,7 @@ pub fn globe_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word_in(SS, 0x2050, ax);
     c.set_word_in(SS, 0x2052, bx);
     c.set_reg(BX, 0xd917);
-    super::cursor::install_ui_list_d338(c.m, 0xd338)
+    super::cursor::install_ui_list_unhighlighted(c.m, 0xd338)
 }
 
 /// `sub_bc1f`: with the globe's list (204Ah) or the map list (2062h)

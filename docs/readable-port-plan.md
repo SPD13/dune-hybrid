@@ -103,6 +103,21 @@ reached in real play). For each:
    `n` arguments are already sums of path lengths). The bail points stay:
    a port must still stop where an interrupt is due. That is the one
    constraint the readable code keeps from the 8086.
+   Most ports now have this shape: of the `run`s, nearly all are
+   followed by a call (about 1900), a branch (1000), the end of a block
+   (800) or an exit (900), not by another `run`.
+   `tools/lift/merge_runs.py` merges what was left: a `run` followed,
+   at the same nesting, only by plain statements and then another `run`
+   becomes one `run` of both counts (24 places, mostly across a `rep`
+   whose iterations the first count already held). It leaves alone a
+   second count that uses a name the code between binds or changes, a
+   one-instruction stretch (how a port reads or writes memory a handler
+   shares, right after its `run`), the ports that touch such memory, and
+   anything between that can stop or run code. Under `REC_INPLACE` an
+   interrupt inside a merged stretch is placed by stepping the original
+   from its start (`state_at`), so the boundary removed needed no exact
+   registers any more; without it the port bails at the earlier `run`,
+   before anything is written.
 4. Each port, as it is rewritten, still has to pass the shadow check in
    real play (English and German, the saves) and `validate.sh`.
 
@@ -140,7 +155,7 @@ with its reader (an exit the callers read, an INT or driver call, a
 callee that reads flags on entry, a stop where the original reads them).
 576 flag-helper calls are left in the hand ports, nearly all of them
 such readers'. The start-up before the game's timer handler
-(`measure_pit_e85c`, `initialize_mouse`, `initialize_joystick`,
+(`measure_pit_speed`, `initialize_mouse`, `initialize_joystick`,
 `read_game_port`, `open_dune_dat`) keeps its flags at every stop (see
 "Where a port stops"), and `parse_command_line` still differs in the
 harness, so those are left as they are.
@@ -436,11 +451,14 @@ Most bails were not interrupts. Each game had about 190000 bails in some
   bailed in `rec_call`; it now runs the code from that leader to its
   `ret` (the generated resume, as the run loop would after the bail;
   `Ctx::jump` already did). `rec: calls to block leaders without an
-  entry` lists those still run that way (00B0h and 0309h at the start,
-  7BEDh, 81ECh, 824Dh: a few calls a game). Ported: 1803h
-  (`head_down_from_picture`), 316Eh (`place_troop_marker`), 6E82h,
-  6EA8h, 8751h, A219h, A235h, with their masks added to `flags_read.rs`
-  by hand from `flags_used.py --why`. A full `--rust` then also made
+  entry` lists those still run that way (00B0h and 0309h at the
+  start). Ported: 1803h (`head_down_from_picture`), 316Eh
+  (`place_troop_marker`), 6E82h, 6EA8h, 8751h, A219h, A235h, and the
+  last three: 7BEDh (`text_box_click`, the text box's click handler set
+  at 8FDAh), 81ECh (`map_click_pick`) and 824Dh (`marks_then_click`),
+  map click handlers given to `push_screen` (D323h) in BX. Their masks
+  were first added to `flags_read.rs` by hand from `flags_used.py
+  --why`. A full `--rust` then also made
   DAAFh and DAE3h unknown: `owner()` gave an address to the nearest
   entry before it, and the new ports at E1A2h-E1CBh (reached only
   through the table at DFA7h) stood before the mouse routine's code at
@@ -451,7 +469,11 @@ Most bails were not interrupts. Each game had about 190000 bails in some
   C76Ah), and 7E3Dh loses a CF that a cycle with 7E1Eh kept alive (its
   callers and jumpers read none). Explicit bails at unported tails
   (`place_panel_back` with the cursor low, `sub_5c76`'s jumps) are
-  ported.
+  ported. With the masks known, `drop_flags.py` converted 20 more ports
+  (the callbacks, which had been written flag-exact, and the ones that
+  call or jump to them: the troops' jobs 1, 4, 8, 9, 10 and the harvest,
+  `rand`, `cursor_glide`, `load_save_cl`, ...). `drop_flags.py` now keeps
+  each file's line endings (it had written CRLF files as LF).
 
 With `REC_INPLACE` a game now has about 60000 interrupts taken in place
 in 300 s (2800-4400 of them in generated code); bails: 26-31 in hand
@@ -595,7 +617,7 @@ where the troops have no jobs yet. Coverage from the saves
 (`$LIFT_DATA/cov/cov-save*.txt`) and the table itself (`flags_used.py`
 takes the job table's targets as known for that call site) make them
 known: mask 0, and their exits (tails into `add_skill`,
-`set_troop_activity`, `kind_6acb`, whose flags are not exact) are no
+`set_troop_activity`, `give_troop_job_unless_same`, whose flags are not exact) are no
 longer compared.
 
 ### The text box (in Rust with a mirror)
@@ -741,10 +763,10 @@ equipment they sell (0E8h + the slot is the command phrase naming it,
 the ornithopter first), restocked each day, with their prices beside
 them; the current one is at [10B4h] (character 13's word 0Ch). Named
 with them: [9Dh] `SMUGGLER_PRICE` (an eighth off each haggle,
-`haggle_23d5`), [11F1h] `SMUGGLER_ITEM`, [1Ch]-[20h] the current
+`haggle_smuggler_price`), [11F1h] `SMUGGLER_ITEM`, [1Ch]-[20h] the current
 smuggler's bits, patience, days since the last visit, days in debt and
 the spice owed (`SMUGGLER_DEBT`: a purchase is on credit,
-`buy_from_smuggler_23e6`), [22h] `DEBTS`, [1141h] `ITEMS_OFFERED`
+`buy_from_smuggler_on_credit`), [22h] `DEBTS`, [1141h] `ITEMS_OFFERED`
 (index 0 of `CHANCES`). The smugglers are a table too
 (`hand/smugglers.rs`, `Ctx::smuggler(i)` / `update_smuggler(i, f)`:
 `location`, `patience`, `flags`, `visited_on`, `stock`, `prices`,
@@ -764,7 +786,7 @@ phase; [BCh] `SPICE_DEMANDED`, [B4h] the four amounts offered,
 demanded), [BFh] the shipment's bits, [C3h] `DEMANDS` made, [118Dh]
 `SHIPMENT_DUE` (a day), [CFh] the days left, [1158h] `SHIPMENT_READY`.
 The port of `loc_02566`, once `endgame_2566`, is the shipment
-(`ship_spice_2566`): it runs when the player is in room 8 with
+(`ship_spice_to_emperor`): it runs when the player is in room 8 with
 character 3 present and an amount chosen.
 
 The messages: `loc_026da` (`add_message`, once `note_event`) keeps up
@@ -929,6 +951,7 @@ places), [4722h] (a toggle of the map panel), [118Fh], [0DCE4h].
 | `tools/lift/suite.sh record\|check` | Seven games from the start and from the saves, against a stored reference (states, screens and a save written near the end). |
 | `tools/lift/flags_used.py` | Which routines' returned flags any caller reads. |
 | `tools/lift/add_table.py`, `drop_consts.py` | Not checks: add a table of one and route the ports' accesses to it; drop the globals left unused. |
+| `tools/lift/merge_runs.py` | Not a check: merge back-to-back stretches of a port (`--dry` lists them). |
 | `--save FILE` + event `T:load:1` | Real play from any point of the game (the test saves, Day 1 to 23). |
 | event `T:save:N` | The game's state as it serialises it (`DUNE37SN.SAV` in the output folder). |
 
@@ -981,3 +1004,33 @@ instruction count on; diff a plain run with a `--rec on` one),
 - About 50 entries without a label in the listing: they start in the
   middle of an instruction or a routine, and only the harness reaches
   them. Leave them generated.
+
+## Names for the ports named by their address (2026-11-19)
+
+263 ports still had an address in their name (`sub_0737`, `place_7c02`,
+`nearness_e1cb`, ...). 261 of them now say what they do, read from the
+listing and the ports (the two others, `leave_and_fade` and
+`unwind_and_fade`, only looked like addresses). Some of what that settled:
+
+- `set_game_phase`'s table at 11E7h: each word serves two phases, 4k and
+  4k + 1 (BX = phase >> 1); its handlers are `on_phase_XX` (XX the
+  first of the two, hex), `on_phase_01` the one `next_phase_unless_done`
+  calls at phase 1.
+- The keyboard cursor's eight scorers (the table at DFA7h, indexed by
+  the signs of DL and BL) are `nearness_right` ... `nearness_down_right`.
+- [47A5h] is a go-ahead for an action the scripts are asked about
+  (`allow_scripted_action`, `forbid_scripted_action`,
+  `is_scripted_action_allowed`): set to FFh before, cleared or set to 80h
+  by the scripts.
+- Bit 80h of a troop's byte 10h marks a Harkonnen troop (the tallies add
+  those to the Harkonnen strength): `lose_harkonnen_troop`,
+  `raid_garrison_harkonnen_troop`, `grow_harkonnen_troops`, ...
+- The intro's stills are named by their picture (`intro_still_56`, ...),
+  the music's playlist at 37FAh (`shuffle_music_playlist`), the driver's
+  function at 397Dh a fade (`fade_out_music`).
+
+About 30 of the names are guesses from the code's shape (a troop bit
+moved, a list selected) where the game meaning is still open; their doc
+comments say what the code does. Still unclear: [1152h], named
+`BOOK_PAGE`, which `pick_one_of_two_speakers` uses as a speaker pick, and
+[1B0Ch] (`draw_panel_button_frame`).

@@ -64,20 +64,24 @@ macro_rules! set_flag {
 }
 
 set_flag!(
-    /// `sub_10b2`: [0FFBh] = 1.
-    set_flag_0ffb, 0x10b2, g::FLAG_0FFB, 1
+    /// `sub_10b2`: the handler of phase 20h (and 21h): character 2's location
+    /// byte ([0FFBh], its +3) = 1.
+    on_phase_20, 0x10b2, g::FLAG_0FFB, 1
 );
 set_flag!(
-    /// `sub_1127`: [0FDBh] = FFh.
-    set_flag_0fdb, 0x1127, g::FLAG_0FDB, 0xff
+    /// `sub_1127`: the handler of phase 38h (and 39h): character 0's location
+    /// byte ([0FDBh], its +3) = FFh.
+    on_phase_38, 0x1127, g::FLAG_0FDB, 0xff
 );
 set_flag!(
-    /// `sub_a5aa`: [28BEh] = 0.
-    clear_flag_28be, 0xa5aa, g::SETTINGS_HOVER, 0
+    /// `sub_a5aa`: [`g::SETTINGS_HOVER`] = 0: the cursor is on no slider or
+    /// switch.
+    clear_settings_hover, 0xa5aa, g::SETTINGS_HOVER, 0
 );
 
-/// `sub_112d`: sets bit 1 of [1067h]. Flags from the `or`.
-pub fn set_bit_1067(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_112d`: the handler of phase 40h (and 41h): bit 2 of character 8's
+/// flags ([1067h], its +0Fh). Flags from the `or`.
+pub fn on_phase_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x112d)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -129,8 +133,8 @@ pub fn set_game_phase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_1011`: [122Ah] -= 1, `sub_105b` with SI = 1021h, then [0FE8h] = 9.
-pub fn sub_1011(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `on_phase_04`: [122Ah] -= 1, `sub_105b` with SI = 1021h, then [0FE8h] = 9.
+pub fn on_phase_04(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1011)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -149,8 +153,8 @@ fn set_0fe8(c: &mut Ctx) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_117b`: sets bit 40h of [0Ah], charisma += 28h, then [0FE8h] = 9.
-pub fn sub_117b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `on_phase_50`: sets bit 40h of [0Ah], charisma += 28h, then [0FE8h] = 9.
+pub fn on_phase_50(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x117b)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -163,9 +167,9 @@ pub fn sub_117b(m: &mut Machine, start: u16) -> Result<(), Bail> {
     set_0fe8(&mut c)
 }
 
-/// `sub_11b3`: [1038h] = 5, [11D0h] += 0Ch, [1156h] = the day + 3,
+/// `on_phase_5c`: [1038h] = 5, [11D0h] += 0Ch, [1156h] = the day + 3,
 /// [1141h] += 1. Flags from the `inc`; AX = the day + 3.
-pub fn sub_11b3(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn on_phase_5c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x11b3)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -259,7 +263,7 @@ pub fn increase_charisma_by_al(m: &mut Machine, start: u16) -> Result<(), Bail> 
 }
 
 /// `loc_04ab8`: the flight started ([4727h] FFh).
-pub fn set_flag_4727(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn set_flying(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4ab8)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -268,7 +272,7 @@ pub fn set_flag_4727(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_04ac4`: the travel no longer held ([11CAh] 0).
-pub fn clear_flag_11ca(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn release_travel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4ac4)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -277,7 +281,7 @@ pub fn clear_flag_11ca(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_04aca`: the travel held ([11CAh] 1).
-pub fn set_flag_11ca(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn hold_travel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4aca)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -286,7 +290,7 @@ pub fn set_flag_11ca(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_050be`: the flight steers again ([11CBh] 0).
-pub fn clear_flag_11cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn stop_keeping_heading(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x50be)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -294,8 +298,9 @@ pub fn clear_flag_11cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_a1d6`: the conversation's [47A5h] 0.
-pub fn clear_flag_47a5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_a1d6`: [47A5h] 0: the action asked of the scripts (set FFh by
+/// `allow_scripted_action`) is not to go ahead.
+pub fn forbid_scripted_action(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1d6)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -303,8 +308,9 @@ pub fn clear_flag_47a5(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0a1c4`: the conversation's [47A5h] FFh.
-pub fn set_flag_47a5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0a1c4`: [47A5h] FFh before the scripts are asked about an action
+/// (they may clear it); `is_scripted_action_allowed` checks it after.
+pub fn allow_scripted_action(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1c4)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -313,7 +319,7 @@ pub fn set_flag_47a5(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0a1e2`: ZF set when [47A5h] is FFh (`cmp` flags).
-pub fn is_mode_47a5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn is_scripted_action_allowed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1e2)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -323,7 +329,7 @@ pub fn is_mode_47a5(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0a1e8`: one more at `last_entry` ([47A8h]).
-pub fn count_47a8(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn mark_last_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1e8)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -348,32 +354,35 @@ macro_rules! set_word {
 }
 
 set_flag!(
-    /// `loc_0100b`: [100Bh] = 1.
-    set_flag_100b, 0x100b, 0x100b, 1
+    /// `loc_0100b`: at phase 1 (`next_phase_unless_done`): character 3's
+    /// location byte ([100Bh], its +3) = 1.
+    on_phase_01, 0x100b, 0x100b, 1
 );
 set_flag!(
     /// `loc_0101b`: [0FE8h] = 9.
     set_0fe8_to_9, 0x101b, g::BYTE_0FE8, 9
 );
 set_flag!(
-    /// `loc_01bb2`: [473Bh] = 0.
-    clear_flag_473b, 0x1bb2, 0x473b, 0
+    /// `loc_01bb2`: [`g::REDRAW`] = 0: nothing left to redraw.
+    clear_redraw, 0x1bb2, 0x473b, 0
 );
 set_flag!(
     /// `loc_0215f`: [46D9h] = 7.
     set_46d9_to_7, 0x215f, g::COMM_CALLER, 7
 );
 set_word!(
-    /// `loc_01392`: the handler at [2220h] = 1FBAh.
-    set_2220_to_1fba, 0x1392, 0x2220, 0x1fba
+    /// `loc_01392`: the UI list [2220h] = 1FBAh, as a sequence step shows a
+    /// room or a scene (13C8h, 140Bh, 1422h, 1442h).
+    select_scene_ui_list, 0x1392, 0x2220, 0x1fba
 );
 set_word!(
-    /// `loc_01399`: the handler at [2220h] = 1FAEh.
-    set_2220_to_1fae, 0x1399, 0x2220, 0x1fae
+    /// `loc_01399`: the UI list [2220h] = 1FAEh, as a sequence step shows a
+    /// talk (13A0h, 13E4h); `run_script_next_step` then takes a click on 1B56h.
+    select_talk_ui_list, 0x1399, 0x2220, 0x1fae
 );
 /// `loc_09901`: no text box shown ([`super::text_box::TextBox::shown`]
 /// 0).
-pub fn clear_479e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn hide_text_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9901)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -472,7 +481,7 @@ pub fn is_4_in_phases_15_to_1f(m: &mut Machine, start: u16) -> Result<(), Bail> 
 
 /// `loc_01d9f`: unless bit 80h of [12h], `loc_01e01` on the record at
 /// 1048h, then `loc_01eda` when it sets CF.
-pub fn check_record_1048(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn check_character_7_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1d9f)?;
     let mut c = Ctx::new(m);
     let w = c.progress().present;
@@ -521,7 +530,7 @@ pub fn phase_64_for_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_023d5`: the haggle: [`g::SMUGGLER_PRICE`] down by an eighth of it.
-pub fn haggle_23d5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn haggle_smuggler_price(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x23d5)?;
     let mut c = Ctx::new(m);
     c.run(start, 8)?;
@@ -535,7 +544,7 @@ pub fn haggle_23d5(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_02524`: AX spice paid (to the Emperor or a smuggler): taken from
 /// [`g::SPICE`], added to [`g::SPICE_PAID`].
-pub fn pay_spice_2524(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn pay_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2524)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -586,7 +595,7 @@ pub fn measure_place_forces(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0366f`: AX = a byte of [1152h] (the low one with bit 80h of [0],
 /// else the high one; the low one when the high is FFh; FFFFh as is).
 /// Flags from `or ax, ax`.
-pub fn pick_1152(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn pick_one_of_two_speakers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x366f)?;
     let mut c = Ctx::new(m);
     let ax = c.word(g::BOOK_PAGE);
@@ -641,7 +650,7 @@ pub fn handle_flag_23(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0390a`: `loc_03916` while [46D7h] is set.
-pub fn while_46d7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn finish_sky_fade(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x390a)?;
     let mut c = Ctx::new(m);
     let (mut at, mut jmp) = (start, 0);
@@ -658,7 +667,7 @@ pub fn while_46d7(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0395f`: BL = the table at 2280h (by AL's low 4 bits) plus AL's
 /// bits 2..4 (in AH as 0..1Ch).
-pub fn table_2280(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn sky_palette_for_time(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x395f)?;
     let mut c = Ctx::new(m);
     c.run(start, 9)?;
@@ -673,10 +682,10 @@ pub fn table_2280(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_03ae9`: the 2Eh words at 47F8h to FFFFh. AX kept.
-pub fn clear_47f8(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn clear_speaker_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3ae9)?;
     let mut c = Ctx::new(m);
-    c.run(start, 7 + 0x2e)?; // the `rep` iterations too
+    c.run(start, 7 + 0x2e + 2)?; // the `rep` iterations too
     let ax = c.reg(AX);
     c.push(ax);
     let ds = c.sreg(pc::cpu::DS);
@@ -687,7 +696,6 @@ pub fn clear_47f8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0xffff);
     c.set_reg(DI, 0x47f8);
     c.rep_counted(0xab);
-    c.run(0x3af7, 2)?;
     let ax = c.pop();
     c.set_reg(AX, ax);
     c.ret()
@@ -715,7 +723,7 @@ pub fn note_21fd_al(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_041c5`: [4726h] and [21FDh] cleared (see [`note_21fd`]).
-pub fn clear_21fd(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn reset_desert_countdown(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x41c5)?;
     note_21fd(&mut Ctx::new(m), start, 2, |c| {
         c.set_byte(0x4726, 0);
@@ -727,7 +735,7 @@ pub fn clear_21fd(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0469b`: when [473Fh] is set, cleared and the frame task at 46B5h
 /// removed (registers kept).
-pub fn remove_task_46b5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn stop_typing_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x469b)?;
     let mut c = Ctx::new(m);
     let v = c.typed_message().next[0];
@@ -760,14 +768,14 @@ fn add_11c7(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)) -> Re
 }
 
 /// `loc_05119`: see [`add_11c7`].
-pub fn add_al_to_11c7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn turn_heading_by_al(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5119)?;
     add_11c7(&mut Ctx::new(m), start, 0, |_| {})
 }
 
 /// `loc_04965`: `loc_05124`, then [11C5h] = DI, [11C8h], [11C7h] = 0 and
 /// [`add_11c7`].
-pub fn start_11c5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn fly_to_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4965)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -786,7 +794,7 @@ pub fn start_11c5(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_04b3b`: one more tick at [472Bh] (every 16th `loc_00fd9` with
 /// CX = 1); the map position (`get_map_position`, `loc_05206`,
 /// `loc_040c3`) to [4], [6].
-pub fn tick_472b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn advance_flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4b3b)?;
     let mut c = Ctx::new(m);
     let n = c.flight().steps.wrapping_add(1);
@@ -815,7 +823,7 @@ pub fn tick_472b(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_04ded`: `loc_0661d` with BP = 4E04h, CX = 0 (SI kept); then
 /// [4733h] = CX with CH = the record's byte 14h, and `loc_07f27` (ES
 /// kept).
-pub fn measure_4733(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn note_place_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4ded)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
@@ -867,7 +875,7 @@ pub fn on_phase_change(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0b254`: [243Eh] = 24h less what is left after AX in the 0Ch words
 /// at 2426h (so 25h - 0Ch + its index), or 0 when it is not there. AX, SI
 /// kept.
-pub fn find_in_2426(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn find_chapter_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb254)?;
     let mut c = Ctx::new(m);
     c.run(start, 7)?;
@@ -899,7 +907,7 @@ pub fn find_in_2426(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_01bec`: at a place the Harkonnens hold ([2Bh]): the place
 /// entered again (`loc_0503c` on location [114Eh]); [46D9h] to 6 when
 /// set; and when it is no longer held, `loc_00b21` and bit 0 of [473Bh].
-pub fn place_1bec(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn revisit_harkonnen_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1bec)?;
     let mut c = Ctx::new(m);
     let v = c.progress().harkonnen_place;
@@ -935,7 +943,7 @@ pub fn place_1bec(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_01c18`: by [46EBh]: negative, the map's resource opened and the
 /// marks of [46FAh] (`loc_078e9`) and [46F8h] (`loc_0600e`) redrawn; 0
 /// with [0FBh] negative, the stats screen (`loc_0bdbb`).
-pub fn redraw_1c18(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn refresh_map_overlays(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1c18)?;
     let mut c = Ctx::new(m);
     let k = c.map_view().mode;
@@ -976,7 +984,7 @@ pub fn redraw_1c18(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [10B4h]): its bytes 2, 1 to [`g::SMUGGLER_FLAGS`],
 /// [`g::SMUGGLER_PATIENCE`], its debt (word 0Eh) to [`g::SMUGGLER_DEBT`],
 /// and [`g::DEBT_DAYS`] the days since its byte 10h (0 without a debt).
-pub fn select_smuggler_235f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn select_smuggler(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x235f)?;
     let mut c = Ctx::new(m);
     let si = c.reg(SI);
@@ -1090,7 +1098,7 @@ pub fn visit_smuggler(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// that was 0); its byte 10h = the day; and the item moves: the
 /// smuggler's byte 4 + i one down, the location [114Eh]'s byte 14h + i
 /// one up (i = [`g::SMUGGLER_ITEM`] - 0E8h).
-pub fn buy_from_smuggler_23e6(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn buy_from_smuggler_on_credit(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x23e6)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
@@ -1162,7 +1170,7 @@ pub fn drop_oldest_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, 0);
         return c.ret();
     }
-    c.run(start, 11 + 9)?; // the `rep` iterations too
+    c.run(start, 11 + 9 + 3)?; // the `rep` iterations too
     c.set_reg(CX, n as u16);
     c.set_reg(SI, g::MESSAGES);
     let v = pure::dec(B, n as u16);
@@ -1176,7 +1184,6 @@ pub fn drop_oldest_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(pc::cpu::ES, es);
     c.set_reg(CX, 9);
     c.rep_counted(0xa5);
-    c.run(0x274a, 3)?;
     c.set_reg(AX, 0);
     c.stos(W);
     c.ret()
@@ -1246,7 +1253,7 @@ pub fn close_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_02b00`: a message: with DI, `loc_0331e` first (AX kept); [0EAh] =
 /// AL, the phrase AH said (`loc_096d8`, then `loc_09945`); [0EAh] = FFh,
 /// `loc_09ef1` with AL = 1; `loc_0331e` on [11CEh] (as it was). CF set.
-pub fn message_2b00(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn speak_event_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2b00)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
@@ -1423,7 +1430,7 @@ pub fn find_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_06603` with BP = 316Eh, and in a palace (kind 21h) character
 /// 0Dh's place and position set to the player's and made current
 /// (`loc_02318`); then `loc_0331e`.
-pub fn reset_records_3127(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn reset_visitor_positions(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3127)?;
     let mut c = Ctx::new(m);
     let bx = c.player().y;
@@ -1513,7 +1520,7 @@ pub fn setup_3093_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_03090`: `loc_098e6`, then [`setup_3093`].
-pub fn setup_3090(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn reset_dialogue_then_set_up_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3090)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -1799,8 +1806,8 @@ pub fn for_records_here_bp(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for_records_here(&mut Ctx::new(m), start, 0, |_| {})
 }
 
-/// `loc_040c3`: [`for_records_here`] with `sub_40c9`.
-pub fn for_records_here_40c9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_040c3`: [`for_records_here`] with `move_following_character`.
+pub fn move_party_here(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x40c3)?;
     for_records_here(&mut Ctx::new(m), start, 2, |c| c.set_reg(BP, 0x40c9))
 }
@@ -1810,7 +1817,7 @@ pub fn for_records_here_40c9(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `get_map_position`, `loc_05133`), DI = [1150h], CL = 1; else
 /// `loc_05124` and CL = 0. Then [11C5h] = DI, [11C8h] = CL and
 /// [`add_11c7`].
-pub fn place_4944(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn set_up_flight(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4944)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -1853,7 +1860,7 @@ pub fn place_4944(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_05124`: `loc_05133` for the map position and the place at DI
 /// (its words 2, 4 as DI, CX). DI kept.
-pub fn place_5124(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn head_for_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5124)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -1938,7 +1945,7 @@ pub fn start_message_57(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// the game rect copied; 1, picture 34h with message AX (`loc_0978e`,
 /// unless negative), the screen copied ([473Eh], [47A4h] set). [4728h]
 /// bit 0 set. Registers kept.
-pub fn show_screen_368b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn show_speaker_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x368b)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -2092,7 +2099,7 @@ pub fn leave_hotspot_mode(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(0x49d4, 0x445a)?;
         c.run(0x445a, 1)?;
     }
-    clear_flag_11ca(c.m, 0x4ac4)
+    release_travel(c.m, 0x4ac4)
 }
 
 /// `sub_46b5` (a frame task): the message's next character drawn (small
@@ -2156,7 +2163,7 @@ pub fn message_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_08347`: the 3 words at 11D5h moved down to 11D3h. SI, DI kept; ES
 /// = DS.
-pub fn shift_11d3(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn shift_followed_troop_note(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8347)?;
     let mut c = Ctx::new(m);
     c.run(start, 12)?;
@@ -2324,7 +2331,7 @@ pub fn draw_scene_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0e851`: AX = [39B9h] + 2F13h compared with [0CE68h] (flags).
-pub fn compare_39b9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn check_allocator_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe851)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
@@ -2496,7 +2503,7 @@ pub fn phase_30_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_040d5`: [23h] = 7, `loc_036d3`, `loc_04ac4`, then `loc_040e6`
 /// for the records here ([`for_records_here_bp`]).
-pub fn records_here_40e6(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn arrive_and_update_party(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x40d5)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -2513,7 +2520,7 @@ pub fn records_here_40e6(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// location [11C5h] past `location_kind_check` (CF), at a map place
 /// (`get_map_position`, `loc_0b532`) with bits 30h, `note_21fd_al` 40h
 /// ([23h] 4 the first time), and after the [4726h] countdown by 20h
-/// [46D9h] = 2; else [4726h] cleared and [`clear_21fd`].
+/// [46D9h] = 2; else [4726h] cleared and [`reset_desert_countdown`].
 pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4182)?;
     let mut c = Ctx::new(m);
@@ -2694,7 +2701,7 @@ pub fn event_10b(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `sub_1103`: `loc_029ee` with AX 4, then message 1409h ([`add_message`]).
-pub fn event_1409(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn on_phase_30(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1103)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -2706,7 +2713,7 @@ pub fn event_1409(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_03950`: [46D7h] = 0 and the frame task 3916h removed.
-pub fn stop_task_3916(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn stop_sky_fade(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3950)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -3023,7 +3030,7 @@ pub fn record_age_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_01771`: [477Ah] = AX, [4778h] = 0, [4774h] counted, `loc_0b2b9`,
 /// `loc_0ad5e`, [4776h] = ([46E0h], [4]); then the frame task 176Bh every
 /// 64h ticks.
-pub fn start_task_176b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn start_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1771)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
@@ -3178,8 +3185,8 @@ pub fn draw_dialogue_sprites(m: &mut Machine, start: u16) -> Result<(), Bail> {
     )
 }
 
-/// `loc_00a3e`: the frame task 0A16h removed.
-pub fn stop_task_0a16(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_00a3e`: the frame task 0A16h (`keep_framebuffer_0a23`) removed.
+pub fn stop_keep_framebuffer_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0a3e)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -3187,8 +3194,9 @@ pub fn stop_task_0a16(m: &mut Machine, start: u16) -> Result<(), Bail> {
     super::tasks::remove_frame_task(c.m, 0xda5f)
 }
 
-/// `loc_04d00`: the frame task 4BB9h removed.
-pub fn stop_task_4bb9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_04d00`: the frame task 4BB9h (the troops' alarm, started by
+/// `enemy_watch`) removed.
+pub fn stop_alarm_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4d00)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -3221,7 +3229,7 @@ pub fn set_current_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `sub_110f`: record FD8h's byte 10h set to 0Ah (word 12h 180h) unless
 /// it is 8; then message 280Ah ([`add_message`]).
-pub fn event_280a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn on_phase_34(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x110f)?;
     let mut c = Ctx::new(m);
     let k = c.character(1).x as u8;
@@ -3328,8 +3336,8 @@ pub fn bands_b4(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `sub_102f`: bit 80h of [124Ah] and [1247h] cleared, [121Dh] = FFFFh,
-/// then [`start_task_176b`] with AX 1321h.
-pub fn start_1321(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// then [`start_sequence`] with AX 1321h.
+pub fn on_phase_0c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x102f)?;
     let mut c = Ctx::new(m);
     c.run(start, 5)?;
@@ -3340,7 +3348,7 @@ pub fn start_1321(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_word(0x121d, 0xffff);
     c.set_reg(AX, 0x1321);
-    start_task_176b(c.m, 0x1771)
+    start_sequence(c.m, 0x1771)
 }
 
 /// `loc_01071`: the game set to phase 15h with record FD8h's state
@@ -3370,7 +3378,7 @@ pub fn start_phase_15(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0331e`: the location DI becomes the one talked about ([11CEh]):
 /// its fields copied to the condition variables (4Dh..54h, its 7 needs
 /// to 55h, the name's region by 1141h), `loc_033be`, `loc_034a5`, the
-/// needs with troops' skills (`skill_needs_46fe`) as a bit set in [53h],
+/// needs with troops' skills (`noted_location_skill_needs`) as a bit set in [53h],
 /// `loc_03385`, `loc_05274`. SI, DI kept.
 pub fn describe_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x331e)?;
@@ -3737,7 +3745,7 @@ pub fn event_place_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_00a23`: one step of the scene's video: in a cinematic ([227Dh])
 /// straight to the screen and [`hnm_do_frame`]; else on the front buffer
 /// `hnm_do_frame_and_check_if_frame_advanced`, and on a new frame
-/// `sub_c4dd` and the mouse ([`draw_mouse`]); CF clear when none.
+/// `update_game_area_on_screen` and the mouse ([`draw_mouse`]); CF clear when none.
 pub fn video_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0a23)?;
     let mut c = Ctx::new(m);
@@ -4017,7 +4025,7 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `sub_1027`: bit 80h of [122Eh] cleared, then the panel's buttons
 /// (`panel_buttons`).
-pub fn buttons_after_122e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn on_phase_08(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1027)?;
     let mut c = Ctx::new(m);
     super::screens::panel_buttons_at(&mut c, start, 2, |c| {
@@ -4029,7 +4037,7 @@ pub fn buttons_after_122e(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `sub_10a4`: bit 80h of [1245h] cleared, [1217h] FFFFh, then the panel's
 /// buttons.
-pub fn buttons_after_1245(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn on_phase_1c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x10a4)?;
     let mut c = Ctx::new(m);
     super::screens::panel_buttons_at(&mut c, start, 3, |c| {
@@ -4042,7 +4050,7 @@ pub fn buttons_after_1245(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_01188`: bit 80h of [1259h] cleared, [1211h] FFFFh, then the panel's
 /// buttons.
-pub fn buttons_after_1259(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn on_phase_54(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1188)?;
     let mut c = Ctx::new(m);
     super::screens::panel_buttons_at(&mut c, start, 3, |c| {
@@ -4722,7 +4730,7 @@ fn palette_after_2eb2(c: &mut Ctx) -> Result<(), Bail> {
 /// (`ui_comm`, ZF: none); [0C4h] up; twice the troops at the location BP
 /// (+9, chained by +1) with bit 80h of +10h are taken (+3 8Dh, `loc_084a6`,
 /// bit 10h of +10h cleared, `loc_08357`); the location DI flagged 2, its
-/// troops (`for_location_troops_8403`), the place records at 0FD8h (9 of
+/// troops (`alert_location_troops`), the place records at 0FD8h (9 of
 /// 10h) of the place BX moved to DX, the event 0Ch (0Dh for the troop
 /// 8E0h's location) noted (`call_29f0_f`); for the current place [6]
 /// its new id DX in [4] and [0Bh], [473Bh], [2Bh] and `note_battle_balance`, else
@@ -5285,7 +5293,7 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// and bit 3 of [12h] `loc_02566`, then each record here gets
 /// `scene_sentence` ([`for_records_here_bp`] with BP 3520h). In a map
 /// mode (stage [23h] 0): with a place [1152h] its encounters and watch,
-/// and for a stage the picked record (`pick_1152`) shown with its voice
+/// and for a stage the picked record (`pick_one_of_two_speakers`) shown with its voice
 /// after a wait of 4Bh, its sentence (`loc_096d8`) and record
 /// (`loc_03551`); without one the watch, and for a stage the scene 24h
 /// with the phrase BFh, the panel 1F9Eh (bit 40h) and its buttons.
@@ -6321,7 +6329,7 @@ fn figures_3a24(c: &mut Ctx) -> Result<(), Bail> {
 
 /// `loc_037eb`: the place's view (`loc_0380c`, `place_scene`) and the
 /// troops' watch (`loc_04d06`).
-pub fn place_view_37eb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn show_place_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x37eb)?;
     let mut c = Ctx::new(m);
     c.run(0x37eb, 1)?;
@@ -7388,18 +7396,16 @@ pub fn next_phase_unless_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(si);
     if f & 0x80 != 0 {
         c.run(start, 3)?; // test; jne; ret
-        c.test(B, f as u16, 0x80);
         return c.ret();
     }
     c.run(start, 5)?; // test; jne; inc [2Ah]; mov [0FFh], 0; call
     let p = c.byte(g::GAME_PHASE);
-    let p = c.inc(B, p as u16) as u8;
+    let p = pure::inc(B, p as u16) as u8;
     c.set_byte(g::GAME_PHASE, p);
     c.set_byte(0xff, 0);
     c.call(0xb17a, 0xa22a)?;
     let p = c.byte(g::GAME_PHASE);
     c.run(0xa22a, 3)?; // cmp; jne; ret | call
-    c.cmp(B, p as u16, 1);
     if p != 1 {
         return c.ret();
     }
@@ -7419,13 +7425,12 @@ pub fn next_phase_group_unless_done(m: &mut Machine, start: u16) -> Result<(), B
     let f = c.byte(si);
     if f & 0x80 != 0 {
         c.run(start, 3)?; // test; jne A234h; ret
-        c.test(B, f as u16, 0x80);
         return c.ret();
     }
     let p = c.byte(g::GAME_PHASE);
     c.run(start, 6)?; // test; jne; mov al; and; add; jmp
-    let al = c.and(B, p as u16, 0xfc);
-    let al = c.add(B, al, 4) as u8;
+    let al = pure::and(B, p as u16, 0xfc);
+    let al = pure::add(B, al, 4) as u8;
     c.set_reg8(r8::AL, al);
     c.jump(code::SET_GAME_PHASE)
 }

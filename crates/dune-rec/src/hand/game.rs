@@ -27,7 +27,7 @@ pub mod troop_state {
     pub const STARTED: u8 = 0x20;
     /// On its way: between places, at its own map position (words 6, 8),
     /// going to word 4. Set when it sets out (`troop_set_out`), cleared
-    /// when it arrives (`update_troop_83bc`).
+    /// when it arrives (`settle_arrived_troop`).
     pub const TRAVELLING: u8 = 0x40;
     /// Not a troop of yours.
     pub const NOT_A_TROOP: u8 = 0x80;
@@ -166,8 +166,8 @@ impl Troop {
 
 impl Troop {
     /// Byte 10h (word 10h's low byte): bit 80h sets it apart in the
-    /// tallies (`add_troop_strength`, `sum_troop_6155`) and raids; bit 10h marks
-    /// it for `troop_68da`.
+    /// tallies (`add_troop_strength`, `add_troop_to_balance`) and raids; bit 10h marks
+    /// it for `refresh_flagged_troop`.
     pub fn byte_10(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x10)
     }
@@ -228,7 +228,7 @@ impl Troop {
         self.set_word(c, 0x0c, v)
     }
     /// Word 0Eh: cleared with the rate when stamped; summed by
-    /// `sum_troop_6155`.
+    /// `add_troop_to_balance`.
     pub fn word_0e(self, c: &mut Ctx) -> u16 {
         self.word(c, 0x0e)
     }
@@ -393,7 +393,7 @@ impl Location {
         self.byte(c, 0)
     }
 
-    /// Byte 8: compared with 28h by `raid_troop_75af`; kept to its low
+    /// Byte 8: compared with 28h by `raid_rally_own_troop`; kept to its low
     /// three bits when the location is freed (`troop_day_update`).
     pub fn byte_08(self, c: &mut Ctx) -> u8 {
         self.byte(c, 8)
@@ -451,7 +451,7 @@ impl Location {
         self.set_byte(c, 0x14 + k, v)
     }
 
-    /// Byte 1Ah: tested by `set_job_6ad4` at [`Location`] 7C8h.
+    /// Byte 1Ah: tested by `set_troop_job` at [`Location`] 7C8h.
     pub fn byte_1a(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x1a)
     }

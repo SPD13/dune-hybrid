@@ -473,7 +473,7 @@ pub fn play_requested_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0adbe`: unless sound is off, music is on its own (bit 0 of the
 /// music settings) or [DBCDh] has bit 40h, the driver's function at
 /// 397Dh with AX = 12Ch, BX = 0; [DBCDh] = what it returns (BX kept).
-pub fn music_driver_397d(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn fade_out_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xadbe)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -510,7 +510,7 @@ pub fn music_driver_397d(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0acbf`: the 12h bytes at 37FAh (SS) shuffled (18 swaps of two
 /// random places 0..8, the third generator stirred by the timer). SI = them.
-pub fn shuffle_37fa(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn shuffle_music_playlist(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xacbf)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -611,7 +611,7 @@ pub fn voice_2_and_transition(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0ab92` (a frame task): `loc_0a9b9`; when `loc_0aba3` says done
 /// (ZF), `loc_0aded` and the task removes itself.
-pub fn voice_task_ab92(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn voice_stream_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xab92)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -752,7 +752,7 @@ pub fn transfer_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0ab45`: when `loc_0ae2f` finds a voice (not ZF), `loc_0ade0`
 /// (AX kept), then [`play_voice_19`].
-pub fn play_voice_after_ade0(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn play_voice_lowering_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xab45)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -1004,7 +1004,6 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let t0 = c.sound_state().picked_at;
     c.run(0xace9, 3 + 4 + 3)?;
     c.set_reg(AX, t0);
-    c.or(W, t0, t0);
     // The ticks, read (each time) right after a stretch of their
     // instruction alone (see `ticks.rs`).
     let base = if t0 == 0 {
@@ -1020,12 +1019,11 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xad0d, 1)?;
     let now = c.timer();
     let el = now.wrapping_sub(base);
-    let a = c.sub(W, base, now);
+    let a = pure::sub(W, base, now);
     c.set_reg(AX, a);
     c.run(0xad11, 3 + (el < 0xc8) as u32)?;
     let a = pure::neg(W, a);
     c.set_reg(AX, a);
-    c.cmp(W, a, 0xc8);
     if el < 0xc8 {
         return c.ret();
     }
@@ -1103,7 +1101,7 @@ fn music_start_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
 /// started, unless `loc_0aec6` refuses: in the sequence mode the next
 /// song of the list (while one runs), else the song from 375Ch by the
 /// situation: a plain one by the driver (far [3979h]), a marked one (bit
-/// 80h, low 6 bits) through [`music_driver_397d`] when it changes.
+/// 80h, low 6 bits) through [`fade_out_music`] when it changes.
 pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xad5e)?;
     let mut c = Ctx::new(m);
@@ -1152,7 +1150,7 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = v & 0x3f;
     let cur = c.sound_state().current_music;
     c.run(0xad66, 2 + 4 + 2 + 4 + if a == cur { 1 } else { 0 })?;
-    // A marked one, through `music_driver_397d` when it changes.
+    // A marked one, through `fade_out_music` when it changes.
     c.set_reg(BX, 0x375c);
     c.set_reg8(r8::AL, a);
     c.update_sound_state(|t| t.requested_music = a);
@@ -1160,7 +1158,7 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if a == cur {
         return c.ret();
     }
-    music_driver_397d(c.m, 0xadbe)
+    fade_out_music(c.m, 0xadbe)
 }
 
 /// From `loc_0ad18` (after `pre` instructions from `at` with `ops`):
@@ -1273,7 +1271,6 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return feed_a9b9(&mut c);
     }
     c.run(0xa7c5, 3)?;
-    c.cmp(W, k, 0);
     // The ticks, read right after a stretch of their `mov` alone (see
     // `ticks.rs`).
     c.run(0xa7d5, 1)?;
@@ -1287,12 +1284,10 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if dx & 0x8000 != 0 {
         c.run(0xa7d9, 9 + 1)?;
         frame_regs(&mut c, now, t_hi, t_lo, cx, si);
-        c.cmp(W, now, bx);
         return feed_a9b9(&mut c);
     }
     c.run(0xa7d9, 9)?;
     frame_regs(&mut c, now, t_hi, t_lo, cx, si);
-    c.cmp(W, now, bx);
     loop {
         c.run(0xa7f3, 2)?;
         let di = c.reg(DI);

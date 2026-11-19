@@ -130,9 +130,8 @@ fn decompress(c: &mut Ctx) -> Result<(), Bail> {
         let cx = c.inc(W, cx);
         c.set_reg(CX, cx);
         let iterations = c.reg(CX) as u32; // the `rep` below
-        c.run(0xf47a, 1 + iterations)?;
+        c.run(0xf47a, 1 + iterations + 3)?; // mov ds, bx; mov si, ax; jmp F435h
         c.rep_counted(0xa4); // rep movsb
-        c.run(0xf47c, 3)?; // mov ds, bx; mov si, ax; jmp F435h
         let ds = c.reg(BX);
         c.set_sreg(DS, ds);
         let si = c.reg(AX);
@@ -190,7 +189,7 @@ pub fn check_hsq_checksum(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 3)?;
         return c.ret();
     }
-    c.run(start, 12)?;
+    c.run(start, 30)?;
     let (cx, di, ds) = (c.reg(CX), c.reg(DI), c.sreg(DS));
     c.push(cx);
     c.push(di);
@@ -207,7 +206,6 @@ pub fn check_hsq_checksum(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let zero = pure::xor(W, ax, ax);
     c.set_reg(AX, zero);
     // The header's sum (lodsb; add ah, al; loop) × 6.
-    c.run(0xf3ea, 18)?;
     let mut sum = 0u16;
     for i in 0..6 {
         let b = c.lods(B, DS);
@@ -276,9 +274,8 @@ fn decomp_no_header(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(SI, si);
     c.set_reg(DI, di);
     let iterations = c.reg(CX) as u32; // the `rep` below
-    c.run(0xf429, 1 + iterations)?;
+    c.run(0xf429, 1 + iterations + 5)?;
     c.rep_counted(0xa5); // rep movsw, backwards
-    c.run(0xf42b, 5)?;
     c.set_flag(pc::cpu::DF, false);
     let di = c.reg(DI);
     let si = c.add(W, di, 2);

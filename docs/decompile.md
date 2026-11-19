@@ -337,7 +337,7 @@ entries and other short entries ending in a jump; then, 2026-11-12, the
 troop callbacks the location and raid routines pass in BP (yields, counts
 by job, raids, job changes), the map circle's two span handlers, a frame
 task, the dialogue state and portrait, short entries; then the video
-scenes: the chapter video `sub_b1ee`, the worm-suit video, the SAL
+scenes: the chapter video `play_chapter_video`, the worm-suit video, the SAL
 scenes, the video with a callback in BP (`loc_0c8fb`) and its frame
 step, the room's video steps, the dialogue state's charisma step and
 scene table, an intro scene selector; the timer waits and the PIT's

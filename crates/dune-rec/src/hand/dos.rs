@@ -211,7 +211,7 @@ pub fn ems_copy(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let below = room < cx;
         let n = if below { room } else { cx };
         // (The two `rep` copies' iterations counted in the `run`s.)
-        c.run(at(0x1b), 7 + !below as u32 + 3 + (n >> 1) as u32)?;
+        c.run(at(0x1b), 7 + !below as u32 + 3 + (n >> 1) as u32 + 2 + (n & 1) as u32)?;
         let frame = c.word_in(CS, 0xed3c);
         c.set_sreg(seg, frame);
         c.set_reg(DX, cx);
@@ -220,7 +220,6 @@ pub fn ems_copy(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let h = c.shr1(W, n, 1); // the odd byte: the `adc` reads its CF
         c.set_reg(CX, h);
         c.rep_counted(0xa5);
-        c.run(at(0x35), 2 + (n & 1) as u32)?;
         let cl = c.adc(B, 0, 0);
         c.set_reg(CX, cl);
         c.rep_counted(0xa4);
@@ -1282,7 +1281,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     c.set_word(g::DUNE_DAT_HANDLE, ax);
     c.call(0xe741, 0xe6ac)?;
-    c.run(0xe6ac, 10 + 0x14d)?; // the `rep` iterations too
+    c.run(0xe6ac, 10 + 0x14d + 4)?; // the `rep` iterations too
     let di = c.reg(DI);
     c.set_reg(SI, di);
     let es = c.sreg(ES);
@@ -1297,7 +1296,6 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0x14d);
     c.set_reg8(r8::AL, 0xff);
     c.rep_counted(0xaa);
-    c.run(0xe6c7, 4)?;
     let di = c.reg(DI);
     c.set_word(0xd820, di);
     let ds = c.sreg(DS);

@@ -17,7 +17,7 @@ mod code {
 
 /// `loc_096b5`: a dialogue step ([`code::DIALOGUE_STEP`]) on the phrase
 /// at [AB84h], with the mode 80h and character 10h for the while (both kept).
-pub fn step_phrase_ab84(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn say_phase_change_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x96b5)?;
     let mut c = Ctx::new(m);
     c.run(start, 6)?;
@@ -101,7 +101,7 @@ pub fn clear_text_state(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_09945`: the frame task `loc_099be` every 10h ticks.
-pub fn add_task_99be(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn add_two_heads_text_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9945)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -114,7 +114,7 @@ pub fn add_task_99be(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_09985`: `two_heads_text_step` until the low 3 bits of [47CEh]
 /// are 0.
-pub fn finish_99be(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn finish_two_heads_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9985)?;
     let mut c = Ctx::new(m);
     loop {
@@ -128,7 +128,7 @@ pub fn finish_99be(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_09ef1`: `loc_09efd` with [`g::TALKING`] = AL for the while.
-pub fn with_talking_9efd(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn start_text_voice_talking(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9ef1)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -143,7 +143,7 @@ pub fn with_talking_9efd(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_09f1c`: the lip sync set up (`setup_lip_sync_data_from_current`),
 /// bit 10h of [47D1h], a random sentence (`random_sentence`), then its
 /// strings skipped (`skip_strings` with AH 0), SI noted at [47C6h].
-pub fn start_9f1c(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn start_random_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9f1c)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -1701,7 +1701,7 @@ pub fn close_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// talking ([`g::TALKER`] not FFFFh, AX): `loc_091a0`, `start_dialogue_text`,
 /// the box 1BE2h (`loc_0c477`) while [`g::BOX_SHOWN`], the text frame
 /// ([47C8h]: [4540h] 0, `redraw_dialogue_frame`; `loc_09025` for the box
-/// 223Ch); then the palette (`loc_0c0f4`) and [`sub_c4dd`]. Callers read
+/// 223Ch); then the palette (`loc_0c0f4`) and [`update_game_area_on_screen`]. Callers read
 /// the flags.
 pub fn redraw_dialogue_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x978e)?;
@@ -1739,7 +1739,7 @@ pub fn redraw_dialogue_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(0xc0f4, 0x97cb)?;
     c.run(0x97cb, 1)?;
-    super::draw::sub_c4dd(c.m, 0xc4dd)
+    super::draw::update_game_area_on_screen(c.m, 0xc4dd)
 }
 
 /// `loc_099da` (a frame task): the dialogue text's next step, after the
@@ -1871,7 +1871,7 @@ pub fn dialogue_text_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_080df`: a phrase AX shown over the map: on the back buffer
-/// `gfx_draw_1be2`, the box 2244h raised (y + 26h from 32h, height 19h;
+/// `draw_text_box_frame`, the box 2244h raised (y + 26h from 32h, height 19h;
 /// both restored after), the tall font colour, [`show_phrase`]; outside
 /// [4774h] the voice's phrase [4780h] += 10Ah + [0D810h] and `loc_09efd`;
 /// front buffer, [4720h] 18F3h, [4722h] 0, `loc_0541f`, [1BEAh] 0.
@@ -1974,7 +1974,7 @@ pub fn show_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_09efd`: the voice for the text: [47DDh] = [`g::TALKING`]; when
 /// `load_voc_and_lipsync_data` (AX [4780h], BX [`g::TALKER`]) starts one
-/// (CF): `start_9f1c` for a character below 10h, the lip sync set up
+/// (CF): `start_random_sentence` for a character below 10h, the lip sync set up
 /// (`setup_lip_sync_data_from_current`), the lip-sync task A7C2h
 /// (`add_frame_task`, BP 0), [0DC2Bh] 1, the driver's voice start (far
 /// [3991h] with SI 3811h), [0DC2Ch] the time (AX), [0DC2Eh] 8000h, and
@@ -2366,7 +2366,7 @@ fn text_redraw_9840(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x9843, 1)?;
     c.call(0xc43e, 0x9846)?;
     c.run(0x9846, 1)?;
-    super::draw::sub_c4dd(c.m, 0xc4dd)
+    super::draw::update_game_area_on_screen(c.m, 0xc4dd)
 }
 
 /// From 9858h: the dialogue state cleared (the kept head sprites, the
@@ -2411,7 +2411,7 @@ fn line_end_9858(c: &mut Ctx) -> Result<(), Bail> {
 }
 
 /// From 9879h: the view back: `loc_02efb`, with the head not held
-/// `setup_3090`, `loc_037b2`, the buffers and palette, `gfx_call_25`,
+/// `reset_dialogue_then_set_up_place`, `loc_037b2`, the buffers and palette, `gfx_call_25`,
 /// `loc_0c4dd`, the head up.
 fn view_back_9879(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x9879, 1)?;
@@ -2851,7 +2851,7 @@ pub fn say_entry_mask_20(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0b039`: the book page for the entry at CS:[[`BOOK_PAGE`]]: [0C6h]
 /// bits 1, 2 cleared; into the text buffer (`append_at`) the heading
-/// (`find_in_2426` code's top 5 bits + F3h) and the entry's phrase (its
+/// (`find_chapter_video` code's top 5 bits + F3h) and the entry's phrase (its
 /// record at AA7Ah + 4 · low 11 bits, kept in [477Ch]); the text ended
 /// and shown, its frame (2408h), the portrait; a mark (sprite 4 of 32h)
 /// when the text ends above 8Ah; except on the first page (AAh) the
@@ -3310,7 +3310,7 @@ pub fn speaker_list_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xd316, 0x911d)?;
     c.run(0x911d, 2)?;
     c.set_reg(BX, 0x97cf);
-    super::cursor::install_ui_list_d338(c.m, 0xd338)
+    super::cursor::install_ui_list_unhighlighted(c.m, 0xd338)
 }
 
 /// `loc_09215`: a click in the dialogue: in the action list 1F0Eh (the
@@ -4158,7 +4158,7 @@ pub fn draw_talking_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // The list kept (`rep movsb` of its count word and 3 bytes a sprite,
     // counted in the `run`).
     let size = count.wrapping_mul(3).wrapping_add(2);
-    c.run(start, 11 + size as u32)?;
+    c.run(start, 11 + size as u32 + 3)?;
     let ds = c.sreg(DS);
     c.push(ds);
     let es = c.pop();
@@ -4169,7 +4169,6 @@ pub fn draw_talking_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, count);
     c.set_reg(CX, size);
     c.rep_counted(0xa4);
-    c.run(0x9d2c, 3)?;
     let list = c.pop();
     c.set_reg(SI, list);
     let count = c.lods(W, DS);
@@ -4349,7 +4348,7 @@ fn book_8ff5(c: &mut Ctx) -> Result<(), Bail> {
 /// inverse of [0FBh]'s bit 7).
 fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
     use pc::cpu::ES;
-    c.run(0x900b, 6 + 0x5960)?; // the `rep` iterations too
+    c.run(0x900b, 6 + 0x5960 + 4)?; // the `rep` iterations too
     c.set_reg(DI, 0x4c60);
     c.set_reg(CX, 0x5960);
     let ds = c.sreg(DS);
@@ -4358,7 +4357,6 @@ fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
     c.set_sreg(ES, v);
     c.set_reg8(r8::AL, 0);
     c.rep_counted(0xaa);
-    c.run(0x9017, 4)?;
     c.set_reg(AX, 0x4c60);
     c.set_word(g::TEXT_SHEET, 0x4c60);
     c.call(0xc085, 0x9022)?;
@@ -4383,7 +4381,7 @@ fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
 
 /// `loc_0a172`: by [`g::TALKER`] (AX): 1 counts at [0F5h]; 3 goes on into
 /// `loc_024a3`; others return.
-pub fn dialogue_state_a172(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn note_remark_by_talker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa172)?;
     let mut c = Ctx::new(m);
     let talker = c.conversation().talker;
@@ -4408,7 +4406,7 @@ pub fn dialogue_state_a172(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// meanwhile `loc_05b99` (22F4h, 46E3h), `loc_05b93`, `loc_0b6c3`,
 /// `loc_0c137`, `loc_05dce`, `loc_062fe` (SI the person); last
 /// `loc_0c477` with 22ECh.
-pub fn portrait_a28e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn show_person_on_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa28e)?;
     let mut c = Ctx::new(m);
     let late = c.conversation().talker >= 0x0e;
@@ -4439,7 +4437,7 @@ pub fn portrait_a28e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xa2bb, 2)?;
     c.set_reg(SI, 0x22e4);
     c.call(0xc21b, 0xa2c1)?;
-    c.run(0xa2c1, 8 + 0x2a80)?; // the `rep` iterations too
+    c.run(0xa2c1, 8 + 0x2a80 + 6)?; // the `rep` iterations too
     // `std; rep movsb`: the picture moved up, from its end down.
     let picture = c.word(g::TEXT_SHEET);
     c.set_reg(SI, picture.wrapping_add(0x2a80));
@@ -4451,7 +4449,6 @@ pub fn portrait_a28e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, es);
     c.set_flag(pc::cpu::DF, true);
     c.rep_counted(0xa4);
-    c.run(0xa2d2, 6)?;
     c.set_flag(pc::cpu::DF, false);
     let moved = c.reg(DI).wrapping_add(1);
     c.set_reg(DI, moved);
@@ -4488,7 +4485,7 @@ pub fn portrait_a28e(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// charisma step: with bit 2 of [0Ah], charisma 28h more (6F78h, AL)
 /// and AX -32h; else with [`g::REACH`] 1, charisma 0Ah more and AX 0Ah;
 /// else AX [`g::REACH`]. Then [`charisma_tail`].
-pub fn dialogue_state_a125(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn reward_talk_by_talker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa125)?;
     let mut c = Ctx::new(m);
     let talker = c.conversation().talker;
@@ -4565,8 +4562,9 @@ fn charisma_tail(c: &mut Ctx, ax: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0a244`: [`dialogue_scene_a25b`]'s set-up with AL 0.
-pub fn dialogue_scene_a244(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0a244` (dialogue action 3 of the table at A107h): the answer choice offered
+/// ([476Dh] 0, [`g::ANSWER`] 0, UI list 1FFEh), then [`find_scene_voice_entry`].
+pub fn offer_answers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa244)?;
     let mut c = Ctx::new(m);
     c.run(0xa244, 2 + 5)?;
@@ -4574,8 +4572,8 @@ pub fn dialogue_scene_a244(m: &mut Machine, start: u16) -> Result<(), Bail> {
     scene_setup_a24a(&mut c)
 }
 
-/// `loc_0a248`: [`dialogue_scene_a25b`]'s set-up with AL 1.
-pub fn dialogue_scene_a248(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0a248` (dialogue action 4): as [`offer_answers`] with [476Dh] 1.
+pub fn offer_answers_flagged(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa248)?;
     let mut c = Ctx::new(m);
     c.run(0xa248, 1 + 5)?;
@@ -4585,7 +4583,7 @@ pub fn dialogue_scene_a248(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// A24Ah-A258h (counted by the caller): [476Dh] AL, [9Fh] 0,
 /// `loc_0d323` with BP 1FFEh and BX 0F66h, then on into
-/// [`dialogue_scene_a25b`] (its return address).
+/// [`find_scene_voice_entry`] (its return address).
 fn scene_setup_a24a(c: &mut Ctx) -> Result<(), Bail> {
     let al = c.reg8(r8::AL);
     c.set_byte(0x476d, al);
@@ -4601,12 +4599,12 @@ fn scene_setup_a24a(c: &mut Ctx) -> Result<(), Bail> {
 /// found, [47E1h] = 0A01h (BH 10h for an entry whose next word is 38h)
 /// with BH up by 4 x [47D0h] - 2 for [47D0h] from 1, and [47E4h] the
 /// entry's next word's place. SI kept, ES = DS.
-pub fn dialogue_scene_a25b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn find_scene_voice_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa25b)?;
     scene_at_a25b(&mut Ctx::new(m))
 }
 
-/// The search of [`dialogue_scene_a25b`].
+/// The search of [`find_scene_voice_entry`].
 fn scene_at_a25b(c: &mut Ctx) -> Result<(), Bail> {
     let scene = c.phrase().voice;
     let step = c.string_step(W);

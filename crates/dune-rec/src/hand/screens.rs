@@ -294,7 +294,7 @@ pub fn draw_element_pressed(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0d741`: for [1B0Ch] 3..5, the rect at 2458h drawn by the driver
 /// (function at 38DDh) in colour F0h on the screen buffer.
-pub fn draw_rect_2458(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_panel_button_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd741)?;
     let mut c = Ctx::new(m);
     let v = c.word(0x1b0c);
@@ -561,13 +561,13 @@ pub fn element_under_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0301a`: the buttons from 1D1Eh (see [`set_buttons`]).
-pub fn set_buttons_1d1e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn set_mode_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x301a)?;
     set_buttons(&mut Ctx::new(m), start, 2, |c| c.set_reg(SI, 0x1d1e))
 }
 
 /// `loc_03901`: the frame task `loc_03916` every 10h ticks.
-pub fn add_task_3916(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn start_sky_fade_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3901)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -1200,7 +1200,7 @@ pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ct
 
 /// `loc_0445d`: the map pointer re-placed: its blink task removed; at the
 /// map position (`get_map_position`) inside the view (not
-/// `outside_view_after_b647`) the pointer sprite 4Ch's box at 4749h (x
+/// `map_point_outside_view`) the pointer sprite 4Ch's box at 4749h (x
 /// less 0Dh, y less its height; right and bottom by its size), the blink
 /// task back (every 12Ch) and the first blink ([`blink_map_pointer`]
 /// with [4751h] 0); outside it [4749h] 0.
@@ -1312,8 +1312,8 @@ pub fn unwind_and_fade(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_02ebf`: the UI list [2220h] installed with the handler F66h
-/// (`install_ui_list_d338`).
-pub fn install_list_2220(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// (`install_ui_list_unhighlighted`).
+pub fn install_current_ui_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2ebf)?;
     let mut c = Ctx::new(m);
     list_2220_at(&mut c)
@@ -1324,12 +1324,12 @@ fn list_2220_at(c: &mut Ctx) -> Result<(), Bail> {
     let bp = c.word(0x2220);
     c.set_reg(BP, bp);
     c.set_reg(BX, 0x0f66);
-    super::cursor::install_ui_list_d338(c.m, 0xd338)
+    super::cursor::install_ui_list_unhighlighted(c.m, 0xd338)
 }
 
 /// `loc_02eb2`: the place's panel back: with [4774h] `loc_0301a`, the
 /// dialogue reset and the list [2220h]; else the place's actions
-/// (`loc_02e98` for [114Eh], `loc_02efb`, `setup_3090` outside the map
+/// (`loc_02e98` for [114Eh], `loc_02efb`, `reset_dialogue_then_set_up_place` outside the map
 /// modes), the buttons, `loc_0d763` and the action list 1F0Eh installed.
 /// Bails when the mouse is low (y from 74h: the original then returns
 /// through `draw_mouse`).
@@ -1378,7 +1378,7 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x2ef2, 3)?;
     c.set_reg(BP, 0x1f0e);
     c.set_reg(BX, 0x0f66);
-    super::cursor::install_ui_list_d338(c.m, 0xd338)?;
+    super::cursor::install_ui_list_unhighlighted(c.m, 0xd338)?;
     if hide && c.m.cpu.ip == 0xdbec {
         return super::mouse::draw_mouse(c.m, 0xdbec);
     }
@@ -1391,7 +1391,7 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (the buttons, `loc_02ffb`, follow). At a place ([6] 80h): its first action 220Ch;
 /// in a palace (place 1) the talk entries 2218h.. and 2214h (off from
 /// phase 4Fh) in a dialogue, else 21DCh (off without [46FFh], after
-/// `skill_needs_46fe`); at a sietch (BH 1) with troops [0C8h] in the
+/// `noted_location_skill_needs`); at a sietch (BH 1) with troops [0C8h] in the
 /// eighth place the troop entries (21E8h: [1248h] the phrase 27h / 26h /
 /// 28h with [47A9h], off when [0C9h] is 0; the next off when [0C9h]
 /// reaches [0C8h]), in the ninth 21F0h; then 21F4h. Elsewhere outside the

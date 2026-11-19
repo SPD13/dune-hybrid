@@ -79,14 +79,11 @@ pub fn get_location_type_string_offset(m: &mut Machine, start: u16) -> Result<()
     c.ret()
 }
 
-/// `sub_01e0`: stores DI, DX, BX at +4, +6, +8 of the record at SI, then
-/// sets its byte +12h from the kind (low nibble of [DI]): bits 4..6 kept,
-/// bit 7 flipped once for each of 3, 5 and 9 the kind is above, and the
-/// kind in the low nibble.
-///
-/// Exit: AX = (bits 4..6 and the flips) << 8 | the new byte. Flags from the
-/// final `or`.
-pub fn sub_01e0(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_01e0` (BP of the start-up loop at 01CBh, for each troop SI of the location DI):
+/// its location DI and position (DX, BX) at +4, +6, +8; byte 12h from the location's
+/// kind (low nibble of [DI]): bits 4..6 kept, bit 7 flipped once for each of 3, 5 and 9
+/// the kind is above. AX that, flags from the final `or`.
+pub fn place_troop_at_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x01e0)?;
     let mut c = Ctx::new(m);
     c.check(start, 18)?;
@@ -156,9 +153,9 @@ pub fn get_map_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_40c9`: moves the object at SI to (DX, BX) if its flag 40h (byte
-/// +0Fh) is set. Flags from the `test`.
-pub fn sub_40c9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_40c9` (BP of `loc_040c3`, for each character SI, from 0FD8h): moved to (DX, BX)
+/// if its flag 40h (byte 0Fh) is set. Flags from the `test`.
+pub fn move_following_character(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x40c9)?;
     let mut c = Ctx::new(m);
     let si = c.reg(SI);
@@ -173,10 +170,10 @@ pub fn sub_40c9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_5082`: counts the location at SI: CX += 1 if its bit 80h at +10h
-/// is set, else DX += 1 if its byte +3 is 6; nothing if bit 20h of +3 is
-/// set. Flags from the last test, compare or `inc`.
-pub fn sub_5082(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_5082` (BP of `loc_05098`, for each troop SI): nothing if started (bit 20h of
+/// byte 3); CX += 1 for a Harkonnen troop (bit 80h of byte 10h), else DX += 1 for byte 3
+/// exactly 6. Flags from the last test, compare or `inc`.
+pub fn count_troop_sides(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5082)?;
     let mut c = Ctx::new(m);
     c.check(start, 8)?;

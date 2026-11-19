@@ -4,6 +4,6 @@
 # form back. One `FILE FUNCTION` a line.
 ui.rs head_blink
 ui.rs scene_24
-tails.rs palace_plan_18ee
+tails.rs ui_draw_palace_plan
 globe.rs set_globe_tilt_and_rotation
 globe.rs globe_or_map_list

@@ -524,9 +524,9 @@ pub fn find_last_numeric_digit(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.ret()
 }
 
-/// `sub_c827`: skips the zero words at SI (at most CX): AX = 0 and BX past
+/// `skip_zero_words`: skips the zero words at SI (at most CX): AX = 0 and BX past
 /// the first non-zero one, or AX = FFFFh if none. Flags from the `dec`.
-pub fn sub_c827(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn skip_zero_words(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc827)?;
     let mut c = Ctx::new(m);
     loop {
@@ -600,9 +600,9 @@ pub fn lowest_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `sub_b23f`: a cleared screen with the 12h UI elements at 1AE6h,
+/// `redraw_frieze_screen`: a cleared screen with the 12h UI elements at 1AE6h,
 /// `sub_d397`, `sub_b039`; then [479Eh] = 0.
-pub fn sub_b23f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn redraw_frieze_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb23f)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -644,9 +644,8 @@ pub fn handle_ctrl_v_once(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, es);
     c.set_reg(CX, 0x0a);
     let iterations = c.reg(CX) as u32; // the `rep` below
-    c.run(0xb27c, 1 + iterations)?;
+    c.run(0xb27c, 1 + iterations + 5)?;
     c.rep_counted(0xa5); // rep movsw
-    c.run(0xb27e, 5)?;
     let di = c.reg(DI);
     c.set_word(g::CTRL_V_TABLE_END, di);
     let ax = c.reg(AX);

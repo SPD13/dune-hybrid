@@ -96,11 +96,11 @@ pub fn ui_draw_book_turning_page(m: &mut Machine, start: u16) -> Result<(), Bail
     super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
 }
 
-/// `sub_b1ee`: the chapter video: palette 2 to 1, MIDI function 2, a
+/// `play_chapter_video`: the chapter video: palette 2 to 1, MIDI function 2, a
 /// voice flag, transition 34h to B236h (which loads it), then plays it to
 /// its end or a key (no pause meanwhile); closes it, stops the voice,
 /// palette function 37, transition 34h to B23Fh, the frame copied.
-pub fn sub_b1ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn play_chapter_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb1ee)?;
     let mut c = Ctx::new(m);
     c.interp(0xb1ee, 0xb1f2)?;
@@ -150,9 +150,9 @@ pub fn sub_b1ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
     super::sound::set_voc_pcm_is_not_playing(c.m, 0xabc6)
 }
 
-/// `sub_b236`: a cleared screen, then video [243Eh] opened at its first
+/// `load_chapter_video`: a cleared screen, then video [243Eh] opened at its first
 /// frame.
-pub fn sub_b236(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn load_chapter_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb236)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -193,12 +193,12 @@ pub fn ui_stats_draw_ingame_day_and_charisma(m: &mut Machine, start: u16) -> Res
     super::text::font_draw_phrase_list(c.m, 0xd1a6)
 }
 
-/// `sub_be57`: the result bars (a globe frame task): each of the 6 bars at
+/// `animate_result_bars`: the result bars (a globe frame task): each of the 6 bars at
 /// DD11h moves one step toward its target (at +6, up to 1Eh high), drawn
 /// at its place (24EEh) with sprites 37h/38h and 39h on top; a bar at its
 /// target gets its letter (116Ah, small font, colour 3Fh or 25h). On the
 /// screen.
-pub fn sub_be57(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn animate_result_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xbe57)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -646,9 +646,9 @@ pub fn stat_5_digits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     })
 }
 
-/// `loc_0bd00`: `sub_c0d5` with AX = 0, CX = 0Ah on the rect at DD06h
+/// `loc_0bd00`: `transition_front_buffer_to_screen` with AX = 0, CX = 0Ah on the rect at DD06h
 /// grown by 1 on each side (back after).
-pub fn grown_rect_c0d5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn transition_bordered_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xbd00)?;
     let mut c = Ctx::new(m);
     c.run(start, 8)?;

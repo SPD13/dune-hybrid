@@ -197,7 +197,7 @@ twice per lift.
      validation.
    - Video scenes (2026-11-12): checked in real play with `REC_ONLY` and
      `REC_BUDGET` raised, and from the test saves (`--save`, `load:1`;
-     Day 10, 13 and 23). Two port bugs found that way: `sub_b1ee` counted
+     Day 10, 13 and 23). Two port bugs found that way: `play_chapter_video` counted
      one instruction too many, and `loc_0a25b` skipped the stack write of
      `push ds; pop es`. `loc_01566` and `loc_0491c` stay out (no run
      reaches them).

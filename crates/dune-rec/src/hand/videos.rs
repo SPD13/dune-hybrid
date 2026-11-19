@@ -13,8 +13,8 @@ use pc::{
     rec::Bail,
 };
 
-/// `loc_00e66`: `loc_0ad5e`, then [`video_0e6c`] with AX 0Ch.
-pub fn video_0e66(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_00e66`: `loc_0ad5e`, then [`play_video_lowering_head`] with AX 0Ch.
+pub fn play_comm_device_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0e66)?;
     let mut c = Ctx::new(m);
     c.run(0x0e66, 1)?;
@@ -26,7 +26,7 @@ pub fn video_0e66(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_00e6c`: `lip_sync_stop` (AX kept), BP 181Eh, then on into
 /// `loc_0c8fb`.
-pub fn video_0e6c(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn play_video_lowering_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0e6c)?;
     video_at_0e6c(&mut Ctx::new(m))
 }
@@ -44,7 +44,7 @@ fn video_at_0e6c(c: &mut Ctx) -> Result<(), Bail> {
 }
 
 /// `loc_04abe`: `loc_037f4`, `loc_0c4dd`, then [11CAh] 0.
-pub fn tail_4abe(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn redraw_flight_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4abe)?;
     let mut c = Ctx::new(m);
     c.run(0x4abe, 1)?;
@@ -61,7 +61,7 @@ pub fn tail_4abe(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// after each other (ending too when that gives NZ); on into
 /// `loc_0c07c`.
 #[allow(dead_code)]
-pub fn video_491c(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn play_night_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x491c)?;
     let mut c = Ctx::new(m);
     c.run(0x491c, 1)?;
@@ -92,7 +92,7 @@ pub fn video_491c(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_037f4`: [4728h] 0, `loc_04988`, `loc_04a5a`, the first frame of
 /// HNM [`g::FLIGHT_VIDEO`] (`hnm_load_first_frame`), the far routine at [3959h], then
 /// on into `set_sky_palette`.
-pub fn room_37f4(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_flight_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x37f4)?;
     let mut c = Ctx::new(m);
     c.run(0x37f4, 2)?;
@@ -112,7 +112,7 @@ pub fn room_37f4(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_01566`: with [227Dh] up by one meanwhile, `loc_0e353` with BP
 /// 1556h and AX 10h until [46D7h], counted down each time, reaches 0.
 #[allow(dead_code)]
-pub fn repeat_1566(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn cinematic_fade_loop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1566)?;
     let mut c = Ctx::new(m);
     c.run(0x1566, 1)?;
@@ -142,7 +142,7 @@ pub fn repeat_1566(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// buffer (`loc_0c4dd`, the palette), then five times: a frame advanced,
 /// then transition 3Ch to 1797h; the video closed, the frame copied, on
 /// into `ui_head_animate_down`.
-pub fn video_0e77(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn play_wormsuit_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0e77)?;
     let mut c = Ctx::new(m);
     c.run(0x0e77, 1)?;
@@ -190,7 +190,7 @@ pub fn video_0e77(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// palette), the callback BP called, then played to its end: each frame
 /// that advanced shown (`loc_0c4dd`, `loc_0ace6`); the frame copied, on
 /// into `hnm_close_resource`.
-pub fn video_c8fb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn play_video_with_callback(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc8fb)?;
     let mut c = Ctx::new(m);
     c.run(0xc8fb, 1)?;
@@ -235,7 +235,7 @@ pub fn video_c8fb(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (2796h/2798h by BP, not below 0) by the far routine at SS:[3949h] (ES
 /// [0DBD8h], DS [0DBD6h]); then a wait until [0CE7Ah] has moved
 /// [0DBE6h] ticks on from its value at the start. BX and DX kept.
-pub fn frame_wait_c8c1(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_video_sprite_and_wait(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc8c1)?;
     let mut c = Ctx::new(m);
     let (bx, dx, bp) = (c.reg(BX), c.reg(DX), c.reg(BP));
@@ -294,7 +294,7 @@ pub fn frame_wait_c8c1(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// room is drawn on the back buffer and copied, voice 7, `loc_047fb` with
 /// CL FFh, [4731h] 0. Then (not for the still scene) [46E0h] down by one;
 /// [4732h] 0, on into `open_SAL_resource`.
-pub fn sal_scene_488a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn play_sal_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x488a)?;
     let mut c = Ctx::new(m);
     c.run(0x488a, 3)?;
@@ -405,7 +405,7 @@ fn sal_end(c: &mut Ctx) -> Result<(), Bail> {
 /// (`loc_01ac5`), [`g::SHIPMENT_READY`] cleared; then the shipment's
 /// scene: transitions, waits, the fading frames (`loc_0e353` with BP
 /// A44h and 26ACh), voices and music, on into `loc_02773`.
-pub fn ship_spice_2566(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn ship_spice_to_emperor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{DX, ES};
     entered(start, 0x2566)?;
     let mut c = Ctx::new(m);

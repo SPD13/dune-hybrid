@@ -334,22 +334,19 @@ pub fn head_down_from_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let voice = c.byte(g::VOICE_LANGUAGE);
     if voice != 0 {
         c.run(start, 3)?; // cmp; jne 181Dh; ret
-        c.cmp(B, voice as u16, 0);
         return c.ret();
     }
     let step = c.situation().head_animation_step;
     if step == 0 {
         c.run(start, 5)?; // cmp; jne; cmp; je 181Dh; ret
-        c.cmp(B, 0, 0);
         return c.ret();
     }
     c.run(start, 6)?; // cmp; jne; cmp; je; mov [0CE66h], 1; call
-    c.cmp(B, step as u16, 0);
     c.set_byte(0xce66, 1);
     c.call(0x181e, 0x1819)?;
     let k = c.byte(0xce66);
     c.run(0x1819, 2)?; // dec [0CE66h]; ret
-    let k = c.dec(B, k as u16) as u8;
+    let k = pure::dec(B, k as u16) as u8;
     c.set_byte(0xce66, k);
     c.ret()
 }

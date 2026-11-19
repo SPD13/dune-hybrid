@@ -197,11 +197,10 @@ pub fn add_room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// The room animation's frame task.
 const ROOM_ANIMATION_TASK: u16 = 0xc0b6;
 
-/// `loc_0391d` (a frame task): the far routine at [3951h] with AL
-/// [46D7h] (AX kept), CX 1C5h, BX DBh ([22E3h] set) or CX F0h, BX 180h;
-/// then, unless [227Dh], again with CX 30h, BX 2D0h. [46D7h] - 1; at 0
-/// the task (SI 3916h) removed (`remove_frame_task`).
-pub fn task_391d(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0391d` (the body of `sky_fade_task`): the sky palette one step faded by the
+/// driver (far [3951h], AL [46D7h]): the top rows (1C5h from DBh, or F0h from 180h at
+/// night), then unless [227Dh] the band 30h at 2D0h; [46D7h] - 1, at 0 the task removed.
+pub fn sky_fade_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x391d)?;
     let mut c = Ctx::new(m);
     let flag = c.byte(g::SKY_VARIANT);

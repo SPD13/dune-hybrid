@@ -32,7 +32,7 @@ pub fn draw_stars(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `intro_load_desert_flyover_video` (06CE) and
 /// `intro_desert_flight_to_sietch` (06D3): video 10h / 11h opened at
 /// 06F3h.
-pub fn intro_video_06f3(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn intro_open_desert_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = match start {
         0x06ce => 0x10,
         0x06d3 => 0x11,
@@ -106,8 +106,8 @@ pub fn ui_click_room_left(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(0x3f27)
 }
 
-/// `loc_0d239`: CH 2, on at D23Fh.
-pub fn ch2_d23f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0d239`: CH 2, then (D23Fh) the UI element list 1AF4h nudged toward phase CH (its +0Ah mod 3), two steps of 1 with the date and time redrawn (`fade_panel`'s helper).
+pub fn step_time_panel_to_phase_2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd239)?;
     let mut c = Ctx::new(m);
     c.run(0xd239, 2)?;
@@ -116,7 +116,7 @@ pub fn ch2_d23f(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0b024`: DH FFh, `loc_0b1af`, then BP AF43h into `loc_0b02c`.
-pub fn b1af_b024(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn book_turn_page_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb024)?;
     let mut c = Ctx::new(m);
     c.run(0xb024, 2)?;
@@ -127,8 +127,8 @@ pub fn b1af_b024(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(0xb02c)
 }
 
-/// `loc_0b2aa`: `loc_0b2b9`, then the screen B2B3h pushed (`loc_0d323`).
-pub fn screen_b2aa(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0b2aa`: the clock stopped (`loc_0b2b9`), then the screen BP pushed with the return B2B3h (`loc_0d323`); the save and load menus (BP 207Ah, 208Ah) come here.
+pub fn stop_clock_and_push_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb2aa)?;
     let mut c = Ctx::new(m);
     c.run(0xb2aa, 1)?;
@@ -139,7 +139,7 @@ pub fn screen_b2aa(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_01860`: unless [11C9h], `loc_01843` then `loc_0186b`.
-pub fn frieze_1860(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn blink_and_toggle_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1860)?;
     let mut c = Ctx::new(m);
     let f = c.travel().screen_kind;
@@ -151,9 +151,9 @@ pub fn frieze_1860(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(0x186b)
 }
 
-/// `loc_06acb`: the troop SI takes the job CL (`set_job_6ad4`) unless it
+/// `loc_06acb`: the troop SI takes the job CL (`set_troop_job`) unless it
 /// has it already. AL its job.
-pub fn kind_6acb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn give_troop_job_unless_same(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6acb)?;
     let mut c = Ctx::new(m);
     let job = super::game::Troop(c.reg(SI)).job(&mut c);
@@ -168,7 +168,7 @@ pub fn kind_6acb(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_06c15`: by the kind of the record at SI ([si+3] low nibble), DI
 /// its +4 word, CF clear: on through the table at CS:6BF5h.
-pub fn kind_6c15(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn troop_job_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6c15)?;
     let mut c = Ctx::new(m);
     c.run(0x6c15, 6)?;
@@ -204,7 +204,7 @@ pub fn intro_somebody_in_sietch(m: &mut Machine, start: u16) -> Result<(), Bail>
 
 /// `loc_05406`: the map's centre [4710h]/[4712h] from [11C1h]/[11C3h];
 /// `loc_05beb`, `loc_05f79`, `loc_079de`, then `loc_0541f`.
-pub fn map_5406(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn center_map_and_open_place_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5406)?;
     let mut c = Ctx::new(m);
     c.run(0x5406, 5)?;
@@ -223,7 +223,7 @@ pub fn map_5406(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0d323`: `loc_0d316`, `loc_0d338`, `loc_0d280`, then D410h.
-pub fn screen_d323(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn push_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd323)?;
     let mut c = Ctx::new(m);
     c.run(0xd323, 1)?;
@@ -238,7 +238,7 @@ pub fn screen_d323(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0bc81`: `loc_0ba9e`, `loc_05b5d`, the mouse hidden over A0h,4Fh
 /// (`loc_0dbb2`), `loc_0bc99`, `loc_0adbe`, then 5A3Dh.
-pub fn globe_bc81(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn leave_globe_to_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xbc81)?;
     let mut c = Ctx::new(m);
     c.run(0xbc81, 1)?;
@@ -259,7 +259,7 @@ pub fn globe_bc81(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `sub_06d8`: the music stopped (`loc_0ac14`), [46DFh] 1, sound 12h
 /// (`loc_038a2`), then video 12h into the buffer + 1E0h (`loc_0ca1b`).
-pub fn intro_06d8(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn intro_start_video_12(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x06d8)?;
     let mut c = Ctx::new(m);
     c.run(0x06d8, 1)?;
@@ -279,7 +279,7 @@ pub fn intro_06d8(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_00802`: `loc_00820`, the driver's far [38BDh] (CX F0h, BX 180h),
 /// [46D7h] 0, sheet 2Eh, then the sprite list 1500h (`loc_0c21b`).
-pub fn intro_0802(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn intro_show_desert_sky(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0802)?;
     let mut c = Ctx::new(m);
     c.run(0x0802, 1)?;
@@ -320,7 +320,7 @@ pub fn intro_26_baron(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_07ba3`: `loc_0c08e`; a new SI (not [46EFh]) becomes [46F1h]
 /// and is set up (`loc_079ee`, `loc_09f40`). SI kept.
-pub fn select_7ba3(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn select_and_open_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7ba3)?;
     let mut c = Ctx::new(m);
     c.run(0x7ba3, 1)?;
@@ -346,7 +346,7 @@ pub fn select_7ba3(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_013c8`: an intro script at CS:SI: [4] its first byte, [4778h]
 /// its list, [477Ah] past the list (its length byte); `loc_01392`,
 /// `draw_room_game_screen`, then 1707h.
-pub fn script_13c8(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn start_script_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::CS;
     entered(start, 0x13c8)?;
     let mut c = Ctx::new(m);
@@ -395,7 +395,7 @@ pub fn b18b(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0189a`: the room redrawn: directly (`draw_room_game_screen`)
 /// with [46D9h]; else by transition AL (DX 0), the screen copied
 /// (`loc_0c07c`), `loc_0ae04`, [`g::LAST_ACTION_TIME`] the clock, then 17E6h.
-pub fn room_189a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn redraw_room_by_transition(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x189a)?;
     let mut c = Ctx::new(m);
     let f = c.byte(g::COMM_CALLER);
@@ -444,7 +444,7 @@ pub fn intro_kynes(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_009f5`: `loc_009ef`, `loc_0c0f4`, the music on (`loc_0ad50`)
 /// unless the intro's voice has it ([227Dh] clear and [3810h] bit 0);
 /// the frame task A16h added (`loc_0da25`, BP 0). CF clear.
-pub fn intro_09f5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn play_credits_with_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x09f5)?;
     let mut c = Ctx::new(m);
     c.run(0x09f5, 1)?;
@@ -468,7 +468,7 @@ pub fn intro_09f5(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0094a`: `loc_038b4`, sheet 2Dh, then its sprite 0 at 0,3Ch.
-pub fn intro_094a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn intro_draw_sky_and_sheet_2d(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x094a)?;
     let mut c = Ctx::new(m);
     c.run(0x094a, 1)?;
@@ -485,7 +485,7 @@ pub fn intro_094a(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0586e`: on through the table at CS:588Bh by BL, CH, CL being
 /// set (bits 0, 1, 2 of the index).
-pub fn flags_586e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn dispatch_by_troops_present(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x586e)?;
     let mut c = Ctx::new(m);
     let (bl, ch, cl) = (c.reg8(r8::BL), c.reg8(r8::CH), c.reg8(r8::CL));
@@ -502,7 +502,7 @@ pub fn flags_586e(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_047fb`: the counter [4731h] stepped by CL each 14h ticks
 /// (`loc_0e353`, BP 4821h) up to 21h; at 1Ah going up the sound
 /// `loc_0ac30`; `loc_0ae04` each step.
-pub fn steps_47fb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn step_orni_rotor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x47fb)?;
     let mut c = Ctx::new(m);
     loop {
@@ -539,7 +539,7 @@ pub fn steps_47fb(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0181e`, `clear_some_mouse_rect`, [0C6h] 1, `loc_0b2b9`,
 /// `loc_0d95b`, the music stopped, transition 34h with BP AF26h, then
 /// `loc_0ae04`.
-pub fn book_aed6(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn open_book(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xaed6)?;
     let mut c = Ctx::new(m);
     let f = c.travel().screen_kind;
@@ -571,7 +571,7 @@ pub fn book_aed6(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_009c7`: talking head AL ([47C4h]) set up (`loc_091a0`),
 /// [478Ch] 1Eh; DX (when not past the head's x [1BF0h]) moves the head
 /// right, its right edge [1BF4h] kept within 140h.
-pub fn head_09c7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn setup_intro_talking_head(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x09c7)?;
     let mut c = Ctx::new(m);
     c.run(0x09c7, 4)?;
@@ -647,7 +647,7 @@ pub fn intro_25_sting_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_028b5`: sheet 15h, sound 0Ah; the device's caller [47A9h]: its
 /// position (225Dh table: x low byte, y high) kept at 47F8h + 4 * it,
 /// then its sprite 1Eh + it drawn there (`loc_0c22f`).
-pub fn comm_28b5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn comm_draw_caller(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x28b5)?;
     let mut c = Ctx::new(m);
     c.run(0x28b5, 2)?;
@@ -679,7 +679,7 @@ pub fn comm_28b5(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0cfe4`: the sprites for the screen kind [0CEEBh]: BBh (C7h for
 /// kind 6) read to CEECh, then C0h + kind into [47ACh] (far);
 /// `loc_00098`, on at D01Ah.
-pub fn sheets_cfe4(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn load_language_phrases(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::ES;
     entered(start, 0xcfe4)?;
     let mut c = Ctx::new(m);
@@ -715,7 +715,7 @@ pub fn sheets_cfe4(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (`loc_0c2f2`) and sprite 1, `loc_00f08`, its sprite 2 at 0,0, the
 /// frieze, the panel's buttons 1D1Eh (`loc_0d72b`), `loc_098f5`,
 /// [1C06h] 80h; then the screen pushed (BP 20C2h, BX EB9h: D338h).
-pub fn plan_0ed0(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn open_palace_plan_overview(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0ed0)?;
     let mut c = Ctx::new(m);
     c.run(0x0ed0, 2)?;
@@ -752,7 +752,7 @@ pub fn plan_0ed0(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (8E0h) or already there (AL 10h), its place [si+4] set to DI for
 /// `loc_031f6` and `loc_02e98` and put back (AL 0Bh); then
 /// `loc_09f82`, `loc_0a1c4`, `loc_07bbe` (SI, DI kept), and A1E2h.
-pub fn troop_82da(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn move_troop_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x82da)?;
     let mut c = Ctx::new(m);
     let (si, di) = (c.reg(SI), c.reg(DI));
@@ -795,7 +795,7 @@ pub fn troop_82da(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// 2506h, `loc_0bed7`, `loc_0bdfa`; DD17h's three words cleared, [115Ch]
 /// the day ([2] & FFF0h); `loc_0d075`, the text 2494h (`loc_0d1a6`), the
 /// frame task BE57h every 0Ch (`loc_0da25`), then BE57h.
-pub fn results_be1d(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn results_draw_text_and_icons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xbe1d)?;
     let mut c = Ctx::new(m);
     c.run(0xbe1d, 2)?;
@@ -834,7 +834,7 @@ pub fn results_be1d(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// instead, at 0Eh on at 0867h; else shown for 0Ah (0Dh) or 1Eh
 /// steps: `loc_00820`, the driver's far [394Dh] (CX F0h, BX 180h).
 /// Then 391Dh.
-pub fn intro_0826(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn intro_desert_sky_next_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0826)?;
     let mut c = Ctx::new(m);
     let k = c.byte(g::FRAME_TASKS_ACTIVE);
@@ -879,7 +879,7 @@ pub fn intro_0826(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// set ([47C4h] 0Fh, [47A2h] 10C8h, `loc_0a1c4`); the next line from
 /// [47BAh] (or [0AB6Ah] when 0 or FFFFh) with [47C2h] 20h
 /// (`loc_09f9e`), kept in [47BAh] (0 when it is the last).
-pub fn dialogue_9719(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn say_next_place_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9719)?;
     let mut c = Ctx::new(m);
     let f = c.topic_troop().out_of_reach;
@@ -928,7 +928,7 @@ pub fn dialogue_9719(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_0b96b`: the globe's decorations slid open (`globe_slide_decorations_open`),
 /// [0DD02h] down, `loc_0b98b`, then B941h.
-pub fn globe_b96b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn globe_open_and_redraw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb96b)?;
     let mut c = Ctx::new(m);
     c.run(0xb96b, 1)?;
@@ -1039,7 +1039,7 @@ pub fn intro_night_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xc21b, 0x0afb)?;
     c.run(0x0afb, 1)?;
     c.call(0x5ba0, 0x0afe)?;
-    c.run(0x0afe, 6 + 8)?; // the `rep` iterations too
+    c.run(0x0afe, 6 + 8 + 2)?; // the `rep` iterations too
     c.set_reg(DI, 0x4856);
     c.set_reg(AX, 0);
     let ds = c.sreg(DS);
@@ -1048,7 +1048,6 @@ pub fn intro_night_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, v);
     c.set_reg(CX, 8);
     c.rep_counted(0xaa);
-    c.run(0x0b0a, 2)?;
     c.set_reg(SI, 0xb45);
     c.call(0xda5f, 0x0b10)?;
     c.run(0x0b10, 3)?;
@@ -1067,7 +1066,7 @@ pub fn intro_night_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// their kind 2 unless it is 1 (the player's also in [0Bh], [8], and
 /// [473Bh] bit 7); then `loc_06603` with BP 6E0Fh and on at 6E02h. SI
 /// kept.
-pub fn people_6dbb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn set_people_state_at_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6dbb)?;
     let mut c = Ctx::new(m);
     c.run(0x6dbb, 2)?;
@@ -1131,7 +1130,7 @@ pub fn people_6dbb(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// B02Ch with BP B039h, `loc_09901`, D397h); past the end, unless
 /// already, bit 2 set and the book's frame drawn (`loc_009f5`,
 /// B02Ch with BP 1797h); a step back is B024h's.
-pub fn book_afc7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn book_next_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::ZF;
     entered(start, 0xafc7)?;
     let mut c = Ctx::new(m);
@@ -1198,7 +1197,7 @@ pub fn book_afc7(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// book's (with [11C9h] & 3, unless [11CAh]) at 4AADh; with a dialogue
 /// open ([479Eh]) `loc_0d2e2`; else the room redrawn (`draw_room_game_screen`,
 /// BX and DX kept) and the click handled (`loc_09215`).
-pub fn dialogue_941d(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn dialogue_area_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x941d)?;
     let mut c = Ctx::new(m);
     let comm = c.conversation().caller;
@@ -1242,7 +1241,7 @@ pub fn dialogue_941d(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (7: `setup_lip_sync_data_from_current`, [478Ch] 0, 0Fh lower),
 /// `loc_0978e`, `loc_0998e`, [22A6h] none, [47C3h] up, [47C6h] 1,
 /// `loc_0c412`, then 0965h with DX 2Dh.
-pub fn jessica_0f08(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_jessica_on_palace_plan(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0f08)?;
     let mut c = Ctx::new(m);
     let f = c.progress().party;
@@ -1282,7 +1281,7 @@ pub fn jessica_0f08(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// state from [4776h], [4774h] 0, the music changed unless phase 48h,
 /// `loc_0b2be`, and on at 0FA7h (or, with [0FBh] negative, the music
 /// stopped, `loc_068eb`, `loc_0780a`).
-pub fn script_1707(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn run_script_next_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::CS;
     entered(start, 0x1707)?;
     let mut c = Ctx::new(m);
@@ -1353,7 +1352,7 @@ pub fn script_1707(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (1444h, F7h), sheet 21h, the sprite list 120Bh, `loc_01948`, the
 /// rect 143Ch shown (`loc_0c0d5` AL 10h), then the screen pushed (BP
 /// 2012h, BX 19FCh).
-pub fn palace_plan_18ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn ui_draw_palace_plan(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::ES;
     entered(start, 0x18ee)?;
     let mut c = Ctx::new(m);
@@ -1412,7 +1411,7 @@ pub fn palace_plan_18ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// the place's lines told (`loc_09719` until CF clear, SI [46EFh]),
 /// `loc_09efd`; [46F4h] 0, or for [47A5h] 80h 1 with `loc_07efb` and
 /// `loc_07e1e`; `loc_09901` without a talking head; then `loc_0c07c`.
-pub fn place_7c02(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7c02)?;
     let mut c = Ctx::new(m);
     c.run(0x7c02, 1)?;
@@ -1543,7 +1542,7 @@ pub fn result_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// the palace (+0Ah bit 0) or where a troop is (`loc_0407e`,
 /// `loc_0b58b`: a cell of kind 10h), else 42h + mod 13h. AL 7Fh mixes
 /// in the place's +0 byte.
-pub fn sky_380c(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn set_room_light_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::ES;
     entered(start, 0x380c)?;
     let mut c = Ctx::new(m);
@@ -1841,7 +1840,7 @@ pub fn create_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// routine [227Eh] (taken, F66h left) between `loc_09efd` and
 /// `loc_0e270`/`loc_0e283`. [28E7h] from [28E8h] unless [0FBh] is
 /// negative. CF clear.
-pub fn line_a03f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn apply_dialogue_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa03f)?;
     super::dialogue::entry_said_a03f(&mut Ctx::new(m))
 }
@@ -1857,7 +1856,7 @@ pub fn line_a03f(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// head set up (`loc_091a0`, `loc_0c0f4`), its colours [46D2h]/[46D4h]
 /// from 22B9h, its face drawn in 47D4h (the sprite list [47CAh],
 /// `loc_09d6a`), the rect shown (`loc_0c4aa`), then `open_onmap_resource`.
-pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{CF as CARRY, SS, ZF};
     entered(start, 0x79ee)?;
     let mut c = Ctx::new(m);
@@ -2017,7 +2016,7 @@ pub fn place_panel_79ee(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_02806`: `loc_0274e`, `loc_0275f` with AL 2, the incoming call
 /// for 14h steps (`comm_animate_incoming_call`), `loc_0aba9`, then
 /// `loc_0275f` with AL 1.
-pub fn comm_2806(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn comm_ring_incoming_call(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2806)?;
     let mut c = Ctx::new(m);
     c.run(0x2806, 1)?;
@@ -2037,7 +2036,7 @@ pub fn comm_2806(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_028a1`: [47A9h] AL; `comm_fade_in_glow`, `loc_0c49a`,
 /// `loc_0aba9`, then transition 8 with BP 28B5h.
-pub fn comm_28a1(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn comm_open_caller(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x28a1)?;
     let mut c = Ctx::new(m);
     c.run(0x28a1, 2)?;
@@ -2054,8 +2053,8 @@ pub fn comm_28a1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(0xc108)
 }
 
-/// `loc_02c92`: transition 6 with BP 2C9Ah (`transition`).
-pub fn transition_2c92(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_02c92`: transition 6 into the talk screen (BP 2C9Ah, `transition`), after the speaker [47C4h] is chosen.
+pub fn transition_to_talk_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2c92)?;
     let mut c = Ctx::new(m);
     c.run(0x2c92, 3)?;
@@ -2069,7 +2068,7 @@ pub fn transition_2c92(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// ([si+3] bit 5, but kind 22h) without bit 6, or 210Ah with its title
 /// 52h (53h unless [46F3h]) and `loc_07847`. Then the screen pushed
 /// (BX 8751h: `loc_0d323`) and `open_onmap_resource`.
-pub fn place_780a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn open_selection_orders_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::SS;
     entered(start, 0x780a)?;
     let mut c = Ctx::new(m);
@@ -2133,7 +2132,7 @@ pub fn place_780a(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0b2be`, the hours passed (CX = AX - [2]) applied (`loc_00fd9`),
 /// the mouse hidden, the frieze redrawn (`loc_0189a` with AL 2Ah), then
 /// D763h.
-pub fn time_0f95(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn advance_time_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0f95)?;
     let mut c = Ctx::new(m);
     c.run(0x0f95, 2)?;
@@ -2171,7 +2170,7 @@ pub fn time_0f95(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0c2fd`, the next `loc_0c22f`, far [3935h]) and `loc_09efd`.
 /// Then `loc_0c4cd`, [4727h] 0, `loc_0d741`, [47A7h] 1, the screen
 /// pushed (BP 20A2h, BX F66h) and the mouse drawn again.
-pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn start_comm_call(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::ES;
     entered(start, 0x0d8e)?;
     let mut c = Ctx::new(m);
@@ -2270,8 +2269,8 @@ pub fn comm_call_0d8e(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(0xdbec)
 }
 
-/// `loc_06a33`: AL 3, then `loc_06a35`.
-pub fn al3_6a35(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_06a33`: job 3 (AL) for the shown troop, its bits 2-3 kept (`loc_06a35`).
+pub fn set_shown_troop_job_3(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6a33)?;
     let mut c = Ctx::new(m);
     c.run(0x6a33, 1)?;
@@ -2281,7 +2280,7 @@ pub fn al3_6a35(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_06a35`: `loc_068eb` (AX kept), then CL the record's kind bits
 /// ([si+3] & 0Ch) with AL, on at 6A89h.
-pub fn kind_6a35(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn set_shown_troop_job_keeping_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6a35)?;
     let mut c = Ctx::new(m);
     c.run(0x6a35, 2)?;
@@ -2305,7 +2304,7 @@ pub fn kind_6a35(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// that is refused (ZF) the old kind's `loc_0693b` decides whether
 /// [si+19h] bit 7 is cleared, else [si+12h] is put back and set again.
 /// Then `loc_0d2e2`.
-pub fn kind_6a89(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::ZF;
     entered(start, 0x6a89)?;
     let mut c = Ctx::new(m);
@@ -2361,9 +2360,8 @@ pub fn kind_6a89(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(0xd2e2)
 }
 
-/// `loc_049d9`: without a talking head ([46EBh] negative) on through
-/// [46EDh]; else `loc_049a0`, then 4A5Ah.
-pub fn head_49d9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_049d9`: the map redrawn: with [`g::MAP_MODE`] negative on through [46EDh]; else the zoomed map (`loc_049a0`), then its points (4A5Ah).
+pub fn redraw_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x49d9)?;
     let mut c = Ctx::new(m);
     let f = c.map_view().mode;
@@ -2425,7 +2423,7 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.stos(B);
         c.set_reg(CX, n - 1 - k);
     }
-    c.run(0xb452, 5 + 0xa2)?; // the `rep` iterations too
+    c.run(0xb452, 5 + 0xa2 + 4 + 0x11f8 + 3 + 0x1261 + 4)?; // the `rep` iterations too
     let cs = c.sreg(CS);
     c.push(cs);
     let v = c.pop();
@@ -2433,17 +2431,14 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0xaa);
     c.set_reg(CX, 0xa2);
     c.rep_counted(0xa4);
-    c.run(0xb45c, 4 + 0x11f8)?; // the `rep` iterations too
     let v = c.pop();
     c.set_sreg(DS, v);
     c.set_reg(SI, 0xaa76);
     c.set_reg(CX, 0x11f8);
     c.rep_counted(0xa4);
-    c.run(0xb465, 3 + 0x1261)?; // the `rep` iterations too
     c.set_reg(SI, 0);
     c.set_reg(CX, 0x1261);
     c.rep_counted(0xa4);
-    c.run(0xb46d, 4)?;
     let v = c.pop();
     c.set_sreg(ES, v);
     let v = c.pop();
@@ -2460,7 +2455,7 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (`loc_098af`), [0CEE8h] 0, phase 50h (`set_game_phase`), [0E8h] 0,
 /// the frieze, transition 10h with BP 4913h, the video (`loc_0491c`,
 /// [227Dh] 1 meanwhile), and the music stopped (`loc_0ac14`).
-pub fn night_4795(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn run_night_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4795)?;
     let mut c = Ctx::new(m);
     let f = c.map_view().mode;
@@ -2527,7 +2522,7 @@ pub fn night_4795(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (`loc_06639`, BP 5728h): none goes to 571Ah, else three figures
 /// (`loc_056ed` AX 0, 1, 2 with BL CH, CL) at [4710h] + 71h, the colour
 /// [0DBE4h] 3 less, after `open_onmap_resource`. Without them 5719h.
-pub fn map_panel_5692(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_map_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5692)?;
     let mut c = Ctx::new(m);
     c.run(0x5692, 2)?;
@@ -2602,7 +2597,7 @@ pub fn map_panel_5692(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_00981`: `loc_008f0`, the room drawn (`loc_037b2`), then on into
 /// `copy_active_framebuffer_to_framebuffer_2`.
-pub fn room_0981(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn set_place_and_draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0981)?;
     let mut c = Ctx::new(m);
     c.run(0x0981, 1)?;
@@ -2615,7 +2610,7 @@ pub fn room_0981(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_04913` (BP of the night's transition): HNM 0Eh's first frame
 /// (`hnm_load_first_frame`), then on into `set_sky_palette`.
-pub fn night_video_4913(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn load_night_video_first_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4913)?;
     let mut c = Ctx::new(m);
     c.run(0x4913, 2)?;
@@ -2660,7 +2655,7 @@ pub fn count_0a1ed(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_080c7`: a bare `ret` (a callback that does nothing).
-pub fn nothing_80c7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn empty_callback(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x80c7)?;
     let mut c = Ctx::new(m);
     c.run(0x80c7, 1)?;
@@ -2672,7 +2667,7 @@ pub fn nothing_80c7(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// screen copied to framebuffer 2, `loc_096d8` with the state [47C4h];
 /// [1BEAh], [1BF8h], [46DFh] 0; the task C0B6h removed and the task
 /// 2CC7h added (`add_frame_task`, BP 6).
-pub fn screen_2c9a(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn set_up_talk_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2c9a)?;
     let mut c = Ctx::new(m);
     c.run(0x2c9a, 3)?;
@@ -2699,7 +2694,7 @@ pub fn screen_2c9a(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_02540`: a bare `ret` (a callback that does nothing).
-pub fn nothing_2540(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn empty_action(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2540)?;
     let mut c = Ctx::new(m);
     c.run(0x2540, 1)?;
@@ -2709,7 +2704,7 @@ pub fn nothing_2540(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0a1f7`: AX by the day count [2Ah]: 12F8h below 14h, 134Fh below
 /// 18h, 1370h below 30h, else 12DBh (BL the count); then on into
 /// `loc_01771`.
-pub fn by_day_a1f7(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn start_sequence_for_phase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1f7)?;
     let mut c = Ctx::new(m);
     let day = c.progress().phase;
@@ -2732,7 +2727,7 @@ pub fn by_day_a1f7(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_002c1`: an intro scene by SI: the screen cleared, its routine
 /// from the table CS:20Ah called, then the tall font, `loc_09901`,
 /// `loc_088af` (AX the scene + 117h) and on into `loc_09901`.
-pub fn intro_scene_02c1(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn play_intro_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x02c1)?;
     let mut c = Ctx::new(m);
     c.run(0x02c1, 2)?;

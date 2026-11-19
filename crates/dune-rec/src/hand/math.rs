@@ -107,8 +107,8 @@ fn nearness(
     c.ret()
 }
 
-/// `sub_e16f`: along = AX - DX, across = SI - BX.
-pub fn nearness_e16f(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_e16f`: how near a UI element lies right of the cursor (along = AX - DX, across = SI - BX); the right entry of the keyboard-move table at DFA7h.
+pub fn nearness_right(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe16f)?;
     let mut c = Ctx::new(m);
     let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
@@ -116,8 +116,8 @@ pub fn nearness_e16f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     })
 }
 
-/// `sub_e18c`: along = DX - AX, across = SI - BX.
-pub fn nearness_e18c(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_e18c`: how near a UI element lies left of the cursor (along = DX - AX, across = SI - BX); the left entry of the keyboard-move table at DFA7h.
+pub fn nearness_left(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe18c)?;
     let mut c = Ctx::new(m);
     let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
@@ -126,8 +126,8 @@ pub fn nearness_e18c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     })
 }
 
-/// `sub_e192`: along = BX - SI, across = AX - DX.
-pub fn nearness_e192(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_e192`: how near a UI element lies above of the cursor (along = BX - SI, across = AX - DX); the up entry of the keyboard-move table at DFA7h.
+pub fn nearness_up(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe192)?;
     let mut c = Ctx::new(m);
     let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
@@ -136,8 +136,8 @@ pub fn nearness_e192(m: &mut Machine, start: u16) -> Result<(), Bail> {
     })
 }
 
-/// `sub_e19b`: along = SI - BX, across = AX - DX.
-pub fn nearness_e19b(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `sub_e19b`: how near a UI element lies below of the cursor (along = SI - BX, across = AX - DX); the down entry of the keyboard-move table at DFA7h.
+pub fn nearness_down(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe19b)?;
     let mut c = Ctx::new(m);
     let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
@@ -217,7 +217,7 @@ pub fn rand(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xe3d0, 3)?;
     c.mul16(0xcbd1);
     let ax = c.reg(AX);
-    let seed = c.inc(W, ax);
+    let seed = pure::inc(W, ax);
     c.set_reg(AX, seed);
     c.run(0xe3d6, 1)?;
     c.set_word(g::RAND_SEED, seed);
@@ -317,7 +317,7 @@ pub fn rand_below(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_00cf2`: AX (after `add al, bl`) rotated right by 5, AH then
 /// shifted right by 3: BH = AH, DH = AL; BL, DL their old high bytes.
 /// CL = 3.
-pub fn unpack_0cf2(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn unpack_unsigned(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0cf2)?;
     let mut c = Ctx::new(m);
     c.run(start, 10)?;
@@ -325,7 +325,7 @@ pub fn unpack_0cf2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// [`unpack_0cf2`]'s instructions (counted by the caller).
+/// [`unpack_unsigned`]'s instructions (counted by the caller).
 fn unpack(c: &mut Ctx) {
     let (ax, bx, dx) = (c.reg(AX), c.reg(BX), c.reg(DX));
     let al = c.add(Width::B, ax & 0xff, bx & 0xff);
@@ -338,7 +338,7 @@ fn unpack(c: &mut Ctx) {
     c.set_reg(DX, (ax & 0xff) << 8 | dx >> 8);
 }
 
-/// `loc_00cea`: [`unpack_0cf2`] of DL (signed: of -DL, DH negated after)
+/// `loc_00cea`: [`unpack_unsigned`] of DL (signed: of -DL, DH negated after)
 /// with AH = 0.
 pub fn unpack_signed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0cea)?;
@@ -480,32 +480,32 @@ fn diagonal(c: &mut Ctx, entry: u16, prefix: u32, along: u16, across: u16) -> Re
     c.ret()
 }
 
-/// `loc_0e1a2`: along = AX - DX, across = BX - SI.
-pub fn nearness_e1a2(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0e1a2`: how near a UI element lies up and right of the cursor (along = AX - DX, across = BX - SI); the up-right entry of the keyboard-move table at DFA7h.
+pub fn nearness_up_right(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe1a2)?;
     let mut c = Ctx::new(m);
     let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
     diagonal(&mut c, start, 3, ax.wrapping_sub(dx), bx.wrapping_sub(si))
 }
 
-/// `loc_0e1b9`: along = DX - AX, across = BX - SI.
-pub fn nearness_e1b9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0e1b9`: how near a UI element lies up and left of the cursor (along = DX - AX, across = BX - SI); the up-left entry of the keyboard-move table at DFA7h.
+pub fn nearness_up_left(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe1b9)?;
     let mut c = Ctx::new(m);
     let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
     diagonal(&mut c, start, 5, dx.wrapping_sub(ax), bx.wrapping_sub(si))
 }
 
-/// `loc_0e1c3`: along = DX - AX, across = SI - BX.
-pub fn nearness_e1c3(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0e1c3`: how near a UI element lies down and left of the cursor (along = DX - AX, across = SI - BX); the down-left entry of the keyboard-move table at DFA7h.
+pub fn nearness_down_left(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe1c3)?;
     let mut c = Ctx::new(m);
     let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));
     diagonal(&mut c, start, 4, dx.wrapping_sub(ax), si.wrapping_sub(bx))
 }
 
-/// `loc_0e1cb`: along = AX - DX, across = SI - BX.
-pub fn nearness_e1cb(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0e1cb`: how near a UI element lies down and right of the cursor (along = AX - DX, across = SI - BX); the down-right entry of the keyboard-move table at DFA7h.
+pub fn nearness_down_right(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe1cb)?;
     let mut c = Ctx::new(m);
     let (ax, bx, dx, si) = (c.reg(AX), c.reg(BX), c.reg(DX), c.reg(SI));

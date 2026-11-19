@@ -266,7 +266,7 @@ pub fn update_screen_at_sprite_rect_updating_head(m: &mut Machine, start: u16) -
 
 /// `loc_0c4dd`: the game area to the screen (with the talking head),
 /// the cursor hidden first unless it is below the game area.
-pub fn sub_c4dd(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn update_game_area_on_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc4dd)?;
     let mut c = Ctx::new(m);
     let y = c.mouse_state().y;
