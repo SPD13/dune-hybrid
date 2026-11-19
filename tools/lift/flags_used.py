@@ -88,10 +88,63 @@ def target(t):
 import bisect
 
 
-def owner(a):
-    """The routine an address belongs to (the nearest entry at or before it)."""
+def nearest(a):
+    """The nearest entry at or before an address."""
     i = bisect.bisect_right(entries, a) - 1
     return entries[i] if i >= 0 else None
+
+
+OWNER_BACK = 40  # entries looked back over for one whose code reaches an address
+_owner = {}
+
+
+def owner(a):
+    """The routine an address belongs to: the nearest entry at or before
+    it whose code (`body`) reaches it, else the nearest entry. (Entries
+    reached only through a table, such as the hand ports at E1A2h-E1CBh,
+    stand before code of another routine: E1D1h-E240h is the mouse
+    routine's, reached by its jump at DFBEh.)"""
+    if a in _owner:
+        return _owner[a]
+    o = nearest(a)
+    if o is not None and o != a:
+        i = bisect.bisect_right(entries, a)
+        for e in reversed(entries[max(0, i - OWNER_BACK):i]):
+            if e not in bodies:
+                bodies[e] = body(e)
+            if a in bodies[e]:
+                o = e
+                break
+    _owner[a] = o
+    return o
+
+
+def body(e):
+    """The code a routine runs from its entry up to its RETs: direct jumps
+    and both ways of conditional ones followed, calls stepped over."""
+    seen, todo = set(), [e]
+    while todo and len(seen) < 4000:
+        a = todo.pop()
+        if a in seen or a not in insn:
+            continue
+        seen.add(a)
+        t = insn[a]
+        op = t.split()[0]
+        if op in ('ret', 'retf', 'iret', 'hlt') or far(t) and op.startswith('jmp'):
+            continue
+        tg = target(t)
+        if op == 'jmp' or op.startswith('jmp'):
+            if tg is not None and 'far' not in t and 'ptr' not in t:
+                todo.append(tg)
+            continue
+        if (op in JCC or op in ('loop', 'jcxz')) and tg is not None:
+            todo.append(tg)
+        if a in nxt:
+            todo.append(nxt[a])
+    return seen
+
+
+bodies = {}
 
 
 # Targets of indirect calls and jumps (site -> targets) seen in the
@@ -169,6 +222,8 @@ for a in real:
         inside.update(range(a + 1, nxt[a]))
 junk = {e for e in entries if e in inside and e not in hand_entries}
 entries = [e for e in entries if e not in junk]
+_owner.clear()
+bodies.clear()
 
 
 LIMIT = 200  # instructions followed from a return or a routine's entry
@@ -350,31 +405,6 @@ for site, tgs in IND.items():
 # Direct jumps into another routine's entry (tail calls), and code that
 # runs on into the next routine: its RET returns to the jumper's callers.
 entry_set = set(entries)
-
-
-def body(e):
-    """The code a routine runs from its entry up to its RETs: direct jumps
-    and both ways of conditional ones followed, calls stepped over."""
-    seen, todo = set(), [e]
-    while todo and len(seen) < 4000:
-        a = todo.pop()
-        if a in seen or a not in insn:
-            continue
-        seen.add(a)
-        t = insn[a]
-        op = t.split()[0]
-        if op in ('ret', 'retf', 'iret', 'hlt') or far(t) and op.startswith('jmp'):
-            continue
-        tg = target(t)
-        if op == 'jmp' or op.startswith('jmp'):
-            if tg is not None and 'far' not in t and 'ptr' not in t:
-                todo.append(tg)
-            continue
-        if (op in JCC or op in ('loop', 'jcxz')) and tg is not None:
-            todo.append(tg)
-        if a in nxt:
-            todo.append(nxt[a])
-    return seen
 
 
 bodies = {}

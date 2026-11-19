@@ -440,8 +440,16 @@ Most bails were not interrupts. Each game had about 190000 bails in some
   7BEDh, 81ECh, 824Dh: a few calls a game). Ported: 1803h
   (`head_down_from_picture`), 316Eh (`place_troop_marker`), 6E82h,
   6EA8h, 8751h, A219h, A235h, with their masks added to `flags_read.rs`
-  by hand from `flags_used.py --why` (a full `--rust` also changed
-  C835h, DAAFh and DAE3h: not looked into yet). Explicit bails at unported tails
+  by hand from `flags_used.py --why`. A full `--rust` then also made
+  DAAFh and DAE3h unknown: `owner()` gave an address to the nearest
+  entry before it, and the new ports at E1A2h-E1CBh (reached only
+  through the table at DFA7h) stood before the mouse routine's code at
+  E1D1h-E240h (its jump at DFBEh), whose tail jump to DAAFh then counted
+  as theirs. `owner()` now takes the nearest entry whose code reaches
+  the address (looking back 40 entries), else the nearest. With it the
+  table changes only where it should: C835h gets S (`c6ad` reads it at
+  C76Ah), and 7E3Dh loses a CF that a cycle with 7E1Eh kept alive (its
+  callers and jumpers read none). Explicit bails at unported tails
   (`place_panel_back` with the cursor low, `sub_5c76`'s jumps) are
   ported.
 
