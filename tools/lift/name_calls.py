@@ -30,7 +30,7 @@ LST = os.path.join(REPO, '..', 'Cryogenic', 'doc', 'DNCDPRG.lst')
 
 def main():
     dry = '--dry' in sys.argv
-    mod = open(os.path.join(HAND, 'mod.rs'), encoding='utf-8').read()
+    mod = open(os.path.join(HAND, 'mod.rs'), 'rb').read().decode('utf-8')  # keeps its CRLF
     table = re.findall(r'\(0x([0-9a-f]+), (\w+)::(\w+), "(\w+)"\)', mod)
     labels = {}
     if os.path.exists(LST):
@@ -83,6 +83,10 @@ def main():
             for h in rx.findall(raw):
                 if int(h, 16) in names:
                     wanted.add(int(h, 16))
+        # The names already written (an earlier run) stay.
+        for n in re.findall(r'\bentry::([A-Z0-9_]+)', raw):
+            assert n in used, f'{f}: entry::{n} is no longer a name (renamed port?)'
+            wanted.add(used[n])
     for a in sorted(wanted):
         out.append(f'pub const {names[a]}: u16 = 0x{a:04x};')
     entry_src = '\n'.join(out) + '\n'
