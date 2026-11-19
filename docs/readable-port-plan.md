@@ -310,14 +310,30 @@ This is exact only where three things hold, each found by the suite:
   runner's output). The ports that share such memory (the clock's
   countdown [46DBh], the ticks [0CE7Ah], the video frame's [0DBB5h] and
   [0DBD0h], the sound states [3817h]/[381Fh], CS:[0E8D4h]): mostly loops
-  waiting for the timer and the frame tasks the handler runs. They are
-  listed in `hand/ticks.rs` and keep bailing. A port leaves the list
-  once each instruction that reads or writes such memory is a stretch
-  of its own, read or written right after that `run`
-  (`pcm_test_audio_done`): the events due at the instruction come first,
-  as in the original, and no later one before it. Reading before the
-  `run` is wrong when the interrupt falls at the instruction itself,
-  reading after a longer `run` when it falls after it.
+  waiting for the timer and the frame tasks the handler runs. Each
+  instruction of theirs that reads or writes such memory is a stretch of
+  its own, read or written right after that `run` (`pcm_test_audio_done`,
+  `rand`, `wait_a_bit`, `lip_sync_frame_task`, `process_frame_tasks`,
+  the keys' states in `get_mouse_pos_etc`, [0DBB5h] in
+  `hnm_do_frame`, ...): the events due at the instruction come first, as
+  in the original, and no later one before it. Reading before the `run`
+  is wrong when the interrupt falls at the instruction itself, reading
+  after a longer `run` when it falls after it. Only the start-up's PIT
+  measurement is still listed in `hand/ticks.rs` (its stretches bail).
+  `REC_INPLACE_ALL=1` ignores the list and, with `REC_INPLACE_DIAG=1`,
+  prints each conflict by stretch and address (`inplace where ENTRY:
+  KIND@STRETCH:ADDRESS`; `rb`/`ra`/`wa` read before, read after, wrote
+  after; `r1` a read right after a one-instruction stretch, so most
+  likely that one's own; a callee's reads are not charged to its
+  caller). Reads of the struct views (`c.clock()`, `c.sound_state()`)
+  show the handler's words they span, which the port may not use.
+- **The registers are the original's at every boundary.** An interrupt
+  in place at a stretch's start (or a bail there) sees the CPU as the
+  port left it: each register an earlier instruction set must be set
+  before the next `run` (in `rand` the `inc`'s AX before the stretch of
+  the seed's `mov`), the flags too (they go into the frame). The shadow
+  check, comparing whole calls, does not see this; the suite with
+  `REC_INPLACE` does.
 - **The frame goes where the original pushes it.** The game reads
   uninitialised locals, and those can be an earlier interrupt's frame
   in the dead stack (day 23: `nearest_shown_location`). So the CPU at
@@ -329,13 +345,20 @@ This is exact only where three things hold, each found by the suite:
   frame goes over them, but the port pops them after its stretch: they
   are kept for its pops, and what the handler left over them is put back
   at the port's next boundary wherever it is below SP by then
-  (`stack_fixup`, `Machine::rec_stack_fixup`).
+  (`stack_fixup`, `Machine::rec_stack_fixup`). With two interrupts in
+  one stretch (a timer tick and the keyboard's at the same instruction:
+  `redraw_mouse`'s pops), the first one's leftovers are put back while
+  the second runs and the port's words kept again.
+- **The handler is back by the run's deadline.** The nested run stops
+  there (`run_until(deadline)`); a handler not back by then leaves the
+  machine as the original is there (the stretch's writes before the
+  interrupt made, from the scratch stepping) and the port bails.
 
 Tools: `REC_INPLACE_MAX=N` (no more interrupts in place after N) to
 bisect a run to the interrupt that makes it differ;
 `REC_INPLACE_TRACE=1` lists each one (where, and its place in the
 stretch). With `REC_INPLACE=1` all seven suite games are equal (about
-2000 interrupts in place in each). Two ports (`4f0c`, `f3d3`) still show
+55000 interrupts in place in each). Two ports (`4f0c`, `f3d3`) still show
 one read each of 0:003Ch (an interrupt vector) in the diagnostics, with
 no effect.
 
@@ -362,14 +385,18 @@ Most bails were not interrupts. Each game had about 190000 bails in some
   main loop then stays in Rust instead of going on in the generated code
   after every mouse poll.
 
-With `REC_INPLACE` a game now has about 50000-67000 bails (day 23 in
-100 s: 161 in hand ports, 1719 in generated code, 2841 in the drivers'
-lifted code, the rest in `rec_interp`'s lifted code). The runner prints
+With `REC_INPLACE` a game now has about 40000 bails in 300 s (some
+50-100 in hand ports, 3000-5500 in generated code, 6000-7000 in the
+drivers' lifted code, the rest in `rec_interp`'s lifted code); about
+55000 interrupts are taken in place. The hand ports' stretches that
+still give up are listed with their reason (`rec: hand stretch bails`):
+now nearly all the run's deadline. The runner prints
 them by place (`rec: bails in hand ports ...`), where the generated
 code was entered from the run loop (`rec generated code entered at`,
 runs/bails: after a bail the generated code goes on with the routine
-and its callers) and `rec_interp`'s bails by their place. What is left
-in hand ports is mostly the ports on the `ticks.rs` list.
+and its callers) and `rec_interp`'s bails by their place. What is left:
+the deadline (the runner's slices end inside ports' wait loops) and the
+drivers (the music driver's port I/O).
 
 ## Stage B: native subsystems (whole-run checks)
 

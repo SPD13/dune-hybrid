@@ -210,6 +210,12 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
     if rec.mode == pc::rec::RecMode::On {
         println!("rec: {} calls into Rust, {} bailed, {} BIOS stub and INT instructions run by the host", rec.calls, rec.bails, rec.host_steps);
         println!("rec: rec_interp bails by place: {:?}", rec.interp_bails);
+        if !rec.stretch_bails.is_empty() {
+            let mut v: Vec<_> = rec.stretch_bails.iter().map(|(k, n)| (*n, *k)).collect();
+            v.sort_unstable_by(|a, b| b.cmp(a));
+            let top: Vec<String> = v.iter().take(30).map(|(n, (ip, why))| format!("{ip:04x}/{}:{n}", ["shared", "deadline", "sti", "other"][*why as usize])).collect();
+            println!("rec: hand stretch bails (place/why:n): {}", top.join(" "));
+        }
         println!("rec: bails in hand ports {}, in generated code {}, in the drivers' code {}", rec.bails_by[0], rec.bails_by[1], rec.bails_by[2]);
         let mut g: Vec<_> = rec.generated_at.iter().map(|(ip, (n, b))| (*n, *b, *ip)).collect();
         g.sort_unstable_by(|a, b| b.cmp(a));
@@ -217,6 +223,12 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
         println!("rec generated code entered at (runs/bails): {}", g.join(" "));
         if rec.inplace {
             println!("rec: {} interrupts taken in place, {} of them past the deadline", rec.inplace_irqs, rec.inplace_late);
+            for (entry, w) in &rec.inplace_where {
+                let v: Vec<String> = w.iter().take(24).map(|((k, at, a), n)| format!("{}@{at:04x}:{a:05x}x{n}", ["", "rb", "ra", "wa", "r1"][*k as usize])).collect();
+                if !v.is_empty() {
+                    println!("inplace where {entry:04x}: {}", v.join(" "));
+                }
+            }
             for (entry, (n, at)) in &rec.inplace_conflicts {
                 if n[1] + n[2] + n[3] > 0 {
                     println!(

@@ -6374,17 +6374,21 @@ pub fn time_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// room left and redrawn (`loc_00b21`, `loc_02db1`); negative the map
 /// refreshed, or the view rebuilt (`loc_0d2bd`, the gauges). [473Bh] 0.
 fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
+    // The timer's handler sets [46DDh]: it is read and cleared each right
+    // after a stretch of its instruction alone (see `ticks.rs`).
+    c.run(0x1b23, 1)?;
     let f = c.clock().steps_pending;
+    c.cmp(B, f as u16, 0);
     if f == 0 {
-        c.run(0x1b23, 3)?;
-        c.cmp(B, 0, 0);
+        c.run(0x1b28, 2)?;
         return c.ret();
     }
+    c.run(0x1b28, 1)?;
+    c.run(0x1b2a, 1)?;
+    c.update_clock(|k| k.steps_pending = 0);
     let a = c.situation().desert_fatigue.wrapping_sub(1);
     let low = (a as i8) < 0x10;
-    c.run(0x1b23, 7 + if low { 2 } else { 0 } + 2)?;
-    c.cmp(B, f as u16, 0);
-    c.update_clock(|k| k.steps_pending = 0);
+    c.run(0x1b2f, 4 + if low { 2 } else { 0 } + 2)?;
     let f4 = c.situation().desert_fatigue;
     let a = c.dec(B, f4 as u16) as u8;
     c.cmp(B, a as u16, 0x10);
@@ -6654,11 +6658,16 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x2b3a, 5)?;
         return c.ret();
     }
+    // The ticks, read right after a stretch of their `mov` alone (see
+    // `ticks.rs`).
+    c.run(0x2b3a, 4)?;
+    c.cmp(B, map_ui as u16, 0);
+    c.run(0x2b47, 1)?;
     let t = c.word(super::globals::TIMER);
+    c.set_reg(AX, t);
     let h = c.progress().phase;
     if h < 0x14 {
-        c.run(0x2b3a, 8)?;
-        c.set_reg(AX, t);
+        c.run(0x2b4a, 3)?;
         return c.ret();
     }
     let last = c.word(g::LAST_ACTION_TIME);
@@ -6667,7 +6676,7 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let kind = c.progress().place_kind;
         let dt = t.wrapping_sub(last);
         let n = if party != 0 { 2 } else if kind != 0xff { 4 } else if dt < 0x3e8 { 7 } else { 9 };
-        c.run(0x2b3a, 8 + n + (n < 9) as u32)?;
+        c.run(0x2b4a, 3 + n + (n < 9) as u32)?;
         c.set_reg(AX, if n >= 7 { dt } else { t });
         if n < 9 {
             return c.ret();
@@ -6689,12 +6698,11 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let ev = c.byte(g::PENDING_EVENTS);
     if ev == 0 {
-        c.run(0x2b3a, 11)?;
-        c.set_reg(AX, t);
+        c.run(0x2b4a, 6)?;
         return c.ret();
     }
     let dt = t.wrapping_sub(last);
-    c.run(0x2b3a, 14)?;
+    c.run(0x2b4a, 9)?;
     c.set_reg(AX, dt);
     if dt < 0x32 {
         return c.ret();

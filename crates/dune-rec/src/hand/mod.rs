@@ -1374,7 +1374,11 @@ struct Ctx<'a> {
     /// taken in place in its last stretch wrote and read.
     diag: bool,
     pre_reads: Vec<u32>,
-    pending: Option<(Vec<u32>, Vec<u32>)>,
+    pending: Option<(Vec<u32>, Vec<u32>, bool, u16)>,
+    /// The length of its last `run` (diagnostics: what it reads right
+    /// after a one-instruction stretch belongs to that stretch).
+    last_len: u32,
+    pre_after_one: bool,
 }
 
 #[allow(dead_code)]
@@ -1386,7 +1390,7 @@ impl Ctx<'_> {
             m.hw.read_log = Some(Vec::new());
             m.hw.write_log = Some(Vec::new());
         }
-        Ctx { m, entry, diag, pre_reads: Vec::new(), pending: None }
+        Ctx { m, entry, diag, pre_reads: Vec::new(), pending: None, last_len: 0, pre_after_one: false }
     }
 
     // --- Virtual time -------------------------------------------------
@@ -1398,25 +1402,39 @@ impl Ctx<'_> {
     fn run(&mut self, at: u16, insns: u32) -> Result<(), Bail> {
         self.boundary();
         self.m.cpu.ip = at;
-        if self.m.rec_run(insns, !ticks::shared(self.entry))? {
+        if self.m.rec_run(insns, self.in_place())? {
             self.m.cpu.ip = at;
             return Err(Bail);
         }
+        self.last_len = insns;
         if self.diag {
             let rec = self.m.rec.as_mut().unwrap();
             if !rec.handler_wrote.is_empty() || !rec.handler_read.is_empty() {
                 let wrote = std::mem::take(&mut rec.handler_wrote);
                 let read = std::mem::take(&mut rec.handler_read);
+                let inside = std::mem::replace(&mut rec.handler_inside, false);
                 let e = rec.inplace_conflicts.entry(self.entry).or_default();
                 e.0[0] += 1;
                 if let Some(a) = first_common(&self.pre_reads, &wrote) {
                     e.0[1] += 1;
                     e.1[1] = a;
                 }
-                self.pending = Some((wrote, read));
+                let w = rec.inplace_where.entry(self.entry).or_default();
+                let kind = if self.pre_after_one { 4 } else { 1 };
+                for a in all_common(&self.pre_reads, &wrote) {
+                    *w.entry((kind, at, a)).or_default() += 1;
+                }
+                self.pending = Some((wrote, read, inside, at));
             }
         }
         Ok(())
+    }
+
+    /// Whether interrupts due in its stretches may be taken in place: not
+    /// in a port sharing memory with the handlers (`ticks.rs`), unless
+    /// `REC_INPLACE_ALL` (diagnostics).
+    fn in_place(&self) -> bool {
+        !ticks::shared(self.entry) || self.m.rec.as_ref().is_some_and(|r| r.inplace_all)
     }
 
     /// `REC_INPLACE_DIAG`: a boundary of the port's stretches (a `run`, a
@@ -1434,18 +1452,46 @@ impl Ctx<'_> {
         reads.dedup();
         writes.sort_unstable();
         writes.dedup();
-        if let Some((wrote, read)) = self.pending.take() {
-            let e = self.m.rec.as_mut().unwrap().inplace_conflicts.entry(self.entry).or_default();
+        if let Some((wrote, read, inside, at)) = self.pending.take()
+            && inside
+        {
+            // (An interrupt at the stretch's first instruction comes before
+            // all of it: reads and writes after it are right.)
+            let rec = self.m.rec.as_mut().unwrap();
+            let e = rec.inplace_conflicts.entry(self.entry).or_default();
             if let Some(a) = first_common(&reads, &wrote) {
                 e.0[2] += 1;
                 e.1[2] = a;
             }
-            if let Some(a) = first_common(&writes, &read) {
+            let mut touched = read.clone();
+            touched.extend_from_slice(&wrote);
+            touched.sort_unstable();
+            touched.dedup();
+            if let Some(a) = first_common(&writes, &touched) {
                 e.0[3] += 1;
                 e.1[3] = a;
             }
+            let w = rec.inplace_where.entry(self.entry).or_default();
+            for a in all_common(&reads, &wrote) {
+                *w.entry((2, at, a)).or_default() += 1;
+            }
+            for a in all_common(&writes, &touched) {
+                *w.entry((3, at, a)).or_default() += 1;
+            }
         }
         self.pre_reads = reads;
+        self.pre_after_one = self.last_len == 1;
+    }
+
+    /// `REC_INPLACE_DIAG`: after a callee, what it read and wrote is not
+    /// the port's (a hand port checks its own; other code does not take
+    /// interrupts in place).
+    fn after_callee(&mut self) {
+        if self.diag {
+            self.m.hw.read_log = Some(Vec::new());
+            self.m.hw.write_log = Some(Vec::new());
+            self.last_len = 0;
+        }
     }
 
     /// [`Ctx::run`]'s check alone, for stretches that do port I/O: they
@@ -2022,7 +2068,9 @@ impl Ctx<'_> {
         if let Some(r) = self.m.rec.as_mut() {
             r.from_port = true;
         }
-        self.m.rec_call(target, ret)
+        let r = self.m.rec_call(target, ret);
+        self.after_callee();
+        r
     }
 
     /// The instruction at `ip`, which ends at `next`, through the
@@ -2033,11 +2081,13 @@ impl Ctx<'_> {
     fn interp(&mut self, ip: u16, next: u16) -> Result<(), Bail> {
         self.boundary();
         self.m.cpu.ip = ip;
-        if self.m.rec_at(!ticks::shared(self.entry))? {
+        if self.m.rec_at(self.in_place())? {
             self.m.cpu.ip = ip;
             return Err(Bail);
         }
-        self.m.rec_interp(ip, next)
+        let r = self.m.rec_interp(ip, next);
+        self.after_callee();
+        r
     }
 
     /// A `JMP` to `target` (counted by the caller's run): the routine
@@ -2084,6 +2134,22 @@ fn entered(start: u16, entry: u16) -> Result<(), Bail> {
 }
 
 /// The first address in both sorted lists.
+fn all_common(a: &[u32], b: &[u32]) -> Vec<u32> {
+    let (mut i, mut j, mut v) = (0, 0, Vec::new());
+    while i < a.len() && j < b.len() {
+        match a[i].cmp(&b[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                v.push(a[i]);
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    v
+}
+
 fn first_common(a: &[u32], b: &[u32]) -> Option<u32> {
     let (mut i, mut j) = (0, 0);
     while i < a.len() && j < b.len() {

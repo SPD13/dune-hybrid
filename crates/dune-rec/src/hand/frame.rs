@@ -41,10 +41,13 @@ pub fn process_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(code::SUB_ACE6, 0xd9d5)?;
-    let count = c.word(g::FRAME_TASKS);
-    c.run(0xd9d5, 9)?; // ...; jcxz; then ret, or add si, 4
+    // The ticks, read right after a stretch of their `mov` alone (see
+    // `ticks.rs`).
+    c.run(0xd9d5, 1)?;
     let now = c.timer();
     c.set_reg(AX, now);
+    let count = c.word(g::FRAME_TASKS);
+    c.run(0xd9d8, 8)?; // ...; jcxz; then ret, or add si, 4
     let last = c.word(g::FRAME_TASKS_LAST_TICK);
     c.set_word(g::FRAME_TASKS_LAST_TICK, now);
     c.set_reg(CX, last);
@@ -280,17 +283,22 @@ pub fn hnm_wait_for_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xcad4)?;
     let mut c = Ctx::new(m);
     let sync = c.video_state().voice_chunk;
+    // The ticks and the voice buffer's state (the sound's interrupt) are
+    // read right after a stretch of their instruction alone (see
+    // `ticks.rs`).
+    c.run(start, 3)?;
+    let ax = c.inc(W, sync);
+    c.set_reg(AX, ax);
     if sync == 0xffff {
-        let (now, tick) = (c.timer(), c.video_state().frame_tick);
+        c.run(0xcada, 1)?;
+        let now = c.timer();
+        c.set_reg(AX, now);
+        let tick = c.video_state().frame_tick;
         let passed = now.wrapping_sub(tick);
         let rate = c.video_state().frame_ticks;
         let early = passed >> 8 == 0 && (passed as u8) < rate;
-        let n = 3 + 4 + if passed >> 8 != 0 { 1 } else { 2 + if early { 1 } else { 1 } };
-        c.run(start, n)?;
-        let ax = c.inc(W, sync);
-        c.set_reg(AX, ax);
-        let now = c.timer();
-        let tick = c.video_state().frame_tick;
+        let n = 4 + if passed >> 8 != 0 { 1 } else { 2 + if early { 1 } else { 1 } };
+        c.run(0xcadd, n - 1)?;
         let p = c.sub(W, now, tick);
         c.set_reg(AX, p);
         c.or(B, p >> 8, p >> 8);
@@ -305,14 +313,14 @@ pub fn hnm_wait_for_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_flag(CF, false);
         return c.ret();
     }
+    c.run(0xcaf0, 1)?;
     let si = c.word(g::VOICE_BUFFER_PLAYING);
+    c.set_reg(SI, si);
+    c.run(0xcaf4, 1)?;
     let state = c.byte(si.wrapping_add(6));
     let busy = state != 0;
-    c.run(start, 3 + 4 + if busy { 1 } else { 1 })?;
-    let ax = c.inc(W, sync);
-    c.set_reg(AX, ax);
-    c.set_reg(SI, si);
     c.cmp(B, state as u16, 1);
+    c.run(0xcaf8, 3)?;
     let cf = c.flag(CF);
     c.set_flag(CF, !cf);
     if busy {
@@ -334,10 +342,9 @@ pub fn hnm_do_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         let handle = c.word(g::HNM_FILE_HANDLE);
         if handle == 0 {
-            c.run(0xca60, 4)?;
+            c.run(0xca60, 2)?;
             c.cmp(W, 0, 0);
-            c.set_byte(g::HNM_FLAG_MSB, 0);
-            return c.ret();
+            return frame_msb_cleared(&mut c);
         }
         let flags = c.video_state().flags;
         let high = flags & 0x80 != 0;
@@ -370,20 +377,30 @@ pub fn hnm_do_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(code::HNM_DECODE_VIDEO_FRAME, 0xca8c)?;
             c.run(0xca8c, 1)?;
             c.call(code::HNM_NEXT_FRAME, 0xca8f)?;
-            c.run(0xca8f, 4)?;
         } else {
-            c.run(0xca7e, 1 + 4)?;
+            c.run(0xca7e, 1)?;
         }
-        // CA8F.
+        // CA8F. The timer's handler reads [0DBB5h] (whether it renders a
+        // frame): it is written right after a stretch of its `mov` alone
+        // (see `ticks.rs`).
+        c.run(0xca8f, 2)?;
         let flags = c.video_state().flags;
         let msb = c.and(B, flags as u16, 0x80) as u8;
         c.set_reg8(r8::AL, msb);
+        c.run(0xca94, 1)?;
         c.set_byte(g::HNM_FLAG_MSB, msb);
+        c.run(0xca97, 1)?;
         c.call(code::HNM_PREFETCH, 0xca9a)?;
-        c.run(0xca9a, 2)?;
-        c.set_byte(g::HNM_FLAG_MSB, 0);
-        return c.ret();
+        return frame_msb_cleared(&mut c);
     }
+}
+
+/// CA9Ah: [0DBB5h] cleared (right after its stretch: see above); `ret`.
+fn frame_msb_cleared(c: &mut Ctx) -> Result<(), Bail> {
+    c.run(0xca9a, 1)?;
+    c.set_byte(g::HNM_FLAG_MSB, 0);
+    c.run(0xca9f, 1)?;
+    c.ret()
 }
 
 /// From C1BA: applies the palette chunks at ES:SI (from 0, start colour

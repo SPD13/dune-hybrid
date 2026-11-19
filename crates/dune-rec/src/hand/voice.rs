@@ -1002,23 +1002,30 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let t0 = c.sound_state().picked_at;
-    let now = c.timer();
-    let base = if t0 == 0 { now } else { t0 };
-    let el = now.wrapping_sub(base);
-    let n = 3 + 4 + 3 + if t0 == 0 { 2 } else { 0 } + 4;
-    if el < 0xc8 {
-        c.run(0xace9, n + 1)?;
-    } else {
-        c.run(0xace9, n)?;
-    }
+    c.run(0xace9, 3 + 4 + 3)?;
     c.set_reg(AX, t0);
-    if t0 == 0 {
+    c.or(W, t0, t0);
+    // The ticks, read (each time) right after a stretch of their
+    // instruction alone (see `ticks.rs`).
+    let base = if t0 == 0 {
+        c.run(0xad07, 1)?;
+        let now = c.timer();
         c.set_reg(AX, now);
+        c.run(0xad0a, 1)?;
         c.update_sound_state(|t| t.picked_at = now);
-    }
-    let a = pure::sub(W, base, now);
+        now
+    } else {
+        t0
+    };
+    c.run(0xad0d, 1)?;
+    let now = c.timer();
+    let el = now.wrapping_sub(base);
+    let a = c.sub(W, base, now);
+    c.set_reg(AX, a);
+    c.run(0xad11, 3 + (el < 0xc8) as u32)?;
     let a = pure::neg(W, a);
     c.set_reg(AX, a);
+    c.cmp(W, a, 0xc8);
     if el < 0xc8 {
         return c.ret();
     }
@@ -1265,19 +1272,27 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xa7d1, 3)?;
         return feed_a9b9(&mut c);
     }
+    c.run(0xa7c5, 3)?;
+    c.cmp(W, k, 0);
+    // The ticks, read right after a stretch of their `mov` alone (see
+    // `ticks.rs`).
+    c.run(0xa7d5, 1)?;
     let now = c.timer();
+    c.set_reg(DX, now);
     let (t_hi, t_lo) = (c.word(0xdc2c), c.word(0xdc2e));
     let (cx, si) = (c.word(0x2882), c.word(0x2884));
     let (_, carry) = t_lo.overflowing_add(si);
     let bx = t_hi.wrapping_add(cx).wrapping_add(carry as u16);
     let dx = now.wrapping_sub(bx);
     if dx & 0x8000 != 0 {
-        c.run(0xa7c5, 3 + 10 + 1)?;
+        c.run(0xa7d9, 9 + 1)?;
         frame_regs(&mut c, now, t_hi, t_lo, cx, si);
+        c.cmp(W, now, bx);
         return feed_a9b9(&mut c);
     }
-    c.run(0xa7c5, 3 + 10)?;
+    c.run(0xa7d9, 9)?;
     frame_regs(&mut c, now, t_hi, t_lo, cx, si);
+    c.cmp(W, now, bx);
     loop {
         c.run(0xa7f3, 2)?;
         let di = c.reg(DI);

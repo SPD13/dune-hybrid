@@ -633,12 +633,16 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(0xd239, 0xd292)?;
     c.run(0xd292, 1)?;
     c.set_reg(CX, 0x11);
+    // The ticks, read right after a stretch of their instruction alone
+    // (see `ticks.rs`).
     loop {
-        c.run(0xd295, 5)?;
+        c.run(0xd295, 1)?;
         let cx = c.reg(CX);
         c.push(cx);
+        c.run(0xd296, 1)?;
         let t = c.timer();
         c.push(t);
+        c.run(0xd29a, 3)?;
         let si = c.screen_buffers().second;
         c.set_reg(SI, si);
         c.set_reg8(r8::AL, 0x18);
@@ -651,13 +655,14 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let bx = c.reg(BX);
             c.push(bx);
             c.call(0xa7c2, 0xd2a8)?;
-            let t = c.timer();
-            let d = t.wrapping_sub(c.word_in(SS, c.reg(SP)));
-            let more = d < 6;
-            c.run(0xd2a8, 5)?;
+            c.run(0xd2a8, 1)?;
             let bx = c.pop();
             c.set_reg(BX, bx);
+            c.run(0xd2a9, 1)?;
+            let t = c.timer();
+            let more = t.wrapping_sub(bx) < 6;
             c.set_reg(AX, t);
+            c.run(0xd2ac, 3)?;
             let d2 = c.sub(W, t, bx);
             c.set_reg(AX, d2);
             c.cmp(W, d2, 6);
@@ -845,18 +850,22 @@ pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd7b7)?;
     let mut c = Ctx::new(m);
+    // The ticks, read right after a stretch of their `mov` alone (see
+    // `ticks.rs`).
+    c.run(start, 1)?;
     let t = c.timer();
+    c.set_reg(AX, t);
     let ah = ((t << 2) >> 8) as u8;
     let last = c.byte(0xdcf1);
     if ah == last {
-        c.run(start, 6)?;
+        c.run(0xd7ba, 5)?;
         let a = pure::shl1(W, t, 2);
         c.set_reg(AX, a);
         return c.ret();
     }
     let ax = c.word(0x2222);
     if ax == 0 {
-        c.run(start, 10)?;
+        c.run(0xd7ba, 9)?;
         let _ = pure::shl1(W, t, 2);
         c.set_byte(0xdcf1, ah);
         c.set_reg(AX, 0);
@@ -870,7 +879,7 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let odd2 = a2 && ah2.wrapping_sub(1) & 1 != 0;
     let k = c.word(g::WORD_1AFE);
     let n = 9 + 4 + if a1 { 3 + odd1 as u32 } else { 0 } + 2 + if a2 { 3 + odd2 as u32 } else { 0 } + 4 + 2;
-    c.run(start, n)?;
+    c.run(0xd7ba, n - 1)?;
     let _ = pure::shl1(W, t, 2);
     c.set_byte(0xdcf1, ah);
     c.set_reg(BX, g);

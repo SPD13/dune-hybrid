@@ -58,9 +58,13 @@ pub fn wait_a_bit(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xe38f, 1)?;
         let t0 = c.timer();
         c.set_reg(AX, t0);
+        // The ticks are read right after a stretch of their instruction
+        // alone (see `ticks.rs`).
         loop {
-            c.run(0xe393, 2)?;
+            c.run(0xe393, 1)?;
             let t = c.timer();
+            c.cmp(W, t0, t);
+            c.run(0xe398, 1)?;
             if t != t0 {
                 break;
             }
@@ -109,10 +113,13 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
     let cx = c.pop();
     c.set_reg(CX, cx);
     c.sti();
+    // The ticks, read right after a stretch of their instruction alone
+    // (see `ticks.rs`).
     loop {
-        c.run(0xddca, 3)?;
+        c.run(0xddca, 1)?;
         let t0 = c.timer();
         c.push(t0);
+        c.run(0xddce, 2)?;
         let cx = c.reg(CX);
         c.push(cx);
         c.call(0xdd63, 0xddd2)?;
@@ -127,10 +134,13 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
         }
         c.set_reg(BX, t0);
         let d = loop {
-            c.run(0xddd8, 3)?;
+            c.run(0xddd8, 1)?;
+            c.set_reg(AX, t0);
+            c.run(0xddda, 1)?;
             let t = c.timer();
             let d = c.sub(W, t0, t);
             c.set_reg(AX, d);
+            c.run(0xdddf, 1)?;
             if d != 0 {
                 break d;
             }

@@ -83,12 +83,16 @@ pub fn set_voc_pcm_is_not_playing(m: &mut Machine, start: u16) -> Result<(), Bai
 }
 
 /// `is_voc_pcm_playing` (ABCC): ZF clear while a VOC sample plays.
+///
+/// The sound's interrupt clears the byte: it is read right after a stretch
+/// of its `cmp` alone (see `ticks.rs`).
 pub fn is_voc_pcm_playing(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xabcc)?;
     let mut c = Ctx::new(m);
-    c.run(start, 2)?;
+    c.run(start, 1)?;
     let playing = c.byte(g::VOC_PCM_PLAYING);
     c.cmp(B, playing as u16, 0);
+    c.run(0xabd1, 1)?;
     c.ret()
 }
 

@@ -201,11 +201,31 @@ fn lcg(c: &mut Ctx, seed_at: u16, factor: u16) {
 }
 
 /// `rand` (E3CC): the next random word (see [`lcg`]); DX kept.
+///
+/// The frame tasks the timer's handler runs draw from it too: the seed is
+/// read and written each right after a stretch of its instruction alone
+/// (see `ticks.rs`).
 pub fn rand(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe3cc)?;
     let mut c = Ctx::new(m);
-    c.run(start, 10)?;
-    lcg(&mut c, g::RAND_SEED, 0xcbd1);
+    c.run(start, 1)?;
+    let dx = c.reg(DX);
+    c.push(dx);
+    c.run(0xe3cd, 1)?;
+    let seed = c.word(g::RAND_SEED);
+    c.set_reg(AX, seed);
+    c.run(0xe3d0, 3)?;
+    c.mul16(0xcbd1);
+    let ax = c.reg(AX);
+    let seed = c.inc(W, ax);
+    c.set_reg(AX, seed);
+    c.run(0xe3d6, 1)?;
+    c.set_word(g::RAND_SEED, seed);
+    c.run(0xe3d9, 4)?;
+    let dl = c.reg8(r8::DL);
+    c.set_reg(AX, (dl as u16) << 8 | seed >> 8);
+    let dx = c.pop();
+    c.set_reg(DX, dx);
     c.ret()
 }
 

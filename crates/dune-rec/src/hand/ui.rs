@@ -212,17 +212,22 @@ pub fn sub_1ae7(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x1aea, 3)?;
         return c.ret();
     }
+    // The ticks, read right after a stretch of their `mov` alone (see
+    // `ticks.rs`).
+    c.run(0x1aea, 2)?;
+    c.cmp(W, bp, 0x1f7e);
+    c.run(0x1af0, 1)?;
     let now = c.timer();
+    c.set_reg(AX, now);
     let seen = c.word(g::HEAD_ZOOM_SEEN);
     if now == seen {
-        c.run(0x1aea, 6)?;
-        c.set_reg(AX, now);
+        c.run(0x1af3, 3)?;
         return c.ret();
     }
     let since = c.word(g::HEAD_ZOOM_START);
     let every = c.word(g::TIME_BETWEEN_FACE_ZOOMS);
     let due = now.wrapping_sub(since) >= every;
-    c.run(0x1aea, 10)?; // the same count either way: ret, or call
+    c.run(0x1af3, 7)?; // the same count either way: ret, or call
     c.set_word(g::HEAD_ZOOM_SEEN, now);
     let passed = pure::sub(W, now, since);
     c.set_reg(AX, passed);

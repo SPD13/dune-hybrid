@@ -119,6 +119,10 @@ pub struct Rec {
     pub bails_by: [u64; 3],
     /// [`Machine::rec_interp`]'s bails by their place (diagnostics).
     pub interp_bails: [u64; 16],
+    /// Hand ports' stretches that gave up, by (place, reason: 0 a port
+    /// sharing memory with the handlers, 1 the run's deadline, 2 STI's
+    /// hold, 3 other) (diagnostics).
+    pub stretch_bails: std::collections::HashMap<(u16, u8), u64>,
     /// The game's generated code: where it was entered from the run loop
     /// (a routine's entry or a block it resumes from), and how often that
     /// run bailed (diagnostics).
@@ -210,6 +214,16 @@ pub struct Rec {
     pub handler_wrote: Vec<u32>,
     pub handler_read: Vec<u32>,
     pub inplace_conflicts: std::collections::BTreeMap<u16, ([u32; 4], [u32; 4])>,
+    /// Whether an interrupt in place in the current stretch came inside it
+    /// (not at its first instruction).
+    pub handler_inside: bool,
+    /// Per port entry, each conflict: (kind 1 read before, 2 read after, 3
+    /// wrote after, 4 read before but right after a one-instruction
+    /// stretch, so likely that one's; the stretch's offset; the address).
+    pub inplace_where: std::collections::BTreeMap<u16, std::collections::BTreeMap<(u8, u16, u32), u32>>,
+    /// `REC_INPLACE_ALL`: the ports sharing memory with the handlers too
+    /// (to find their conflicts).
+    pub inplace_all: bool,
 }
 
 /// A shadow check waiting for the original to return.
@@ -352,6 +366,7 @@ impl Rec {
             bails: 0,
             bails_by: [0; 3],
             interp_bails: [0; 16],
+            stretch_bails: Default::default(),
             generated_at: Default::default(),
             bail_at: vec![0; 0x10000],
             returned: vec![0; 0x40000],
@@ -383,6 +398,9 @@ impl Rec {
             handler_wrote: Vec::new(),
             handler_read: Vec::new(),
             inplace_conflicts: Default::default(),
+            handler_inside: false,
+            inplace_where: Default::default(),
+            inplace_all: std::env::var_os("REC_INPLACE_ALL").is_some(),
             pending: Vec::new(),
         }
     }
@@ -1498,6 +1516,25 @@ impl Machine {
         Err(Bail)
     }
 
+    /// A hand port's stretch gave up: counted by place and reason.
+    fn note_stretch_bail(&mut self, in_place: bool, len: u32) {
+        let why = if !in_place {
+            0
+        } else if self.now_at(self.cpu.instructions + len.max(1) as u64 - 1) >= self.run_deadline {
+            1
+        } else if self.cpu.irq_inhibit {
+            2
+        } else {
+            3
+        };
+        let ip = self.cpu.ip;
+        if let Some(r) = self.rec.as_mut()
+            && r.inplace
+        {
+            *r.stretch_bails.entry((ip, why)).or_default() += 1;
+        }
+    }
+
     /// Whether an interrupt taken in place is running (`rec_run`).
     pub fn in_irq_in_place(&self) -> bool {
         self.nested_return.is_some()
@@ -1507,6 +1544,7 @@ impl Machine {
         let start = self.cpu.instructions;
         if !(self.in_place_ok(in_place) && len > 0 && self.now_at(start + len as u64 - 1) < self.run_deadline) {
             if self.rec_stretch(len, true)? {
+                self.note_stretch_bail(in_place, len);
                 return Ok(true);
             }
             self.cpu.instructions += len as u64;
@@ -1592,23 +1630,36 @@ impl Machine {
                 return Ok(());
             }
             let port_cpu = self.cpu.clone();
+            // The stretch's writes before the interrupt's instruction (the
+            // port makes them after its stretch).
+            let mut before = std::collections::HashMap::new();
             if let Some((start, j)) = inside
-                && let Some(mut there) = self.state_at(start, j)
+                && let Some((mut there, writes)) = self.state_at(start, j)
             {
                 there.instructions = self.cpu.instructions;
                 self.cpu = there;
+                before = writes;
             }
             let back = (self.cpu.sregs[CS], self.cpu.ip, self.cpu.regs[SP]);
             // The words the stretch pops before the interrupt: the frame
             // goes over them, as in the original, but the port pops them
             // after its stretch.
             let ss = (self.cpu.sregs[SS] as u32) << 4;
-            let popped = ss + port_cpu.regs[SP] as u32..ss + back.2 as u32;
-            let kept = (back.2 > port_cpu.regs[SP] && self.stack_fixup.is_none())
-                .then(|| self.hw.mem[popped.start as usize..popped.end as usize].to_vec());
+            // With an earlier interrupt's leftovers kept aside there (two in
+            // one stretch), their place too: the port's words are kept, and
+            // the dead stack is the original's while the handler runs.
+            let mut popped = ss + port_cpu.regs[SP] as u32..ss + back.2 as u32;
+            if let Some((at, b)) = &self.stack_fixup {
+                let old = *at..*at + b.len() as u32;
+                popped = if popped.is_empty() { old } else { popped.start.min(old.start)..popped.end.max(old.end) };
+            }
+            let kept = (!popped.is_empty()).then(|| self.hw.mem[popped.start as usize..popped.end as usize].to_vec());
             if !self.take_irq(now) {
                 self.cpu = port_cpu;
                 return Ok(());
+            }
+            if let Some((at, b)) = self.stack_fixup.take() {
+                self.hw.mem[at as usize..at as usize + b.len()].copy_from_slice(&b);
             }
             let rec = self.rec.as_mut().unwrap();
             rec.inplace_irqs += 1;
@@ -1621,7 +1672,9 @@ impl Machine {
             let snap = diag.then(|| self.hw.mem.clone());
             let logs = diag.then(|| (self.hw.read_log.replace(Vec::new()), self.hw.write_log.take()));
             let outer = self.nested_return.replace(back);
-            let exit = self.run_until(u64::MAX);
+            // Up to the run's deadline: the runner's events (keys, the
+            // mouse, its shots) come there, as in the original.
+            let exit = self.run_until(deadline);
             self.nested_return = outer;
             if let (Some(snap), Some((r, w))) = (snap, logs) {
                 let read = std::mem::replace(&mut self.hw.read_log, r).unwrap_or_default();
@@ -1638,6 +1691,7 @@ impl Machine {
                 let mut read: Vec<u32> = read.into_iter().filter(|a| !own.contains(a)).collect();
                 let rec = self.rec.as_mut().unwrap();
                 rec.handler_wrote.append(&mut wrote);
+                rec.handler_inside |= inside.is_some();
                 rec.handler_read.append(&mut read);
                 rec.handler_wrote.sort_unstable();
                 rec.handler_wrote.dedup();
@@ -1652,6 +1706,13 @@ impl Machine {
                 rec.inplace_late += 1;
             }
             if exit != crate::RunExit::Nested {
+                // The handler still runs (the deadline, or the game left):
+                // the machine is left as the original is there, the
+                // stretch's writes before the interrupt made, the words it
+                // popped as the handler left them, and the port gives up.
+                for (a, v) in before {
+                    self.hw.mem[a as usize & 0xf_ffff] = v;
+                }
                 return Err(Bail);
             }
             let n = self.cpu.instructions;
@@ -1671,7 +1732,7 @@ impl Machine {
     /// interpreter on a scratch copy (memory read as it is, its writes kept
     /// aside). None if it does I/O or meets anything but plain
     /// instructions, or without the interpreter.
-    fn state_at(&self, start: &Cpu, j: u64) -> Option<Cpu> {
+    fn state_at(&self, start: &Cpu, j: u64) -> Option<(Cpu, std::collections::HashMap<u32, u8>)> {
         #[cfg(feature = "interp")]
         {
             let mut c = start.clone();
@@ -1682,7 +1743,7 @@ impl Machine {
                     return None;
                 }
             }
-            (c.instructions == end).then_some(c)
+            (c.instructions == end).then_some((c, bus.writes))
         }
         #[cfg(not(feature = "interp"))]
         {

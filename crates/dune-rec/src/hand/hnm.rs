@@ -132,14 +132,19 @@ pub fn hnm_reset_frame_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn hnm_prefetch_flagged(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xca8f)?;
     let mut c = Ctx::new(m);
-    c.run(start, 4)?;
+    // The timer's handler reads the byte (whether it renders a frame): it
+    // is written right after a stretch of its `mov` alone (see `ticks.rs`).
+    c.run(start, 2)?;
     let flags = c.video_state().flags;
     let msb = c.and(B, flags as u16, 0x80) as u8;
     c.set_reg8(r8::AL, msb);
+    c.run(0xca94, 1)?;
     c.set_byte(g::HNM_FLAG_MSB, msb);
+    c.run(0xca97, 1)?;
     c.call(code::HNM_PREFETCH, 0xca9a)?;
-    c.run(0xca9a, 2)?;
+    c.run(0xca9a, 1)?;
     c.set_byte(g::HNM_FLAG_MSB, 0);
+    c.run(0xca9f, 1)?;
     c.ret()
 }
 
@@ -147,8 +152,9 @@ pub fn hnm_prefetch_flagged(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn hnm_clear_flag_msb(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xca9a)?;
     let mut c = Ctx::new(m);
-    c.run(start, 2)?;
+    c.run(start, 1)?;
     c.set_byte(g::HNM_FLAG_MSB, 0);
+    c.run(0xca9f, 1)?;
     c.ret()
 }
 

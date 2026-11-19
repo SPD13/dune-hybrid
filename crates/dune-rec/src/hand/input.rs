@@ -188,17 +188,30 @@ pub fn move_cursor_by(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd962)?;
     let mut c = Ctx::new(m);
+    // The ticks, read twice, each right after a stretch of its `mov` alone
+    // (see `ticks.rs`).
+    c.run(start, 1)?;
     let t = c.timer();
+    c.set_reg(AX, t);
     let last = c.byte(0xdc4a);
     let gap = (t as u8).wrapping_sub(last);
     if gap < 6 {
-        c.run(start, 5)?;
-        c.set_reg(AX, t);
+        c.run(0xd965, 4)?;
         let a = pure::sub(B, t & 0xff, last as u16);
         c.set_reg8(r8::AL, a as u8);
         return mouse_stuff(c.m, 0xdb4c);
     }
     let cx: u16 = if gap < 0x0c { 2 } else if gap < 0x18 { 1 } else { 0 };
+    c.run(0xd965, 3 + 3 + if gap >= 0x0c { 3 + (gap >= 0x18) as u32 } else { 0 })?;
+    c.set_reg8(r8::AL, gap);
+    c.cmp(B, gap as u16, if gap < 0x0c { 0x0c } else { 0x18 });
+    if gap >= 0x18 {
+        let _ = c.dec(W, 1);
+    }
+    c.set_reg(CX, cx);
+    c.run(0xd97a, 1)?;
+    let t = c.timer();
+    c.set_reg(AX, t);
     let (tx, ty) = (c.word(0xdc4c), c.word(0xdc4e));
     let (cx0, cy0) = (c.mouse_state().x, c.mouse_state().y);
     let dx = tx.wrapping_sub(cx0);
@@ -206,18 +219,11 @@ pub fn cursor_glide(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let leg = |d: u16| -> u32 {
         if d == 0 { 0 } else if cx != 0 { 4 } else { 5 }
     };
-    let n = 4 + 3 + if gap >= 0x0c { 3 + (gap >= 0x18) as u32 } else { 0 } + 7 + leg(dx) + 2 + leg(dy) + 3;
+    let n = 6 + leg(dx) + 2 + leg(dy) + 3;
     let fdx = step(dx, cx);
     let fdy = step(dy, cx);
     let zero = fdx | fdy == 0;
-    c.run(start, n + if zero { 3 } else { 1 })?;
-    c.set_reg(AX, t);
-    let _ = pure::sub(B, t & 0xff, last as u16);
-    c.set_reg(CX, 2);
-    if gap >= 0x0c {
-    }
-    c.set_reg(CX, cx);
-    c.set_reg(AX, t);
+    c.run(0xd97d, n + if zero { 3 } else { 1 })?;
     c.set_byte(0xdc4a, t as u8);
     let k = c.byte(0xdc4b);
     let k = pure::dec(B, k as u16);
@@ -549,29 +555,31 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if joy {
         c.call(0xdd10, 0xdf56)?;
     }
+    // The keyboard's interrupt writes the keys' states: each is read right
+    // after a stretch of its instruction alone (see `ticks.rs`).
     let di0 = c.word(0xdc48);
-    let mut n = 6;
-    for k in 0..13u16 {
-        let a = c.byte(0xcec8 + k);
-        let b = c.byte(0xcec8 + k + 1 + 0x12);
-        n += 5 + if a | b != 0 { 3 } else { 0 };
-    }
-    c.run(0xdf56, n)?;
+    c.run(0xdf56, 6)?;
     c.set_reg(SI, 0xcec8);
     c.set_reg(DI, di0);
     let (mut dx, mut bx, mut ax) = (0u16, 0u16, 0u16);
+    c.xor(W, 0, 0);
     c.set_reg(DX, 0);
     c.set_reg(BX, 0);
     c.set_reg(AX, 0);
     c.set_reg(CX, 0xd);
     let mut di = di0;
     for k in 0..13u16 {
+        c.run(0xdf66, 1)?;
         let a = c.lods(B, DS) as u8;
+        ax = (ax & 0xff00) | a as u16;
+        c.set_reg(AX, ax);
+        c.run(0xdf67, 1)?;
         let si = c.reg(SI);
         let b = c.byte(si.wrapping_add(0x12));
-        let o = a | b;
+        let o = c.or(B, a as u16, b as u16) as u8;
         ax = (ax & 0xff00) | o as u16;
         c.set_reg(AX, ax);
+        c.run(0xdf6a, 1 + if o != 0 { 3 } else { 0 } + 2)?;
         if o != 0 {
             let p = c.byte(di);
             ax |= (p as u16) << 8;
@@ -583,14 +591,23 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
             bx = bx.wrapping_add(v);
             c.set_reg(BX, bx);
         }
-        di = di.wrapping_add(6);
+        di = c.add(W, di, 6);
         c.set_reg(DI, di);
         c.set_reg(CX, 12 - k);
     }
-    c.run(0xdf79, 13)?;
+    c.run(0xdf79, 1)?;
     let a = c.byte(0xceba);
-    let b = c.byte(0xce9d);
-    let a = (a | b | c.byte(0xcee6)) & 1;
+    c.set_reg8(r8::AL, a);
+    c.run(0xdf7c, 1)?;
+    let k = c.byte(0xce9d);
+    let a = c.or(B, a as u16, k as u16) as u8;
+    c.set_reg8(r8::AL, a);
+    c.run(0xdf80, 1)?;
+    let k = c.byte(0xcee6);
+    let a = c.or(B, a as u16, k as u16) as u8;
+    c.set_reg8(r8::AL, a);
+    c.run(0xdf84, 10)?;
+    let a = a & 1;
     let old = c.byte(0xdc57);
     c.set_byte(0xdc57, a);
     let v = !old;
