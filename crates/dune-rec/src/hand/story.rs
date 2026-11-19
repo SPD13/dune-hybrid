@@ -139,9 +139,9 @@ pub fn on_phase_04(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1011)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    let v = c.byte(g::COUNTER_122A);
+    let v = c.byte(g::PALACE_ROOM_2_LABEL);
     let v = pure::dec(B, v as u16) as u8;
-    c.set_byte(g::COUNTER_122A, v);
+    c.set_byte(g::PALACE_ROOM_2_LABEL, v);
     c.set_reg(SI, 0x1021);
     c.call(entry::FOR_EACH_IN_CODE_LIST, 0x101b)?;
     c.run(0x101b, 2)?;

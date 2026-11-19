@@ -176,7 +176,10 @@ pub const SKIP_HARKONNEN_TAKE: u16 = 0x11bc;
 /// the region n; `location_raided` adds, `unmark_pending_regions` takes).
 pub const REGIONS_TO_UNMARK: u16 = 0x115a;
 pub const BYTE_11D0: u16 = 0x11d0;
-pub const COUNTER_122A: u16 = 0x122a;
+/// [122Ah]: the label phrase of palace room 2 (room list 1225h, 5-byte
+/// entries: label phrase, 4 button codes; 3Ah at the start); `on_phase_04`
+/// takes it one down (39h).
+pub const PALACE_ROOM_2_LABEL: u16 = 0x122a;
 pub const BYTE_0FD8: u16 = 0x0fd8;
 pub const FLAG_0FDB: u16 = 0x0fdb;
 pub const WORD_1154: u16 = 0x1154;

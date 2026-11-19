@@ -1072,14 +1072,14 @@ the start for the languages 0 and 3, 1 in the intro and on the map, no
 text box with 0. [1152h]/[1153h] are `SPEAKER_SLOTS` (was `BOOK_PAGE`;
 dialogue.rs's `GAUGES`): the two people the frieze shows with their
 gauges (sprite 41h + the character, FFh none). dialogue.rs's own
-`BOOK_PAGE` (11BFh) was `g::BOOK_POSITION`.
+`BOOK_PAGE` (11BFh) was `g::BOOK_POSITION`. [122Ah] is `PALACE_ROOM_2_LABEL` (was
+`COUNTER_122A`).
 
 Doubts about older names, not renamed yet (each needs a look at all its
 uses): `TRIG_TABLE` (4948h) is where resource BAh (the locations' data) is
 read and the globe reads it as its latitude rows, so not sine/cosine;
 `UI_ELEMENTS_BY_CURSOR` (1B9Ch) is panel button 1 (1B8Eh + 0Eh);
-`COUNTER_122A` is palace room 2's label phrase (`on_phase_04` decrements
-it); the
+the
 local `KEYS_GLIDE` (cursor.rs, CE9Eh) is the Ctrl key's state;
 `POINT_4710` (map.rs) is `PLACE_BOX`. The module-local constants that
 were the same memory under the same or a weaker name now use the global
