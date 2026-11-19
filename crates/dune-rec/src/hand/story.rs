@@ -7376,3 +7376,159 @@ pub fn sal_polygon(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, v);
     c.ret()
 }
+
+/// `loc_0a219` (a callback, called through a register; SI an entry): for
+/// an entry without bit 7, the next game phase ([`g::GAME_PHASE`] one
+/// up, [0FFh] 0, `loc_0b17a`), and at phase 1 `loc_0100b`. Flags exact
+/// (its callers are not known).
+pub fn next_phase_unless_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa219)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let f = c.byte(si);
+    if f & 0x80 != 0 {
+        c.run(start, 3)?; // test; jne; ret
+        c.test(B, f as u16, 0x80);
+        return c.ret();
+    }
+    c.run(start, 5)?; // test; jne; inc [2Ah]; mov [0FFh], 0; call
+    let p = c.byte(g::GAME_PHASE);
+    let p = c.inc(B, p as u16) as u8;
+    c.set_byte(g::GAME_PHASE, p);
+    c.set_byte(0xff, 0);
+    c.call(0xb17a, 0xa22a)?;
+    let p = c.byte(g::GAME_PHASE);
+    c.run(0xa22a, 3)?; // cmp; jne; ret | call
+    c.cmp(B, p as u16, 1);
+    if p != 1 {
+        return c.ret();
+    }
+    c.call(0x100b, 0xa234)?;
+    c.run(0xa234, 1)?;
+    c.ret()
+}
+
+/// `loc_0a235` (a callback, called through a register; SI an entry): for
+/// an entry without bit 7, the game phase set to the next multiple of 4
+/// (`set_game_phase` with AL ([2Ah] and FCh) + 4). Flags exact (its
+/// callers are not known).
+pub fn next_phase_group_unless_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0xa235)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let f = c.byte(si);
+    if f & 0x80 != 0 {
+        c.run(start, 3)?; // test; jne A234h; ret
+        c.test(B, f as u16, 0x80);
+        return c.ret();
+    }
+    let p = c.byte(g::GAME_PHASE);
+    c.run(start, 6)?; // test; jne; mov al; and; add; jmp
+    let al = c.and(B, p as u16, 0xfc);
+    let al = c.add(B, al, 4) as u8;
+    c.set_reg8(r8::AL, al);
+    c.jump(code::SET_GAME_PHASE)
+}
+
+/// `loc_0316e` (the callback `loc_03127` has `loc_06603` run per troop:
+/// SI the troop, DI its location, DX/BX the player's place, DL a kind):
+/// AH the troop's kind (2; 3 when its state has 20h and the location is
+/// a kind 28h on; 1 when not and [`g::HARKONNEN_PLACE`]), unless it is DL
+/// or (without 20h) byte 10h has bit 7... (see below) nothing more.
+/// Otherwise the troop's marker: with byte 10h bit 7, character 12 (DI
+/// 4768h; its flags' bit 4 from the state's, the leader's motivation FFh
+/// or byte 15h, asked 0); else for a state 80h on character 14 (DI
+/// 4756h), else character 15 and the next of the marker slots 4758h
+/// ([476Ah] modulo 8, then one up; [476Bh] for troop 8E0h). The slot
+/// gets SI, the character DX/BX. Flags dropped (its caller reads none).
+pub fn place_troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    use super::r8::DL;
+    entered(start, 0x316e)?;
+    let mut c = Ctx::new(m);
+    let (si, di, dx, bx) = (c.reg(SI), c.reg(DI), c.reg(DX), c.reg(BX));
+    let state = c.byte(si.wrapping_add(3));
+    let leader = c.byte(si.wrapping_add(0x10)) & 0x80 != 0;
+    let mut n = 4; // mov al; mov ah, 2; test; je
+    let mut ah: u8 = 2;
+    if state & 0x20 != 0 {
+        let kind = c.byte(di.wrapping_add(8));
+        n += 2; // cmp; jb
+        if kind >= 0x28 {
+            ah = 3;
+            n += 2; // inc ah; jmp
+        }
+    } else {
+        n += 2; // test; jne
+        if leader {
+            c.run(start, n + 1)?; // ret
+            c.set_reg(AX, (ah as u16) << 8 | state as u16);
+            return c.ret();
+        }
+        let h = c.byte(g::HARKONNEN_PLACE);
+        n += 2; // cmp; je
+        if h != 0 {
+            ah = 1;
+            n += 1; // dec ah
+        }
+    }
+    n += 2; // cmp ah, dl; jne
+    if ah != c.reg8(DL) {
+        c.run(start, n + 1)?; // ret
+        c.set_reg(AX, (ah as u16) << 8 | state as u16);
+        return c.ret();
+    }
+    n += 2; // test; jne
+    // (character, slot, AX, the writes of the marker slots / the leader)
+    let (who, slot, ax);
+    let mut slots: Option<(u8, bool)> = None;
+    let mut asked: Option<(u8, u8)> = None;
+    if !leader {
+        n += 4; // mov bp; mov di; cmp al, 80h; jnb
+        if state >= 0x80 {
+            (who, slot, ax) = (14, 0x4756u16, (ah as u16) << 8 | state as u16);
+        } else {
+            let v = c.byte(0x476a) & 7;
+            n += 8; // mov bp; mov di; and; mov al; inc; xor ah; cmp si; jne
+            let first = si == 0x8e0;
+            if first {
+                n += 3; // inc ax; mov [476Bh], al; dec ax
+            }
+            n += 3; // shl; add; jmp
+            slots = Some((v, first));
+            (who, slot, ax) = (15, 0x4758u16.wrapping_add((v as u16) << 1), (v as u16) << 1);
+        }
+    } else {
+        n += 10; // mov bp; mov di; mov al; and; and; or; mov [0EEh]; or; mov al; jne
+        let bit = state & 0x10;
+        let al = if bit != 0 {
+            0xff
+        } else {
+            n += 1; // mov al, [si+15h]
+            c.byte(si.wrapping_add(0x15))
+        };
+        n += 1; // mov [0EDh], al
+        asked = Some((bit, al));
+        (who, slot, ax) = (12, 0x4768u16, (ah as u16) << 8 | al as u16);
+    }
+    n += 4; // mov [di], si; mov [bp], dx; mov [bp+2], bx; ret
+    c.run(start, n)?;
+    if let Some((v, first)) = slots {
+        c.set_byte(0x476a, v + 1);
+        if first {
+            c.set_byte(0x476b, v + 1);
+        }
+    }
+    if let Some((bit, al)) = asked {
+        c.update_character(12, |t| t.flags = (t.flags & 0xef) | bit);
+        c.update_situation(|t| {
+            t.leader_asked = 0;
+            t.leader_motivation = al;
+        });
+    }
+    c.set_word(slot, si);
+    c.update_character(who, |t| (t.x, t.y) = (dx, bx));
+    c.set_reg(AX, ax);
+    c.set_reg(BP, super::characters::record(who as u16));
+    c.set_reg(DI, slot);
+    c.ret()
+}

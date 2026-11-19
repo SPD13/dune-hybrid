@@ -221,6 +221,10 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
         g.sort_unstable_by(|a, b| b.cmp(a));
         let g: Vec<String> = g.iter().take(20).map(|(n, b, ip)| format!("{ip:04x}:{n}/{b}")).collect();
         println!("rec generated code entered at (runs/bails): {}", g.join(" "));
+        let mut lc: Vec<_> = rec.leader_calls.iter().collect();
+        lc.sort_by(|a, b| b.1.cmp(a.1));
+        let lc: Vec<String> = lc.iter().take(30).map(|((s, t), n)| format!("{s}:{t:04x}x{n}")).collect();
+        println!("rec: calls to block leaders without an entry ({}): {}", rec.leader_calls.len(), lc.join(" "));
         if rec.inplace {
             println!("rec: {} interrupts taken in place ({} in generated code), {} of them past the deadline; generated code handed back to a hand port {} times", rec.inplace_irqs, rec.inplace_generated, rec.inplace_late, rec.handoffs);
             for (entry, w) in &rec.inplace_where {

@@ -435,8 +435,13 @@ Most bails were not interrupts. Each game had about 190000 bails in some
   register: `loc_0316e`, `loc_08751`, `loc_06e82`, `loc_0a219`, ...)
   bailed in `rec_call`; it now runs the code from that leader to its
   `ret` (the generated resume, as the run loop would after the bail;
-  `Ctx::jump` already did). Ports for them are still to write; 1803
-  (`head_down_from_picture`) has one. Explicit bails at unported tails
+  `Ctx::jump` already did). `rec: calls to block leaders without an
+  entry` lists those still run that way (00B0h and 0309h at the start,
+  7BEDh, 81ECh, 824Dh: a few calls a game). Ported: 1803h
+  (`head_down_from_picture`), 316Eh (`place_troop_marker`), 6E82h,
+  6EA8h, 8751h, A219h, A235h, with their masks added to `flags_read.rs`
+  by hand from `flags_used.py --why` (a full `--rust` also changed
+  C835h, DAAFh and DAE3h: not looked into yet). Explicit bails at unported tails
   (`place_panel_back` with the cursor low, `sub_5c76`'s jumps) are
   ported.
 

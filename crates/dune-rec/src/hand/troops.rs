@@ -5465,3 +5465,97 @@ pub fn job_4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, 1);
     c.jump(0x6edd)
 }
+
+/// `loc_08751` (a callback, called through a register): with a troop shown
+/// ([`SHOWN_TROOP`]), its particle taken off (`loc_069a3`), none shown,
+/// then on at `loc_07b58`. Flags exact (its callers are not known).
+pub fn hide_shown_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x8751)?;
+    let mut c = Ctx::new(m);
+    let k = c.byte(SHOWN_TROOP);
+    c.run(start, 3)?; // cmp; je 878Bh; ret | call
+    c.cmp(B, k as u16, 0);
+    if k == 0 {
+        return c.ret();
+    }
+    c.call(0x69a3, 0x875b)?;
+    c.run(0x875b, 2)?; // mov [1954h], 0; jmp
+    c.set_byte(SHOWN_TROOP, 0);
+    c.jump(0x7b58)
+}
+
+/// `loc_06e82` (a callback over the troops at a location: SI the troop, DI
+/// the location): DL's bit 0 (or 1 when the troop's byte 12h has bit 7)
+/// set for a troop at a location other than the player's, of kind below
+/// 21h, its byte 15h below 28h and its state (byte 3) without bits 2Fh.
+/// Flags exact (its callers are not known).
+pub fn mark_idle_troop_elsewhere(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6e82)?;
+    let mut c = Ctx::new(m);
+    let (si, di) = (c.reg(SI), c.reg(DI));
+    let place = c.word(g::PLACE);
+    if di == place {
+        c.run(start, 3)?; // cmp; je; ret
+        c.cmp(W, di, place);
+        return c.ret();
+    }
+    let kind = c.byte(di.wrapping_add(8));
+    if kind >= 0x21 {
+        c.run(start, 5)?;
+        c.cmp(B, kind as u16, 0x21);
+        return c.ret();
+    }
+    let b15 = c.byte(si.wrapping_add(0x15));
+    if b15 >= 0x28 {
+        c.run(start, 7)?;
+        c.cmp(B, b15 as u16, 0x28);
+        return c.ret();
+    }
+    let state = c.byte(si.wrapping_add(3));
+    if state & 0x2f != 0 {
+        c.run(start, 10)?; // ... mov al; and; jne; ret
+        let al = c.and(B, state as u16, 0x2f) as u8;
+        c.set_reg8(r8::AL, al);
+        return c.ret();
+    }
+    let high = c.byte(si.wrapping_add(0x12)) & 0x80 != 0;
+    c.run(start, 14 + high as u32)?; // ... mov dh, 1; test; je | shl; or; ret
+    c.set_reg8(r8::AL, 0);
+    let dh = if high { 2 } else { 1 };
+    c.set_reg8(r8::DH, dh);
+    let dl = c.reg8(r8::DL);
+    let dl = c.or(B, dl as u16, dh as u16) as u8;
+    c.set_reg8(r8::DL, dl);
+    c.ret()
+}
+
+/// `loc_06ea8` (a callback over the troops: SI the troop): a troop with
+/// byte 15h below 28h and a state (byte 3) without bits 2Bh is marked
+/// (`loc_07085`, then bit 10h of its byte 12h). Flags exact (its callers
+/// are not known).
+pub fn mark_idle_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x6ea8)?;
+    let mut c = Ctx::new(m);
+    let si = c.reg(SI);
+    let b15 = c.byte(si.wrapping_add(0x15));
+    if b15 >= 0x28 {
+        c.run(start, 3)?; // cmp; jnb; ret
+        c.cmp(B, b15 as u16, 0x28);
+        return c.ret();
+    }
+    let state = c.byte(si.wrapping_add(3));
+    let al = pure::and(B, state as u16, 0x2f);
+    c.run(start, 7)?; // cmp; jnb; mov al; and; and; jne; ret | call
+    let al = c.and(B, al, 0xfb) as u8;
+    c.set_reg8(r8::AL, al);
+    if al != 0 {
+        return c.ret();
+    }
+    c.call(0x7085, 0x6eba)?;
+    let si = c.reg(SI);
+    let v = c.byte(si.wrapping_add(0x12));
+    c.run(0x6eba, 2)?; // or [si+12h], 10h; ret
+    let v = c.or(B, v as u16, 0x10) as u8;
+    c.set_byte(si.wrapping_add(0x12), v);
+    c.ret()
+}

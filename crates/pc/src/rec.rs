@@ -119,6 +119,9 @@ pub struct Rec {
     /// back to the run loop, which runs the port (`rec_tick_at`): else a
     /// loop the generated code took over after a bail stays in it.
     top_generated: Option<u64>,
+    /// Calls to a block leader that is no routine's entry (`rec_call`'s
+    /// fallback to the leader's code), by (segment space, target).
+    pub leader_calls: BTreeMap<(u8, u16), u64>,
     /// The seg000 block leaders a hand port resumes at (`with_hand_resumes`).
     hand_resume: Vec<bool>,
     /// The generated code just handed back (not a bail), and how often.
@@ -392,6 +395,7 @@ impl Rec {
             generated_runs: 0,
             from_port: false,
             top_generated: None,
+            leader_calls: BTreeMap::new(),
             hand_resume: vec![false; 0x10000],
             handed_off: false,
             handoffs: 0,
@@ -1498,7 +1502,15 @@ impl Machine {
         // A target that is no routine's entry but a block leader (a callback
         // called through a register: `loc_0316e`, `loc_08751`, ...): the code
         // from there, to its `ret`, as the run loop would go on after a bail.
-        let f = self.rec_routine(cs, target, true).or_else(|| if nested { None } else { self.rec_routine(cs, target, false) });
+        let entry = self.rec_routine(cs, target, true);
+        let f = entry.or_else(|| if nested { None } else { self.rec_routine(cs, target, false) });
+        if entry.is_none()
+            && f.is_some()
+            && let Some(space) = self.rec_space(cs)
+            && let Some(r) = self.rec.as_mut()
+        {
+            *r.leader_calls.entry((space, target)).or_default() += 1;
+        }
         if let Some(f) = f {
             if let Some(rec) = self.rec.as_mut()
                 && self.cpu.sregs[CS] == crate::LOAD_SEG
