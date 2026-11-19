@@ -243,16 +243,22 @@ fn main_loop(c: &mut Ctx) -> Result<(), Bail> {
 /// its moves DI/CX against [0DC62h]/[0DC64h]); then the dispatch through
 /// the handler table at [2570h] by the buttons ([`dispatch`]).
 fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
+    // The keyboard's bytes (the handler writes them), each read right after
+    // the stretch its instruction ends (see `ticks.rs`).
+    c.run(0xd820, 1)?;
     let k = c.byte(g::KEY_HIT);
-    let ctrl_v = k == 0x2f && c.byte(0xce9e) == 0xff;
-    c.run(0xd820, 2 + if k == 0x2f { 2 + ctrl_v as u32 } else { 0 })?;
     c.cmp(B, k as u16, 0x2f);
     if k == 0x2f {
+        c.run(0xd825, 2)?;
         let v = c.byte(0xce9e);
         c.cmp(B, v as u16, 0xff);
+        let ctrl_v = v == 0xff;
+        c.run(0xd82c, 1 + ctrl_v as u32)?;
         if ctrl_v {
             c.call(0xb270, 0xd831)?;
         }
+    } else {
+        c.run(0xd825, 1)?;
     }
     let caller = c.byte(g::COMM_CALLER);
     c.run(0xd831, 2 + if caller == 0 { 1 } else { 0 })?;

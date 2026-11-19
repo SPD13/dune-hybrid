@@ -113,6 +113,17 @@ pub struct Rec {
     /// The next `rec_call` is a hand port's (`Ctx::call`): its return goes
     /// back to Rust written by hand, not to the generated code.
     pub from_port: bool,
+    /// While seg000's generated code entered from the run loop runs (not
+    /// called by a port): the instruction count it was entered at. At a
+    /// later block a hand port resumes (a loop's head, `RESUMES`), it hands
+    /// back to the run loop, which runs the port (`rec_tick_at`): else a
+    /// loop the generated code took over after a bail stays in it.
+    top_generated: Option<u64>,
+    /// The seg000 block leaders a hand port resumes at (`with_hand_resumes`).
+    hand_resume: Vec<bool>,
+    /// The generated code just handed back (not a bail), and how often.
+    handed_off: bool,
+    pub handoffs: u64,
     pub bails: u64,
     /// Bails by where the code that gave up runs: [the game's hand ports,
     /// its generated code, the drivers' lifted code].
@@ -336,6 +347,16 @@ fn check_only(k: u32) -> bool {
 impl Rec {
     /// The flags each routine's callers read (from `flags_used.py`):
     /// (entry, mask) for those that read fewer than all.
+    /// The seg000 block leaders where a hand port resumes (dune-rec's
+    /// `RESUMES`): generated code entered from the run loop hands back
+    /// there (see `top_generated`).
+    pub fn with_hand_resumes(mut self, offs: &[u16]) -> Rec {
+        for &o in offs {
+            self.hand_resume[o as usize] = true;
+        }
+        self
+    }
+
     pub fn with_flags_read(mut self, table: &[(u16, u16)]) -> Rec {
         for &(e, m) in table {
             self.flags_read[e as usize] = m | !FLAG_BITS;
@@ -370,6 +391,10 @@ impl Rec {
             calls: 0,
             generated_runs: 0,
             from_port: false,
+            top_generated: None,
+            hand_resume: vec![false; 0x10000],
+            handed_off: false,
+            handoffs: 0,
             bails: 0,
             bails_by: [0; 3],
             interp_bails: [0; 16],
@@ -677,7 +702,7 @@ impl Machine {
                 let rec = self.rec.as_mut().unwrap();
                 // A driver's lifted code, or seg000's generated code (not a
                 // hand port).
-                let lifted = space != 0 || rec.generated[ip as usize].is_some_and(|g| g as usize == f as usize);
+                let lifted = space != 0 || (rec.generated[ip as usize].is_some_and(|g| g as usize == f as usize) && !rec.hand_resume[ip as usize]);
                 if lifted {
                     rec.generated_runs += 1;
                     if space == 0 {
@@ -688,15 +713,27 @@ impl Machine {
                 rec.calls += 1;
                 rec.busy = true;
                 rec.one_block = if one_block { 1 } else { 0 };
+                let outer = std::mem::replace(&mut rec.top_generated, (lifted && space == 0).then_some(self.cpu.instructions));
                 let r = f(self, ip);
                 self.take_bail_cpu();
                 self.rec_stack_fixup();
                 let rec = self.rec.as_mut().unwrap();
+                rec.top_generated = outer;
                 rec.busy = false;
+                if std::mem::take(&mut rec.handed_off) {
+                    rec.handoffs += 1;
+                    rec.one_block = 0;
+                    return true;
+                }
                 let planned = rec.one_block == 3;
                 let mut traced = false;
                 rec.one_block = 0;
                 if r.is_err() {
+                    if let Ok(v) = std::env::var("REC_TRACE_BAIL")
+                        && u16::from_str_radix(&v, 16) == Ok(self.cpu.ip)
+                    {
+                        eprintln!("bail at {:04x} from entry {cs:04x}:{ip:04x} (lifted {lifted}) insn {} next {}", self.cpu.ip, self.cpu.instructions, self.next_event);
+                    }
                     rec.bails += 1;
                     rec.bails_by[if space != 0 { 2 } else { lifted as usize }] += 1;
                     if space == 0 && lifted {
@@ -1152,6 +1189,15 @@ impl Machine {
     /// in `bail_cpu`).
     #[inline]
     pub fn rec_tick_at(&mut self, len: u32, ip: u16) -> bool {
+        if let Some(r) = self.rec.as_mut()
+            && let Some(n) = r.top_generated
+            && n != self.cpu.instructions
+            && self.cpu.sregs[CS] == LOAD_SEG
+            && r.hand_resume[ip as usize]
+        {
+            r.handed_off = true;
+            return true;
+        }
         if !self.tick_due(len) {
             return false;
         }
@@ -1456,7 +1502,11 @@ impl Machine {
             {
                 rec.generated_runs += 1;
             }
+            let outer = self.rec.as_mut().and_then(|r| r.top_generated.take());
             let r = f(self, target);
+            if let Some(rec) = self.rec.as_mut() {
+                rec.top_generated = outer;
+            }
             // Back in the generated code, which goes on writing memory.
             if !from_port && let Some(rec) = self.rec.as_mut() {
                 rec.generated_runs += 1;

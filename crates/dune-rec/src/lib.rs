@@ -142,6 +142,15 @@ pub fn leaders() -> &'static [(u16, Routine)] {
     })
 }
 
+/// The block leaders where a hand port resumes ([`hand::RESUMES`]; none
+/// with `REC_NO_HAND=1`).
+pub fn hand_resumes() -> Vec<u16> {
+    if std::env::var_os("REC_NO_HAND").is_some_and(|v| v == "1") {
+        return Vec::new();
+    }
+    hand::RESUMES.iter().map(|r| r.0).collect()
+}
+
 /// Listing names of the routines, by entry offset.
 pub fn names() -> &'static [(u16, &'static str)] {
     static ALL: OnceLock<Vec<(u16, &'static str)>> = OnceLock::new();

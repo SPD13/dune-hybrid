@@ -362,72 +362,64 @@ pub fn get_mouse_cursor_image_addr(m: &mut Machine, start: u16) -> Result<(), Ba
     }
     c.call(code::SUB_D6FE, 0xdc8f)?;
     let failed = c.flag(pc::cpu::CF);
-    c.check(0xdc8f, 19)?;
-    c.set_reg(BP, cursor::BUSY);
-    let mut n = 2;
-    if failed {
-        c.count(n + 1);
-        return c.ret();
+    // The path from DC8Fh to its `ret` (counted), the image and AX worked
+    // out first, then one stretch.
+    let (n, image, ax) = if failed {
+        (3, cursor::BUSY, None)
+    } else {
+        let di = c.reg(DI);
+        let (l, t, r, b) = (c.word(di), c.word(di + 2), c.word(di + 4), c.word(di + 6));
+        let (dx, bx) = (c.reg(DX), c.reg(BX));
+        image_near(l, t, r, b, dx, bx)
+    };
+    c.run(0xdc8f, n)?;
+    c.set_reg(BP, image);
+    if let Some(ax) = ax {
+        c.set_reg(AX, ax);
     }
-    let di = c.reg(DI);
-    let (l, t, r, b) = (c.word(di), c.word(di + 2), c.word(di + 4), c.word(di + 6));
-    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    c.ret()
+}
+
+/// From DC94h (`sub_d6fe` said no): the instructions to the `ret` (with
+/// DC8Fh's two), the cursor image and AX (when set) for the mouse at
+/// (DX, BX) and the rectangle (L, T, R, B).
+fn image_near(l: u16, t: u16, r: u16, b: u16, dx: u16, bx: u16) -> (u32, u16, Option<u16>) {
     let lt = |a: u16, b: u16| (a as i16) < (b as i16);
-    n += 2;
-    let image;
+    let mut n = 4;
     if !lt(bx, t) && {
         n += 2;
         lt(bx, b)
     } {
         // Within the rectangle's rows: near its left or right side.
-        c.set_reg(BP, cursor::DOWN);
         let d = pure::sub(W, l, dx);
-        c.set_reg(AX, d);
         n += 5;
         if d < 0x32 {
-            return finish(&mut c, n + 1);
+            return (n + 1, cursor::DOWN, Some(d));
         }
-        c.set_reg(BP, cursor::UP);
         let d = pure::sub(W, dx, r);
-        c.set_reg(AX, d);
         n += 5;
         if d < 0x32 {
-            return finish(&mut c, n + 1);
+            return (n + 1, cursor::UP, Some(d));
         }
-        n += 1; // jmp DCDCh
-        image = cursor::ARROW;
-    } else {
-        n += 2;
-        if lt(dx, l) || {
-            n += 2;
-            !lt(dx, r)
-        } {
-            image = cursor::ARROW;
-        } else {
-            c.set_reg(BP, cursor::LEFT);
-            let d = pure::sub(W, t, bx);
-            c.set_reg(AX, d);
-            n += 5;
-            if d < 0x19 {
-                return finish(&mut c, n + 1);
-            }
-            c.set_reg(BP, cursor::RIGHT);
-            let d = pure::sub(W, bx, b);
-            c.set_reg(AX, d);
-            n += 5;
-            if d < 0x19 {
-                return finish(&mut c, n + 1);
-            }
-            image = cursor::ARROW;
-        }
+        // jmp DCDCh, mov bp, ret
+        return (n + 3, cursor::ARROW, Some(d));
     }
-    c.set_reg(BP, image);
-    finish(&mut c, n + 2)
-}
-
-/// Counts the instructions of `get_mouse_cursor_image_addr`'s path, then
-/// `ret`.
-fn finish(c: &mut Ctx, n: u32) -> Result<(), Bail> {
-    c.count(n);
-    c.ret()
+    n += 2;
+    if lt(dx, l) || {
+        n += 2;
+        !lt(dx, r)
+    } {
+        return (n + 2, cursor::ARROW, None);
+    }
+    let d = pure::sub(W, t, bx);
+    n += 5;
+    if d < 0x19 {
+        return (n + 1, cursor::LEFT, Some(d));
+    }
+    let d = pure::sub(W, bx, b);
+    n += 5;
+    if d < 0x19 {
+        return (n + 1, cursor::RIGHT, Some(d));
+    }
+    (n + 2, cursor::ARROW, Some(d))
 }

@@ -222,7 +222,7 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
         let g: Vec<String> = g.iter().take(20).map(|(n, b, ip)| format!("{ip:04x}:{n}/{b}")).collect();
         println!("rec generated code entered at (runs/bails): {}", g.join(" "));
         if rec.inplace {
-            println!("rec: {} interrupts taken in place ({} in generated code), {} of them past the deadline", rec.inplace_irqs, rec.inplace_generated, rec.inplace_late);
+            println!("rec: {} interrupts taken in place ({} in generated code), {} of them past the deadline; generated code handed back to a hand port {} times", rec.inplace_irqs, rec.inplace_generated, rec.inplace_late, rec.handoffs);
             for (entry, w) in &rec.inplace_where {
                 let v: Vec<String> = w.iter().take(24).map(|((k, at, a), n)| format!("{}@{at:04x}:{a:05x}x{n}", ["", "rb", "ra", "wa", "r1"][*k as usize])).collect();
                 if !v.is_empty() {
@@ -547,7 +547,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
         println!("rec: {} routines, {mode:?}", routines.len());
-        let rec = pc::rec::Rec::new(mode, routines, dune_rec::leaders()).with_flags_read(dune_rec::hand::flags_read::FLAGS_READ);
+        let rec = pc::rec::Rec::new(mode, routines, dune_rec::leaders()).with_hand_resumes(&dune_rec::hand_resumes()).with_flags_read(dune_rec::hand::flags_read::FLAGS_READ);
         let mut rec = rec;
         rec.late_events = args.rec_native;
         // REC_SAMPLES=N: check the first N calls of each routine (default 20).

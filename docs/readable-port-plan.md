@@ -413,12 +413,34 @@ Most bails were not interrupts. Each game had about 190000 bails in some
   the load and save events and the end. `HOST_DEADLINES=1`: stops at
   every event (as before).
 
+- **Generated code hands back to the hand ports.** After a bail the
+  run loop goes on in the generated code, and a loop in it (the main
+  loop's `jmp` back to D820h) stays there: the hand port that resumes
+  the loop's head (`RESUMES`, `main_loop_top`) was not picked again
+  until the generated code bailed itself. Now seg000's generated code
+  entered from the run loop (not one a port called: `top_generated`,
+  cleared in `rec_call`) hands back at a later block a hand port resumes
+  (`Rec::with_hand_resumes`, `rec_tick_at`): it returns with the state
+  at that block, exact, and the run loop runs the port (counted as
+  `handed back`, not a bail). (`Rec::generated` holds the hand resumes
+  too: `lifted` and the hand-off look at `hand_resume`.)
+- **No `check` + `count` where the path is known.** A stretch counted
+  as it goes (`c.check(at, max)` then `c.count(n)`) still bails at any
+  interrupt inside it: work the path out first, then one `c.run(at, n)`
+  (`get_mouse_cursor_image_addr`'s DC8Fh: `image_near` gives the count,
+  the image and AX).
+
 With `REC_INPLACE` a game now has about 60000 interrupts taken in place
-in 300 s (3300-5000 of them in generated code); bails: 2-7 in hand
-ports, 230-355 in generated code, 0-200 in the drivers' lifted code
-(before the inputs in place: 50-100, about 1450 and 1300-2300; before
-generated code took interrupts in place: 3000-5500 generated, 6000-7000
-drivers). The hand ports' stretches that
+in 300 s (2800-4400 of them in generated code); bails: 39-76 in hand
+ports (mostly `main_loop_top`'s, from a callee's bail), 12-31 in
+generated code, 0-204 in the drivers' lifted code (before the hand-off:
+230-355 in generated code, the hand resume's bails counted there too;
+before the inputs in
+place: 50-100, about 1450 and 1300-2300; before generated code took
+interrupts in place: 3000-5500 generated, 6000-7000 drivers).
+`REC_TRACE_BAIL=ADDR` prints each bail at ADDR with the entry it came
+from; `REC_TRACE_SKIP=1` each place the run loop leaves one instruction
+to the interpreter. The hand ports' stretches that
 still give up are listed with their reason (`rec: hand stretch bails`):
 now nearly all the run's deadline. The runner prints
 them by place (`rec: bails in hand ports ...`), where the generated
