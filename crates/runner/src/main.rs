@@ -222,7 +222,7 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
         let g: Vec<String> = g.iter().take(20).map(|(n, b, ip)| format!("{ip:04x}:{n}/{b}")).collect();
         println!("rec generated code entered at (runs/bails): {}", g.join(" "));
         if rec.inplace {
-            println!("rec: {} interrupts taken in place, {} of them past the deadline", rec.inplace_irqs, rec.inplace_late);
+            println!("rec: {} interrupts taken in place ({} in generated code), {} of them past the deadline", rec.inplace_irqs, rec.inplace_generated, rec.inplace_late);
             for (entry, w) in &rec.inplace_where {
                 let v: Vec<String> = w.iter().take(24).map(|((k, at, a), n)| format!("{}@{at:04x}:{a:05x}x{n}", ["", "rb", "ra", "wa", "r1"][*k as usize])).collect();
                 if !v.is_empty() {

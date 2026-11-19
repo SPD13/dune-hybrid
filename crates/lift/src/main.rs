@@ -1016,7 +1016,7 @@ fn emit_routine(out: &mut String, r: &Routine, name: &str, st: &mut Stats, ind: 
             continue;
         }
         let _ = writeln!(out, "            0x{leader:04x} => {{");
-        let _ = writeln!(out, "                if m.rec_tick({}) {{ m.cpu.ip = 0x{leader:04x}; return Err(Bail); }}", block_len(r, leader));
+        let _ = writeln!(out, "                if m.rec_tick_at({}, 0x{leader:04x}) {{ m.cpu.ip = 0x{leader:04x}; return Err(Bail); }}", block_len(r, leader));
         let mut ip = leader;
         loop {
             let Some(insn) = r.insns.get(&ip) else {

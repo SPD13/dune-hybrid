@@ -200,6 +200,13 @@ pub struct Rec {
     /// deadline (the host's events then come late).
     pub inplace_irqs: u64,
     pub inplace_late: u64,
+    /// Of them, taken at a generated block's start ([`Machine::rec_tick_at`]).
+    pub inplace_generated: u64,
+    /// A handler taken in place at a generated block's start that was not
+    /// back by the run's deadline: the CPU there (in the handler), which
+    /// the generated code's bail (it sets IP to its block) must not
+    /// change. Put back where the bail is caught (`take_bail_cpu`).
+    pub bail_cpu: Option<Cpu>,
     /// `REC_INPLACE_MAX`: no more interrupts in place after this many (to
     /// find the first one that makes a run differ).
     pub inplace_max: u64,
@@ -393,6 +400,8 @@ impl Rec {
             inplace: std::env::var_os("REC_INPLACE").is_some(),
             inplace_irqs: 0,
             inplace_late: 0,
+            inplace_generated: 0,
+            bail_cpu: None,
             inplace_max: std::env::var("REC_INPLACE_MAX").ok().and_then(|v| v.parse().ok()).unwrap_or(u64::MAX),
             inplace_diag: std::env::var_os("REC_INPLACE_DIAG").is_some(),
             handler_wrote: Vec::new(),
@@ -680,6 +689,8 @@ impl Machine {
                 rec.busy = true;
                 rec.one_block = if one_block { 1 } else { 0 };
                 let r = f(self, ip);
+                self.take_bail_cpu();
+                self.rec_stack_fixup();
                 let rec = self.rec.as_mut().unwrap();
                 rec.busy = false;
                 let planned = rec.one_block == 3;
@@ -1071,7 +1082,7 @@ impl Machine {
     /// - Shadow replay: a recorded interrupt, or the end of the original's
     ///   call, falls in this block; the interpreter gets there exactly.
     #[inline]
-    pub fn rec_tick(&mut self, len: u32) -> bool {
+    pub fn tick_due(&mut self, len: u32) -> bool {
         if self.hw.io_log.replay.is_some() {
             let end = self.cpu.instructions + len as u64;
             if self.hw.io_log.next_irq(len as usize + 1).is_some_and(|at| at < end) {
@@ -1121,6 +1132,63 @@ impl Machine {
             self.cpu.irq_inhibit = false;
         }
         due
+    }
+
+    /// [`Machine::tick_due`] (generated code from before `rec_tick_at`).
+    #[inline]
+    pub fn rec_tick(&mut self, len: u32) -> bool {
+        self.tick_due(len)
+    }
+
+    /// For generated code, at the start of its block at `ip` (CS is the
+    /// routine's; the generated code keeps IP in a local, so `cpu.ip` is
+    /// stale until set here): [`Machine::tick_due`]; with `REC_INPLACE`,
+    /// the events due at this very instruction are taken here as the run
+    /// loop would (the generated code keeps the CPU and the memory exactly
+    /// as the original's at its block boundaries; the frame pushed holds
+    /// this IP, as the original's), and the block goes on. True: it bails
+    /// (an event due later inside the block, the run's deadline, STI's
+    /// hold, or a handler not back by the deadline: then the CPU is kept
+    /// in `bail_cpu`).
+    #[inline]
+    pub fn rec_tick_at(&mut self, len: u32, ip: u16) -> bool {
+        if !self.tick_due(len) {
+            return false;
+        }
+        loop {
+            let now = self.now_ns();
+            let here = now >= self.next_event || self.hw.reschedule || (self.cpu.accepts_irq() && self.hw.irq_pending());
+            if !(here && self.in_place_ok(true) && now < self.run_deadline) {
+                return true;
+            }
+            self.cpu.ip = ip;
+            let n = self.rec.as_ref().map_or(0, |r| r.inplace_irqs);
+            if std::env::var_os("REC_TICK_TRACE").is_some() {
+                eprintln!("tick {:04x}:{:04x} len {len} insn {} now {now} next {} checked {} resched {} pending {}", self.cpu.sregs[CS], self.cpu.ip, self.cpu.instructions, self.next_event, self.checked_at, self.hw.reschedule, self.cpu.accepts_irq() && self.hw.irq_pending());
+            }
+            if self.events_here(None).is_err() {
+                let cpu = self.cpu.clone();
+                self.rec.as_mut().unwrap().bail_cpu = Some(cpu);
+                return true;
+            }
+            let r = self.rec.as_mut().unwrap();
+            r.inplace_generated += r.inplace_irqs - n;
+            if !self.tick_due(len) {
+                return false;
+            }
+            if self.checked_at == self.cpu.instructions && self.now_ns() == now {
+                // Nothing moved: leave it to the run loop.
+                return true;
+            }
+        }
+    }
+
+    /// Where a bail of generated code is caught: the CPU a handler taken in
+    /// place left at the deadline (see [`Machine::rec_tick_at`]).
+    fn take_bail_cpu(&mut self) {
+        if let Some(c) = self.rec.as_mut().and_then(|r| r.bail_cpu.take()) {
+            self.cpu = c;
+        }
     }
 
     fn interp_until(&mut self, budget: u64, done: impl Fn(&Cpu) -> bool) -> Result<(), Bail> {
@@ -1325,13 +1393,14 @@ impl Machine {
                     rec.generated_runs += 1;
                 }
                 just_bailed = g(self, at).is_err();
+                self.take_bail_cpu();
                 if just_bailed {
                     self.rec.as_mut().unwrap().bails += 1;
                 }
                 if back(&self.cpu) {
                     return self.events_after_interp();
                 }
-                if self.exited.is_some() || (self.rec_tick(1) && !self.events_in_place()?) {
+                if self.exited.is_some() || (self.tick_due(1) && !self.events_in_place()?) {
                     return self.interp_bail(1);
                 }
                 continue;
@@ -1363,7 +1432,7 @@ impl Machine {
             // An interrupt or device event due: the run loop takes it now,
             // as it would have between these instructions (or, with
             // `REC_INPLACE`, it is taken here: no port's stretch is open).
-            if self.exited.is_some() || (self.rec_tick(1) && !self.events_in_place()?) {
+            if self.exited.is_some() || (self.tick_due(1) && !self.events_in_place()?) {
                 return self.interp_bail(3);
             }
         }
@@ -1619,6 +1688,12 @@ impl Machine {
     /// reads uninitialised locals, which can be such a frame's words.
     fn events_here(&mut self, inside: Option<(&Cpu, u64)>) -> Result<(), Bail> {
         let deadline = self.run_deadline;
+        // No port's stretch open (generated code, `rec_interp`): what an
+        // earlier interrupt left is put back below SP now (a port that
+        // bailed after its stretch did not), not over the stack since live.
+        if inside.is_none() {
+            self.rec_stack_fixup();
+        }
         self.checked_at = self.cpu.instructions;
         loop {
             let now = self.now_ns();
@@ -1755,7 +1830,7 @@ impl Machine {
     pub fn rec_stretch(&mut self, len: u32, through: bool) -> Result<bool, Bail> {
         self.rec_settle()?;
         if self.hw.io_log.replay.is_none() || !through || self.rec.as_ref().is_some_and(|r| r.no_through) {
-            return Ok(self.rec_tick(len));
+            return Ok(self.tick_due(len));
         }
         let end = self.cpu.instructions + len as u64;
         self.hw.io_log.stopped = self.hw.io_log.stop_at < end;

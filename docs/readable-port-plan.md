@@ -385,18 +385,38 @@ Most bails were not interrupts. Each game had about 190000 bails in some
   main loop then stays in Rust instead of going on in the generated code
   after every mouse poll.
 
-With `REC_INPLACE` a game now has about 40000 bails in 300 s (some
-50-100 in hand ports, 3000-5500 in generated code, 6000-7000 in the
-drivers' lifted code, the rest in `rec_interp`'s lifted code); about
-55000 interrupts are taken in place. The hand ports' stretches that
+- **Generated code too.** At a block's start (`rec_tick_at(len, ip)`,
+  which the lifter emits with the block's address) the events due at
+  that very instruction are taken in place: the generated code keeps the
+  CPU and the memory exactly as the original's at its block boundaries.
+  It keeps IP in a local, so `rec_tick_at` sets `cpu.ip` to the block
+  first (else the frame pushed holds a stale IP, which the dead stack
+  keeps: start21 and day 13 differed). An event due later inside the
+  block, STI's hold or the deadline still bail. A handler not back by
+  the deadline leaves the CPU in it: kept aside (`bail_cpu`) and put
+  back where the bail is caught (the generated code's bail sets IP to
+  its block). With no port's stretch open, what an earlier interrupt
+  left over a stretch's popped words (`stack_fixup`) is put back below
+  SP first (a port that bailed after its stretch had not).
+
+With `REC_INPLACE` a game now has about 59000 interrupts taken in place
+in 300 s (5000-7000 of them in generated code); bails: 50-100 in hand
+ports, about 1450 in generated code, 1300-2300 in the drivers' lifted
+code (before generated code took them in place: 3000-5500 and
+6000-7000). The hand ports' stretches that
 still give up are listed with their reason (`rec: hand stretch bails`):
 now nearly all the run's deadline. The runner prints
 them by place (`rec: bails in hand ports ...`), where the generated
 code was entered from the run loop (`rec generated code entered at`,
 runs/bails: after a bail the generated code goes on with the routine
-and its callers) and `rec_interp`'s bails by their place. What is left:
-the deadline (the runner's slices end inside ports' wait loops) and the
-drivers (the music driver's port I/O).
+and its callers) and `rec_interp`'s bails by their place. What is left
+is mostly the run's deadline: the runner's slices end inside ports'
+wait loops and inside idle sleeps (`get_mouse_pos_etc`'s mouse poll,
+`rec_interp` place 2; the generated `game_loop` then goes on from
+D863h and bails at its next hand port), and blocks with an event due
+after their first instruction (the graphics driver's retrace wait,
+334b:2555-255Dh). Taking the runner's own events in place (keys, the
+mouse, its shots and state hashes at the deadline) would end these.
 
 ## Stage B: native subsystems (whole-run checks)
 
