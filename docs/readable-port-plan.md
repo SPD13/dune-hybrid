@@ -234,6 +234,30 @@ are left. 73 `if`s in 24 modules. The pattern of a stretch, then an `if`
 whose arm starts with another stretch, is rarer than estimated (33
 sites, most with the condition read after the first stretch): left.
 
+**Results as named `bool`s (2026-11-20).** A routine that answers a
+question answers it in CF or ZF, and the generated code and the shadow
+check keep reading it there, so the ports keep their table signature.
+What changes is how the answer reads: each such routine's module gives a
+named call next to its port that returns the answer as a `bool`
+(`sound::pcm_enabled(c, ret)`, `cursor::inside_rect`, `frame::user_input`,
+`map::outside_view`, ...; `Ctx::call_cf` / `call_zf` underneath), and the
+port itself answers with `c.ret_cf(x)` / `c.ret_zf(x)` where it set the
+flag just before its `ret`. At the callers
+
+    c.call(code::CHECK_PCM_ENABLED, 0xab1d)?;
+    if c.flag(ZF) {
+
+becomes `if !sound::pcm_enabled(&mut c, 0xab1d)? {`, and a local named
+after the flag (`let cf = ..`) takes the answer's name.
+`tools/lift/name_results.py` holds the table (routine, flag, polarity,
+name, meaning) and rewrites a call site only where the flag is read
+before anything can change it; Rust's scoping keeps the `bool` to the
+code the call dominates. The first pass: 58 routines in 21 modules, 187
+call sites. Left as they are: the routines whose callers read CF and ZF
+together (`parse_cmd_is_end_of_arg`, `res_locate_in_lookup_table`), and
+those whose flag has no clear meaning yet (the EMS and memory calls,
+`check_allocator_room`, the `say_*` and `troop_bit_10_*` ones).
+
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust
 (no flag helpers where no caller reads the flags), `c.run(start, cost)`
@@ -1015,6 +1039,8 @@ places), [4722h] (a toggle of the map panel), [118Fh], [0DCE4h].
 | `tools/lift/merge_runs.py` | Not a check: merge back-to-back stretches of a port (`--dry` lists them). |
 | `tools/lift/driver_flags.py` | Not a check: the flags each driver entry reads on entry (none). |
 | `tools/lift/hoist_runs.py` | Not a check: hoist the stretch both arms of an `if` start with into one before it, its count the branch's (`c.run(A, if cond { n } else { m })`). |
+| `tools/lift/name_results.py [--list] MODULE...` | Not a check: the named call returning a routine's CF/ZF answer as a `bool`, and its call sites rewritten to it (`--list`: the sites that read a result). |
+| `tools/lift/fix_warnings.py` | Not a check: remove the imports and `code::` constants a rewrite left unused. |
 | `tools/lift/shadow.sh [ENTRIES] [SECS]` | The shadow check of every port (or ENTRIES) in the suite's seven games, with per-entry counts. |
 | `tools/lift/name_calls.py` | Not a check: regenerate `hand/entry.rs` (a constant per routine with a name: the port's, else the listing's label) and write `c.call(entry::NAME, ret)` / `c.jump(entry::NAME)` for the numbers (2106 sites; run again after adding or renaming ports). |
 | `--save FILE` + event `T:load:1` | Real play from any point of the game (the test saves, Day 1 to 23). |

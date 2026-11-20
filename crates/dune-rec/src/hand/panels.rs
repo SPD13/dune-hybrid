@@ -2,6 +2,9 @@
 //! device's animations, the ornithopter, the settings sliders, talking
 //! heads without lip sync, lip sync start and stop.
 
+use super::voice;
+use super::sound;
+use super::cursor;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -35,20 +38,15 @@ mod code {
     pub const SUB_88F1: u16 = 0x88f1;
     pub const FORMAT_INTERPOLATED_STRING: u16 = 0x8944;
     pub const FONT_DRAW_STRING: u16 = 0xd1bb;
-    pub const CHECK_PCM_ENABLED: u16 = 0xae2f;
-    pub const SUB_AE28: u16 = 0xae28;
     pub const SETTINGS_UI_DRAW_SLIDER: u16 = 0xa502;
     pub const SETTINGS_UI_ADD_GLOBAL_OFFSET: u16 = 0xa45c;
     pub const SUB_A465: u16 = 0xa465;
-    pub const MUSIC_ENABLED: u16 = 0xae28;
     pub const REMOVE_FRAME_TASK: u16 = 0xda5f;
     pub const SUB_D61D: u16 = 0xd61d;
-    pub const IS_VOC_PCM_PLAYING: u16 = 0xabcc;
     pub const SET_VOC_PCM_IS_NOT_PLAYING: u16 = 0xabc6;
     pub const CLOSE_PCM_VOICE_FILE_HANDLE: u16 = 0xa9a1;
     pub const PCM_CALL_AC30: u16 = 0xac30;
     pub const PCM_STOP_VOC: u16 = 0xac14;
-    pub const OPEN_PCM_VOICE_FILE: u16 = 0xa90b;
     pub const SUB_A9B9: u16 = 0xa9b9;
     pub const LIP_SYNC_FRAME_TASK: u16 = 0xa7c2;
 }
@@ -640,10 +638,20 @@ pub fn settings_on_a_slider(m: &mut Machine, start: u16) -> Result<(), Bail> {
     on_any(&mut Ctx::new(m), start, SLIDERS, 0xa685, 0x16, 5)
 }
 
+/// [`settings_on_a_slider`] called: whether the cursor is on a slider (SI = it).
+pub(super) fn on_slider(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xa672, ret)
+}
+
 /// `loc_0a69f`: whether the cursor is on a switch (SI = it).
 pub fn settings_on_a_switch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa69f)?;
     on_any(&mut Ctx::new(m), start, SWITCHES, 0xa6b2, 0x0d, 0x0b)
+}
+
+/// [`settings_on_a_switch`] called: whether the cursor is on a switch (SI = it).
+pub(super) fn on_switch(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xa69f, ret)
 }
 
 /// `loc_0a594`: what the cursor is on, at [`g::SETTINGS_HOVER`].
@@ -651,15 +659,13 @@ pub fn settings_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa594)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::SETTINGS_ON_A_SLIDER, 0xa597)?;
-    if c.flag(CF) {
+    if on_slider(&mut c, 0xa597)? {
         c.run(0xa597, 3)?;
         c.set_byte(g::SETTINGS_HOVER, 1);
         return c.ret();
     }
     c.run(0xa597, 2)?;
-    c.call(entry::SETTINGS_ON_A_SWITCH, 0xa5a2)?;
-    let on = c.flag(CF);
+    let on = on_switch(&mut c, 0xa5a2)?;
     c.run(0xa5a2, 3)?;
     c.set_byte(g::SETTINGS_HOVER, if on { 2 } else { 0 });
     c.ret()
@@ -782,10 +788,9 @@ pub fn settings_ui_draw_volume_sliders(m: &mut Machine, start: u16) -> Result<()
     entered(start, 0xa4c6)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(code::CHECK_PCM_ENABLED, 0xa4c9)?;
-    let zf = c.flag(ZF);
-    c.run(0xa4c9, if zf { 2 } else { 3 })?;
-    if !zf {
+    let pcm_enabled = sound::pcm_enabled(&mut c, 0xa4c9)?;
+    c.run(0xa4c9, if !pcm_enabled { 2 } else { 3 })?;
+    if pcm_enabled {
         c.set_reg(SI, g::SLIDER_VOICE);
         c.call(code::SETTINGS_UI_DRAW_SLIDER, 0xa4d1)?;
         let s = c.sound_state().settings;
@@ -794,8 +799,7 @@ pub fn settings_ui_draw_volume_sliders(m: &mut Machine, start: u16) -> Result<()
             c.set_byte(g::SLIDER_VOICE + 1, 0);
         }
     }
-    c.call(code::SUB_AE28, 0xa4e1)?;
-    if c.flag(ZF) {
+    if !voice::music_on(&mut c, 0xa4e1)? {
         c.run(0xa4e1, 2)?;
         return c.ret();
     }
@@ -852,9 +856,9 @@ pub fn lip_sync_stop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::LIPSYNC_PTR, 0);
     c.call(code::SUB_D61D, 0xa7b4)?;
     c.run(0xa7b4, 1)?;
-    c.call(code::IS_VOC_PCM_PLAYING, 0xa7b7)?;
+    let voc_playing = sound::voc_playing(&mut c, 0xa7b7)?;
     c.run(0xa7b7, 2)?;
-    if c.flag(ZF) {
+    if !voc_playing {
         return c.ret();
     }
     c.call(code::SET_VOC_PCM_IS_NOT_PLAYING, 0xa7bc)?;
@@ -873,18 +877,16 @@ pub fn voc_get_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     c.set_word(g::LIPSYNC_PTR, 0);
-    c.call(code::CHECK_PCM_ENABLED, 0xa848)?;
+    let pcm_enabled = sound::pcm_enabled(&mut c, 0xa848)?;
     c.run(0xa848, 2)?;
-    if c.flag(ZF) {
+    if !pcm_enabled {
         return c.ret();
     }
     c.call(code::PCM_STOP_VOC, 0xa84d)?;
     c.run(0xa84d, 1)?;
-    c.call(code::OPEN_PCM_VOICE_FILE, 0xa850)?;
-    if c.flag(CF) {
+    if !voice::voice_file_found(&mut c, 0xa850)? {
         c.run(0xa850, 3)?; // cmc; jae; ret
-        c.set_flag(CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     let [buf, seg] = c.voice_buffer(0).data;
     let mut di = buf.wrapping_add(0x1a);
@@ -914,8 +916,12 @@ pub fn voc_get_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_voice_buffer(0, |b| b.size = size);
     c.call(code::SUB_A9B9, 0xa87c)?;
     c.run(0xa87c, 2)?;
-    c.set_flag(CF, true);
-    c.ret()
+    c.ret_cf(true)
+}
+
+/// [`voc_get_lipsync_data`] called: whether the voice's file was opened.
+pub(super) fn voc_opened(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xa83f, ret)
 }
 
 /// `loc_0c0d5`: transition AL from the front buffer to the screen (driver
@@ -967,8 +973,7 @@ pub fn settings_music_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.m.cpu.write8(&mut c.m.hw, SS, bp + k, v);
     }
     c.set_reg8(r8::CL, 0xff);
-    c.call(code::MUSIC_ENABLED, 0xac4e)?;
-    if c.flag(ZF) {
+    if !voice::music_on(&mut c, 0xac4e)? {
         c.run(0xac4e, 2)?;
         return c.ret();
     }
@@ -1201,8 +1206,7 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     c.set_reg(DI, 0x2886);
-    c.call(entry::POINT_IN_RECT, 0xa57c)?;
-    if !c.flag(CF) {
+    if !cursor::inside_rect(&mut c, 0xa57c)? {
         c.run(0xa57c, 2)?;
         return super::screens::leave_and_fade(c.m, 0xd2e2);
     }
@@ -1210,11 +1214,9 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::SETTINGS_UI_SUB_GLOBAL_OFFSET, 0xa584)?;
     c.run(0xa584, 2)?;
     c.set_reg(DI, 0x28bf);
-    c.call(entry::POINT_IN_RECT, 0xa58a)?;
-    if c.flag(CF) {
+    if cursor::inside_rect(&mut c, 0xa58a)? {
         c.run(0xa58a, 2)?;
-        c.call(entry::CHECK_PCM_ENABLED, 0xa556)?;
-        if c.flag(ZF) {
+        if !sound::pcm_enabled(&mut c, 0xa556)? {
             c.run(0xa556, 2)?;
             return c.ret();
         }
@@ -1236,18 +1238,16 @@ pub fn settings_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xa58a, 3)?;
     c.set_reg(DI, 0x28c7);
-    c.call(entry::POINT_IN_RECT, 0xa592)?;
-    if !c.flag(CF) {
+    if !cursor::inside_rect(&mut c, 0xa592)? {
         c.run(0xa592, 2)?;
-        c.call(entry::SETTINGS_ON_A_SLIDER, 0xa597)?;
-        if c.flag(CF) {
+        if on_slider(&mut c, 0xa597)? {
             c.run(0xa597, 3)?;
             c.set_byte(g::SETTINGS_HOVER, 1);
             return c.ret();
         }
         c.run(0xa597, 2)?;
-        c.call(entry::SETTINGS_ON_A_SWITCH, 0xa5a2)?;
-        let v = if c.flag(CF) { 2 } else { 0 };
+        let on_switch = on_switch(&mut c, 0xa5a2)?;
+        let v = if on_switch { 2 } else { 0 };
         c.run(0xa5a2, 3)?;
         c.set_byte(g::SETTINGS_HOVER, v);
         return c.ret();

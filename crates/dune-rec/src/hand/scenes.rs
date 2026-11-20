@@ -3,6 +3,8 @@
 //! task, the IRUL videos (with subtitles), the font glyph routines, the
 //! pause key.
 
+use super::video;
+use super::gfx;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -26,7 +28,6 @@ mod code {
     pub const TRANSITION: u16 = 0xc108;
     pub const KB_CLEAR_SCANCODE: u16 = 0xde4e;
     pub const HNM_DO_FRAME_SKIPPABLE: u16 = 0xc9e8;
-    pub const CHECK_IF_HNM_COMPLETE: u16 = 0xcc85;
     pub const HNM_CLOSE_RESOURCE: u16 = 0xca01;
     pub const PCM_STOP_VOC: u16 = 0xac14;
     pub const SET_FB1_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc07c;
@@ -123,9 +124,9 @@ pub fn play_chapter_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
             break;
         }
         c.run(0xb210, 2)?;
-        c.call(code::CHECK_IF_HNM_COMPLETE, 0xb215)?;
+        let video_done = video::video_done(&mut c, 0xb215)?;
         c.run(0xb215, 2)?;
-        if !c.flag(pc::cpu::ZF) {
+        if video_done {
             break;
         }
         c.call(code::HNM_DO_FRAME_SKIPPABLE, 0xb210)?;
@@ -426,14 +427,12 @@ pub fn play_irul_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(code::IRUL_SUBTITLE, 0xcf30)?;
             c.run(0xcf30, 1)?;
         }
-        c.call(code::HNM_DO_FRAME_SKIPPABLE, 0xcf33)?;
-        if c.flag(CF) {
+        if gfx::frame_interrupted(&mut c, 0xcf33)? {
             c.run(0xcf33, 3)?; // jb; pushf; call
             break;
         }
         c.run(0xcf33, 2)?;
-        c.call(code::CHECK_IF_HNM_COMPLETE, 0xcf38)?;
-        if c.flag(pc::cpu::ZF) {
+        if !video::video_done(&mut c, 0xcf38)? {
             c.run(0xcf38, 1)?;
             continue;
         }

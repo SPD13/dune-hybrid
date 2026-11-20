@@ -4,6 +4,8 @@
 //! They run for seconds: they are checked with `REC_BUDGET` raised (see
 //! `docs/decompile.md`, section 3).
 
+use super::video;
+use super::gfx;
 use super::entry;
 use super::globals as g;
 use super::pure;
@@ -210,8 +212,7 @@ pub fn play_video_with_callback(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.call(bp, 0xc90b)?;
     c.run(0xc90b, 1)?;
     loop {
-        c.call(entry::HNM_DO_FRAME_AND_CHECK_IF_FRAME_ADVANCED, 0xc90e)?;
-        if c.flag(ZF) {
+        if !gfx::frame_advanced(&mut c, 0xc90e)? {
             c.run(0xc90e, 2)?;
             continue;
         }
@@ -220,8 +221,7 @@ pub fn play_video_with_callback(m: &mut Machine, start: u16) -> Result<(), Bail>
         c.run(0xc913, 1)?;
         c.call(entry::MUSIC_STEP, 0xc916)?;
         c.run(0xc916, 1)?;
-        c.call(entry::CHECK_IF_HNM_COMPLETE, 0xc919)?;
-        if !c.flag(ZF) {
+        if video::video_done(&mut c, 0xc919)? {
             break;
         }
         c.run(0xc919, 2)?;
@@ -341,8 +341,7 @@ pub fn play_sal_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x48c9, 1)?;
             c.call(entry::HNM_DO_FRAME, 0x48cc)?;
             c.run(0x48cc, 1)?;
-            c.call(entry::CHECK_IF_HNM_COMPLETE, 0x48cf)?;
-            if !c.flag(ZF) {
+            if video::video_done(&mut c, 0x48cf)? {
                 break;
             }
             c.run(0x48cf, 1)?;

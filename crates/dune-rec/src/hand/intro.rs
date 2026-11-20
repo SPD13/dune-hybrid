@@ -1,6 +1,9 @@
 //! The intro sequence's steps: videos, frame tasks, the talking head.
 //! Most end in `clc; ret`: CF clear tells the intro script to go on.
 
+use super::video;
+use super::input;
+use super::gfx;
 use super::pure;
 use super::entry;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -21,7 +24,6 @@ mod code {
     pub const UPDATE_SCREEN_PALETTE: u16 = 0xc0f4;
     pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
     pub const SUB_C868: u16 = 0xc868;
-    pub const HNM_DO_FRAME_SKIPPABLE: u16 = 0xc9e8;
     pub const HNM_DO_FRAME: u16 = 0xca60;
     pub const CHECK_IF_HNM_COMPLETE: u16 = 0xcc85;
     pub const ADD_FRAME_TASK: u16 = 0xda25;
@@ -68,8 +70,7 @@ pub fn intro_play_hnm_86_frames(m: &mut Machine, start: u16) -> Result<(), Bail>
     hnm_start(&mut c, 0x06aa)?;
     loop {
         c.run(0x06b0, 1)?;
-        c.call(code::HNM_DO_FRAME_SKIPPABLE, 0x06b3)?;
-        if c.flag(CF) {
+        if gfx::frame_interrupted(&mut c, 0x06b3)? {
             c.run(0x06b3, 2)?; // jb; ret
             return c.ret();
         }
@@ -101,14 +102,12 @@ fn hnm_skippable(c: &mut Ctx) -> Result<(), Bail> {
     hnm_start(c, 0x06bd)?;
     loop {
         c.run(0x06c3, 1)?;
-        c.call(code::HNM_DO_FRAME_SKIPPABLE, 0x06c6)?;
-        if c.flag(CF) {
+        if gfx::frame_interrupted(c, 0x06c6)? {
             c.run(0x06c6, 2)?; // jb 06BC; ret
             return c.ret();
         }
         c.run(0x06c6, 2)?;
-        c.call(code::CHECK_IF_HNM_COMPLETE, 0x06cb)?;
-        if !c.flag(ZF) {
+        if video::video_done(c, 0x06cb)? {
             c.run(0x06cb, 2)?; // je; ret
             return c.ret();
         }
@@ -637,8 +636,7 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x0240, 2)?;
             si = c.pop();
             c.set_reg(SI, si);
-            c.call(entry::KB_CHECK_FOR_ESC_KEY_HIT, 0x0244)?;
-            if c.flag(ZF) {
+            if input::esc_hit(&mut c, 0x0244)? {
                 c.run(0x0244, 1)?;
                 break true;
             }

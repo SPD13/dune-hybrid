@@ -1,11 +1,13 @@
 //! Text: the phrase and command strings, the font, drawing strings.
 
+use super::sound;
+use super::screens;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, ZF},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI},
     rec::Bail,
 };
 
@@ -18,7 +20,6 @@ mod code {
     pub const FONT_SET_DRAW_POSITION: u16 = 0xd04e;
     pub const FONT_GET_DRAW_POSITION: u16 = 0xd05f;
     pub const LOAD_PHRASE_HSQ: u16 = 0xd00f;
-    pub const CHECK_PCM_ENABLED: u16 = 0xae2f;
     pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     pub const ADJUST_SUB_RESOURCE_POINTERS: u16 = 0x0098;
     /// The small font's glyph routine (`font_select_small_font`).
@@ -123,8 +124,7 @@ pub fn check_amr_or_eng_language(m: &mut Machine, start: u16) -> Result<(), Bail
     entered(start, 0xcfa0)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(code::CHECK_PCM_ENABLED, 0xcfa3)?;
-    if c.flag(ZF) {
+    if !sound::pcm_enabled(&mut c, 0xcfa3)? {
         c.run(0xcfa3, 2)?;
         return c.ret();
     }
@@ -377,8 +377,7 @@ pub fn word_width(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x8eda, n1)?;
         c.lods(B, DS);
         if sp {
-            c.call(entry::SPECIAL_CHAR, 0x8efe)?;
-            if !c.flag(pc::cpu::CF) {
+            if screens::special_char_found(&mut c, 0x8efe)? {
                 c.run(0x8efe, 3)?;
                 let a = c.reg8(r8::AL);
                 let cl = c.reg8(r8::CL);
@@ -418,8 +417,7 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(entry::FONT_SELECT_TALL_FONT, 0xd102)?;
     c.run(0xd102, 1)?;
-    c.call(entry::SPECIAL_CHAR, 0xd105)?;
-    if c.flag(pc::cpu::CF) {
+    if !screens::special_char_found(&mut c, 0xd105)? {
         c.run(0xd105, 19)?;
         let saved = [AX, BX, CX, DX, SI, DI, BP].map(|r| c.reg(r));
         for v in saved {

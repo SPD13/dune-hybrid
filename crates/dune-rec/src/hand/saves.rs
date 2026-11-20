@@ -1,6 +1,7 @@
 //! Saved games (their RLE, restoring the map's bits and the game's
 //! state), particles, numbers in strings, reading resources.
 
+use super::files;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -18,7 +19,6 @@ mod code {
     pub const GET_PHRASE_OR_COMMAND_STRING_SI: u16 = 0xcf70;
     pub const FIND_LAST_NUMERIC_DIGIT: u16 = 0xd03c;
     pub const OPEN_RES_OR_FILE_OR_DIE: u16 = 0xf229;
-    pub const READ_DUNE_DAT_CX_TO_ESDI: u16 = 0xf2ea;
     pub const FONT_SET_DRAW_POSITION: u16 = 0xd04e;
     pub const SAVE_REGS: u16 = 0xe270;
     pub const RESTORE_REGS: u16 = 0xe283;
@@ -528,8 +528,7 @@ pub fn read_resource_to_esdi(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if bx != dat {
             return super::files::read_ffff_to_esdi_and_close(c.m, 0xf260);
         }
-        c.call(code::READ_DUNE_DAT_CX_TO_ESDI, 0xf252)?;
-        if !c.flag(pc::cpu::CF) {
+        if !files::read_short(&mut c, 0xf252)? {
             c.run(0xf252, 2)?;
             return c.ret();
         }

@@ -59,8 +59,12 @@ pub fn get_and_reset_key_scancode(m: &mut Machine, start: u16) -> Result<(), Bai
     let key = c.byte(g::KEY_HIT);
     c.set_byte(g::KEY_HIT, 0);
     c.set_reg8(r8::AL, key);
-    c.set_flag(pc::cpu::ZF, key == 0);
-    c.ret()
+    c.ret_zf(key == 0)
+}
+
+/// [`get_and_reset_key_scancode`] called: whether a key was pressed (AL = its scancode, taken).
+pub(super) fn key_taken(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_zf(0xdd5a, ret)?)
 }
 
 /// `kb_clear_scancode` (DE4E): forget the last key.
@@ -88,6 +92,11 @@ pub fn kb_check_for_esc_key_hit(m: &mut Machine, start: u16) -> Result<(), Bail>
         c.set_byte(g::KEY_HIT, 0);
     }
     c.ret()
+}
+
+/// [`kb_check_for_esc_key_hit`] called: whether the last key was Esc (taken).
+pub(super) fn esc_hit(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_zf(0xde54, ret)
 }
 
 /// `loc_0dd10`: the joystick (`read_game_port`) as keys: [CEE6h] FFh with

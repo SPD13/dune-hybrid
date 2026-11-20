@@ -1,5 +1,6 @@
 //! Sound: PCM voice state, lip sync, the PIT timer rate.
 
+use super::frame;
 use super::entry;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -43,6 +44,11 @@ pub fn advance_lipsync(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`advance_lipsync`] called: whether there was another lip-sync byte (AL = it).
+pub(super) fn next_lipsync(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xa814, ret)
+}
+
 /// `pcm_test_audio_done` (A9E7): ZF set if either PCM state is 3 (done).
 /// Flags from the last `cmp`.
 pub fn pcm_test_audio_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -64,6 +70,11 @@ pub fn pcm_test_audio_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`pcm_test_audio_done`] called: whether either PCM state is 3 (done).
+pub(super) fn pcm_done(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_zf(0xa9e7, ret)
+}
+
 /// `check_pcm_voice_file_open` (ABA3): ZF clear if the voice file is open.
 pub fn check_pcm_voice_file_open(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xaba3)?;
@@ -73,6 +84,11 @@ pub fn check_pcm_voice_file_open(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_flag(ZF, handle == 0);
     c.set_flag(CF, false);
     c.ret()
+}
+
+/// [`check_pcm_voice_file_open`] called: whether the voice file is open.
+pub(super) fn voice_file_open(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_zf(0xaba3, ret)?)
 }
 
 /// `set_voc_pcm_is_not_playing` (ABC6).
@@ -98,6 +114,11 @@ pub fn is_voc_pcm_playing(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`is_voc_pcm_playing`] called: whether a VOC sample plays.
+pub(super) fn voc_playing(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_zf(0xabcc, ret)?)
+}
+
 /// `check_pcm_enabled` (AE2F): ZF clear if PCM sound is enabled (bit 0 of
 /// the settings), whatever DS is. Registers kept.
 pub fn check_pcm_enabled(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -115,6 +136,11 @@ pub fn check_pcm_enabled(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.pop();
     c.set_reg(AX, ax);
     c.ret()
+}
+
+/// [`check_pcm_enabled`] called: whether PCM sound is enabled.
+pub(super) fn pcm_enabled(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_zf(0xae2f, ret)?)
 }
 
 /// `set_pit_timer_frequency` (E8A8): PIT channel 0 divisor = AX (mode 3),
@@ -220,12 +246,11 @@ pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0xde41, 2)?;
         c.push(bx);
-        c.call(entry::STC_ON_USER_INPUT, 0xde45)?;
-        let cf = c.flag(CF);
-        c.run(0xde45, 2 + (!cf) as u32)?;
+        let user_input = frame::user_input(&mut c, 0xde45)?;
+        c.run(0xde45, 2 + (!user_input) as u32)?;
         let v = c.pop();
         c.set_reg(BX, v);
-        if cf {
+        if user_input {
             break;
         }
     }
@@ -239,4 +264,9 @@ pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::RESTORE_REGS, 0xddef)?;
     c.run(0xddef, 1)?;
     c.ret()
+}
+
+/// [`check_midi`] called: whether the player cut the wait for the music short.
+pub(super) fn midi_wait_cut_short(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xde0c, ret)
 }

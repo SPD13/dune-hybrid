@@ -3,6 +3,8 @@
 //! so the port bails (or, in a shadow replay, settles the interrupt) at
 //! the tick, as the original meets it.
 
+use super::sound;
+use super::frame;
 use super::entry;
 use super::globals as g;
 use super::pure;
@@ -123,8 +125,7 @@ fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0xddce, 2)?;
         let cx = c.reg(CX);
         c.push(cx);
-        c.call(entry::STC_ON_USER_INPUT, 0xddd2)?;
-        let input = c.flag(CF);
+        let input = frame::user_input(c, 0xddd2)?;
         c.run(0xddd2, 3 + (!input) as u32)?;
         let cx = c.pop();
         c.set_reg(CX, cx);
@@ -182,8 +183,7 @@ pub fn wait_for_pcm_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return nz_ret(&mut c, 0xde07);
     }
     c.run(0xddf7, 1)?;
-    c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xddfa)?;
-    if c.flag(ZF) {
+    if !sound::voice_file_open(&mut c, 0xddfa)? {
         c.run(0xddfa, 1)?;
         return wait_at_ddb0(&mut c);
     }
@@ -195,14 +195,18 @@ pub fn wait_for_pcm_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return nz_ret(&mut c, 0xde07);
         }
         c.run(0xddff, 2)?;
-        c.call(entry::STC_ON_USER_INPUT, 0xde04)?;
-        if c.flag(CF) {
+        if frame::user_input(&mut c, 0xde04)? {
             c.run(0xde04, 2)?;
             return c.ret();
         }
         c.run(0xde04, 2)?;
         c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xddff)?;
     }
+}
+
+/// [`wait_for_pcm_voice`] called: whether a key or click cut the wait for the voice short.
+pub(super) fn voice_wait_cut_short(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xddf0, ret)
 }
 
 /// DE07h-DE0Bh: `push ax; or al, 1; pop ax; ret` (NZ, CF clear).
@@ -225,8 +229,7 @@ pub fn audio_test_frequency(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xa87e, 3)?;
     pushf_sti(&mut c, false);
-    c.call(entry::CHECK_PCM_ENABLED, 0xa883)?;
-    if c.flag(ZF) {
+    if !sound::pcm_enabled(&mut c, 0xa883)? {
         c.run(0xa883, 3)?;
         popf(&mut c);
         return c.ret();

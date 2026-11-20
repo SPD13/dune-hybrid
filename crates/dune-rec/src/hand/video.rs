@@ -127,6 +127,11 @@ pub fn check_if_hnm_complete(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`check_if_hnm_complete`] called: whether no video plays (its state past 1).
+pub(super) fn video_done(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_zf(0xcc85, ret)?)
+}
+
 /// `hnm_advance_read_ptr` (CDF7): both HNM read pointers += AX. CF clear;
 /// the other flags from the second `add`.
 pub fn hnm_advance_read_ptr(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -260,6 +265,11 @@ pub fn ui_elements_for_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_flag(CF, true);
     c.count(n);
     c.ret()
+}
+
+/// [`ui_elements_for_cursor`] called: whether the cursor image has a UI element table (DI = it).
+pub(super) fn cursor_has_elements(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_zf(0xd694, ret)
 }
 
 /// `clear_frame_tasks` (DA53): no frame tasks.

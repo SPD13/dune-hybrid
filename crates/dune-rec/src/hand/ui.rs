@@ -2,6 +2,8 @@
 //! communication device, the sky, the sun and moon, location names, and
 //! smaller game-logic steps they trigger.
 
+use super::voice;
+use super::story;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -34,7 +36,6 @@ mod code {
     pub const SUB_3E80: u16 = 0x3e80;
     pub const SAVE_REGS: u16 = 0xe270;
     pub const RESTORE_REGS: u16 = 0xe283;
-    pub const SOUND_OFF: u16 = 0xaec6;
     pub const SUB_AD43: u16 = 0xad43;
     pub const GET_LOCATION_TYPE_STRING_OFFSET: u16 = 0x6231;
     pub const SUB_7085: u16 = 0x7085;
@@ -678,8 +679,7 @@ pub fn travel_no_target_if_al_odd(m: &mut Machine, start: u16) -> Result<(), Bai
 /// (registers kept).
 fn music_step(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xae04, 1)?;
-    c.call(code::SOUND_OFF, 0xae07)?;
-    if c.flag(CF) {
+    if voice::sound_is_off(c, 0xae07)? {
         c.run(0xae07, 2)?;
         return c.ret();
     }
@@ -1325,8 +1325,7 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x1962, 4)?;
             let al = c.byte(si.wrapping_add(0x0e));
             c.set_reg8(r8::AL, al);
-            c.call(entry::IS_4_IN_PHASES_15_TO_1F, 0x196d)?;
-            if c.flag(CF) {
+            if story::four_in_phases_15_to_1f(&mut c, 0x196d)? {
                 c.run(0x196d, 1)?;
                 break 'one;
             }
@@ -1612,14 +1611,13 @@ pub fn draw_character(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(entry::PICK_SENTENCE, 0x3d5b)?;
     c.run(0x3d5b, 1)?;
-    c.call(entry::IS_4_IN_PHASES_15_TO_1F, 0x3d5e)?;
-    let cf = c.flag(CF);
-    let mut al = if cf { 0x11 } else { c.reg8(r8::AL) };
+    let four_in_phases_15_to_1f = story::four_in_phases_15_to_1f(&mut c, 0x3d5e)?;
+    let mut al = if four_in_phases_15_to_1f { 0x11 } else { c.reg8(r8::AL) };
     let f = c.character(12).flags;
     let swap = al == 0x0c && f & 0x10 != 0;
-    let n = 1 + if cf { 2 } else { 0 } + 2 + if al == 0x0c { 2 + swap as u32 } else { 0 } + 4;
+    let n = 1 + if four_in_phases_15_to_1f { 2 } else { 0 } + 2 + if al == 0x0c { 2 + swap as u32 } else { 0 } + 4;
     c.run(0x3d5e, n)?;
-    if cf {
+    if four_in_phases_15_to_1f {
         c.set_reg8(r8::AL, 0x11);
         let bx = c.reg(BX);
         let bx = pure::add(W, bx, 0x35);

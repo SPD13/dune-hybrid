@@ -3,6 +3,11 @@
 //! shadow check can't see them; `--rec on` runs them, checked by whole-run
 //! state hashes (`STATE_HASH=1`, against plain emulation).
 
+use super::waits;
+use super::sound;
+use super::screens;
+use super::input;
+use super::frame;
 use super::pure;
 use super::entry;
 use super::globals as g;
@@ -74,8 +79,7 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     'top: loop {
         c.run(0x0580, 1)?;
-        c.call(entry::KB_CHECK_FOR_ESC_KEY_HIT, 0x0583)?;
-        if c.flag(ZF) {
+        if input::esc_hit(&mut c, 0x0583)? {
             c.run(0x0583, 1)?;
             return intro_end(&mut c);
         }
@@ -101,8 +105,7 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 continue 'top;
             }
             c.run(0x05a3, 1)?;
-            c.call(entry::CHECK_MIDI, 0x05a6)?;
-            if c.flag(CF) {
+            if sound::midi_wait_cut_short(&mut c, 0x05a6)? {
                 c.run(0x05a6, 1)?;
                 return intro_end(&mut c);
             }
@@ -125,8 +128,7 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x05c2, 2)?;
             let bx = c.reg(AX);
             c.set_reg(BX, bx);
-            c.call(entry::CHECK_MIDI, 0x05c7)?;
-            if c.flag(CF) {
+            if sound::midi_wait_cut_short(&mut c, 0x05c7)? {
                 c.run(0x05c7, 1)?;
                 return intro_end(&mut c);
             }
@@ -149,8 +151,7 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let v = c.dialogue_text().flags;
             let v = pure::or(B, v as u16, 0x80);
             c.update_dialogue_text(|t| t.flags = v as u8);
-            c.call(entry::STC_ON_USER_INPUT, 0x05e7)?;
-            if c.flag(CF) {
+            if frame::user_input(&mut c, 0x05e7)? {
                 c.run(0x05e7, 1)?;
                 return intro_end(&mut c);
             }
@@ -173,9 +174,9 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 continue;
             }
             c.run(0x05f8, 1)?;
-            c.call(entry::WAIT_FOR_PCM_VOICE, 0x05fb)?;
+            let voice_wait_cut_short = waits::voice_wait_cut_short(&mut c, 0x05fb)?;
             c.run(0x05fb, 1)?;
-            if !c.flag(CF) {
+            if !voice_wait_cut_short {
                 continue;
             }
             return intro_end(&mut c);
@@ -405,8 +406,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
         if d < 0x32 {
             return Ok(());
         }
-        c.call(entry::ELEMENT_UNDER_CURSOR, 0xd8e9)?;
-        if !c.flag(CF) {
+        if !screens::cursor_on_element(c, 0xd8e9)? {
             c.run(0xd8e9, 2)?;
             return Ok(());
         }
@@ -452,8 +452,7 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
     c.cmp(W, si, top);
     if si == top {
         c.run(0xd904, 1)?;
-        c.call(entry::ELEMENT_UNDER_CURSOR, 0xd907)?;
-        if c.flag(CF) {
+        if screens::cursor_on_element(c, 0xd907)? {
             c.run(0xd907, 1)?;
             let di = c.reg(DI);
             c.run(0xd918, 2)?;

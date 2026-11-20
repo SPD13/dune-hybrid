@@ -1,6 +1,10 @@
 //! Dialogue state: the talking character's mode bytes (47C2h, 47C4h,
 //! 47DCh...), the phrase pointers, and small steps of the conversation.
 
+use super::story;
+use super::sound;
+use super::math;
+use super::cursor;
 use super::entry;
 use super::globals as g;
 use super::pure;
@@ -791,8 +795,7 @@ pub fn start_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let talker = c.conversation().talker;
     c.set_reg(AX, talker);
-    c.call(entry::IS_4_IN_PHASES_15_TO_1F, 0x9943)?;
-    if c.flag(pc::cpu::CF) {
+    if story::four_in_phases_15_to_1f(&mut c, 0x9943)? {
         c.run(0x9943, 2)?;
         return c.ret();
     }
@@ -927,8 +930,7 @@ pub fn sentence_number_part(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if part == 0 {
         c.run(start, 4)?;
         c.set_reg8(r8::AL, 0);
-        c.set_flag(pc::cpu::CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     if part & 0x80 == 0 {
         c.run(start, 6)?;
@@ -943,15 +945,13 @@ pub fn sentence_number_part(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let text = base.wrapping_add(c.word_in(ES, entry.wrapping_add(base)));
         c.set_reg(SI, text);
         c.update_dialogue_text(|t| t.left = 0x14);
-        c.set_flag(pc::cpu::CF, true);
-        return c.ret();
+        return c.ret_cf(true);
     }
     let draws = part & 1 != 0;
     c.run(start, if draws { 8 } else { 7 })?;
     c.set_reg8(r8::AL, part >> 1);
     if !draws {
-        c.set_flag(pc::cpu::CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     c.update_sentence(|t| t.number_part = 0x80);
     c.call(entry::FONT_SELECT_SMALL_FONT, 0x9ae7)?;
@@ -960,8 +960,7 @@ pub fn sentence_number_part(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x9ae7, if kind >= 0x38 { 4 } else { 12 })?;
     c.set_reg(SI, record);
     if kind >= 0x38 {
-        c.set_flag(pc::cpu::CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     // Its four words (`lodsw` each) after the kind.
     let mut words = [0u16; 4];
@@ -980,8 +979,12 @@ pub fn sentence_number_part(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x9b04, 1)?;
     c.call(entry::UPDATE_GAME_AREA_ON_SCREEN, 0x9b07)?;
     c.run(0x9b07, 2)?;
-    c.set_flag(pc::cpu::CF, false);
-    c.ret()
+    c.ret_cf(false)
+}
+
+/// [`sentence_number_part`] called: whether the sentence's number part begins here.
+pub(super) fn number_part_begins(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x9ab4, ret)
 }
 
 /// `loc_09b49`: when the number part has begun ([`g::NUMBER_PART`] 80h): the
@@ -1846,10 +1849,9 @@ pub fn dialogue_text_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 if more {
                     Step::Show
                 } else {
-                    c.call(entry::SENTENCE_NUMBER_PART, 0x9a52)?;
-                    let cf = c.flag(CF);
-                    c.run(0x9a52, if cf { 1 } else { 2 })?;
-                    if !cf {
+                    let number_part_begins = number_part_begins(&mut c, 0x9a52)?;
+                    c.run(0x9a52, if number_part_begins { 1 } else { 2 })?;
+                    if !number_part_begins {
                         c.call(entry::RANDOM_SENTENCE, 0x9a57)?;
                         let done = c.reg8(r8::AH) != 0;
                         c.run(0x9a57, 3)?;
@@ -2009,8 +2011,7 @@ pub fn start_text_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, time);
     c.set_word(g::LIPSYNC_TIME, time);
     c.set_word(g::LIPSYNC_TIME_LOW, 0x8000);
-    c.call(entry::ADVANCE_LIPSYNC, 0xa783)?;
-    let again = c.flag(pc::cpu::CF);
+    let again = sound::next_lipsync(&mut c, 0xa783)?;
     c.run(0xa783, 2)?;
     if !again {
         return c.ret();
@@ -2166,8 +2167,7 @@ fn rects_tail(c: &mut Ctx) -> Result<(), Bail> {
         return rects_tail_9ca6(c);
     }
     c.run(0x9c79, 3)?;
-    c.call(entry::IS_VOC_PCM_PLAYING, 0x9c83)?;
-    if c.flag(ZF) {
+    if !sound::voc_playing(c, 0x9c83)? {
         c.run(0x9c83, 1)?;
         return rects_tail_9ca6(c);
     }
@@ -2441,7 +2441,7 @@ fn view_back_9879(c: &mut Ctx) -> Result<(), Bail> {
 /// and the hook [`g::DIALOGUE_ENTRY_HOOK`] (reset to F66h) run. [`g::TALK_MODE`] =
 /// [28E8h] unless [0FBh] is negative. CF clear.
 pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    use pc::cpu::CF;
+    
     entered(start, 0x9f9e)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
@@ -2458,8 +2458,7 @@ pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if head == 0xffff {
             c.run(0x9fab, 5)?;
             c.set_reg(AX, head);
-            c.set_flag(CF, true);
-            return c.ret();
+            return c.ret_cf(true);
         }
         let [flags, condition] = head.to_le_bytes();
         let mask = c.conversation().mode;
@@ -2562,6 +2561,11 @@ pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let entry = c.pop();
     c.set_reg(SI, entry);
     entry_said_a03f(&mut c)
+}
+
+/// [`say_dialogue_entry`] called: whether an entry of the dialogue list was said.
+pub(super) fn entry_said(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0x9f9e, ret)?)
 }
 
 /// From A03Fh (`say_dialogue_entry`'s end, which `loc_0a03f` jumps to):
@@ -2733,7 +2737,7 @@ pub fn next_dialogue_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// group of 8 again, mask 20h). Bails while a phrase runs
 /// (`phrase_resume`).
 pub(super) fn next_line_from_9472(c: &mut Ctx) -> Result<(), Bail> {
-    use pc::cpu::CF;
+    
     c.run(0x9472, 1)?;
     c.call(entry::SPEAKER_TEXT_SETUP, 0x9475)?;
     if c.conversation().phrase_resume[0] != 0 {
@@ -2765,9 +2769,9 @@ pub(super) fn next_line_from_9472(c: &mut Ctx) -> Result<(), Bail> {
         if at != 0xffff {
             c.call(entry::SPEAK_NUMBER_PART, 0x94a2)?;
             c.run(0x94a2, 1)?;
-            c.call(entry::SAY_DIALOGUE_ENTRY, 0x94a5)?;
+            let entry_said = entry_said(c, 0x94a5)?;
             let next = c.reg(SI);
-            if !c.flag(CF) {
+            if entry_said {
                 c.run(0x94a5, 3)?;
                 c.update_conversation(|t| t.pending = next);
                 return fade_panel_tail(c.m);
@@ -3070,8 +3074,7 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 return c.ret();
             }
             c.set_reg(BX, 1);
-            c.call(entry::RAND_MASKED, 0x8dd6)?;
-            if c.flag(ZF) {
+            if math::rand_masked_zero(&mut c, 0x8dd6)? {
                 c.run(0x8dd6, 3)?;
                 c.set_flag(pc::cpu::CF, false); // the exit's flags (`clc`)
                 return c.ret();
@@ -3320,8 +3323,7 @@ pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_flag(CF, false); // its callers read CF alone
             return c.ret();
         }
-        c.call(entry::DIALOGUE_HIT, 0x9228)?;
-        if !c.flag(CF) {
+        if !cursor::on_dialogue_place(&mut c, 0x9228)? {
             // Off the speakers: the move up, in the first room of a place
             // (not a palace's, by day) below y 98h.
             let room = c.progress().room;
@@ -3366,8 +3368,7 @@ pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0x9218, 5)?;
-    c.call(entry::IN_DIALOGUE_RECTS, 0x9251)?;
-    if !c.flag(CF) {
+    if !cursor::in_dialogue_rect(&mut c, 0x9251)? {
         c.run(0x9251, 2)?;
         return c.ret();
     }

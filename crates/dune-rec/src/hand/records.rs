@@ -248,6 +248,11 @@ pub fn find_location_by_word_6(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.ret()
 }
 
+/// [`find_location_by_word_6`] called: whether a location's word 6 is DI (SI = it).
+pub(super) fn location_found(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_zf(0x409a, ret)
+}
+
 /// `loc_040ae`: for the location at DI: BH = its number (from 1), BL =
 /// 80h, DH = its kind (byte 8), DL = 1.
 pub fn location_coords(m: &mut Machine, start: u16) -> Result<(), Bail> {

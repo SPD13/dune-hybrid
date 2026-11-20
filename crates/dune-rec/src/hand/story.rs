@@ -1,5 +1,9 @@
 //! Story progress, the intro script, and one-line flag setters.
 
+use super::sound;
+use super::records;
+use super::map;
+use super::gfx;
 use super::entry;
 use super::game::Location;
 use super::pure;
@@ -471,8 +475,12 @@ pub fn is_4_in_phases_15_to_1f(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let phase = c.progress().phase;
     c.run(start, if al != 4 { 4 } else { 6 })?;
     // Its callers read CF alone.
-    c.set_flag(pc::cpu::CF, al == 4 && (0x15..0x20).contains(&phase));
-    c.ret()
+    c.ret_cf(al == 4 && (0x15..0x20).contains(&phase))
+}
+
+/// [`is_4_in_phases_15_to_1f`] called: whether AL is 4 and the phase is 15h..1Fh.
+pub(super) fn four_in_phases_15_to_1f(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x127c, ret)
 }
 
 /// `loc_01d9f`: unless bit 80h of [12h], `loc_01e01` on the record at
@@ -1411,8 +1419,12 @@ pub fn find_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let si = c.pop();
     c.set_reg(SI, si);
-    c.set_flag(pc::cpu::CF, found.is_some());
-    c.ret()
+    c.ret_cf(found.is_some())
+}
+
+/// [`find_pending_event`] called: whether kind AL has a pending event (AX, DI = its words).
+pub(super) fn pending_event_found(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x2aaf, ret)
 }
 
 /// `loc_03127`: the positions of characters 0Ch..0Fh reset (7F80h),
@@ -1999,8 +2011,7 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_situation(|t| t.battle_balance = 0);
     c.update_progress(|t| t.harkonnen_place = 0);
     if f & 2 == 0 {
-        c.call(entry::LOCATION_KIND_CHECK, 0x504f)?;
-        if c.flag(pc::cpu::CF) {
+        if map::location_kind_ok(&mut c, 0x504f)? {
             c.run(0x504f, 2)?;
             return c.ret();
         }
@@ -2534,8 +2545,7 @@ pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if k == 0 {
         let di = c.travel().target;
         c.set_reg(DI, di);
-        c.call(entry::LOCATION_KIND_CHECK, 0x4199)?;
-        if c.flag(pc::cpu::CF) {
+        if map::location_kind_ok(&mut c, 0x4199)? {
             return drop_it(&mut c, 0x4199, 3);
         }
         c.run(0x4199, 2)?;
@@ -3674,8 +3684,7 @@ pub fn event_place_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
             c.run(0x1f19, 4)?;
             c.set_reg(AX, ax);
-            c.call(entry::LOCATION_KIND_CHECK, 0x1f23)?;
-            if c.flag(CF) {
+            if map::location_kind_ok(&mut c, 0x1f23)? {
                 c.run(0x1f23, 1)?;
                 break 'one;
             }
@@ -3744,8 +3753,7 @@ pub fn video_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 3)?;
     c.call(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0x0a33)?;
     c.run(0x0a33, 1)?;
-    c.call(entry::HNM_DO_FRAME_AND_CHECK_IF_FRAME_ADVANCED, 0x0a36)?;
-    if c.flag(pc::cpu::ZF) {
+    if !gfx::frame_advanced(&mut c, 0x0a36)? {
         c.run(0x0a36, 3)?;
         c.set_flag(CF, false);
         return c.ret();
@@ -4416,8 +4424,7 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let (ax, di) = (c.conversation().talker, c.word(g::PLACE));
         c.set_reg(AX, ax);
         c.set_reg(DI, di);
-        c.call(entry::FIND_PENDING_EVENT, 0x353d)?;
-        if !c.flag(CF) {
+        if !pending_event_found(&mut c, 0x353d)? {
             c.run(0x353d, 2)?;
             return c.ret();
         }
@@ -5928,8 +5935,7 @@ fn step_3ff5(c: &mut Ctx) -> Result<(), Bail> {
     if al & 0x40 == 0 {
         return enter_room_at(c);
     }
-    c.call(entry::FIND_LOCATION_BY_WORD_6, 0x4013)?;
-    if !c.flag(pc::cpu::ZF) {
+    if !records::location_found(c, 0x4013)? {
         c.run(0x4013, 1)?;
         return enter_room_at(c);
     }
@@ -6328,8 +6334,7 @@ pub fn time_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     entered(start, 0x1b0d)?;
     c.run(0x1b0d, 1)?;
-    c.call(entry::IS_VOC_PCM_PLAYING, 0x1b10)?;
-    if !c.flag(pc::cpu::ZF) {
+    if sound::voc_playing(&mut c, 0x1b10)? {
         c.run(0x1b10, 2)?;
         return c.ret();
     }

@@ -420,8 +420,12 @@ pub fn on_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, y);
         on = bx >= 0x19 && y < 0x6d;
     }
-    c.set_flag(CF, on);
-    c.ret()
+    c.ret_cf(on)
+}
+
+/// [`on_globe`] called: whether the cursor (DX, BX) is on the globe (then made relative to it).
+pub(super) fn cursor_on_globe(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xbc4e, ret)
 }
 
 /// `loc_0b532`: AL = the map byte at angle BX, distance DX (`map_func`
@@ -1164,7 +1168,7 @@ pub fn globe_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (bx, dx) = (c.reg(BX), c.reg(DX));
     c.push(bx);
     c.push(dx);
-    c.call(entry::ON_GLOBE, 0xbc69)?;
+    let cursor_on_globe = cursor_on_globe(&mut c, 0xbc69)?;
     let miss = |c: &mut Ctx, at: u16| -> Result<(), Bail> {
         c.run(at, 4)?;
         let d = c.pop();
@@ -1173,12 +1177,11 @@ pub fn globe_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, b);
         c.ret()
     };
-    if !c.flag(CF) {
+    if !cursor_on_globe {
         return miss(&mut c, 0xbc69);
     }
     c.run(0xbc69, 2)?;
-    c.call(entry::GLOBE_POINT, 0xbc6e)?;
-    if !c.flag(CF) {
+    if !point_on_globe(&mut c, 0xbc6e)? {
         return miss(&mut c, 0xbc6e);
     }
     c.run(0xbc6e, 4)?;
@@ -1375,9 +1378,9 @@ pub fn globe_or_map_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0xbc22, if bp == 0x204a { 4 } else { 5 })?;
-    c.call(entry::ON_GLOBE, 0xbc31)?;
+    let cursor_on_globe = cursor_on_globe(&mut c, 0xbc31)?;
     let bp = c.reg(BP);
-    if c.flag(CF) {
+    if cursor_on_globe {
         if bp == 0x2062 {
             c.run(0xbc31, 4)?;
             return c.ret();
@@ -1457,8 +1460,7 @@ pub fn globe_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, d);
         c.set_reg(DX, dabs);
         c.set_reg(SI, si2);
-        c.set_flag(CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     // The column's longitude byte, signed by the side, through the tables
     // 8C3Bh, 593Ah (C8h a row) and 494Ah (the circle's length and offset).
@@ -1513,8 +1515,12 @@ pub fn globe_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, (wide % cx2 as u32) as u16);
     let lat = if dh_neg { bl.wrapping_neg() } else { bl };
     c.set_reg(BX, ((lat as i16) >> 1) as u16);
-    c.set_flag(CF, true);
-    c.ret()
+    c.ret_cf(true)
+}
+
+/// [`globe_point`] called: whether the screen point (DX, BX) is on the globe.
+pub(super) fn point_on_globe(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xbd25, ret)
 }
 
 /// `draw_globe_and_ui_to_front_buffer`: the globe screen: [0DD02h] 0,

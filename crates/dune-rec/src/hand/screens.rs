@@ -3,6 +3,8 @@
 //! starts with a byte: its kind in the low 4 bits (0Fh: none to leave),
 //! FFh at the end of the stack.
 
+use super::video;
+use super::map;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -364,6 +366,11 @@ pub fn special_char(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`special_char`] called: whether AL is one of the 9 special characters (AL, AH then its data).
+pub(super) fn special_char_found(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xd0e3, ret)?)
+}
+
 /// `loc_0db03`: the cursor moved to (DX, BX): restored, the position set
 /// (`set_mouse_pos`), drawn again.
 pub fn move_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -484,8 +491,7 @@ pub fn element_under_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd6b7)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::UI_ELEMENTS_FOR_CURSOR, 0xd6ba)?;
-    if c.flag(pc::cpu::ZF) {
+    if video::cursor_has_elements(&mut c, 0xd6ba)? {
         c.run(0xd6ba, 2)?;
         return c.ret();
     }
@@ -557,6 +563,11 @@ pub fn element_under_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_flag(CF, false);
     }
     c.ret()
+}
+
+/// [`element_under_cursor`] called: whether the cursor is on an element of the current list (DI = it).
+pub(super) fn cursor_on_element(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xd6b7, ret)
 }
 
 /// `loc_0301a`: the buttons from 1D1Eh (see [`set_buttons`]).
@@ -1207,8 +1218,7 @@ fn place_map_pointer_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x4463, 1)?;
     c.call(entry::GET_MAP_POSITION, 0x4466)?;
     c.run(0x4466, 1)?;
-    c.call(entry::MAP_POINT_OUTSIDE_VIEW, 0x4469)?;
-    if c.flag(CF) {
+    if map::outside_view(c, 0x4469)? {
         c.run(0x4469, 3)?;
         c.set_word(g::MAP_POINTER_BOX, 0);
         return c.ret();

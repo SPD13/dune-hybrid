@@ -1,5 +1,7 @@
 //! Services: EMS (INT 67h), the XMS driver, DOS file calls.
 
+use super::voice;
+use super::files;
 use super::pure;
 use super::entry;
 use super::{B, Ctx, W, entered, globals as g};
@@ -1096,7 +1098,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// BP 3349h, `loc_0a650`, `alloc_music_buffer`); with EMS for music
 /// (`loc_0ae28`) `loc_0e826` and [2943h] bit 4 cleared.
 pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    use pc::cpu::{BP, SI, ZF};
+    use pc::cpu::{BP, SI};
     use super::r8;
     entered(start, 0xe76a)?;
     let mut c = Ctx::new(m);
@@ -1191,8 +1193,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_word(g::ALLOCATOR_NEXT_SEGMENT, v);
         c.set_word(g::EXIT_MESSAGE, 0x364b);
     }
-    c.call(entry::MUSIC_ENABLED, 0xe81b)?;
-    if c.flag(ZF) {
+    if !voice::music_on(&mut c, 0xe81b)? {
         c.run(0xe81b, 2)?;
         return c.ret();
     }
@@ -1223,8 +1224,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         c.run(0xe675, 2)?;
         c.set_reg(DX, 0x37f2);
-        c.call(entry::OPEN_RES_OR_FILE, 0xe67b)?;
-        if !c.flag(CF) {
+        if files::res_or_file_found(&mut c, 0xe67b)? {
             c.run(0xe67b, 3)?;
             let (d, e) = (c.word(g::ALLOCATOR_NEXT_OFFSET), c.word(g::ALLOCATOR_NEXT_SEGMENT));
             c.set_reg(DI, d);
@@ -1290,12 +1290,11 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xe6cf, 2)?;
         let si = c.reg(SI);
         c.push(si);
-        c.call(entry::GET_RES_INDEX_BY_NAME, 0xe6d3)?;
-        let cf = c.flag(CF);
-        c.run(0xe6d3, 2 + if cf { 0 } else { 1 })?;
+        let res_index_found = files::res_index_found(&mut c, 0xe6d3)?;
+        c.run(0xe6d3, 2 + if !res_index_found { 0 } else { 1 })?;
         let si = c.pop();
         c.set_reg(SI, si);
-        if !cf {
+        if res_index_found {
             c.call(entry::RES_LOCATE_IN_LOOKUP_TABLE, 0xe6d9)?;
             let z = c.flag(ZF);
             c.run(0xe6d9, if z { 2 } else { 13 })?;

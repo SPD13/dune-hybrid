@@ -240,8 +240,12 @@ pub fn rand_masked(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (ax, bx) = (c.reg(AX), c.reg(BX));
     let r = ax & bx;
     c.set_reg(AX, r);
-    c.set_flag(pc::cpu::ZF, r == 0);
-    c.ret()
+    c.ret_zf(r == 0)
+}
+
+/// [`rand_masked`] called: whether the random word ANDed with BX is 0 (AX = it).
+pub(super) fn rand_masked_zero(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_zf(0xe3b7, ret)
 }
 
 /// `loc_0e3df`: a random number 0..=BX from the third generator (factor

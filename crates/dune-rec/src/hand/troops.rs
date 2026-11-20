@@ -1,6 +1,8 @@
 //! Troops: 1Bh-byte records from [`g::TROOPS`], numbered from 1; and the
 //! per-location byte 19h, its bits spread over bytes and back.
 
+use super::map;
+use super::cursor;
 use super::entry;
 use super::pure;
 use super::game::{self, Location, Troop, troop_state};
@@ -30,6 +32,11 @@ pub fn troop_ptr(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 8)?;
     troop_ptr_ops(&mut c);
     c.ret()
+}
+
+/// [`troop_ptr`] called: whether troop AL is yours (byte 3 below 80h; SI = it).
+pub(super) fn troop_is_yours(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x6906, ret)
 }
 
 /// [`troop_ptr`]'s instructions (counted by the caller).
@@ -68,10 +75,9 @@ pub fn reset_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::UNLINK_TROOP, 0x66b4)?;
     c.run(0x66b4, 3)?;
     c.save(&[SI, DI]);
-    c.call(entry::TROOP_PARTICLE, 0x66b9)?;
-    let zf = c.flag(ZF);
-    c.run(0x66b9, if zf { 2 } else { 7 })?;
-    if zf {
+    let troop_particle_found = troop_particle_found(&mut c, 0x66b9)?;
+    c.run(0x66b9, if troop_particle_found { 2 } else { 7 })?;
+    if troop_particle_found {
         c.call(code::PARTICLES_REMOVE_PARTICLE, 0x66be)?;
         c.run(0x66be, 6)?;
     }
@@ -95,8 +101,7 @@ pub fn spawn_troop_particle_if_visible(m: &mut Machine, start: u16) -> Result<()
     c.run(start, 1)?;
     c.call(entry::TROOP_PTR, 0x675a)?;
     c.run(0x675a, 1)?;
-    c.call(entry::TROOP_SCREEN_PLACE, 0x675d)?;
-    if c.flag(CF) {
+    if !troop_on_screen(&mut c, 0x675d)? {
         c.run(0x675d, 2)?;
         return c.ret();
     }
@@ -113,8 +118,12 @@ pub fn spawn_troop_particle_if_visible(m: &mut Machine, start: u16) -> Result<()
     c.call(entry::PARTICLES_SPAWN_VARIANT, 0x676b)?;
     c.run(0x676b, 3)?;
     c.restore(&[SI]);
-    c.set_flag(CF, false);
-    c.ret()
+    c.ret_cf(false)
+}
+
+/// [`spawn_troop_particle_if_visible`] called: whether troop AX was on screen (its particle then made).
+pub(super) fn troop_particle_spawned(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0x6757, ret)?)
 }
 
 /// `loc_069a3`: the particle at [`g::TROOP_MARKER_PARTICLE`] (if any) removed and
@@ -730,8 +739,8 @@ pub fn for_each_troop_below_80(m: &mut Machine, start: u16) -> Result<(), Bail> 
         return c.ret();
     }
     loop {
-        c.call(code::TROOP_PTR, 0x6628)?;
-        let next = if c.flag(CF) {
+        let troop_is_yours = troop_is_yours(&mut c, 0x6628)?;
+        let next = if troop_is_yours {
             c.run(0x6628, 5)?;
             let next = call_for_troop(&mut c, 0x662f)?;
             c.run(0x662f, if next == 0 { 9 } else { 8 })?;
@@ -856,16 +865,14 @@ pub fn troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, n)?;
     c.set_reg(DI, 0x3caf);
     if k & 0x80 == 0 {
-        c.set_flag(ZF, false);
-        return c.ret();
+        return c.ret_zf(false);
     }
     let mut cx = n_all;
     c.set_reg(CX, cx);
     let mut di = 0x3cafu16;
     loop {
         if cx == 0 {
-            c.set_flag(ZF, di == 0);
-            return c.ret();
+            return c.ret_zf(di == 0);
         }
         loop {
             di = pure::add(W, di, 0x11);
@@ -888,6 +895,11 @@ pub fn troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
     }
+}
+
+/// [`troop_particle`] called: whether troop SI has a particle shown (DI = it).
+pub(super) fn troop_particle_found(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_zf(0x6917, ret)
 }
 
 /// `loc_06946`: the particle under (DX, BX), last first (signed: word 0 <
@@ -948,8 +960,7 @@ pub fn particle_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, g::PARTICLES + 2);
         c.set_reg(AX, 0);
         c.set_reg(CX, 0);
-        c.set_flag(CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     c.set_reg(AX, 0x11 * (count & 0xff));
     c.set_reg(SI, at);
@@ -967,6 +978,11 @@ pub fn particle_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.ret()
+}
+
+/// [`particle_at`] called: whether the particle under (DX, BX) is of a troop of yours (SI = it, DI = the troop).
+pub(super) fn your_particle_at(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x6946, ret)
 }
 
 /// `loc_06cfc`: the location DI's byte 0Bh one more, up to 0Ch, for a
@@ -1277,8 +1293,7 @@ pub fn mark_troop_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x697c)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::TROOP_PARTICLE, 0x697f)?;
-    if !c.flag(ZF) {
+    if !troop_particle_found(&mut c, 0x697f)? {
         c.run(0x697f, 2)?;
         return c.ret();
     }
@@ -1289,15 +1304,13 @@ pub fn mark_troop_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x697f, 5)?;
         let place = troop.location(&mut c);
         c.set_reg(DI, place);
-        c.call(entry::FIND_MARKER, 0x698d)?;
-        let accepted = c.flag(ZF);
+        let accepted = map::marker_found(&mut c, 0x698d)?;
         c.run(0x698d, 2)?;
         if !accepted {
             return c.ret();
         }
     }
-    c.call(entry::TROOP_SCREEN_PLACE, 0x6992)?;
-    if c.flag(CF) {
+    if !troop_on_screen(&mut c, 0x6992)? {
         c.run(0x6992, 2)?;
         return c.ret();
     }
@@ -1378,6 +1391,11 @@ pub fn find_range(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.ret()
+}
+
+/// [`find_range`] called: whether DX lies in one of the 7 ranges at SI (DI = which).
+pub(super) fn range_found(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x7ee2, ret)
 }
 
 /// `loc_07f75`: for each bit of the troop SI's byte 19h, from the top,
@@ -1463,16 +1481,14 @@ pub fn troop_location_dirty(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !travelling {
         let place = troop.location(&mut c);
         c.set_reg(DI, place);
-        c.call(entry::FIND_MARKER, 0x8479)?;
-        if !c.flag(ZF) {
+        if !map::marker_found(&mut c, 0x8479)? {
             return none(&mut c, 0x8479);
         }
         c.run(0x8479, 3)?;
     }
     let id = Troop(c.reg(SI)).id(&mut c);
     c.set_reg8(r8::AL, id);
-    c.call(entry::SPAWN_TROOP_PARTICLE_IF_VISIBLE, 0x8480)?;
-    if c.flag(CF) {
+    if !troop_particle_spawned(&mut c, 0x8480)? {
         return none(&mut c, 0x8480);
     }
     c.run(0x8480, 4)?;
@@ -1973,8 +1989,7 @@ pub fn drop_troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8461)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::TROOP_PARTICLE, 0x8464)?;
-    if !c.flag(ZF) {
+    if !troop_particle_found(&mut c, 0x8464)? {
         c.run(0x8464, 2)?;
         return c.ret();
     }
@@ -2564,8 +2579,7 @@ pub fn troop_screen_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     if c.map_view().mode < 0x80 {
         c.run(start, 3)?;
-        c.set_flag(CF, true);
-        return c.ret();
+        return c.ret_cf(true);
     }
     let troop = Troop(c.reg(SI));
     if troop.state(&mut c) & troop_state::TRAVELLING != 0 {
@@ -2578,8 +2592,7 @@ pub fn troop_screen_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // Which of its four tests fails first (each `cmp`, `jle`/`jge`).
         let failed = [sx <= -16, sy <= -16, sx >= 0x148, sy >= 0xa0].iter().position(|&f| f);
         c.run(0x68b8, failed.map_or(10, |k| 2 * k as u32 + 4))?;
-        c.set_flag(CF, failed.is_some());
-        return c.ret();
+        return c.ret_cf(failed.is_some());
     }
     let slot = troop.slot(&mut c);
     let place = Location(troop.location(&mut c));
@@ -2598,12 +2611,15 @@ pub fn troop_screen_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, ox.wrapping_add(px));
     if !flagged {
         c.set_reg(BX, py);
-        c.set_flag(CF, true);
-        return c.ret();
+        return c.ret_cf(true);
     }
     c.set_reg(BX, (py & 0xff).wrapping_add(oy));
-    c.set_flag(CF, false);
-    c.ret()
+    c.ret_cf(false)
+}
+
+/// [`troop_screen_place`] called: whether troop SI has a place on the screen (DX, BX).
+pub(super) fn troop_on_screen(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0x686e, ret)?)
 }
 
 /// The offsets of a troop's slot around its place (byte pairs, signed).
@@ -3278,15 +3294,13 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 12)?;
         c.update_conversation(|t| t.pending = 0);
         c.set_reg(DI, 0x1936);
-        c.call(entry::POINT_IN_RECT, 0x7ea4)?;
-        if !c.flag(CF) {
+        if !cursor::inside_rect(&mut c, 0x7ea4)? {
             c.run(0x7ea4, 2)?;
             return c.ret();
         }
         c.run(0x7ea4, 3)?;
         c.set_reg(SI, 0x4c7c);
-        c.call(entry::FIND_RANGE, 0x7eac)?;
-        if !c.flag(CF) {
+        if !range_found(&mut c, 0x7eac)? {
             c.run(0x7eac, 2)?;
             return c.ret();
         }
@@ -3609,8 +3623,7 @@ pub fn map_troop_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if panel != 0x18df {
             return c.ret();
         }
-        c.call(entry::POINT_IN_RECT, 0x5d02)?;
-        let inside = c.flag(CF);
+        let inside = cursor::inside_rect(&mut c, 0x5d02)?;
         c.run(0x5d02, 2)?;
         if inside {
             return redraw_dirty_panel(c.m, 0x79de);
@@ -3618,8 +3631,7 @@ pub fn map_troop_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.set_reg(DI, 0);
     }
-    c.call(entry::PARTICLE_AT, 0x5d07)?;
-    if !c.flag(CF) {
+    if !your_particle_at(&mut c, 0x5d07)? {
         c.run(0x5d07, 2)?;
         return c.ret();
     }
@@ -3656,8 +3668,7 @@ pub fn troop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if distance >= reach {
         return c.ret();
     }
-    c.call(entry::TROOP_PARTICLE, 0x78cb)?;
-    let shown = c.flag(ZF);
+    let shown = troop_particle_found(&mut c, 0x78cb)?;
     c.run(0x78cb, 2)?;
     if !shown {
         return c.ret();
@@ -3704,8 +3715,7 @@ pub fn troop_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 fn troop_panel_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x78e9, 1)?;
-    c.call(entry::TROOP_PARTICLE, 0x78ec)?;
-    let shown = c.flag(ZF);
+    let shown = troop_particle_found(c, 0x78ec)?;
     c.run(0x78ec, 2)?;
     if !shown {
         return redraw_dirty_panel(c.m, 0x79de);
@@ -3890,20 +3900,17 @@ fn steps_8313(c: &mut Ctx) -> Result<(), Bail> {
         }
     }
     c.run(0x8326, 1)?;
-    c.call(entry::TROOP_SCREEN_PLACE, 0x8329)?;
-    let off_map = c.flag(CF);
+    let off_map = !troop_on_screen(c, 0x8329)?;
     c.run(0x8329, 2)?;
     if off_map {
-        c.call(entry::TROOP_PARTICLE, 0x8336)?;
-        let shown = c.flag(ZF);
+        let shown = troop_particle_found(c, 0x8336)?;
         c.run(0x8336, 2)?;
         if shown {
             return super::saves::particles_remove_particle(c.m, 0xc58a);
         }
         return c.ret();
     }
-    c.call(entry::TROOP_PARTICLE, 0x832e)?;
-    let shown = c.flag(ZF);
+    let shown = troop_particle_found(c, 0x832e)?;
     c.run(0x832e, 2)?;
     if shown {
         return c.jump(0xc653);
@@ -3961,8 +3968,8 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
     troop.set_position(c, x, y);
     let mut found = true;
     if secret {
-        c.call(entry::LOCATION_KIND_CHECK, 0x8385)?;
-        found = !c.flag(CF);
+        let location_kind_ok = map::location_kind_ok(c, 0x8385)?;
+        found = !location_kind_ok;
         c.run(0x8385, 1)?;
     }
     if found {
@@ -4067,8 +4074,7 @@ fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(DI, next);
     troop.set_location(c, next);
     c.run(0x8461, 1)?;
-    c.call(entry::TROOP_PARTICLE, 0x8464)?;
-    if !c.flag(ZF) {
+    if !troop_particle_found(c, 0x8464)? {
         c.run(0x8464, 2)?;
         return c.ret();
     }
@@ -4084,8 +4090,7 @@ fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
     if !travelling {
         let place = troop.location(c);
         c.set_reg(DI, place);
-        c.call(entry::FIND_MARKER, 0x8479)?;
-        if !c.flag(ZF) {
+        if !map::marker_found(c, 0x8479)? {
             c.run(0x8479, 3)?;
             return figure_gone_848b(c);
         }
@@ -4094,8 +4099,7 @@ fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x847b, 2)?;
     let id = Troop(c.reg(SI)).id(c);
     c.set_reg8(r8::AL, id);
-    c.call(entry::SPAWN_TROOP_PARTICLE_IF_VISIBLE, 0x8480)?;
-    if c.flag(CF) {
+    if !troop_particle_spawned(c, 0x8480)? {
         c.run(0x8480, 3)?;
         return figure_gone_848b(c);
     }

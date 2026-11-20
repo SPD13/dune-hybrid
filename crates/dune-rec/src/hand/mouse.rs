@@ -15,7 +15,6 @@ use pc::{
 mod code {
     pub const SHL_CX_AND_DX: u16 = 0xdb44;
     pub const GET_MOUSE_CURSOR_IMAGE_ADDR: u16 = 0xdc6a;
-    pub const SUB_D6FE: u16 = 0xd6fe;
 }
 
 /// The cursor images.
@@ -354,8 +353,7 @@ pub fn get_mouse_cursor_image_addr(m: &mut Machine, start: u16) -> Result<(), Ba
     if below {
         return c.ret();
     }
-    c.call(code::SUB_D6FE, 0xdc8f)?;
-    let failed = c.flag(pc::cpu::CF);
+    let failed = super::cursor::inside_rect(&mut c, 0xdc8f)?;
     // The path from DC8Fh to its `ret` (counted), the image and AX worked
     // out first, then one stretch.
     let (n, image, ax) = if failed {

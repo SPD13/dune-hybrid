@@ -3,6 +3,9 @@
 //! into the next one. The routine they go on to runs as its own port
 //! when it has one, else in the original from there.
 
+use super::troops;
+use super::dialogue;
+use super::cursor;
 use super::entry;
 use super::globals as g;
 use super::pure;
@@ -916,12 +919,11 @@ pub fn say_next_place_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, w);
     }
     c.update_conversation(|t| t.mode = 0x20);
-    c.call(entry::SAY_DIALOGUE_ENTRY, 0x9754)?;
-    let cf = c.flag(CF);
-    c.run(0x9754, 2 + if cf { 1 } else { 0 } + 1)?;
+    let entry_said = dialogue::entry_said(&mut c, 0x9754)?;
+    c.run(0x9754, 2 + if !entry_said { 1 } else { 0 } + 1)?;
     let si = c.reg(SI);
     c.update_conversation(|t| t.pending = si);
-    if cf {
+    if !entry_said {
         c.update_conversation(|t| t.pending = 0);
     }
     c.ret()
@@ -1290,8 +1292,7 @@ pub fn run_script_next_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1707, if scr == 0x1fae { 4 } else { 2 })?;
     if scr == 0x1fae {
         c.set_reg(DI, 0x1b56);
-        c.call(entry::POINT_IN_RECT, 0x1715)?;
-        if c.flag(CF) {
+        if cursor::inside_rect(&mut c, 0x1715)? {
             c.run(0x1715, 2)?;
             return c.jump(0x9ed5);
         }
@@ -1852,15 +1853,14 @@ pub fn apply_dialogue_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// from 22B9h, its face drawn in 47D4h (the sprite list [47CAh],
 /// `loc_09d6a`), the rect shown (`loc_0c4aa`), then `open_onmap_resource`.
 pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    use pc::cpu::{CF as CARRY, SS, ZF};
+    use pc::cpu::{CF as CARRY, SS};
     entered(start, 0x79ee)?;
     let mut c = Ctx::new(m);
     c.run(0x79ee, 2)?;
     let si = c.reg(SI);
     c.update_map_selection(|t| t.selected = si);
-    c.call(entry::TROOP_PARTICLE, 0x79f5)?;
-    let z = c.flag(ZF);
-    if z {
+    let troop_particle_found = troops::troop_particle_found(&mut c, 0x79f5)?;
+    if troop_particle_found {
         let di = c.reg(DI);
         let h = c.word(di.wrapping_add(2));
         let low = (h as i16) < 0x4c;

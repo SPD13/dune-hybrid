@@ -2,12 +2,15 @@
 //! DS:38B5, Cryogenic's `gfxVtable`), the sprite drawing wrappers, HNM
 //! frame steps and UI drawing.
 
+use super::map;
+use super::hnm;
+use super::frame;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CS, CX, DI, DS, DX, ES, SI, SP, SS},
+    cpu::{AX, BP, BX, CS, CX, DI, DS, DX, ES, SI, SP, SS},
     rec::Bail,
 };
 
@@ -21,11 +24,9 @@ mod code {
     pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
     pub const DRAW_SPRITE_CLIPPED_CLOBBERING: u16 = 0xc30d;
     pub const HNM_DO_FRAME: u16 = 0xca60;
-    pub const HNM_READ_BYTES: u16 = 0xcdbf;
     pub const GET_PHRASE_OR_COMMAND_STRING_SI: u16 = 0xcf70;
     pub const FONT_DRAW_STRING: u16 = 0xd1bb;
     pub const DRAW_UI_ELEMENT: u16 = 0xd200;
-    pub const STC_ON_USER_INPUT: u16 = 0xdd63;
     pub const WAIT_A_BIT: u16 = 0xe387;
 }
 
@@ -189,13 +190,17 @@ pub fn hnm_do_frame_skippable(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(code::HNM_DO_FRAME, 0xc9eb)?;
     c.run(0xc9eb, 1)?;
-    c.call(code::STC_ON_USER_INPUT, 0xc9ee)?;
-    let cf = c.flag(CF);
-    c.run(0xc9ee, if cf { 4 } else { 2 })?; // jb; jmp kb_clear_scancode; mov [CEE8h], 0; ret
-    if cf {
+    let user_input = frame::user_input(&mut c, 0xc9ee)?;
+    c.run(0xc9ee, if user_input { 4 } else { 2 })?; // jb; jmp kb_clear_scancode; mov [CEE8h], 0; ret
+    if user_input {
         c.set_byte(g::KEY_HIT, 0);
     }
     c.ret()
+}
+
+/// [`hnm_do_frame_skippable`] called: whether a key or click came (taken).
+pub(super) fn frame_interrupted(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xc9e8, ret)
 }
 
 /// `hnm_do_frame_and_check_if_frame_advanced` (C9F4): the next video
@@ -212,8 +217,12 @@ pub fn hnm_do_frame_and_check_if_frame_advanced(m: &mut Machine, start: u16) -> 
     let before = c.pop();
     c.set_reg(AX, before);
     let now = c.video_state().frame;
-    c.set_flag(pc::cpu::ZF, before == now);
-    c.ret()
+    c.ret_zf(before == now)
+}
+
+/// [`hnm_do_frame_and_check_if_frame_advanced`] called: whether the video advanced a frame (AX = the frame before).
+pub(super) fn frame_advanced(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_zf(0xc9f4, ret)?)
 }
 
 /// `hnm_read_header_size` (CD8F): reads 2 bytes of the video; AX = them
@@ -223,8 +232,7 @@ pub fn hnm_read_header_size(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     c.set_reg(CX, 2);
-    c.call(code::HNM_READ_BYTES, 0xcd95)?;
-    if c.flag(CF) {
+    if !hnm::video_bytes_read(&mut c, 0xcd95)? {
         c.run(0xcd95, 2)?;
         return c.ret();
     }
@@ -235,6 +243,11 @@ pub fn hnm_read_header_size(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let size = c.word_in(ES, si.wrapping_sub(2));
     c.set_reg(AX, size);
     c.ret()
+}
+
+/// [`hnm_read_header_size`] called: whether the 2 bytes were read (AX = them).
+pub(super) fn header_size_read(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xcd8f, ret)?)
 }
 
 /// `hnm_handle_pal_chunk` (CE3B): applies the palette chunk at the read
@@ -696,8 +709,7 @@ pub fn draw_last_ring_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if off_map {
         return c.ret();
     }
-    c.call(entry::MAP_POINT_OUTSIDE_VIEW, 0x4a46)?;
-    if c.flag(CF) {
+    if map::outside_view(&mut c, 0x4a46)? {
         c.run(0x4a46, 2)?;
         return c.ret();
     }

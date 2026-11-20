@@ -1,16 +1,16 @@
 //! Voice (VOC through the PCM driver) and music (through the MIDI
 //! driver): starting, stopping, the drivers' timer hook.
 
+use super::voice;
+use super::sound;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DI, ES, SI, ZF},
+    cpu::{AX, BP, BX, CF, CX, DI, ES, SI},
     rec::Bail,
 };
 
 mod code {
-    pub const IS_VOC_PCM_PLAYING: u16 = 0xabcc;
-    pub const CHECK_PCM_ENABLED: u16 = 0xae2f;
     pub const SAVE_REGS: u16 = 0xe270;
     pub const RESTORE_REGS: u16 = 0xe283;
     pub const PCM_STOP_VOC: u16 = 0xac14;
@@ -19,7 +19,6 @@ mod code {
     pub const REMOVE_FRAME_TASK: u16 = 0xda5f;
     pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     /// CF set when sound is off (`sub_aec6`).
-    pub const SOUND_OFF: u16 = 0xaec6;
     pub const MIDI_FUNC_2_0: u16 = 0xaeb7;
     pub const STOP_MUSIC: u16 = 0xae62;
     /// The voice's frame task.
@@ -98,14 +97,12 @@ pub fn play_pcm_al(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xabdb)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(code::SOUND_OFF, 0xabde)?;
-    if c.flag(CF) {
+    if voice::sound_is_off(&mut c, 0xabde)? {
         c.run(0xabde, 2)?;
         return c.ret();
     }
     c.run(0xabde, 2)?;
-    c.call(code::CHECK_PCM_ENABLED, 0xabe3)?;
-    let enabled = !c.flag(ZF);
+    let enabled = sound::pcm_enabled(&mut c, 0xabe3)?;
     c.run(0xabe3, 3)?; // stc; je; ret / call
     c.set_flag(CF, true);
     if !enabled {
@@ -150,14 +147,12 @@ pub fn audio_start_voc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xab15)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(code::IS_VOC_PCM_PLAYING, 0xab18)?;
-    if !c.flag(ZF) {
+    if sound::voc_playing(&mut c, 0xab18)? {
         c.run(0xab18, 2)?;
         return c.ret();
     }
     c.run(0xab18, 2)?;
-    c.call(code::CHECK_PCM_ENABLED, 0xab1d)?;
-    if c.flag(ZF) {
+    if !sound::pcm_enabled(&mut c, 0xab1d)? {
         c.run(0xab1d, 2)?;
         return c.ret();
     }
@@ -208,8 +203,7 @@ fn play(c: &mut Ctx) -> Result<(), Bail> {
     let ah = c.reg8(r8::AH);
     c.xor(B, ah as u16, ah as u16);
     c.set_reg8(r8::AH, 0);
-    c.call(code::SOUND_OFF, 0xad9a)?;
-    if c.flag(CF) {
+    if voice::sound_is_off(c, 0xad9a)? {
         c.run(0xad9a, 2)?;
         return c.ret();
     }

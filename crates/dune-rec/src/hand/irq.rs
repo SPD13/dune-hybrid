@@ -3,6 +3,7 @@
 //! the interrupt, not by a call: the shadow check never sees it, `--rec
 //! on` runs it (checked by whole-run state hashes, `STATE_HASH=1`).
 
+use super::frame;
 use super::entry;
 use super::globals as g;
 use super::{B, Ctx, W, entered, r8};
@@ -147,10 +148,9 @@ pub fn hnm_render_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail
         let ax = c.inc(W, f.wrapping_sub(1));
         c.set_reg(AX, ax);
         if f == 0 {
-            c.call(entry::HNM_WAIT_FOR_FRAME, 0xcee7)?;
-            let cf = c.flag(CF);
-            c.run(0xcee7, if cf { 1 } else { 2 })?;
-            if !cf {
+            let frame_due = frame::frame_due(&mut c, 0xcee7)?;
+            c.run(0xcee7, if !frame_due { 1 } else { 2 })?;
+            if frame_due {
                 c.call(entry::HNM_DECODE_VIDEO_FRAME, 0xceec)?;
                 c.run(0xceec, 1)?;
                 c.call(entry::HNM_CONSUME_CHUNK, 0xceef)?;

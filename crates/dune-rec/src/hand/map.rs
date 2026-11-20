@@ -1,6 +1,9 @@
 //! The map screen: its view rect ([`VIEW`]), the cursor's place on it,
 //! the mouse rect, marks and rects copied around.
 
+use super::troops;
+use super::records;
+use super::cursor;
 use super::entry;
 use super::globals as g;
 use super::pure;
@@ -231,8 +234,12 @@ pub fn in_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, n)?;
     // Its callers read CF alone.
     let inside = dx >= v[0] && dx < v[2] && bx >= v[1] && bx < v[3];
-    c.set_flag(CF, inside);
-    c.ret()
+    c.ret_cf(inside)
+}
+
+/// [`in_view`] called: whether (DX, BX) is in the view.
+pub(super) fn point_in_view(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x5d1d, ret)
 }
 
 /// `loc_062d6`: `loc_0b647`, then CF set when (DX, BX) is outside the
@@ -243,6 +250,11 @@ pub fn map_point_outside_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(entry::MAP_TO_SCREEN, 0x62d9)?;
     outside_view_tail(&mut c)
+}
+
+/// [`map_point_outside_view`] called: whether (DX, BX) is outside the view.
+pub(super) fn outside_view(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x62d6, ret)
 }
 
 /// From 62D9: CF set when (DX, BX) is outside the view (right, bottom
@@ -288,8 +300,12 @@ pub fn location_kind_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let n = if kind < 0x28 { 3 } else if f & 8 == 0 { 5 } else { 6 };
     c.run(start, n)?;
     // Its callers read CF alone.
-    c.set_flag(CF, kind < 0x28 || f & 8 != 0);
-    c.ret()
+    c.ret_cf(kind < 0x28 || f & 8 != 0)
+}
+
+/// [`location_kind_check`] called: whether the location at DI is of a kind below 28h, or from 28h with bit 8 of byte 0Ah.
+pub(super) fn location_kind_ok(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x5d36, ret)
 }
 
 /// `loc_05ed0`: BP = the 6-byte entry at A5C0h.. (SS) whose word is DI
@@ -319,8 +335,12 @@ pub fn find_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, entry);
     // Its callers read ZF alone: the match's `cmp`, or `or bp, bp` at the
     // end (BP is never 0).
-    c.set_flag(ZF, found);
-    c.ret()
+    c.ret_zf(found)
+}
+
+/// [`find_marker`] called: whether a marker's word is DI (BP = its entry).
+pub(super) fn marker_found(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_zf(0x5ed0, ret)
 }
 
 /// `loc_06144`: [0FDh] = `loc_060f8`'s AL with bit 0 (registers kept).
@@ -444,8 +464,12 @@ pub fn map_list_without_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::AL, !k);
     }
     // Its callers read ZF alone.
-    c.set_flag(ZF, ours && k & 0x40 != 0);
-    c.ret()
+    c.ret_zf(ours && k & 0x40 != 0)
+}
+
+/// [`map_list_without_40`] called: whether the current UI elements are one of the two map lists, with bit 40h of [46EBh].
+pub(super) fn map_list_with_40(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_zf(0x82a0, ret)
 }
 
 /// `loc_0848f`: `loc_08347` while the troop at SI is at the location at
@@ -597,8 +621,7 @@ fn draw_zoomed_map(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)
     c.set_reg(SI, si);
     c.or(W, si, si);
     if si != 0 {
-        c.call(entry::RECORD_OUTSIDE_VIEW, 0x49c2)?;
-        let out = c.flag(CF);
+        let out = record_off_view(c, 0x49c2)?;
         c.run(0x49c2, if out { 3 } else { 5 })?;
         if !out {
             let bx = c.reg(BX);
@@ -1035,8 +1058,7 @@ pub fn count_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if f & 0x80 == 0 {
         if k != 0 {
             c.set_reg(SI, di);
-            c.call(entry::RECORD_OUTSIDE_VIEW, 0x5d64)?;
-            let out = c.flag(CF);
+            let out = record_off_view(&mut c, 0x5d64)?;
             c.run(0x5d64, if out { 4 } else { 5 })?;
             if !out {
                 let v = c.map_view().changes;
@@ -1114,6 +1136,11 @@ pub fn record_outside_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     outside_view_tail(&mut c)
 }
 
+/// [`record_outside_view`] called: whether the screen place of the record at SI is outside the view.
+pub(super) fn record_off_view(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x62c9, ret)
+}
+
 /// `loc_0627e`: CF set when the location at DI is a place to show (bit 2
 /// of byte 0Ah, or a kind past `location_kind_check` with troops counted
 /// by `loc_05098`). Registers kept.
@@ -1130,10 +1157,9 @@ pub fn location_to_show(m: &mut Machine, start: u16) -> Result<(), Bail> {
         true
     } else {
         c.run(0x6281, 3)?;
-        c.call(entry::LOCATION_KIND_CHECK, 0x628a)?;
-        let cf = c.flag(CF);
+        let location_kind_ok = location_kind_ok(&mut c, 0x628a)?;
         c.run(0x628a, 2)?;
-        if cf {
+        if location_kind_ok {
             false
         } else {
             c.call(entry::COUNT_LOCATION_TROOP_SIDES, 0x628f)?;
@@ -1145,8 +1171,12 @@ pub fn location_to_show(m: &mut Machine, start: u16) -> Result<(), Bail> {
     };
     c.call(code::RESTORE_REGS, if show { 0x6296 } else { 0x629b })?;
     c.run(if show { 0x6296 } else { 0x629b }, 2)?;
-    c.set_flag(CF, show);
-    c.ret()
+    c.ret_cf(show)
+}
+
+/// [`location_to_show`] called: whether the location at DI is a place to show.
+pub(super) fn location_shown(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x627e, ret)
 }
 
 /// `loc_06252`: AX = how the location at DI shows on the map: 1 a place to
@@ -1157,18 +1187,16 @@ pub fn location_map_kind(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6252)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::LOCATION_TO_SHOW, 0x6255)?;
-    if c.flag(CF) {
+    if location_shown(&mut c, 0x6255)? {
         c.run(0x6255, 3)?;
         c.set_reg(AX, 1);
         return c.ret();
     }
     c.run(0x6255, 2)?;
-    c.call(entry::LOCATION_KIND_CHECK, 0x625a)?;
-    let cf = c.flag(CF);
+    let location_kind_ok = location_kind_ok(&mut c, 0x625a)?;
     let di = c.reg(DI);
     let f = c.byte(di.wrapping_add(0x0a));
-    if !cf {
+    if !location_kind_ok {
         c.run(0x625a, 3)?;
         c.set_reg(AX, 2);
         return c.ret();
@@ -1209,8 +1237,7 @@ pub fn scan_row_both_ways(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (bx, dx) = (c.reg(BX), c.reg(DX));
     c.push(bx);
     c.push(dx);
-    c.call(entry::MAP_POINT_OUTSIDE_VIEW, 0x6352)?;
-    let out = c.flag(CF);
+    let out = outside_view(&mut c, 0x6352)?;
     c.run(0x6352, if out { 4 } else { 8 })?;
     let si = c.pop();
     c.set_reg(SI, si);
@@ -2078,10 +2105,9 @@ pub fn unmark_pending_regions(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let b = c.byte(di);
                 c.run(0x55a2, if b == bl as u8 { 3 } else { 2 })?;
                 if b == bl as u8 {
-                    c.call(entry::LOCATION_KIND_CHECK, 0x55a9)?;
-                    let cf = c.flag(CF);
+                    let location_kind_ok = location_kind_ok(&mut c, 0x55a9)?;
                     c.run(0x55a9, 1)?;
-                    if !cf {
+                    if !location_kind_ok {
                         found = true;
                         break;
                     }
@@ -2161,8 +2187,7 @@ fn draw_map_points_at(c: &mut Ctx) -> Result<(), Bail> {
         if neg {
             let si = c.reg(SI);
             c.push(si);
-            c.call(entry::MAP_POINT_OUTSIDE_VIEW, 0x4a78)?;
-            if c.flag(CF) {
+            if outside_view(c, 0x4a78)? {
                 c.run(0x4a78, 2)?;
             } else {
                 let (bx, dx) = (c.reg(BX), c.reg(DX));
@@ -2957,8 +2982,7 @@ pub fn map_header_by_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     c.set_reg(DI, 0x4710);
-    c.call(entry::POINT_IN_RECT, 0x574c)?;
-    if !c.flag(CF) {
+    if !cursor::inside_rect(&mut c, 0x574c)? {
         c.run(0x574c, 1)?;
         return draw_map_header(c.m, 0x57b2);
     }
@@ -3029,16 +3053,15 @@ pub fn place_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = c.pop();
     c.set_reg(AX, a);
     if near {
-        c.call(entry::FIND_LOCATION_BY_WORD_6, 0x4e30)?;
-        let zf = c.flag(ZF);
+        let location_found = records::location_found(&mut c, 0x4e30)?;
         let six = c.player().y as u8;
         let (si, dx) = (c.reg(SI), c.reg(DX));
         let d = c.word(si.wrapping_add(2)).wrapping_sub(dx).wrapping_add(4);
-        let go = zf && six != 0x80 && d < 8;
+        let go = location_found && six != 0x80 && d < 8;
         if !go {
-            let n = if !zf { 1 } else if six == 0x80 { 3 } else { 8 };
+            let n = if !location_found { 1 } else if six == 0x80 { 3 } else { 8 };
             c.run(0x4e30, n)?;
-            if zf {
+            if location_found {
                 if six != 0x80 {
                     let w = c.word(si.wrapping_add(2));
                     let a = pure::sub(W, w, dx);
@@ -3708,8 +3731,7 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'one;
             }
             c.run(0x5df4, 5)?;
-            c.call(entry::RECORD_OUTSIDE_VIEW, 0x5e02)?;
-            if c.flag(CF) {
+            if record_off_view(&mut c, 0x5e02)? {
                 c.run(0x5e02, 1)?;
                 break 'one;
             }
@@ -3815,8 +3837,7 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_reg(CX, x);
                 Ok(())
             };
-            c.call(entry::FIND_LOCATION_BY_WORD_6, 0x4123)?;
-            if !c.flag(ZF) {
+            if !records::location_found(&mut c, 0x4123)? {
                 c.run(0x4123, 1)?;
                 tail(&mut c)?;
                 break 'one;
@@ -4004,9 +4025,9 @@ pub fn location_ahead(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(CX, x);
             Ok(())
         };
-        c.call(entry::FIND_LOCATION_BY_WORD_6, 0x4211)?;
+        let location_found = records::location_found(&mut c, 0x4211)?;
         let found = 'f: {
-            if !c.flag(ZF) {
+            if !location_found {
                 skip(&mut c, 0x4211, 1)?;
                 break 'f false;
             }
@@ -4404,10 +4425,9 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
     }
-    c.call(entry::POINT_IN_RECT, 0x5c35)?;
-    let cf = c.flag(CF);
-    c.run(0x5c35, if cf { 4 } else { 2 })?;
-    if cf {
+    let inside_rect = cursor::inside_rect(&mut c, 0x5c35)?;
+    c.run(0x5c35, if inside_rect { 4 } else { 2 })?;
+    if inside_rect {
         c.update_map_view(|t| t.mode = 0x40);
         c.set_reg8(r8::AL, 0xff);
         c.call(entry::NEAREST_SHOWN_LOCATION, 0x5c41)?;
@@ -5491,8 +5511,7 @@ pub fn message_subject(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4586)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::IN_VIEW, 0x4589)?;
-    if !c.flag(CF) {
+    if !point_in_view(&mut c, 0x4589)? {
         c.run(0x4589, 2)?;
         c.set_reg(DI, 0);
         return subject_tail(&mut c, 0);
@@ -5558,8 +5577,7 @@ pub fn marker_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5ee4)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::FIND_MARKER, 0x5ee7)?;
-    if !c.flag(ZF) {
+    if !marker_found(&mut c, 0x5ee7)? {
         c.run(0x5ee7, 2)?;
         return c.ret();
     }
@@ -5629,8 +5647,7 @@ pub fn location_panel_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, y);
     let x = c.word(g::CAPTION_FRAME).wrapping_add(4);
     c.set_reg(DX, x);
-    c.call(entry::LOCATION_TO_SHOW, 0x60c1)?;
-    if !c.flag(CF) {
+    if !location_shown(&mut c, 0x60c1)? {
         c.run(0x60c1, 3)?;
         c.set_reg(AX, 0x6e);
         c.call(entry::FONT_DRAW_STRING_WITH_COLOR_AT_POS, 0x60c9)?;
@@ -5909,8 +5926,7 @@ pub fn map_list_or_zoom(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5b05)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::MAP_LIST_WITHOUT_40, 0x5b08)?;
-    if c.flag(ZF) {
+    if map_list_with_40(&mut c, 0x5b08)? {
         c.run(0x5b08, 2)?;
         return open_place_view(c.m, 0x541f);
     }
@@ -6069,10 +6085,9 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg8(r8::AL, tr);
         }
         if chk.is_some() {
-            c.call(entry::TROOP_PTR, 0x87fd)?;
-            let cf = c.flag(CF);
-            c.run(0x87fd, if cf { 3 } else { 1 })?;
-            if cf {
+            let troop_is_yours = troops::troop_is_yours(&mut c, 0x87fd)?;
+            c.run(0x87fd, if troop_is_yours { 3 } else { 1 })?;
+            if troop_is_yours {
                 let v = c.word_in(SS, 0x20f8);
                 let v = pure::and(W, v, 0xbfff);
                 c.set_word_in(SS, 0x20f8, v);
@@ -6281,16 +6296,14 @@ pub fn place_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SP, sp);
     c.set_reg(AX, dx.wrapping_sub(left).wrapping_sub(0x0a));
     if !right {
-        c.call(entry::MAP_LIST_WITHOUT_40, 0x5966)?;
-        let none = c.flag(ZF);
+        let none = map_list_with_40(&mut c, 0x5966)?;
         c.run(0x5966, 2)?;
         if none {
             return super::screens::leave_and_fade(c.m, 0xd2e2);
         }
         return drop_point_list(c.m, 0x58fa);
     }
-    c.call(entry::MAP_LIST_WITHOUT_40, 0x597b)?;
-    if c.flag(ZF) {
+    if map_list_with_40(&mut c, 0x597b)? {
         c.run(0x597b, 2)?;
         return c.ret();
     }
@@ -6329,8 +6342,7 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5c7c, if b1 != 0 { 4 } else { 3 })?;
     if b1 != 0 {
         c.set_reg(DI, b1);
-        c.call(entry::POINT_IN_RECT, 0x5c87)?;
-        if c.flag(CF) {
+        if cursor::inside_rect(&mut c, 0x5c87)? {
             // The mouse over the first list: on at 5923h for the map
             // point (4710h), else at 7E97h.
             c.run(0x5c87, 4)?; // jnb; cmp; jne; jmp
@@ -6345,8 +6357,7 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5c95, if b2 != 0 { 4 } else { 3 })?;
     if b2 != 0 {
         c.set_reg(DI, b2);
-        c.call(entry::POINT_IN_RECT, 0x5ca0)?;
-        if c.flag(CF) {
+        if cursor::inside_rect(&mut c, 0x5ca0)? {
             c.run(0x5ca0, 2)?; // jnb; jmp
             return c.jump(0x7eb8);
         }
@@ -6360,8 +6371,7 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return super::screens::leave_and_fade(c.m, 0xd2e2);
     }
     c.run(0x5ca5, 3)?;
-    c.call(entry::PARTICLE_AT, 0x5cb2)?;
-    if c.flag(CF) {
+    if troops::your_particle_at(&mut c, 0x5cb2)? {
         c.run(0x5cb2, 2)?; // jnb; jmp
         return c.jump(0x872c);
     }
@@ -6475,8 +6485,7 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x4f70, 1)?;
     c.call(entry::GET_MAP_POSITION, 0x4f73)?;
     c.run(0x4f73, 1)?;
-    c.call(entry::MAP_POINT_OUTSIDE_VIEW, 0x4f76)?;
-    if c.flag(CF) {
+    if outside_view(&mut c, 0x4f76)? {
         c.run(0x4f76, 2)?;
         return flight_video_4e8e(&mut c);
     }
@@ -7032,8 +7041,7 @@ pub fn move_trail_span(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0x655d, 9)?;
         trail_test(&mut c, b, true);
-        c.call(entry::FIND_LOCATION_BY_WORD_6, 0x6571)?;
-        if !c.flag(ZF) {
+        if !records::location_found(&mut c, 0x6571)? {
             let ax = c.reg(AX);
             let t = trail_count(&mut c, true, ax);
             c.run(0x6571, 1 + t)?;
@@ -7051,9 +7059,9 @@ pub fn move_trail_span(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(es);
         let si = c.reg(SI);
         c.set_reg(DI, si);
-        c.call(entry::LOCATION_KIND_CHECK, 0x6580)?;
+        let location_kind_ok = location_kind_ok(&mut c, 0x6580)?;
         let di = c.reg(DI);
-        if c.flag(CF) {
+        if location_kind_ok {
             c.run(0x6580, 3)?;
         } else if di < 0x138 {
             c.run(0x6580, 5)?;
@@ -7183,8 +7191,7 @@ pub fn map_click_pick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x81ef, 2)?; // mov di; call
     let rect = c.word(g::SPRITE_LIST_2);
     c.set_reg(DI, rect);
-    c.call(entry::POINT_IN_RECT, 0x81f6)?;
-    if !c.flag(CF) {
+    if !cursor::inside_rect(&mut c, 0x81f6)? {
         return leave_81ec(&mut c, 0x81f6, 2); // jnb; call
     }
     c.run(0x81f6, 2)?; // jnb; call

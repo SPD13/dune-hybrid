@@ -1,6 +1,9 @@
 //! Opening HNM videos: the file, its palette, its first frame; the intro's
 //! video loaders; removing all frame tasks.
 
+use super::sound;
+use super::hnm;
+use super::gfx;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -17,11 +20,7 @@ mod code {
     pub const HNM_RESET_FRAME_COUNTER: u16 = 0xce01;
     pub const HNM_FLAG_NAME_PTR: u16 = 0xc921;
     pub const OPEN_RES_OR_FILE_OR_DIE: u16 = 0xf229;
-    pub const HNM_READ_HEADER_SIZE: u16 = 0xcd8f;
-    pub const HNM_READ_BYTES: u16 = 0xcdbf;
     pub const APPLY_PALETTE: u16 = 0xc1ba;
-    pub const HNM_OPEN_AND_LOAD_PALETTE: u16 = 0xc92b;
-    pub const HNM_OPEN_AT_BODY_START: u16 = 0xcda0;
     pub const HNM_DECODE_TYPED_CHUNK: u16 = 0xccf4;
     pub const DECODE_SD_BLOCK: u16 = 0xaa0f;
     pub const HNM_DECODE_VIDEO_FRAME: u16 = 0xcc96;
@@ -75,11 +74,11 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
     c.push(p2);
     let p = c.video_state().fill[0];
     c.push(p);
-    c.call(code::HNM_READ_HEADER_SIZE, 0xc96e)?;
+    let header_size_read = gfx::header_size_read(&mut c, 0xc96e)?;
 
     // The header (its size first) read into the buffer, from 0 if it would
     // not fit after the read pointer.
-    let failed = if c.flag(CF) {
+    let failed = if !header_size_read {
         c.run(0xc96e, 4)?; // jb; pop; pop; jb
         true
     } else {
@@ -95,8 +94,7 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
         let n = ax.wrapping_sub(2);
         c.set_reg(AX, n);
         c.set_reg(CX, n);
-        c.call(code::HNM_READ_BYTES, 0xc988)?;
-        let failed = c.flag(CF);
+        let failed = !hnm::video_bytes_read(&mut c, 0xc988)?;
         c.run(0xc988, 3)?;
         failed
     };
@@ -159,8 +157,12 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
     let (at, size) = (v.file_offset.wrapping_add(body), v.file_left.wrapping_sub(body));
     c.update_video_state(|t| (t.body_offset, t.body_size) = (at, size));
     c.set_reg(AX, (size >> 16) as u16);
-    c.set_flag(CF, false);
-    c.ret()
+    c.ret_cf(false)
+}
+
+/// [`hnm_open_and_load_palette`] called: whether the video and its header were read.
+pub(super) fn video_opened(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xc92b, ret)?)
 }
 
 /// From CA1B: opens video AX and shows its first frame (decoding its
@@ -169,14 +171,12 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
 /// the video is closed.
 pub(super) fn load_first_frame(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xca1b, 1)?;
-    c.call(code::HNM_OPEN_AND_LOAD_PALETTE, 0xca1e)?;
-    if c.flag(CF) {
+    if !video_opened(c, 0xca1e)? {
         c.run(0xca1e, 1)?;
         return super::hnm::hnm_close_resource(c.m, 0xca01);
     }
     c.run(0xca1e, 2)?;
-    c.call(code::HNM_OPEN_AT_BODY_START, 0xca23)?;
-    if c.flag(CF) {
+    if !body_read(c, 0xca23)? {
         c.run(0xca23, 1)?;
         return super::hnm::hnm_close_resource(c.m, 0xca01);
     }
@@ -241,8 +241,7 @@ pub fn hnm_open_at_body_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(code::HNM_RESET_BUFFERS, 0xcda3)?;
     c.run(0xcda3, 1)?;
-    c.call(code::HNM_READ_HEADER_SIZE, 0xcda6)?;
-    if c.flag(CF) {
+    if !gfx::header_size_read(&mut c, 0xcda6)? {
         c.run(0xcda6, 2)?;
         return c.ret();
     }
@@ -260,6 +259,11 @@ pub fn hnm_open_at_body_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cx = pure::sub(W, size, 2);
     c.set_reg(CX, cx);
     super::hnm::hnm_read_bytes(c.m, 0xcdbf)
+}
+
+/// [`hnm_open_at_body_start`] called: whether the body's first frame was read.
+pub(super) fn body_read(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xcda0, ret)?)
 }
 
 /// An intro video loader: what it does first (`before`, at most two
@@ -348,8 +352,7 @@ pub fn hnm_open_noting_body(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xceb3, 2)?;
     let bx = c.reg(BX);
     c.push(bx);
-    c.call(code::HNM_OPEN_AND_LOAD_PALETTE, 0xceb7)?;
-    let failed = c.flag(CF);
+    let failed = !video_opened(&mut c, 0xceb7)?;
     let sp = c.reg(SP);
     let di = c.word_in(SS, sp);
     let noted = !failed && c.byte(di) & 8 != 0;
@@ -473,8 +476,7 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(a);
     let b = c.video_state().fill[0];
     c.push(b);
-    c.call(entry::HNM_READ_HEADER_SIZE, 0xc96e)?;
-    if !c.flag(CF) {
+    if gfx::header_size_read(&mut c, 0xc96e)? {
         let (si, ax) = (c.reg(SI), c.reg(AX));
         let (s, carry) = si.overflowing_add(ax);
         let lim = c.word(g::HNM_CE74);
@@ -607,9 +609,9 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 return video_end(&mut c);
             }
             c.run(0xcb12, 1)?;
-            c.call(entry::HNM_READ_HEADER_SIZE, 0xcb15)?;
+            let header_size_read = gfx::header_size_read(&mut c, 0xcb15)?;
             c.run(0xcb15, 2)?;
-            if c.flag(CF) {
+            if !header_size_read {
                 return c.ret();
             }
             c.call(entry::HNM_ADVANCE_CHUNK, 0xcb1a)?;
@@ -628,8 +630,7 @@ pub fn hnm_prefetch(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_reg(CX, a);
             }
         }
-        c.call(entry::HNM_RING_HAS_ROOM, 0xcb3b)?;
-        if c.flag(CF) {
+        if !hnm::ring_has_room(&mut c, 0xcb3b)? {
             c.run(0xcb3b, 2)?;
             return c.ret();
         }
@@ -732,7 +733,7 @@ fn pop_ds_ret_cce1(c: &mut Ctx) -> Result<(), Bail> {
 /// (`hsq_decomp_skip_header_dssi_to_esdi`), else only its header copied
 /// and the frame left in place ([0DC14h]/[0DC16h] at its data).
 pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    use pc::cpu::{DS, ZF};
+    use pc::cpu::DS;
     entered(start, 0xccf4)?;
     let mut c = Ctx::new(m);
     let (ax, si) = (c.reg(AX), c.reg(SI));
@@ -754,10 +755,9 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xcd0c, if w == 0x6473 { 4 } else { 3 })?;
         if w == 0x6473 {
             c.lods(W, ES);
-            c.call(entry::CHECK_PCM_ENABLED, 0xcd16)?;
-            let z = c.flag(ZF);
-            c.run(0xcd16, 1 + (!z) as u32 + 4)?;
-            if !z {
+            let pcm_enabled = sound::pcm_enabled(&mut c, 0xcd16)?;
+            c.run(0xcd16, 1 + (pcm_enabled) as u32 + 4)?;
+            if pcm_enabled {
                 let si = c.reg(SI);
                 c.update_video_state(|t| t.voice_chunk = si);
             }

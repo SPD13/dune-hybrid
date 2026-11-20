@@ -1,6 +1,7 @@
 //! Files: DUNE.DAT and loose files, the memory allocator's helpers, the
 //! keyboard buffer, waiting on the timer.
 
+use super::input;
 use super::entry;
 use super::pure;
 use super::{Ctx, W, entered, globals as g, r8};
@@ -12,14 +13,10 @@ use pc::{
 
 mod code {
     pub const SEEK_DUNE_DAT_OFFSET_DXAX: u16 = 0xf2d6;
-    pub const READ_DUNE_DAT_CX_TO_ESDI: u16 = 0xf2ea;
-    pub const GET_RES_INDEX_BY_NAME: u16 = 0xf314;
     pub const RES_LOCATE_IN_LOOKUP_TABLE: u16 = 0xf3a7;
-    pub const SEEK_DUNE_DAT_TO_RES: u16 = 0xf2a7;
     pub const STRCPY_TO_FILENAME_BUF: u16 = 0xf2fc;
     pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     pub const ALLOC_MORE: u16 = 0xf13f;
-    pub const GET_AND_RESET_KEY_SCANCODE: u16 = 0xdd5a;
     pub const SAVE_REGS: u16 = 0xe270;
     pub const RESTORE_REGS: u16 = 0xe283;
     pub const PROCESS_FRAME_TASKS: u16 = 0xd9d2;
@@ -73,8 +70,7 @@ pub fn kb_drain_and_clear(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     loop {
         c.run(0xde68, 1)?;
-        c.call(code::GET_AND_RESET_KEY_SCANCODE, 0xde6b)?;
-        if c.flag(pc::cpu::ZF) {
+        if !input::key_taken(&mut c, 0xde6b)? {
             break;
         }
         c.run(0xde6b, 1)?;
@@ -173,8 +169,7 @@ pub fn read_dune_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_sreg(ES, seg);
         c.set_reg(DI, 0);
         c.set_reg(CX, 0xffff);
-        c.call(code::READ_DUNE_DAT_CX_TO_ESDI, 0xe758)?;
-        let failed = c.flag(pc::cpu::CF);
+        let failed = read_short(&mut c, 0xe758)?;
         c.run(0xe758, if failed { 1 } else { 2 })?;
         if !failed {
             return c.ret();
@@ -208,6 +203,11 @@ pub fn read_dune_dat_cx_to_esdi(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.ret()
 }
 
+/// [`read_dune_dat_cx_to_esdi`] called: whether fewer bytes were read than asked.
+pub(super) fn read_short(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xf2ea, ret)
+}
+
 /// `seek_dune_dat_to_res_dsdx` (F2A7): seeks DUNE.DAT to the resource
 /// named at DS:DX; CF set if DUNE.DAT is not open or the name is not in
 /// it. Exit: the resource's size in BP:CX (high byte, low word), and DOS's
@@ -225,10 +225,9 @@ pub fn seek_dune_dat_to_res_dsdx(m: &mut Machine, start: u16) -> Result<(), Bail
     if open {
         let dx = c.reg(DX);
         c.set_reg(SI, dx);
-        c.call(code::GET_RES_INDEX_BY_NAME, 0xf2b5)?;
-        let cf = c.flag(pc::cpu::CF);
-        c.run(0xf2b5, if cf { 4 } else { 2 })?;
-        if !cf {
+        let res_index_found = res_index_found(&mut c, 0xf2b5)?;
+        c.run(0xf2b5, if !res_index_found { 4 } else { 2 })?;
+        if res_index_found {
             c.call(code::RES_LOCATE_IN_LOOKUP_TABLE, 0xf2ba)?;
             if c.flag(pc::cpu::CF) {
                 c.run(0xf2ba, 4)?;
@@ -258,6 +257,11 @@ pub fn seek_dune_dat_to_res_dsdx(m: &mut Machine, start: u16) -> Result<(), Bail
     c.ret()
 }
 
+/// [`seek_dune_dat_to_res_dsdx`] called: whether DUNE.DAT holds the resource (seeked to it, its size in BP:CX).
+pub(super) fn seeked_to_res(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xf2a7, ret)?)
+}
+
 /// `open_res_or_file_with_name_in_dx_size_ax` (F1FB): the resource named
 /// at DX, from DUNE.DAT if it is there, else as a file of its own (DOS
 /// open, then seeks to its end and back for the size). Exit: the size in
@@ -268,8 +272,7 @@ pub fn open_res_or_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 2)?;
     let dx = c.reg(DX);
     c.push(dx);
-    c.call(code::SEEK_DUNE_DAT_TO_RES, 0xf1ff)?;
-    let in_dat = !c.flag(pc::cpu::CF);
+    let in_dat = seeked_to_res(&mut c, 0xf1ff)?;
     if in_dat {
         c.run(0xf1ff, 3)?; // pop si; jae; ret
         let si = c.pop();
@@ -316,6 +319,11 @@ pub fn open_res_or_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let low = c.pop();
     c.set_reg(CX, low);
     c.ret()
+}
+
+/// [`open_res_or_file`] called: whether the resource or file was found (BX the handle, CX:BP the size).
+pub(super) fn res_or_file_found(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xf1fb, ret)?)
 }
 
 /// `read_ffff_to_esdi_and_close` (F260): reads the open file BX to ES:DI
@@ -585,6 +593,11 @@ pub fn open_file_size(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`open_file_size`] called: whether the file opened (BX the handle, CX:BP its size).
+pub(super) fn file_opened(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xf204, ret)?)
+}
+
 /// `loc_0e826`: with [0DBBAh] set, the DUNE.DAT table (`read_dune_dat_toc`)
 /// walked from ES:DI + 2 (FAh entries of 19h bytes, DS = ES): each that
 /// `loc_0f314` keeps (CF clear) and `loc_0f3a7` matches (ZF) goes to
@@ -615,10 +628,9 @@ pub fn scan_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let (cx, si) = (c.reg(CX), c.reg(SI));
         c.push(cx);
         c.push(si);
-        c.call(entry::GET_RES_INDEX_BY_NAME, 0xe83e)?;
-        let cf = c.flag(pc::cpu::CF);
-        c.run(0xe83e, if cf { 2 } else { 3 })?;
-        if cf {
+        let res_index_found = res_index_found(&mut c, 0xe83e)?;
+        c.run(0xe83e, if !res_index_found { 2 } else { 3 })?;
+        if !res_index_found {
             let s = c.pop();
             c.set_reg(SI, s);
         } else {
@@ -652,12 +664,11 @@ pub fn scan_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// goes into the error text and the game ends (`exit_with_error`, run
 /// by the original from F22Fh).
 pub fn open_res_or_file_or_die(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    use pc::cpu::CF;
+    
     entered(start, 0xf229)?;
     let mut c = Ctx::new(m);
     c.run(0xf229, 1)?;
-    c.call(entry::OPEN_RES_OR_FILE, 0xf22c)?;
-    if !c.flag(CF) {
+    if res_or_file_found(&mut c, 0xf22c)? {
         c.run(0xf22c, 2)?;
         return c.ret();
     }
@@ -772,7 +783,7 @@ pub fn open_resource_force_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> 
 /// read whole into ES:DI and closed; CX the bytes read, the flags those
 /// of the read.
 pub fn open_nonres_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    use pc::cpu::CF;
+    
     entered(start, 0xf255)?;
     let mut c = Ctx::new(m);
     c.run(0xf255, 4)?;
@@ -780,8 +791,7 @@ pub fn open_nonres_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(dx);
     c.push(di);
     c.push(es);
-    c.call(entry::OPEN_FILE_SIZE, 0xf25b)?;
-    if c.flag(CF) {
+    if !file_opened(&mut c, 0xf25b)? {
         c.run(0xf25b, 1)?;
         c.m.cpu.ip = 0xf22f;
         return Err(Bail);
@@ -835,7 +845,7 @@ pub fn open_nonres_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// all F7h names of the table at 31FFh; CF set if none matches.
 pub fn get_res_index_by_name(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use super::B;
-    use pc::cpu::{CF, ZF};
+    use pc::cpu::ZF;
     entered(start, 0xf314)?;
     let mut c = Ctx::new(m);
     let si0 = c.reg(SI);
@@ -896,8 +906,7 @@ pub fn get_res_index_by_name(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cx = c.pop();
     c.set_reg(CX, cx);
     if eq {
-        c.set_flag(CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     c.run(0xf349, 2)?;
     let mut bx = 0x31ffu16;
@@ -925,17 +934,20 @@ pub fn get_res_index_by_name(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let cx = c.pop();
         c.set_reg(CX, cx);
         if eq {
-            c.set_flag(CF, false);
-            return c.ret();
+            return c.ret_cf(false);
         }
         bp = c.dec(W, bp); // the flags of the `stc` exit
         c.set_reg(BP, bp);
         if bp == 0 {
             c.run(0xf36a, 2)?;
-            c.set_flag(CF, true);
-            return c.ret();
+            return c.ret_cf(true);
         }
     }
+}
+
+/// [`get_res_index_by_name`] called: whether the name has a resource index (AX = it).
+pub(super) fn res_index_found(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xf314, ret)?)
 }
 
 /// F36Ch: the phrase file's index from its name (SI at its start).

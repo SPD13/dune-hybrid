@@ -2137,6 +2137,40 @@ impl Ctx<'_> {
         self.m.cpu.ip = self.pop();
         Ok(())
     }
+
+    // --- Results in the flags ---------------------------------------------
+    //
+    // Routines that answer a question answer it in CF or ZF, and the
+    // generated code and the shadow check go on reading it there. A port
+    // returns its answer with `ret_cf` / `ret_zf` (only the flags its
+    // callers read need be set: `flags_read.rs`), and a port calling one
+    // gets it back as a `bool` through the named call its module gives
+    // (`sound::pcm_enabled`), built on `call_cf` / `call_zf`
+    // (`tools/lift/name_results.py`).
+
+    /// `RET` with the answer in CF.
+    fn ret_cf(&mut self, cf: bool) -> Result<(), Bail> {
+        self.set_flag(pc::cpu::CF, cf);
+        self.ret()
+    }
+
+    /// `RET` with the answer in ZF.
+    fn ret_zf(&mut self, zf: bool) -> Result<(), Bail> {
+        self.set_flag(pc::cpu::ZF, zf);
+        self.ret()
+    }
+
+    /// `CALL target` (as [`Ctx::call`]), then the CF it returns.
+    fn call_cf(&mut self, target: u16, ret: u16) -> Result<bool, Bail> {
+        self.call(target, ret)?;
+        Ok(self.flag(pc::cpu::CF))
+    }
+
+    /// `CALL target` (as [`Ctx::call`]), then the ZF it returns.
+    fn call_zf(&mut self, target: u16, ret: u16) -> Result<bool, Bail> {
+        self.call(target, ret)?;
+        Ok(self.flag(pc::cpu::ZF))
+    }
 }
 
 /// Bail unless entered at `entry` (a port only starts at its entry; the

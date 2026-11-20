@@ -102,8 +102,12 @@ pub fn hnm_read_bytes(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.video_state().buffered;
     let v = c.add(W, v, read);
     c.update_video_state(|t| t.buffered = v);
-    c.set_flag(CF, false);
-    c.ret()
+    c.ret_cf(false)
+}
+
+/// [`hnm_read_bytes`] called: whether a video file was open to read from.
+pub(super) fn video_bytes_read(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xcdbf, ret)?)
 }
 
 /// `loc_0ca59`: the frame's tick from now.
@@ -161,16 +165,14 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
     if pending > 0 {
         c.run(start, 3)?;
         c.set_flag(ZF, false);
-        c.set_flag(CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     let read = c.video_state().buffered;
     if read == 0 {
         c.run(start, 6)?;
         c.set_reg(CX, read);
         c.set_flag(ZF, true);
-        c.set_flag(CF, true);
-        return c.ret();
+        return c.ret_cf(true);
     }
     let (si, seg) = (c.video_state().next_chunk[0], c.video_state().next_chunk[1]);
     let size = c.word_at(seg, si);
@@ -188,8 +190,7 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.lods(W, ES);
     if !no_video && read < size {
         c.set_flag(ZF, false);
-        c.set_flag(CF, true);
-        return c.ret();
+        return c.ret_cf(true);
     }
     let front = c.screen_buffers().front;
     c.set_reg(BP, front);
@@ -202,8 +203,12 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.run(0xcad1, 2)?;
     c.set_reg(AX, 0);
     c.set_flag(ZF, true);
-    c.set_flag(CF, false);
-    c.ret()
+    c.ret_cf(false)
+}
+
+/// [`hnm_decode_frame_if_read`] called: whether the next frame's video chunk was all read (and so decoded).
+pub(super) fn frame_decoded(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xcaa0, ret)?)
 }
 
 /// `loc_0cc0c`: SI (a chunk's start) on by AX, its size; past the ring's
@@ -251,8 +256,7 @@ pub fn hnm_ring_has_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(BX, r);
             c.set_reg(AX, need);
             c.set_flag(ZF, r == need);
-            c.set_flag(CF, r < need);
-            return c.ret();
+            return c.ret_cf(r < need);
         }
     }
     let read = c.video_state().buffered;
@@ -268,6 +272,11 @@ pub fn hnm_ring_has_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_flag(CF, v < a);
     }
     c.ret()
+}
+
+/// [`hnm_ring_has_room`] called: whether CX more bytes fit in the ring buffer.
+pub(super) fn ring_has_room(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xcc2b, ret)?)
 }
 
 /// `loc_0cc4e`: past the chunk at the ring's read pointer: its size off

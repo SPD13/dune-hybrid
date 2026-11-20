@@ -1,25 +1,23 @@
 //! The frame: running the frame tasks, waiting while checking for input,
 //! stepping the HNM video, palette chunks, and small helpers.
 
+use super::input;
+use super::hnm;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CS, CX, DI, DS, DX, ES, SI, SP, SS, ZF},
+    cpu::{AX, BP, BX, CF, CS, CX, DI, DS, DX, ES, SI, SP, SS},
     rec::Bail,
 };
 
 mod code {
     pub const SUB_ACE6: u16 = 0xace6;
     pub const PAUSE_IF_P_KEY_PRESSED: u16 = 0xde7b;
-    pub const KB_CHECK_FOR_ESC_KEY_HIT: u16 = 0xde54;
     pub const READ_GAME_PORT: u16 = 0xdce0;
     pub const RAND: u16 = 0xe3cc;
     pub const PROCESS_FRAME_TASKS: u16 = 0xd9d2;
-    pub const STC_ON_USER_INPUT: u16 = 0xdd63;
-    pub const HNM_READ_FRAME: u16 = 0xcaa0;
     pub const HNM_PREFETCH: u16 = 0xcb1a;
-    pub const HNM_WAIT_FOR_FRAME: u16 = 0xcad4;
     pub const HNM_HANDLE_PAL_CHUNK: u16 = 0xce3b;
     pub const HNM_DECODE_VIDEO_FRAME: u16 = 0xcc96;
     pub const HNM_NEXT_FRAME: u16 = 0xcc4e;
@@ -132,8 +130,7 @@ pub fn stc_on_user_input(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(code::PAUSE_IF_P_KEY_PRESSED, 0xdd66)?;
     c.run(0xdd66, 1)?;
-    c.call(code::KB_CHECK_FOR_ESC_KEY_HIT, 0xdd69)?;
-    if c.flag(ZF) {
+    if input::esc_hit(&mut c, 0xdd69)? {
         c.run(0xdd69, 3)?;
         return input(&mut c);
     }
@@ -198,6 +195,11 @@ pub fn stc_on_user_input(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`stc_on_user_input`] called: whether the player pressed Esc, a key or a button (else the frame went on).
+pub(super) fn user_input(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xdd63, ret)
+}
+
 /// DDAE: `stc; ret`, counted by the caller.
 fn input(c: &mut Ctx) -> Result<(), Bail> {
     set_cf_ret(c)
@@ -238,8 +240,7 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
             }
             let es = c.sreg(ES);
             c.push(es);
-            c.call(code::STC_ON_USER_INPUT, 0xe36d)?;
-            let stop = c.flag(CF);
+            let stop = user_input(&mut c, 0xe36d)?;
             c.run(0xe36d, 8 + if stop { 1 } else { 1 })?;
             let es = c.pop();
             c.set_sreg(ES, es);
@@ -304,8 +305,7 @@ pub fn hnm_wait_for_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.call(code::HNM_SET_TIMER, 0xcaee)?;
         c.run(0xcaee, 2)?;
-        c.set_flag(CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     c.run(0xcaf0, 1)?;
     let si = c.word(g::VOICE_BUFFER_PLAYING);
@@ -322,8 +322,12 @@ pub fn hnm_wait_for_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(code::PCM_PLAY_NEXT, 0xcafe)?;
     c.run(0xcafe, 2)?;
-    c.set_flag(CF, false);
-    c.ret()
+    c.ret_cf(false)
+}
+
+/// [`hnm_wait_for_frame`] called: whether the next frame is due.
+pub(super) fn frame_due(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xcad4, ret)?)
 }
 
 /// `hnm_do_frame` (CA60): with a video open: reads frames ahead until one
@@ -347,16 +351,14 @@ pub fn hnm_do_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(code::HNM_FRAME_END, 0xca71)?;
             c.run(0xca71, 1)?;
         }
-        c.call(code::HNM_READ_FRAME, 0xca74)?;
-        if c.flag(CF) {
+        if !hnm::frame_decoded(&mut c, 0xca74)? {
             c.run(0xca74, 2)?;
             c.call(code::HNM_PREFETCH, 0xca79)?;
             c.run(0xca79, 1)?; // jmp CA60h
             continue;
         }
         c.run(0xca74, 2)?;
-        c.call(code::HNM_WAIT_FOR_FRAME, 0xca7e)?;
-        if !c.flag(CF) {
+        if frame_due(&mut c, 0xca7e)? {
             let pal = c.video_state().palette_chunk;
             c.run(0xca7e, 5)?; // jb; mov; inc; je; then a call either way
             c.set_reg(AX, pal);

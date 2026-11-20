@@ -26,7 +26,6 @@ mod code {
     pub const KB_CLEAR_SCANCODE: u16 = 0xde4e;
     pub const MOVE_CURSOR_BY: u16 = 0xdaaf;
     pub const CURRENT_UI_ELEMENTS: u16 = 0xd41b;
-    pub const POINT_IN_RECT: u16 = 0xd6fe;
     pub const RECT_HOTSPOT: u16 = 0xe159;
 }
 
@@ -99,8 +98,12 @@ pub fn point_in_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let passed = tests.iter().take_while(|&&t| t).count();
     c.run(start, if passed == 3 { 8 } else { 2 * passed as u32 + 4 })?;
     // Its callers read CF alone.
-    c.set_flag(CF, passed == 3 && bx < r[3]);
-    c.ret()
+    c.ret_cf(passed == 3 && bx < r[3])
+}
+
+/// [`point_in_rect`] called: whether the point (DX, BX) is strictly inside the rect at DI.
+pub(super) fn inside_rect(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xd6fe, ret)
 }
 
 /// `loc_0e159`: the hotspot of the rect at DI: AX = the middle across, SI a
@@ -198,8 +201,7 @@ pub fn hotspots_particles(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let hidden = flags & 0xc0 != 0;
         c.run(0xe0b3, if hidden { 2 } else { 3 })?;
         if !hidden {
-            c.call(code::POINT_IN_RECT, 0xe0bc)?;
-            let under = c.flag(CF);
+            let under = inside_rect(&mut c, 0xe0bc)?;
             c.run(0xe0bc, if under { 1 } else { 2 })?;
             if !under {
                 c.call(code::RECT_HOTSPOT, 0xe0c1)?;
@@ -354,8 +356,7 @@ pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 6)?;
     c.set_reg(CX, k as u16);
     c.set_reg(DI, 0x1c0c);
-    c.call(entry::POINT_IN_RECT, 0x92da)?;
-    if c.flag(CF) {
+    if inside_rect(&mut c, 0x92da)? {
         c.run(0x92da, 2)?;
         return c.ret();
     }
@@ -363,13 +364,17 @@ pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if k == 0xff {
         c.run(0x92da, 5)?;
         c.set_reg8(r8::CL, k);
-        c.set_flag(CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     c.run(0x92da, 6)?;
     c.set_reg8(r8::CL, k);
     c.set_reg(DI, 0x1c1a);
     point_in_rect(c.m, 0xd6fe)
+}
+
+/// [`in_dialogue_rects`] called: whether (DX, BX) is in one of the two dialogue rects (CX = its byte).
+pub(super) fn in_dialogue_rect(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x92c9, ret)
 }
 
 /// `loc_09285`: what the cursor (DX, BX) is on in a dialogue: below 98h
@@ -446,8 +451,7 @@ pub fn dialogue_hit(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_reg(BP, y.wrapping_sub(bx));
                 if hit == Some(i) {
                     c.set_reg(CX, i);
-                    c.set_flag(CF, true);
-                    return c.ret();
+                    return c.ret_cf(true);
                 }
             }
         }
@@ -470,6 +474,11 @@ pub fn dialogue_hit(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_flag(CF, extra); // `cmp ax, 3Ch`
     c.ret()
+}
+
+/// [`dialogue_hit`] called: whether the cursor (DX, BX) is on a speaker's place of the dialogue (CX = which).
+pub(super) fn on_dialogue_place(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x9285, ret)
 }
 
 /// `highlight_hovered_text_action_item`: the hovered item CL of the
@@ -513,12 +522,11 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
             c.run(0xd526, if f & 0x80 != 0 { 8 } else { 7 })?;
             if f & 0x80 != 0 {
                 c.set_reg(DI, 0x1bf0);
-                c.call(entry::POINT_IN_RECT, 0xd53f)?;
-                let cf = c.flag(CF);
+                let inside_rect = inside_rect(&mut c, 0xd53f)?;
                 c.run(0xd53f, 2)?;
                 let sp = c.conversation().talker;
                 c.set_reg(CX, sp);
-                at = if cf { 4 } else { 5 };
+                at = if inside_rect { 4 } else { 5 };
             } else {
                 c.set_reg(DI, 0x1bf0);
                 at = 5;
@@ -531,10 +539,9 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 c.run(0xd545, 2)?;
                 let bp = c.reg(BP);
                 c.push(bp);
-                c.call(entry::DIALOGUE_HIT, 0xd549)?;
-                let cf = c.flag(CF);
+                let on_dialogue_place = on_dialogue_place(&mut c, 0xd549)?;
                 let cl = c.reg8(r8::CL);
-                if !cf {
+                if !on_dialogue_place {
                     c.run(0xd549, 2)?;
                     let b = c.pop();
                     c.set_reg(BP, b);
@@ -602,17 +609,16 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 c.run(0xd575, 7)?;
                 c.set_reg(DI, g::TEXT_BOX);
                 c.set_reg(CX, 0);
-                c.call(entry::POINT_IN_RECT, 0xd589)?;
-                if c.flag(CF) {
+                if inside_rect(&mut c, 0xd589)? {
                     c.run(0xd589, 1)?;
                     at = 0;
                     continue;
                 }
                 c.run(0xd589, 3)?;
                 c.set_reg(DI, 0x1bf0);
-                c.call(entry::POINT_IN_RECT, 0xd591)?;
+                let inside_rect = inside_rect(&mut c, 0xd591)?;
                 c.run(0xd591, 1)?;
-                at = if c.flag(CF) { 0 } else { 6 };
+                at = if inside_rect { 0 } else { 6 };
             }
             6 => {
                 let f = c.byte(g::HEAD_BOX_FLAGS);
@@ -623,9 +629,8 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 }
                 c.run(0xd593, 4)?;
                 c.set_reg(DI, 0x1bfe);
-                c.call(entry::POINT_IN_RECT, 0xd5a0)?;
-                let cf = c.flag(CF);
-                if cf {
+                let inside_rect = inside_rect(&mut c, 0xd5a0)?;
+                if inside_rect {
                     c.run(0xd5a0, 2)?;
                     c.set_reg8(r8::CL, 3);
                     at = 0;
@@ -633,8 +638,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 }
                 c.run(0xd5a0, 3)?;
                 c.set_reg8(r8::CL, 3);
-                c.call(entry::IN_DIALOGUE_RECTS, 0xd5a7)?;
-                if !c.flag(CF) {
+                if !in_dialogue_rect(&mut c, 0xd5a7)? {
                     c.run(0xd5a7, 1)?;
                     at = 2;
                     continue;
@@ -1115,8 +1119,7 @@ pub(super) fn keyboard_move(c: &mut Ctx) -> Result<(), Bail> {
         let shown = c.byte(di.wrapping_add(8)) & 0x80 != 0;
         c.run(0xe00a, if shown { 3 } else { 2 })?;
         if shown {
-            c.call(code::POINT_IN_RECT, 0xe013)?;
-            let under = c.flag(CF);
+            let under = inside_rect(c, 0xe013)?;
             c.run(0xe013, if under { 1 } else { 2 })?;
             if !under {
                 c.call(code::RECT_HOTSPOT, 0xe018)?;

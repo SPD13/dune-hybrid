@@ -1,6 +1,10 @@
 //! Voice files (streamed in 8 KB parts into two buffers) and music
 //! loading.
 
+use super::sound;
+use super::panels;
+use super::math;
+use super::files;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -11,10 +15,7 @@ use pc::{
 };
 
 mod code {
-    pub const OPEN_RES_OR_FILE: u16 = 0xf1fb;
-    pub const CHECK_PCM_VOICE_FILE_OPEN: u16 = 0xaba3;
     pub const READ_AUDIO_FILE: u16 = 0xa93f;
-    pub const MUSIC_ENABLED: u16 = 0xae28;
     pub const MIDI_FUNC_2_0: u16 = 0xaeb7;
     pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     pub const ALLOC_CHECK: u16 = 0xf11c;
@@ -37,8 +38,12 @@ pub fn music_enabled(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     let s = c.sound_state().settings;
-    c.set_flag(ZF, s & 0x100 == 0);
-    c.ret()
+    c.ret_zf(s & 0x100 == 0)
+}
+
+/// [`music_enabled`] called: whether music is enabled (settings bit 100h).
+pub(super) fn music_on(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_zf(0xae28, ret)?)
 }
 
 /// `loc_0aec6`: CF set if sound is off (the command line's bit 10h, or
@@ -49,15 +54,17 @@ pub fn sound_off(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let args = c.byte(g::CMD_ARGS_MEMORY);
     if args & 0x10 != 0 {
         c.run(start, 4)?; // test; jne; stc; ret
-        c.set_flag(CF, true);
-        return c.ret();
+        return c.ret_cf(true);
     }
     c.run(start, 3)?;
-    c.call(code::MUSIC_ENABLED, 0xaed0)?;
-    let on = !c.flag(pc::cpu::ZF);
+    let on = music_on(&mut c, 0xaed0)?;
     c.run(0xaed0, 3)?; // je; clc / stc; ret
-    c.set_flag(CF, !on);
-    c.ret()
+    c.ret_cf(!on)
+}
+
+/// [`sound_off`] called: whether sound is off (the command line's bit 10h, or music disabled).
+pub(super) fn sound_is_off(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xaec6, ret)
 }
 
 /// From A93F: reads the voice file's next part (8 KB, or what is left)
@@ -164,8 +171,7 @@ pub fn open_pcm_voice_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_voice_buffer(0, |b| b.set_state_word(0));
     c.update_voice_buffer(1, |b| b.set_state_word(0));
     c.set_byte(g::VOICE_PART, 0);
-    c.call(code::OPEN_RES_OR_FILE, 0xa91f)?;
-    if c.flag(CF) {
+    if !files::res_or_file_found(&mut c, 0xa91f)? {
         c.run(0xa91f, 2)?;
         return c.ret();
     }
@@ -191,6 +197,11 @@ pub fn open_pcm_voice_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
     read_part(&mut c)
 }
 
+/// [`open_pcm_voice_file`] called: whether the voice file was found (and its first part read).
+pub(super) fn voice_file_found(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0xa90b, ret)?)
+}
+
 /// `loc_0a9b9`: with the voice file open, refills a free buffer (the
 /// first, or the second if the first is busy; none if both are) with
 /// the next part, then PCM driver function 9 on it.
@@ -198,8 +209,7 @@ pub fn refill_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa9b9)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(code::CHECK_PCM_VOICE_FILE_OPEN, 0xa9bc)?;
-    if c.flag(pc::cpu::ZF) {
+    if !sound::voice_file_open(&mut c, 0xa9bc)? {
         c.run(0xa9bc, 2)?;
         return c.ret();
     }
@@ -441,9 +451,9 @@ pub fn while_voice_playing(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     loop {
         c.run(0xabd5, 1)?;
-        c.call(entry::IS_VOC_PCM_PLAYING, 0xabd8)?;
+        let voc_playing = sound::voc_playing(&mut c, 0xabd8)?;
         c.run(0xabd8, 2)?;
-        if c.flag(ZF) {
+        if !voc_playing {
             return c.ret();
         }
         c.call(entry::LIP_SYNC_FRAME_TASK, 0xabd5)?;
@@ -473,8 +483,7 @@ pub fn fade_out_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xadbe)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::SOUND_OFF, 0xadc1)?;
-    if c.flag(CF) {
+    if sound_is_off(&mut c, 0xadc1)? {
         c.run(0xadc1, 2)?;
         return c.ret();
     }
@@ -552,8 +561,7 @@ pub fn wait_voice_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xaba9)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::CHECK_PCM_ENABLED, 0xabac)?;
-    if c.flag(ZF) {
+    if !sound::pcm_enabled(&mut c, 0xabac)? {
         c.run(0xabac, 2)?;
         return c.ret();
     }
@@ -565,8 +573,7 @@ pub fn wait_voice_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(bx);
         c.call(entry::VOICE_STREAM_TASK, 0xabb6)?;
         c.run(0xabb6, 1)?;
-        c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xabb9)?;
-        let closed = c.flag(ZF);
+        let closed = !sound::voice_file_open(&mut c, 0xabb9)?;
         if closed {
             c.run(0xabb9, 4)?;
             let bx = c.pop();
@@ -613,8 +620,7 @@ pub fn voice_stream_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(entry::REFILL_VOICE_BUFFER, 0xab95)?;
     c.run(0xab95, 1)?;
-    c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xab98)?;
-    if !c.flag(pc::cpu::ZF) {
+    if sound::voice_file_open(&mut c, 0xab98)? {
         c.run(0xab98, 2)?;
         return c.ret();
     }
@@ -634,8 +640,7 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc868)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::IS_VOC_PCM_PLAYING, 0xc86b)?;
-    if !c.flag(pc::cpu::ZF) {
+    if sound::voc_playing(&mut c, 0xc86b)? {
         c.run(0xc86b, 2)?;
         return c.ret();
     }
@@ -661,12 +666,11 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if cinematic == 0 {
         c.push(bx);
         c.set_reg(BX, 1);
-        c.call(entry::RAND_MASKED, 0xc89a)?;
-        let z = c.flag(pc::cpu::ZF);
-        c.run(0xc89a, 3 + (!z) as u32)?;
+        let rand_masked_zero = math::rand_masked_zero(&mut c, 0xc89a)?;
+        c.run(0xc89a, 3 + (!rand_masked_zero) as u32)?;
         let b = c.pop();
         c.set_reg(BX, b);
-        c.set_reg(SI, if z { 0x2789 } else { 0x278e });
+        c.set_reg(SI, if rand_masked_zero { 0x2789 } else { 0x278e });
     }
     loop {
         let si = c.reg(SI);
@@ -747,8 +751,7 @@ pub fn play_voice_lowering_music(m: &mut Machine, start: u16) -> Result<(), Bail
     entered(start, 0xab45)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::CHECK_PCM_ENABLED, 0xab48)?;
-    if c.flag(ZF) {
+    if !sound::pcm_enabled(&mut c, 0xab48)? {
         c.run(0xab48, 2)?;
         return c.ret();
     }
@@ -780,14 +783,12 @@ fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
     c.call(entry::CREATE_VOC_FILE_NAME_FROM_BX, 0xab5a)?;
     c.run(0xab5a, 2)?;
     c.set_byte(g::VOICE_FILE_NAME_LETTER, 0x49);
-    c.call(entry::IS_VOC_PCM_PLAYING, 0xab62)?;
-    if !c.flag(ZF) {
+    if sound::voc_playing(c, 0xab62)? {
         c.run(0xab62, 2)?;
         return c.ret();
     }
     c.run(0xab62, 2)?;
-    c.call(entry::CHECK_PCM_ENABLED, 0xab67)?;
-    if c.flag(ZF) {
+    if !sound::pcm_enabled(c, 0xab67)? {
         c.run(0xab67, 2)?;
         return c.ret();
     }
@@ -798,10 +799,9 @@ fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xab6d, 1)?;
     c.call(entry::PCM_STOP_VOC, 0xab70)?;
     c.run(0xab70, 1)?;
-    c.call(entry::OPEN_PCM_VOICE_FILE, 0xab73)?;
-    let cf = c.flag(CF);
-    c.run(0xab73, if !cf { 3 } else { 2 })?;
-    if !cf {
+    let voice_file_found = voice_file_found(c, 0xab73)?;
+    c.run(0xab73, if voice_file_found { 3 } else { 2 })?;
+    if voice_file_found {
         let v = c.voice_buffer(0).data[0];
         let v = c.add(W, v, 0x1a);
         c.update_voice_buffer(0, |b| b.data[0] = v);
@@ -958,16 +958,14 @@ pub fn music_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xace6)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::IS_VOC_PCM_PLAYING, 0xace9)?;
-    if !c.flag(ZF) {
+    if sound::voc_playing(&mut c, 0xace9)? {
         c.run(0xace9, 2)?;
         return c.ret();
     }
     let f = c.byte(g::MUSIC_SETTINGS);
     if f & 1 == 0 {
         c.run(0xace9, 4)?;
-        c.call(entry::SOUND_OFF, 0xad3a)?;
-        if c.flag(CF) {
+        if sound_is_off(&mut c, 0xad3a)? {
             c.run(0xad3a, 2)?;
             return c.ret();
         }
@@ -1053,8 +1051,7 @@ fn music_start_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     let al = c.reg8(r8::AL);
     c.xor(B, 0, 0);
     c.set_reg(AX, al as u16);
-    c.call(entry::SOUND_OFF, 0xad9a)?;
-    if c.flag(CF) {
+    if sound_is_off(c, 0xad9a)? {
         c.run(0xad9a, 2)?;
         return c.ret();
     }
@@ -1096,8 +1093,7 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xad5e)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::SOUND_OFF, 0xad61)?;
-    if c.flag(CF) {
+    if sound_is_off(&mut c, 0xad61)? {
         c.run(0xad61, 2)?;
         return c.ret();
     }
@@ -1190,8 +1186,7 @@ pub fn alloc_music_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xae3f)?;
     let mut c = Ctx::new(m);
     c.run(0xae3f, 1)?;
-    c.call(entry::MUSIC_ENABLED, 0xae42)?;
-    if c.flag(ZF) {
+    if !music_on(&mut c, 0xae42)? {
         c.run(0xae42, 2)?;
         return c.ret();
     }
@@ -1218,8 +1213,7 @@ pub fn alloc_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xae54)?;
     let mut c = Ctx::new(m);
     c.run(0xae54, 1)?;
-    c.call(entry::CHECK_PCM_ENABLED, 0xae57)?;
-    if c.flag(ZF) {
+    if !sound::pcm_enabled(&mut c, 0xae57)? {
         c.run(0xae57, 2)?;
         return c.ret();
     }
@@ -1243,16 +1237,14 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa7c2)?;
     let mut c = Ctx::new(m);
     c.run(0xa7c2, 1)?;
-    c.call(entry::IS_VOC_PCM_PLAYING, 0xa7c5)?;
-    if c.flag(ZF) {
+    if !sound::voc_playing(&mut c, 0xa7c5)? {
         c.run(0xa7c5, 2)?;
         return c.ret();
     }
     let k = c.word(g::LIPSYNC_PTR);
     if k == 0 {
         c.run(0xa7c5, 4)?;
-        c.call(entry::PCM_TEST_AUDIO_DONE, 0xa7d1)?;
-        if !c.flag(ZF) {
+        if !sound::pcm_done(&mut c, 0xa7d1)? {
             c.run(0xa7d1, 1)?;
             return next_phrase_a789(&mut c);
         }
@@ -1281,11 +1273,10 @@ pub fn lip_sync_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xa7f3, 2)?;
         let di = c.reg(DI);
         c.push(di);
-        c.call(entry::ADVANCE_LIPSYNC, 0xa7f7)?;
-        let cf = c.flag(CF);
+        let next_lipsync = sound::next_lipsync(&mut c, 0xa7f7)?;
         let sp = c.reg(SP);
         let di = c.word_in(SS, sp);
-        if !cf {
+        if !next_lipsync {
             c.run(0xa7f7, 2)?;
             let v = c.pop();
             c.set_reg(DI, v);
@@ -1375,8 +1366,7 @@ fn next_phrase_a789(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(AX, t);
     c.set_word(g::LIPSYNC_TIME, t);
     c.set_word(g::LIPSYNC_TIME_LOW, 0x8000);
-    c.call(entry::ADVANCE_LIPSYNC, 0xa783)?;
-    if !c.flag(CF) {
+    if !sound::next_lipsync(c, 0xa783)? {
         c.run(0xa783, 2)?;
         return c.ret();
     }
@@ -1397,8 +1387,7 @@ fn stop_a7a5(c: &mut Ctx) -> Result<(), Bail> {
     c.set_word(g::LIPSYNC_PTR, 0);
     c.call(entry::CURSOR_SPRITE_9F, 0xa7b4)?;
     c.run(0xa7b4, 1)?;
-    c.call(entry::IS_VOC_PCM_PLAYING, 0xa7b7)?;
-    if c.flag(ZF) {
+    if !sound::voc_playing(c, 0xa7b7)? {
         c.run(0xa7b7, 2)?;
         return c.ret();
     }
@@ -1427,8 +1416,7 @@ fn stop_a7a5(c: &mut Ctx) -> Result<(), Bail> {
 /// (far [39A1h]).
 fn feed_a9b9(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xa9b9, 1)?;
-    c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xa9bc)?;
-    if c.flag(ZF) {
+    if !sound::voice_file_open(c, 0xa9bc)? {
         c.run(0xa9bc, 2)?;
         return c.ret();
     }
@@ -1844,14 +1832,14 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
     }
     c.run(0xa740, 2)?;
     c.set_byte(g::LIPSYNC_FRAME, 0xff);
-    c.call(entry::VOC_GET_LIPSYNC_DATA, 0xa748)?;
-    let mut fail = c.flag(CF);
+    let voc_opened = panels::voc_opened(&mut c, 0xa748)?;
+    let mut fail = voc_opened;
     c.run(0xa748, if !fail { 3 } else { 2 })?;
     if !fail {
         let v = c.byte(g::VOICE_FILE_NAME_LETTER) ^ 6;
         c.set_byte(g::VOICE_FILE_NAME_LETTER, v);
-        c.call(entry::VOC_GET_LIPSYNC_DATA, 0xa752)?;
-        fail = c.flag(CF);
+        let voc_opened = panels::voc_opened(&mut c, 0xa752)?;
+        fail = voc_opened;
         c.run(0xa752, 1 + if fail { 1 } else { 1 })?;
         if !fail {
             return c.ret();
