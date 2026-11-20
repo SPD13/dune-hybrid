@@ -201,7 +201,8 @@ pub fn hnm_do_frame_skippable(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `hnm_do_frame_and_check_if_frame_advanced` (C9F4): the next video
-/// frame. Exit: AX = the frame before; ZF clear if it advanced.
+/// frame. Exit: AX = the frame before; ZF clear if it advanced (its
+/// callers read ZF alone).
 pub fn hnm_do_frame_and_check_if_frame_advanced(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc9f4)?;
     let mut c = Ctx::new(m);
@@ -213,7 +214,7 @@ pub fn hnm_do_frame_and_check_if_frame_advanced(m: &mut Machine, start: u16) -> 
     let before = c.pop();
     c.set_reg(AX, before);
     let now = c.video_state().frame;
-    c.cmp(W, before, now);
+    c.set_flag(pc::cpu::ZF, before == now);
     c.ret()
 }
 
@@ -301,8 +302,8 @@ pub fn draw_ui_elements_list_at_ds_si(m: &mut Machine, start: u16) -> Result<(),
 }
 
 /// `ui_head_animate_down` (181E): steps the talking head's animation back
-/// to 0, one step (`sub_17be`) every 8 ticks. Exit: flags from the `cmp`
-/// with 0; AX = 8 if it moved.
+/// to 0, one step (`sub_17be`) every 8 ticks. Exit: CF clear (its callers
+/// read CF alone); AX = 8 if it moved.
 pub fn ui_head_animate_down(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x181e)?;
     let mut c = Ctx::new(m);
@@ -310,7 +311,7 @@ pub fn ui_head_animate_down(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let step = c.situation().head_animation_step;
         if step == 0 {
             c.run(0x181e, 3)?; // cmp; je 181Dh; ret
-            c.cmp(super::B, 0, 0);
+            c.set_flag(pc::cpu::CF, false);
             return c.ret();
         }
         c.run(0x181e, 4)?;

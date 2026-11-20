@@ -496,7 +496,7 @@ pub fn evict_oldest(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     c.set_reg(BX, bx);
     c.set_reg(DI, di);
-    c.or(W, bx, bx);
+    c.set_flag(pc::cpu::CF, false); // `or bx, bx`: its callers read CF alone
     if bx != 0 {
         c.set_reg(SI, di);
         c.call(entry::FREE_CHAIN, 0xeba7)?;

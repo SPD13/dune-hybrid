@@ -94,9 +94,9 @@ pub fn seek_dune_dat_offset_dxax(m: &mut Machine, start: u16) -> Result<(), Bail
 }
 
 /// `parse_cmd_is_end_of_arg` (E56B): the next character of the command
-/// line (DS:SI, ending at BP), upper-cased; CR (0Dh) past the end. Flags
-/// from `cmp al, 20h`: ZF for a space, CF for the end or a control
-/// character.
+/// line (DS:SI, ending at BP), upper-cased; CR (0Dh) past the end. ZF set
+/// for a space, CF for the end or a control character (`cmp al, 20h`; its
+/// callers read those two).
 pub fn parse_cmd_is_end_of_arg(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use super::r8::AL;
     use pc::cpu::{BP, DS, SI};
@@ -116,7 +116,8 @@ pub fn parse_cmd_is_end_of_arg(m: &mut Machine, start: u16) -> Result<(), Bail> 
         }
     }
     let ch = c.reg8(AL);
-    c.cmp(B, ch as u16, 0x20);
+    c.set_flag(pc::cpu::ZF, ch == 0x20);
+    c.set_flag(pc::cpu::CF, ch < 0x20);
     c.count(n);
     c.ret()
 }

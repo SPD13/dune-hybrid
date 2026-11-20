@@ -2719,7 +2719,7 @@ pub fn next_dialogue_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ui = c.reg(BP);
     if ui == 0x1ffe {
         c.run(0x946b, 3)?;
-        c.cmp(W, ui, 0x1ffe); // the exit's flags
+        c.set_flag(pc::cpu::CF, false); // its callers read CF alone
         return c.ret();
     }
     c.run(0x946b, 2)?;
@@ -3088,7 +3088,7 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.update_text_box(|t| t.margins[2..].fill(0));
             c.set_reg(AX, bottom);
             c.set_reg(BP, frame);
-            c.or(W, bottom, bottom); // the exit's flags
+            c.set_flag(pc::cpu::CF, false); // `or`: its callers read CF alone
             return c.ret();
         }
         frame = frame.wrapping_add(8);
@@ -3321,7 +3321,7 @@ pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let held = c.travel().screen_kind;
         c.run(0x9218, 5)?;
         if held != 0 {
-            c.cmp(B, held as u16, 0); // the exit's flags
+            c.set_flag(CF, false); // its callers read CF alone
             return c.ret();
         }
         c.call(entry::DIALOGUE_HIT, 0x9228)?;
@@ -3342,14 +3342,12 @@ pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 10
             };
             c.run(0x9228, cost)?;
-            // The exit's flags: the last test's.
-            match cost {
-                4 => c.cmp(B, room as u16, 1),
-                6 => c.cmp(W, y, 0x98),
-                8 => c.cmp(B, place as u16, 0x21),
-                _ if harkonnen == 0 => return super::story::room_move(c.m, 0x3f15),
-                _ => c.cmp(B, harkonnen as u16, 0),
-            };
+            if cost == 10 && harkonnen == 0 {
+                return super::story::room_move(c.m, 0x3f15);
+            }
+            // The exit's CF (its callers read CF alone), the last test's:
+            // only `cmp room, 1` can set it.
+            c.set_flag(CF, cost == 4 && room == 0);
             return c.ret();
         }
         let record = c.reg8(r8::CL);
@@ -3368,7 +3366,7 @@ pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     if list != 0x1f7e {
         c.run(0x9218, 5)?;
-        c.cmp(W, list, 0x1f7e); // the exit's flags
+        c.set_flag(CF, list < 0x1f7e); // `cmp`: its callers read CF alone
         return c.ret();
     }
     c.run(0x9218, 5)?;

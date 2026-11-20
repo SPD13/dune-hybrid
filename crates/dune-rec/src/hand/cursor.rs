@@ -348,7 +348,7 @@ pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if k == 0xff {
         c.run(start, 5)?;
         c.set_reg(CX, 0xff);
-        c.cmp(B, 0xff, 0xff); // the exit's flags (CF clear)
+        c.set_flag(CF, false); // its callers read CF alone
         return c.ret();
     }
     c.run(start, 6)?;
@@ -363,7 +363,7 @@ pub fn in_dialogue_rects(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if k == 0xff {
         c.run(0x92da, 5)?;
         c.set_reg8(r8::CL, k);
-        c.cmp(B, 0xff, 0xff); // likewise
+        c.set_flag(CF, false);
         return c.ret();
     }
     c.run(0x92da, 6)?;

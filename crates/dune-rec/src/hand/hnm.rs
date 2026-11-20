@@ -5,7 +5,7 @@ use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, ZF},
     rec::Bail,
 };
 
@@ -158,21 +158,24 @@ pub fn hnm_clear_flag_msb(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0caa0`: decodes the next frame's video chunk when it is all in the
 /// buffer (nothing left to fetch, and its size within what was read, or a
 /// frame without video), into the front buffer (the back buffer with
-/// flag 40h). CF set (AX unchanged) when it is not.
+/// flag 40h). CF set (AX unchanged) when it is not; ZF set when nothing
+/// was left to fetch and nothing read, or when it was decoded (AX 0). Its
+/// callers read those two.
 pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xcaa0)?;
     let mut c = Ctx::new(m);
     let pending = c.video_state().pending_frame[1];
     if pending > 0 {
         c.run(start, 3)?;
-        c.cmp(W, pending, 0); // the exit's flags
+        c.set_flag(ZF, false);
+        c.set_flag(CF, false);
         return c.ret();
     }
     let read = c.video_state().buffered;
     if read == 0 {
         c.run(start, 6)?;
-        c.cmp(W, pending, 0); // likewise (ZF), with CF set
         c.set_reg(CX, read);
+        c.set_flag(ZF, true);
         c.set_flag(CF, true);
         return c.ret();
     }
@@ -190,11 +193,10 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.set_reg(SI, si);
     c.set_sreg(ES, seg);
     c.lods(W, ES);
-    if !no_video {
-        c.cmp(W, read, size); // the exit's flags when not read yet
-        if read < size {
-            return c.ret();
-        }
+    if !no_video && read < size {
+        c.set_flag(ZF, false);
+        c.set_flag(CF, true);
+        return c.ret();
     }
     let front = c.screen_buffers().front;
     c.set_reg(BP, front);
@@ -205,9 +207,9 @@ pub fn hnm_decode_frame_if_read(m: &mut Machine, start: u16) -> Result<(), Bail>
     }
     c.call(code::HNM_DECODE_TYPED_CHUNK, 0xcad1)?;
     c.run(0xcad1, 2)?;
-    let ax = c.reg(AX);
-    let z = c.xor(W, ax, ax); // the exit's flags
-    c.set_reg(AX, z);
+    c.set_reg(AX, 0);
+    c.set_flag(ZF, true);
+    c.set_flag(CF, false);
     c.ret()
 }
 
