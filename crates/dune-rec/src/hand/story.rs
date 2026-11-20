@@ -1,5 +1,6 @@
 //! Story progress, the intro script, and one-line flag setters.
 
+use super::troops;
 use super::sound;
 use super::records;
 use super::map;
@@ -335,6 +336,11 @@ pub fn is_scripted_action_allowed(m: &mut Machine, start: u16) -> Result<(), Bai
     c.ret()
 }
 
+/// [`is_scripted_action_allowed`] called: whether [47A5h] is FFh.
+pub(super) fn scripted_action_allowed(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_zf(0xa1e2, ret)
+}
+
 /// `loc_0a1e8`: one more at `last_entry` ([47A8h]).
 pub fn mark_last_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1e8)?;
@@ -495,10 +501,9 @@ pub fn check_character_7_attack(m: &mut Machine, start: u16) -> Result<(), Bail>
     }
     c.run(start, 4)?;
     c.set_reg(SI, 0x1048);
-    c.call(entry::CHARACTER_AT_FLAGGED_TROOP_LOCATION, 0x1dad)?;
-    let cf = c.flag(pc::cpu::CF);
+    let character_at_flagged_troop = troops::character_at_flagged_troop(&mut c, 0x1dad)?;
     c.run(0x1dad, 2)?;
-    if cf {
+    if character_at_flagged_troop {
         c.call(entry::ATTACK_CLOCK_TICK, 0x1db2)?;
         c.run(0x1db2, 1)?;
     }
@@ -1879,6 +1884,11 @@ pub fn head_for_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`head_for_location`] called: whether the map position is the place at DI itself (no direction to it).
+pub(super) fn already_there(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x5124, ret)
+}
+
 /// `loc_0456c`: AX = 2BCh + the phrase number of the place DI: DI itself
 /// when its high byte is FFh, else from its word 0 ((low - 1) x 16 + high).
 pub fn place_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -2337,6 +2347,11 @@ pub fn check_allocator_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let b = c.word(g::ALLOCATOR_LAST_SEGMENT);
     c.cmp(W, a, b);
     c.ret()
+}
+
+/// [`check_allocator_room`] called: whether [39B9h] + 2F13h is below [0CE68h].
+pub(super) fn allocator_below_limit(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xe851, ret)
 }
 
 /// `loc_00d45`: the sky by the time of day redrawn, then three times
@@ -2828,8 +2843,7 @@ pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !tell {
         let a = c.pop();
         c.set_reg(AX, a);
-        c.set_flag(CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     let sp = c.reg(SP).wrapping_add(2);
     c.set_reg(SP, sp);
@@ -2862,8 +2876,12 @@ pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, d);
     c.call(entry::DESCRIBE_PLACE, 0x2b28)?;
     c.run(0x2b28, 2)?;
-    c.set_flag(CF, true);
-    c.ret()
+    c.ret_cf(true)
+}
+
+/// [`tell_pending_event`] called: whether the next pending event was told.
+pub(super) fn event_told(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x2ad8, ret)
 }
 
 /// `loc_02a51`: the [`g::PENDING_EVENTS`] for the bit AL (for 0Fh only
@@ -3474,8 +3492,7 @@ pub fn ui_comm(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'one;
             }
             c.run(0x2023, 7)?;
-            c.call(entry::LOCATION_HAS_TROOP_400, 0x2037)?;
-            if c.flag(CF) {
+            if troops::troop_with_400_here(&mut c, 0x2037)? {
                 c.run(0x2037, 1)?;
                 break 'one;
             }
@@ -3551,6 +3568,11 @@ pub fn ui_comm(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, di);
     c.set_flag(ZF, di == 0); // the exit's flags
     c.ret()
+}
+
+/// [`ui_comm`] called: whether there is a sietch to call (DI = it).
+pub(super) fn sietch_to_call(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_zf(0x2017, ret)?)
 }
 
 /// `sal_read_position_markers`: the 17h markers at [47F6h] cleared (FFh),
@@ -4770,8 +4792,7 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !carry {
         return c.ret();
     }
-    c.call(entry::UI_COMM, 0x1f95)?;
-    if c.flag(pc::cpu::ZF) {
+    if !sietch_to_call(&mut c, 0x1f95)? {
         c.run(0x1f95, 2)?;
         return c.ret();
     }
@@ -5854,8 +5875,7 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, v);
     let v = c.pop();
     c.set_reg(BX, v);
-    c.call(entry::IS_SCRIPTED_ACTION_ALLOWED, 0x3fc0)?;
-    if !c.flag(pc::cpu::ZF) {
+    if !scripted_action_allowed(&mut c, 0x3fc0)? {
         c.run(0x3fc0, 2)?;
         return c.ret();
     }
@@ -6698,8 +6718,7 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if dt < 0x32 {
         return c.ret();
     }
-    c.call(entry::TELL_PENDING_EVENT, 0x2b66)?;
-    if c.flag(CF) {
+    if event_told(&mut c, 0x2b66)? {
         c.run(0x2b66, 3)?;
         c.update_progress(|t| t.talk_reason = 0);
         return scene_record(c.m, 0x3542);

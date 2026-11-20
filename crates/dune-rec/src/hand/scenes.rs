@@ -27,7 +27,6 @@ mod code {
     pub const MIDI_FUNC_2_0: u16 = 0xaeb7;
     pub const TRANSITION: u16 = 0xc108;
     pub const KB_CLEAR_SCANCODE: u16 = 0xde4e;
-    pub const HNM_DO_FRAME_SKIPPABLE: u16 = 0xc9e8;
     pub const HNM_CLOSE_RESOURCE: u16 = 0xca01;
     pub const PCM_STOP_VOC: u16 = 0xac14;
     pub const SET_FB1_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc07c;
@@ -117,9 +116,9 @@ pub fn play_chapter_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(g::PAUSE_ALLOWED, 0);
     c.call(code::KB_CLEAR_SCANCODE, 0xb20d)?;
     c.run(0xb20d, 1)?;
-    c.call(code::HNM_DO_FRAME_SKIPPABLE, 0xb210)?;
+    let mut interrupted = gfx::frame_interrupted(&mut c, 0xb210)?;
     loop {
-        if c.flag(CF) {
+        if interrupted {
             c.run(0xb210, 2)?;
             break;
         }
@@ -129,7 +128,7 @@ pub fn play_chapter_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if video_done {
             break;
         }
-        c.call(code::HNM_DO_FRAME_SKIPPABLE, 0xb210)?;
+        interrupted = gfx::frame_interrupted(&mut c, 0xb210)?;
     }
     c.call(code::HNM_CLOSE_RESOURCE, 0xb21a)?;
     c.run(0xb21a, 2)?;

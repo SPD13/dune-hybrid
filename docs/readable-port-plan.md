@@ -253,10 +253,18 @@ after the flag (`let cf = ..`) takes the answer's name.
 name, meaning) and rewrites a call site only where the flag is read
 before anything can change it; Rust's scoping keeps the `bool` to the
 code the call dominates. The first pass: 58 routines in 21 modules, 187
-call sites. Left as they are: the routines whose callers read CF and ZF
-together (`parse_cmd_is_end_of_arg`, `res_locate_in_lookup_table`), and
-those whose flag has no clear meaning yet (the EMS and memory calls,
-`check_allocator_room`, the `say_*` and `troop_bit_10_*` ones).
+call sites; the second 11 more (`condition_holds`, `troop_merged`,
+`sietch_to_call`, ...), 16 sites. A routine whose callers read CF and ZF
+as one three-way answer gets an enum: `dos::next_cmd_char` gives
+`CmdChar::{End, Space, Other}` for `parse_cmd_is_end_of_arg`. A call at
+the end of a loop whose answer the loop's start reads becomes a `let mut`
+updated there (`scenes.rs`: `interrupted = gfx::frame_interrupted(..)`).
+Left as they are: `res_locate_in_lookup_table` and
+`hnm_decode_frame_if_read` (CF and ZF read in different combinations),
+the command line's path and number states (the flags carried from one
+state to the next), and the routines whose flag has no clear meaning yet
+(the EMS and memory calls, `say_numbered`, `talk_as`, `text_box_for`,
+`load_voc_and_lipsync_data`, the `troop_bit_10_*` ones).
 
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust

@@ -232,6 +232,11 @@ pub fn evaluate_condition_ax(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
+/// [`evaluate_condition_ax`] called: whether condition AX of the CONDIT script holds.
+pub(super) fn condition_holds(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_zf(0xa396, ret)?)
+}
+
 /// `add sp, 32h; or dx, dx; ret` (A3E2), counted by the caller.
 fn finish(c: &mut Ctx) -> Result<(), Bail> {
     let sp = c.reg(SP).wrapping_add(0x32);

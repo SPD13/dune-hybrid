@@ -1,6 +1,7 @@
 //! Dialogue state: the talking character's mode bytes (47C2h, 47C4h,
 //! 47DCh...), the phrase pointers, and small steps of the conversation.
 
+use super::resources;
 use super::story;
 use super::sound;
 use super::math;
@@ -298,6 +299,11 @@ pub fn scan_dialogues_from(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let scan = scan_dialogues(&mut c, at, step, left);
     c.run(start, scan.cost)?;
     scan_done(&mut c, &scan)
+}
+
+/// [`scan_dialogues_from`] called: whether a dialogue entry was found (DI = it).
+pub(super) fn dialogue_found(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_zf(0xb150, ret)?)
 }
 
 /// `loc_0b147`: [`scan_dialogues`] of the list at A8h (from AAh), for
@@ -2474,8 +2480,7 @@ pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x9fab, 5 + tests + 7)?;
         c.push(entry);
         c.set_reg(AX, (high as u16) << 8 | condition as u16);
-        c.call(entry::EVALUATE_CONDITION_AX, 0x9fd0)?;
-        let holds = !c.flag(ZF);
+        let holds = resources::condition_holds(&mut c, 0x9fd0)?;
         c.run(0x9fd0, if holds { 2 } else { 4 })?;
         let entry = c.pop();
         if holds {

@@ -1,5 +1,6 @@
 //! Services: EMS (INT 67h), the XMS driver, DOS file calls.
 
+use super::story;
 use super::voice;
 use super::files;
 use super::pure;
@@ -122,6 +123,30 @@ pub fn parse_cmd_is_end_of_arg(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.set_flag(pc::cpu::CF, ch < 0x20);
     c.count(n);
     c.ret()
+}
+
+/// The command line's next character, as [`parse_cmd_is_end_of_arg`]
+/// answers in CF and ZF.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum CmdChar {
+    /// The end of the line, or a control character (CF).
+    End,
+    /// A space (ZF).
+    Space,
+    /// Any other: AL = it, upper-cased.
+    Other,
+}
+
+/// [`parse_cmd_is_end_of_arg`] called: what the next character is.
+pub(super) fn next_cmd_char(c: &mut Ctx, ret: u16) -> Result<CmdChar, Bail> {
+    c.call(0xe56b, ret)?;
+    Ok(if c.flag(pc::cpu::CF) {
+        CmdChar::End
+    } else if c.flag(pc::cpu::ZF) {
+        CmdChar::Space
+    } else {
+        CmdChar::Other
+    })
 }
 
 /// `res_locate_in_lookup_table` (F3A7): finds resource offset DL:AX (24
@@ -1124,8 +1149,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xe78c, 1)?;
         c.call(entry::ALLOC_VOICE_BUFFER, 0xe78f)?;
         c.run(0xe78f, 1)?;
-        c.call(entry::CHECK_ALLOCATOR_ROOM, 0xe792)?;
-        if c.flag(CF) {
+        if story::allocator_below_limit(&mut c, 0xe792)? {
             c.run(0xe792, 1)?;
             break;
         }
@@ -1173,8 +1197,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xe7eb, 1)?;
         c.call(entry::ALLOC_MUSIC_BUFFER, 0xe7ee)?;
         c.run(0xe7ee, 1)?;
-        c.call(entry::CHECK_ALLOCATOR_ROOM, 0xe7f1)?;
-        if c.flag(CF) {
+        if story::allocator_below_limit(&mut c, 0xe7f1)? {
             c.run(0xe7f1, 2)?;
             break;
         }

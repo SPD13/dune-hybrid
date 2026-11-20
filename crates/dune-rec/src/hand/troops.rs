@@ -423,6 +423,11 @@ pub fn location_has_troop_400(m: &mut Machine, start: u16) -> Result<(), Bail> {
     location_has_400(&mut Ctx::new(m), start, 0, |_| {})
 }
 
+/// [`location_has_troop_400`] called: whether a troop of the location DI's chain has bit 400h of word 12h.
+pub(super) fn troop_with_400_here(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x1e24, ret)
+}
+
 /// `loc_01e01`: in phase 5Dh, for the record SI of kind 7 (byte 0Eh) at
 /// a location (byte 2 80h, byte 3 its number; BX word 2): byte 0 2, and CF
 /// from [`location_has_400`] on that location (DI, AX); CF clear
@@ -439,8 +444,7 @@ pub fn character_at_flagged_troop_location(m: &mut Machine, start: u16) -> Resul
         if kind_ok {
             c.set_reg(BX, w2);
         }
-        c.set_flag(CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     location_has_400(&mut c, start, 13, |c| {
         c.set_reg(BX, w2);
@@ -449,6 +453,11 @@ pub fn character_at_flagged_troop_location(m: &mut Machine, start: u16) -> Resul
         c.set_reg(AX, place);
         c.set_reg(DI, place);
     })
+}
+
+/// [`character_at_flagged_troop_location`] called: whether the character record SI is at a location with a troop of bit 400h.
+pub(super) fn character_at_flagged_troop(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x1e01, ret)
 }
 
 /// `loc_01eda`: every 32nd call ([`g::ATTACK_CLOCK`] up by 8 to 0): `loc_01eb1`
@@ -475,11 +484,11 @@ pub fn attack_clock_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let n = c.situation().attacks_pending.wrapping_sub(1);
     c.update_situation(|t| t.attacks_pending = n);
     c.set_reg(DI, Location::FIRST);
-    c.call(entry::LOCATION_HAS_TROOP_400, 0x1ef9)?;
+    let troop_with_400_here = troop_with_400_here(&mut c, 0x1ef9)?;
     // Each location in turn until `location_has_troop_400` gives CF.
     let found = loop {
         let place = c.reg(DI);
-        if c.flag(CF) {
+        if troop_with_400_here {
             c.run(0x1ef9, 7)?;
             break place;
         }
@@ -2086,8 +2095,7 @@ pub fn merge_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     };
     c.run(start, cost)?;
     if cost != 13 {
-        c.set_flag(CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     let place = troop.location(&mut c);
     c.set_reg(DI, place);
@@ -2100,8 +2108,7 @@ pub fn merge_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let into = c.reg(BX);
     if into == 0 {
         c.run(0x6d3d, 3)?;
-        c.set_flag(CF, false);
-        return c.ret();
+        return c.ret_cf(false);
     }
     c.run(0x6d3d, 11)?;
     let (troop, other) = (Troop(c.reg(SI)), Troop(into));
@@ -2117,8 +2124,12 @@ pub fn merge_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     other.set_word_12(&mut c, w | 0x200);
     c.call(entry::RESET_TROOP, 0x6d5d)?;
     c.run(0x6d5d, 2)?;
-    c.set_flag(CF, true);
-    c.ret()
+    c.ret_cf(true)
+}
+
+/// [`merge_troop`] called: whether troop SI merged into another of its location.
+pub(super) fn troop_merged(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x6d19, ret)
 }
 
 /// `loc_079de`: with the panel to draw ([46FAh]) set (then cleared), the panel 18DFh
@@ -3187,8 +3198,7 @@ pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     Step::Act
                 } else {
                     c.run(0x6c92, 5)?;
-                    c.call(entry::MERGE_TROOP, 0x6ca2)?;
-                    let merged = c.flag(CF);
+                    let merged = troop_merged(&mut c, 0x6ca2)?;
                     c.run(0x6ca2, 1)?;
                     if merged { Step::Next } else { Step::Act }
                 }

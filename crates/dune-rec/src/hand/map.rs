@@ -1,6 +1,7 @@
 //! The map screen: its view rect ([`VIEW`]), the cursor's place on it,
 //! the mouse rect, marks and rects copied around.
 
+use super::story;
 use super::troops;
 use super::records;
 use super::cursor;
@@ -837,14 +838,13 @@ pub fn heading_for_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let dx = c.reg(DX);
         c.push(bx);
         c.push(dx);
-        c.call(entry::HEAD_FOR_LOCATION, 0x51fe)?;
-        let cf = c.flag(CF);
-        c.run(0x51fe, if cf { 4 } else { 5 })?;
+        let already_there = story::already_there(&mut c, 0x51fe)?;
+        c.run(0x51fe, if already_there { 4 } else { 5 })?;
         let dx = c.pop();
         c.set_reg(DX, dx);
         let bx = c.pop();
         c.set_reg(BX, bx);
-        if !cf {
+        if !already_there {
             let al = c.reg8(r8::AL);
             c.update_travel(|t| t.heading = al);
         }
@@ -1650,6 +1650,11 @@ pub fn pick_map_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x829e, 2)?;
     c.set_flag(CF, false); // `clc`
     c.ret()
+}
+
+/// [`pick_map_location`] called: whether the third location was picked (else one not taken, or more to pick).
+pub(super) fn picks_done(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_cf(0x8256, ret)?)
 }
 
 
@@ -3860,8 +3865,7 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x4123, 8)?;
             c.set_reg8(r8::AL, ph);
             c.set_reg(DI, si);
-            c.call(entry::HEAD_FOR_LOCATION, 0x4138)?;
-            if c.flag(CF) {
+            if story::already_there(&mut c, 0x4138)? {
                 c.run(0x4138, 1)?;
                 tail(&mut c)?;
                 break 'one;
@@ -4046,8 +4050,7 @@ pub fn location_ahead(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.run(0x4211, 5)?;
             }
             c.set_reg(DI, si);
-            c.call(entry::HEAD_FOR_LOCATION, 0x4226)?;
-            if c.flag(CF) {
+            if story::already_there(&mut c, 0x4226)? {
                 skip(&mut c, 0x4226, 1)?;
                 break 'f false;
             }
@@ -7206,8 +7209,7 @@ pub fn map_click_pick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if ax >= 9 {
         return c.ret();
     }
-    c.call(entry::PICK_MAP_LOCATION, 0x8212)?;
-    if c.flag(CF) {
+    if !picks_done(&mut c, 0x8212)? {
         c.run(0x8212, 2)?; // jb; ret
         return c.ret();
     }

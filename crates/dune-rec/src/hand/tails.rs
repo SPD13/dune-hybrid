@@ -3,6 +3,7 @@
 //! into the next one. The routine they go on to runs as its own port
 //! when it has one, else in the original from there.
 
+use super::story;
 use super::troops;
 use super::dialogue;
 use super::cursor;
@@ -1134,7 +1135,7 @@ pub fn set_people_state_at_place(m: &mut Machine, start: u16) -> Result<(), Bail
 /// already, bit 2 set and the book's frame drawn (`loc_009f5`,
 /// B02Ch with BP 1797h); a step back is B024h's.
 pub fn book_next_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    use pc::cpu::ZF;
+    
     entered(start, 0xafc7)?;
     let mut c = Ctx::new(m);
     let f = c.economy().book;
@@ -1158,8 +1159,7 @@ pub fn book_next_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     let si = c.word(g::BOOK_POSITION);
     c.set_reg(SI, si);
-    c.call(entry::SCAN_DIALOGUES_FROM, 0xaff1)?;
-    if !c.flag(ZF) {
+    if dialogue::dialogue_found(&mut c, 0xaff1)? {
         c.run(0xaff1, 3)?;
         let di = c.reg(DI);
         c.set_word(g::BOOK_POSITION, di);
@@ -2293,7 +2293,7 @@ pub fn set_shown_troop_job_keeping_bits(m: &mut Machine, start: u16) -> Result<(
 /// [si+19h] bit 7 is cleared, else [si+12h] is put back and set again.
 /// Then `loc_0d2e2`.
 pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    use pc::cpu::ZF;
+    
     entered(start, 0x6a89)?;
     let mut c = Ctx::new(m);
     c.run(0x6a89, 1)?;
@@ -2321,16 +2321,15 @@ pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, 0xa);
     c.call(entry::COMMENT_ON_TROOP, 0x6aa7)?;
     c.run(0x6aa7, 1)?;
-    c.call(entry::IS_SCRIPTED_ACTION_ALLOWED, 0x6aaa)?;
-    let z = c.flag(ZF);
-    c.run(0x6aaa, 4 + if z { 1 } else { 2 })?;
+    let scripted_action_allowed = story::scripted_action_allowed(&mut c, 0x6aaa)?;
+    c.run(0x6aaa, 4 + if scripted_action_allowed { 1 } else { 2 })?;
     let ax = c.pop();
     c.set_reg(AX, ax);
     let si = c.pop();
     c.set_reg(SI, si);
     let cx = c.pop();
     c.set_reg(CX, cx);
-    if z {
+    if scripted_action_allowed {
         c.call(entry::TROOP_ACTIVITY, 0x6abb)?;
         let al = c.reg8(r8::AL);
         c.run(0x6abb, 2 + if al == 0 { 1 } else { 3 })?;

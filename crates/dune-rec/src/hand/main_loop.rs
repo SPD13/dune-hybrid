@@ -9,6 +9,7 @@ use super::screens;
 use super::input;
 use super::frame;
 use super::pure;
+use super::dos::{self, CmdChar};
 use super::entry;
 use super::globals as g;
 use super::{B, Ctx, W, entered, r8};
@@ -554,32 +555,30 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.push(cs);
                 let es = c.pop();
                 c.set_sreg(ES, es);
-                c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe4bc)?;
+                let mut ch = dos::next_cmd_char(&mut c, 0xe4bc)?;
                 // Blanks before the word.
                 loop {
-                    if c.flag(CF) {
+                    if ch == CmdChar::End {
                         c.run(0xe4bc, 2)?;
                         return c.ret();
                     }
-                    if !c.flag(ZF) {
+                    if ch != CmdChar::Space {
                         break;
                     }
                     c.run(0xe4bc, 3)?;
-                    c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe4bc)?;
+                    ch = dos::next_cmd_char(&mut c, 0xe4bc)?;
                 }
                 c.run(0xe4bc, 4)?;
                 let al = c.reg8(r8::AL);
                 c.set_reg8(r8::DL, al);
-                c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe4c5)?;
-                if c.flag(CF) || c.flag(ZF) {
+                if dos::next_cmd_char(&mut c, 0xe4c5)? != CmdChar::Other {
                     c.run(0xe4c5, 1)?;
                     Parse::Skip
                 } else {
                     c.run(0xe4c5, 3)?;
                     let al = c.reg8(r8::AL);
                     c.set_reg8(r8::AH, al);
-                    c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe4cc)?;
-                    if c.flag(CF) || c.flag(ZF) {
+                    if dos::next_cmd_char(&mut c, 0xe4cc)? != CmdChar::Other {
                         c.run(0xe4cc, 1)?;
                         Parse::Skip
                     } else {
@@ -607,12 +606,12 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 if to == 0 {
                     Parse::Skip
                 } else {
-                    c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe507)?;
-                    if c.flag(CF) {
+                    let ch = dos::next_cmd_char(&mut c, 0xe507)?;
+                    if ch == CmdChar::End {
                         c.run(0xe507, 2)?;
                         return c.ret();
                     }
-                    if c.flag(ZF) {
+                    if ch == CmdChar::Space {
                         c.run(0xe507, 2)?;
                         Parse::Skip
                     } else {
