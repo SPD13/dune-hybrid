@@ -1847,10 +1847,9 @@ pub fn dialogue_text_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     Step::Show
                 } else {
                     c.call(entry::SENTENCE_NUMBER_PART, 0x9a52)?;
-                    if c.flag(pc::cpu::CF) {
-                        c.run(0x9a52, 1)?;
-                    } else {
-                        c.run(0x9a52, 2)?;
+                    let cf = c.flag(CF);
+                    c.run(0x9a52, if cf { 1 } else { 2 })?;
+                    if !cf {
                         c.call(entry::RANDOM_SENTENCE, 0x9a57)?;
                         let done = c.reg8(r8::AH) != 0;
                         c.run(0x9a57, 3)?;
@@ -2762,8 +2761,8 @@ pub(super) fn next_line_from_9472(c: &mut Ctx) -> Result<(), Bail> {
         }
         list = false;
         let at = c.reg(SI);
+        c.run(0x949a, if at != 0xffff { 3 } else { 2 })?;
         if at != 0xffff {
-            c.run(0x949a, 3)?;
             c.call(entry::SPEAK_NUMBER_PART, 0x94a2)?;
             c.run(0x94a2, 1)?;
             c.call(entry::SAY_DIALOGUE_ENTRY, 0x94a5)?;
@@ -2783,8 +2782,6 @@ pub(super) fn next_line_from_9472(c: &mut Ctx) -> Result<(), Bail> {
             if group & 3 != 0 {
                 continue;
             }
-        } else {
-            c.run(0x949a, 2)?;
         }
         // 94B9h: the group ran out.
         if c.conversation().talker != 0x0d {
@@ -3761,24 +3758,22 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
             0x894b => {
                 let si = c.reg(SI);
                 let b = c.byte(si);
+                c.run(0x894b, if b == 0x20 { 4 } else { 2 })?;
                 if b == 0x20 {
-                    c.run(0x894b, 4)?;
                     let si = pure::inc(W, si);
                     c.set_reg(SI, si);
                 } else {
-                    c.run(0x894b, 2)?;
                     at = 0x8953;
                 }
             }
             0x8953 => {
                 let si = c.reg(SI);
                 let al = c.byte(si);
+                c.run(0x8953, if al & 0x80 == 0 { 5 } else { 3 })?;
                 if al & 0x80 == 0 {
-                    c.run(0x8953, 5)?;
                     c.lods(B, DS);
                     c.stos(B);
                 } else {
-                    c.run(0x8953, 3)?;
                     c.lods(B, DS);
                     at = 0x895b;
                 }
@@ -3802,12 +3797,11 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
             }
             0x8970 => {
                 let al = c.reg8(r8::AL);
+                c.run(0x8970, if al == 0x80 { 5 } else { 6 })?;
                 if al == 0x80 {
-                    c.run(0x8970, 5)?;
                     let w = c.lods(W, DS);
                     c.set_reg(AX, w.rotate_left(8));
                 } else {
-                    c.run(0x8970, 6)?;
                     let ax = c.reg(AX);
                     let ax = pure::and(W, ax, 0x0f);
                     let bx = pure::shl1(W, ax, 1);
@@ -3841,11 +3835,7 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
             }
             0x899b => {
                 let al = c.reg8(r8::AL);
-                if al >= 0xd2 {
-                    c.run(0x899b, 5)?;
-                } else {
-                    c.run(0x899b, 4 + if al == 0xd0 { 4 } else { 5 })?;
-                }
+                c.run(0x899b, if al >= 0xd2 { 5 } else { 4 + if al == 0xd0 { 4 } else { 5 } })?;
                 c.stos(B);
                 c.movs(B);
                 if al < 0xd2 {

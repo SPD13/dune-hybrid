@@ -69,12 +69,11 @@ pub fn reset_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x66b4, 3)?;
     c.save(&[SI, DI]);
     c.call(entry::TROOP_PARTICLE, 0x66b9)?;
-    if c.flag(ZF) {
-        c.run(0x66b9, 2)?;
+    let zf = c.flag(ZF);
+    c.run(0x66b9, if zf { 2 } else { 7 })?;
+    if zf {
         c.call(code::PARTICLES_REMOVE_PARTICLE, 0x66be)?;
         c.run(0x66be, 6)?;
-    } else {
-        c.run(0x66b9, 7)?;
     }
     c.restore(&[SI, DI]);
     let troop = Troop(c.reg(SI));
@@ -1179,11 +1178,7 @@ fn set_troop_bit_10(c: &mut Ctx) -> Result<(), Bail> {
     let b3 = troop.state(c);
     let want = if cf { 0x10 } else { 0 };
     let have = b3 & 0x10;
-    if have == want {
-        c.run(0x6bb6, 8)?;
-    } else {
-        c.run(0x6bb6, 10)?;
-    }
+    c.run(0x6bb6, if have == want { 8 } else { 10 })?;
     let f = c.m.cpu.flags();
     c.push(f);
     let ah = c.sbb(B, 0, 0);
@@ -2736,12 +2731,10 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::GET_INGAME_DAY_Q, 0x6e51)?;
     let days = c.reg8(r8::AL).wrapping_sub(Troop(c.reg(SI)).day(&mut c));
     c.set_reg8(r8::AL, days);
+    c.run(0x6e51, if days > 8 { 5 } else { 3 })?;
     if days > 8 {
-        c.run(0x6e51, 5)?;
         c.set_reg8(r8::AL, 1);
         c.call(entry::DECREASE_TROOP_MOTIVATION, 0x6e5d)?;
-    } else {
-        c.run(0x6e51, 3)?;
     }
     let id = Troop(c.reg(SI)).id(&mut c);
     let first = Location(c.reg(DI)).first_troop(&mut c) == id;
@@ -3610,8 +3603,8 @@ pub fn map_troop_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let panel = c.word(g::SPRITE_LIST);
+    c.run(0x5cea, if panel != 0 { 8 } else { 6 })?;
     if panel != 0 {
-        c.run(0x5cea, 8)?;
         c.set_reg(DI, panel);
         if panel != 0x18df {
             return c.ret();
@@ -3623,7 +3616,6 @@ pub fn map_troop_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return redraw_dirty_panel(c.m, 0x79de);
         }
     } else {
-        c.run(0x5cea, 6)?;
         c.set_reg(DI, 0);
     }
     c.call(entry::PARTICLE_AT, 0x5d07)?;
@@ -4629,10 +4621,9 @@ pub(super) fn set_job_at_6ad4(c: &mut Ctx) -> Result<(), Bail> {
     troop.set_word_10(c, w & !0x100);
     c.call(entry::TROOP_JOB_CHECK, 0x6af9)?;
     let troop = Troop(c.reg(SI));
-    if c.flag(CF) {
-        c.run(0x6af9, 2)?;
-    } else {
-        c.run(0x6af9, 3)?;
+    let cf = c.flag(CF);
+    c.run(0x6af9, if cf { 2 } else { 3 })?;
+    if !cf {
         let w = troop.word_10(c);
         troop.set_word_10(c, w | 0x100);
     }
@@ -4974,8 +4965,8 @@ pub fn job_5(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
             if counted {
                 // 72DFh: past h, its word 0Eh.
+                c.run(0x72df, if (half as i16) < elapsed as i16 { 4 } else { 2 })?;
                 if (half as i16) < elapsed as i16 {
-                    c.run(0x72df, 4)?;
                     c.push(elapsed);
                     c.call(entry::MEASURE_PLACE_FORCES, 0x72e7)?;
                     let rate = troop.rate(&mut c);
@@ -4991,7 +4982,6 @@ pub fn job_5(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     c.set_reg(DX, total % rate);
                     troop.set_word_0e(&mut c, total / rate);
                 } else {
-                    c.run(0x72df, 2)?;
                     return job_5_start(&mut c, troop, elapsed, skill);
                 }
             }
@@ -5207,8 +5197,8 @@ pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::AL, a);
         return c.ret();
     }
+    c.run(0x70cc, if a & 0x40 == 0 { 6 } else { 5 })?;
     if a & 0x40 == 0 {
-        c.run(0x70cc, 6)?;
         c.set_reg8(r8::AL, a);
         c.call(entry::TROOP_BIT_10_BY_LOCATION, 0x70da)?;
         if c.flag(CF) {
@@ -5265,7 +5255,6 @@ pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.update_map_view(|t| t.changes = k);
         }
     } else {
-        c.run(0x70cc, 5)?;
         c.set_reg8(r8::AL, a);
     }
     // 7126h: done.
@@ -5531,11 +5520,7 @@ pub fn text_box_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 5)?; // cmp; jz; cmp; jz; jmp
         return c.jump(0x7e97);
     }
-    if s.panel == 0 {
-        c.run(start, 3)?; // cmp; jz; mov si
-    } else {
-        c.run(start, 5)?; // cmp; jz; cmp; jz; mov si
-    }
+    c.run(start, if s.panel == 0 { 3 } else { 5 })?; // cmp; jz; mov si
     c.set_reg(SI, s.selected);
     c.jump(entry::SELECT_PLACE_AND_TELL)
 }

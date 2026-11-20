@@ -941,10 +941,9 @@ pub fn load_save_game_timestamp(m: &mut Machine, start: u16) -> Result<(), Bail>
         c.run(0xb31b, 1)?;
         c.set_reg(AX, 0x3d00);
         c.interp(0xb31e, 0xb320)?;
-        if c.flag(CF) {
-            c.run(0xb320, 1)?;
-        } else {
-            c.run(0xb320, 6)?;
+        let cf = c.flag(CF);
+        c.run(0xb320, if cf { 1 } else { 6 })?;
+        if !cf {
             let ax = c.reg(AX);
             c.set_reg(BX, ax);
             c.set_reg(DX, 0xd816);

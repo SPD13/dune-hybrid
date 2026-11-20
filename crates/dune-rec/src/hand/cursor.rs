@@ -510,8 +510,8 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
             at = 1;
         } else {
             let f = c.byte(g::HEAD_BOX_FLAGS);
+            c.run(0xd526, if f & 0x80 != 0 { 8 } else { 7 })?;
             if f & 0x80 != 0 {
-                c.run(0xd526, 8)?;
                 c.set_reg(DI, 0x1bf0);
                 c.call(entry::POINT_IN_RECT, 0xd53f)?;
                 let cf = c.flag(CF);
@@ -520,7 +520,6 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 c.set_reg(CX, sp);
                 at = if cf { 4 } else { 5 };
             } else {
-                c.run(0xd526, 7)?;
                 c.set_reg(DI, 0x1bf0);
                 at = 5;
             }
@@ -716,12 +715,8 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
     c.call(entry::CALL_RESTORE_CURSOR, 0xd5ea)?;
     let n = c.byte(g::ITEM_COUNT);
     let cl = c.reg8(r8::CL);
-    if cl & 0x80 != 0 || cl >= n {
-        c.run(0xd5ea, if cl & 0x80 != 0 { 2 } else { 4 })?;
-        if cl & 0x80 == 0 {
-        }
-    } else {
-        c.run(0xd5ea, 6)?;
+    c.run(0xd5ea, if cl & 0x80 != 0 { 2 } else if cl >= n { 4 } else { 6 })?;
+    if cl & 0x80 == 0 && cl < n {
         let ax = c.reg(AX);
         c.push(ax);
         c.call(entry::ITEM_PLACE, 0xd5f8)?;
@@ -733,11 +728,10 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
     }
     let al = c.reg8(r8::AL);
     let n = c.byte(g::ITEM_COUNT);
+    c.run(0xd5fc, if al >= n { 3 } else { 4 })?;
     if al >= n {
-        c.run(0xd5fc, 3)?;
         c.cmp(B, al as u16, n as u16);
     } else {
-        c.run(0xd5fc, 4)?;
         let ax = c.reg(AX);
         c.set_reg(CX, ax);
         c.call(entry::ITEM_PLACE, 0xd607)?;
@@ -901,8 +895,8 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
         }
         let cx = c.reg(CX);
         let si = c.reg(SI);
+        c.run(0xd388, if cx < 5 { 6 } else { 2 })?;
         if cx < 5 {
-            c.run(0xd388, 6)?;
             c.cmp(W, cx, 5);
             let b = c.shl1(W, cx, 2);
             c.set_reg(CX, b);
@@ -912,7 +906,6 @@ fn install_from(c: &mut Ctx, from: u8) -> Result<(), Bail> {
             let v = c.or(B, v as u16, 0x80);
             c.set_byte(a, v as u8);
         } else {
-            c.run(0xd388, 2)?;
             c.cmp(W, cx, 5);
         }
         if c.flag(pc::cpu::DF) {

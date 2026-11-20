@@ -226,10 +226,9 @@ pub fn seek_dune_dat_to_res_dsdx(m: &mut Machine, start: u16) -> Result<(), Bail
         let dx = c.reg(DX);
         c.set_reg(SI, dx);
         c.call(code::GET_RES_INDEX_BY_NAME, 0xf2b5)?;
-        if c.flag(pc::cpu::CF) {
-            c.run(0xf2b5, 4)?;
-        } else {
-            c.run(0xf2b5, 2)?;
+        let cf = c.flag(pc::cpu::CF);
+        c.run(0xf2b5, if cf { 4 } else { 2 })?;
+        if !cf {
             c.call(code::RES_LOCATE_IN_LOOKUP_TABLE, 0xf2ba)?;
             if c.flag(pc::cpu::CF) {
                 c.run(0xf2ba, 4)?;
@@ -479,11 +478,7 @@ pub fn evict_oldest(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     n += 2;
     let (dx, si) = (c.reg(DX), c.reg(SI));
-    if bx != 0 {
-        c.run(start, n + 2)?;
-    } else {
-        c.run(start, n + 3)?;
-    }
+    c.run(start, if bx != 0 { n + 2 } else { n + 3 })?;
     c.push(dx);
     c.push(si);
     c.set_reg(SI, p);
@@ -622,20 +617,18 @@ pub fn scan_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(si);
         c.call(entry::GET_RES_INDEX_BY_NAME, 0xe83e)?;
         let cf = c.flag(pc::cpu::CF);
+        c.run(0xe83e, if cf { 2 } else { 3 })?;
         if cf {
-            c.run(0xe83e, 2)?;
             let s = c.pop();
             c.set_reg(SI, s);
         } else {
-            c.run(0xe83e, 3)?;
             let s = c.pop();
             c.set_reg(SI, s);
             c.call(entry::RES_LOCATE_IN_LOOKUP_TABLE, 0xe844)?;
-            if c.flag(pc::cpu::ZF) {
-                c.run(0xe844, 2)?;
+            let zf = c.flag(pc::cpu::ZF);
+            c.run(0xe844, if zf { 2 } else { 1 })?;
+            if zf {
                 c.call(entry::RES_STORE_IN_LOOKUP_TABLE, 0xe849)?;
-            } else {
-                c.run(0xe844, 1)?;
             }
         }
         let si = c.reg(SI);

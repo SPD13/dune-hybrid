@@ -26,20 +26,14 @@ pub fn hnm_close_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xca01)?;
     let mut c = Ctx::new(m);
     let handle = c.word(g::HNM_FILE_HANDLE);
-    if handle == 0 {
-        c.run(start, 6)?; // xor; xchg; or; je; xor cx; ret
-    } else {
-        c.run(start, 5)?;
-    }
+    c.run(start, if handle == 0 { 6 } else { 5 })?; // xor; xchg; or; je; xor cx; ret
     c.set_word(g::HNM_FILE_HANDLE, 0);
     c.set_reg(BX, handle);
     if handle != 0 {
         c.call(entry::HNM_RESET_FRAME_COUNTER, 0xca0e)?; // hnm_reset_frame_counter
         let dat = c.word(g::DUNE_DAT_HANDLE);
-        if handle == dat {
-            c.run(0xca0e, 4)?; // cmp; je; xor cx; ret
-        } else {
-            c.run(0xca0e, 3)?;
+        c.run(0xca0e, if handle == dat { 4 } else { 3 })?; // cmp; je; xor cx; ret
+        if handle != dat {
             c.set_reg8(r8::AH, 0x3e);
             c.interp(0xca16, 0xca18)?; // DOS close
             c.run(0xca18, 2)?;

@@ -751,8 +751,8 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         let si = c.reg(SI);
         let w = c.word_in(ES, si);
+        c.run(0xcd0c, if w == 0x6473 { 4 } else { 3 })?;
         if w == 0x6473 {
-            c.run(0xcd0c, 4)?;
             c.lods(W, ES);
             c.call(entry::CHECK_PCM_ENABLED, 0xcd16)?;
             let z = c.flag(ZF);
@@ -769,7 +769,6 @@ pub fn hnm_decode_typed_chunk(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(SI, s);
             ax = c.lods(W, ES);
         } else {
-            c.run(0xcd0c, 3)?;
             ax = c.lods(W, ES);
         }
         if ax == 0x6c70 {

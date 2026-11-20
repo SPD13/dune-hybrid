@@ -191,11 +191,10 @@ pub fn hnm_do_frame_skippable(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::HNM_DO_FRAME, 0xc9eb)?;
     c.run(0xc9eb, 1)?;
     c.call(code::STC_ON_USER_INPUT, 0xc9ee)?;
-    if c.flag(CF) {
-        c.run(0xc9ee, 4)?; // jb; jmp kb_clear_scancode; mov [CEE8h], 0; ret
+    let cf = c.flag(CF);
+    c.run(0xc9ee, if cf { 4 } else { 2 })?; // jb; jmp kb_clear_scancode; mov [CEE8h], 0; ret
+    if cf {
         c.set_byte(g::KEY_HIT, 0);
-    } else {
-        c.run(0xc9ee, 2)?;
     }
     c.ret()
 }
@@ -734,11 +733,10 @@ pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4285)?;
     let mut c = Ctx::new(m);
     let loaded = c.code_word(0x15f + 2) != 0;
+    c.run(start, if loaded { 3 + 8 } else { 7 })?;
     if loaded {
-        c.run(start, 3 + 8)?;
         c.set_reg(DI, 0x15f);
     } else {
-        c.run(start, 7)?;
         c.set_reg(DI, 0x15f);
         let cs = c.sreg(CS);
         c.push(cs);

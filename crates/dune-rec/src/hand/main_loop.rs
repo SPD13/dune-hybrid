@@ -249,8 +249,8 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xd820, 1)?;
     let k = c.byte(g::KEY_HIT);
     c.cmp(B, k as u16, 0x2f);
+    c.run(0xd825, if k == 0x2f { 2 } else { 1 })?;
     if k == 0x2f {
-        c.run(0xd825, 2)?;
         let v = c.byte(g::KEY_CTRL);
         c.cmp(B, v as u16, 0xff);
         let ctrl_v = v == 0xff;
@@ -258,8 +258,6 @@ fn main_pass(c: &mut Ctx) -> Result<(), Bail> {
         if ctrl_v {
             c.call(entry::HANDLE_CTRL_V_ONCE, 0xd831)?;
         }
-    } else {
-        c.run(0xd825, 1)?;
     }
     let caller = c.byte(g::COMM_CALLER);
     c.run(0xd831, 2 + if caller == 0 { 1 } else { 0 })?;

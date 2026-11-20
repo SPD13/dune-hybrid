@@ -416,11 +416,7 @@ pub fn copy_rect_clipped(m: &mut Machine, start: u16) -> Result<(), Bail> {
         + 2 + (r[3] >= k[3]) as u32
         + 2;
     let empty = x1 <= x0 || y1 <= y0;
-    if empty {
-        c.run(start, n + if x1 <= x0 { 1 } else { 3 })?;
-    } else {
-        c.run(start, n + 2 + 2)?;
-    }
+    c.run(start, if empty { n + if x1 <= x0 { 1 } else { 3 } } else { n + 2 + 2 })?;
     for reg in [DX, BX, BP, AX] {
         let v = c.lods(W, DS);
         if reg != AX {

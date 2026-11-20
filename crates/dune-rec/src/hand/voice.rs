@@ -649,11 +649,7 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let p = sc << 2;
     let (dx, bx) = (c.word(p.wrapping_add(0x27b6)), c.word(p.wrapping_add(0x27b8)));
     let cinematic = c.byte(g::CINEMATIC);
-    if dx | bx == 0 {
-        c.run(0xc86b, 12)?;
-    } else {
-        c.run(0xc86b, 11 + 3 + if cinematic == 0 { 3 } else { 0 })?;
-    }
+    c.run(0xc86b, if dx | bx == 0 { 12 } else { 11 + 3 + if cinematic == 0 { 3 } else { 0 } })?;
     c.set_reg(SI, p);
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
@@ -803,8 +799,9 @@ fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
     c.call(entry::PCM_STOP_VOC, 0xab70)?;
     c.run(0xab70, 1)?;
     c.call(entry::OPEN_PCM_VOICE_FILE, 0xab73)?;
-    if !c.flag(CF) {
-        c.run(0xab73, 3)?;
+    let cf = c.flag(CF);
+    c.run(0xab73, if !cf { 3 } else { 2 })?;
+    if !cf {
         let v = c.voice_buffer(0).data[0];
         let v = c.add(W, v, 0x1a);
         c.update_voice_buffer(0, |b| b.data[0] = v);
@@ -817,8 +814,6 @@ fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
         c.set_reg(SI, 0x3811);
         c.interp(0xab89, 0xab8d)?;
         c.run(0xab8d, 1)?;
-    } else {
-        c.run(0xab73, 2)?;
     }
     c.call(entry::RESTORE_REGS, 0xab90)?;
     c.run(0xab90, 2)?;
@@ -1851,8 +1846,8 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_byte(g::LIPSYNC_FRAME, 0xff);
     c.call(entry::VOC_GET_LIPSYNC_DATA, 0xa748)?;
     let mut fail = c.flag(CF);
+    c.run(0xa748, if !fail { 3 } else { 2 })?;
     if !fail {
-        c.run(0xa748, 3)?;
         let v = c.byte(g::VOICE_FILE_NAME_LETTER) ^ 6;
         c.set_byte(g::VOICE_FILE_NAME_LETTER, v);
         c.call(entry::VOC_GET_LIPSYNC_DATA, 0xa752)?;
@@ -1861,8 +1856,6 @@ pub fn load_voc_and_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail
         if !fail {
             return c.ret();
         }
-    } else {
-        c.run(0xa748, 2)?;
     }
     c.call(entry::SETTINGS_APPLY_VOICE_VOLUME, 0xa757)?;
     c.run(0xa757, 1)?;

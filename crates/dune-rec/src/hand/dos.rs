@@ -969,8 +969,6 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0x3cbc);
     c.set_reg(CX, 0xdd1d - 0x3cbc);
     c.set_flag(DF, false);
-    // Before the game's timer handler, a tick at a stop gives the BIOS's
-    // the flags: those at E5A6h and E62Bh are kept.
     c.set_reg(AX, 0);
     c.rep_counted(0xaa);
     c.run(0xe5a6, 6)?;
@@ -1301,10 +1299,8 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if !cf {
             c.call(entry::RES_LOCATE_IN_LOOKUP_TABLE, 0xe6d9)?;
             let z = c.flag(ZF);
-            if z {
-                c.run(0xe6d9, 2)?;
-            } else {
-                c.run(0xe6d9, 13)?;
+            c.run(0xe6d9, if z { 2 } else { 13 })?;
+            if !z {
                 for r in [AX, DX, SI, DI] {
                     let v = c.reg(r);
                     c.push(v);

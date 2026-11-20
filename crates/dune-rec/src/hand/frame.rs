@@ -230,8 +230,8 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
     c.set_reg(BP, ticks);
     loop {
         let cinematic = c.byte(g::CINEMATIC);
+        c.run(0xe35c, if cinematic != 0 { 2 + 8 } else { 3 })?;
         if cinematic != 0 {
-            c.run(0xe35c, 2 + 8)?;
             for r in [BX, CX, DX, SI, DI, BP] {
                 let v = c.reg(r);
                 c.push(v);
@@ -251,7 +251,6 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
                 return c.ret();
             }
         } else {
-            c.run(0xe35c, 3)?;
             c.call(code::PAUSE_IF_P_KEY_PRESSED, 0xe37b)?;
         }
         let now = c.timer();

@@ -583,10 +583,8 @@ pub fn cursor_over_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4b2b)?;
     let mut c = Ctx::new(m);
     let f = c.flight().marker;
-    if f & 0x80 != 0 {
-        c.run(start, 3)?;
-    } else {
-        c.run(start, 4)?;
+    c.run(start, if f & 0x80 != 0 { 3 } else { 4 })?;
+    if f & 0x80 == 0 {
         c.set_reg(SI, 0x1492);
         c.call(entry::COPY_RECT_BACKBUFFER_TO_FB1, 0x4b38)?;
         c.run(0x4b38, 1)?;
@@ -695,11 +693,7 @@ pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     let r = (a % 3) as u8;
-    if r == 0 {
-        c.run(start, 9)?;
-    } else {
-        c.run(start, 8 + 3 + 6)?;
-    }
+    c.run(start, if r == 0 { 9 } else { 8 + 3 + 6 })?;
     c.set_reg(SI, g::FRIEZE_SIDES);
     let ax = c.sub(W, a, 0);
     c.set_reg(AX, ax);

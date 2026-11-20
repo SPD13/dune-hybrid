@@ -1287,8 +1287,8 @@ pub fn run_script_next_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1707)?;
     let mut c = Ctx::new(m);
     let scr = c.word(g::CURRENT_UI_LIST);
+    c.run(0x1707, if scr == 0x1fae { 4 } else { 2 })?;
     if scr == 0x1fae {
-        c.run(0x1707, 4)?;
         c.set_reg(DI, 0x1b56);
         c.call(entry::POINT_IN_RECT, 0x1715)?;
         if c.flag(CF) {
@@ -1296,8 +1296,6 @@ pub fn run_script_next_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.jump(0x9ed5);
         }
         c.run(0x1715, 1)?;
-    } else {
-        c.run(0x1707, 2)?;
     }
     let si = c.sequence().next;
     let b = c.byte_in(CS, si);
@@ -1920,13 +1918,12 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if sietch {
         let di = c.word(si.wrapping_add(4));
         let f = c.byte(di.wrapping_add(0xa));
+        c.run(0x7a6a, if f & 2 != 0 { 3 + 3 } else { 3 + 3 + 1 })?;
         if f & 2 != 0 {
-            c.run(0x7a6a, 3 + 3)?;
             c.set_reg(SI, si);
             c.set_reg(DI, di);
             troop = true;
         } else {
-            c.run(0x7a6a, 3 + 3 + 1)?;
             c.set_reg(SI, si);
             c.set_reg(DI, di);
             c.call(entry::LOCATION_KIND_CHECK, 0x7a80)?;

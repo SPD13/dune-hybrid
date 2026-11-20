@@ -167,14 +167,13 @@ pub fn audio_start_voc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::SAVE_REGS, 0xab23)?;
     let voc = c.reg8(r8::AL);
     let loaded = c.byte(g::VOC_LOADED);
+    c.run(0xab23, if voc == loaded { 4 } else { 3 })?; // cmp; je; les di; mov si
     if voc == loaded {
-        c.run(0xab23, 4)?; // cmp; je; les di; mov si
         c.cmp(B, voc as u16, loaded as u16);
         let [di, seg] = c.voice_buffer(0).data;
         c.set_reg(DI, di);
         c.set_sreg(ES, seg);
     } else {
-        c.run(0xab23, 3)?;
         c.call(code::PCM_STOP_VOC, 0xab2c)?;
         let voc = c.reg8(r8::AL);
         c.run(0xab2c, 3)?;

@@ -860,12 +860,10 @@ pub fn draw_counters(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa47d)?;
     let mut c = Ctx::new(m);
     let f = c.sound_state().settings;
+    c.run(start, if f & 8 != 0 { 4 } else { 2 })?;
     if f & 8 != 0 {
-        c.run(start, 4)?;
         c.set_reg(SI, 0x28a6);
         c.call(entry::DRAW_COUNTER, 0xa48b)?;
-    } else {
-        c.run(start, 2)?;
     }
     let f = c.sound_state().settings;
     if f & 0x800 == 0 {

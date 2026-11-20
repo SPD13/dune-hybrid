@@ -133,8 +133,8 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xd207)?;
     let si = c.reg(SI);
     let flags = c.byte(si.wrapping_add(8));
+    c.run(0xd207, if flags & 0x40 != 0 { 5 } else { 3 })?;
     if flags & 0x40 != 0 {
-        c.run(0xd207, 5)?;
         c.push(si);
         c.test(B, flags as u16, 0x40);
         let fb = c.screen_buffers().active;
@@ -145,7 +145,6 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let si = c.pop();
         c.set_reg(SI, si);
     } else {
-        c.run(0xd207, 3)?;
         c.push(si);
         c.test(B, flags as u16, 0x40);
     }

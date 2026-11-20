@@ -788,10 +788,9 @@ pub fn settings_ui_draw_volume_sliders(m: &mut Machine, start: u16) -> Result<()
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.call(code::CHECK_PCM_ENABLED, 0xa4c9)?;
-    if c.flag(ZF) {
-        c.run(0xa4c9, 2)?;
-    } else {
-        c.run(0xa4c9, 3)?;
+    let zf = c.flag(ZF);
+    c.run(0xa4c9, if zf { 2 } else { 3 })?;
+    if !zf {
         c.set_reg(SI, g::SLIDER_VOICE);
         c.call(code::SETTINGS_UI_DRAW_SLIDER, 0xa4d1)?;
         let s = c.sound_state().settings;
@@ -1331,11 +1330,7 @@ pub fn settings_drag(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let x = c.word(si.wrapping_add(4));
         let a = x.wrapping_add(cx).wrapping_sub(0x22);
-        if a >= 0x40 {
-            c.run(0xa5e7, 2 + 1 + 5 + 1)?;
-        } else {
-            c.run(0xa5e7, 2 + 1 + 5 + 6)?;
-        }
+        c.run(0xa5e7, if a >= 0x40 { 2 + 1 + 5 + 1 } else { 2 + 1 + 5 + 6 })?;
         c.set_reg(AX, x);
         let v = pure::add(W, x, cx);
         let v = pure::sub(W, v, 0x22);

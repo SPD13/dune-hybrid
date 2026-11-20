@@ -88,11 +88,7 @@ pub fn load_phrase_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let resource = (if first { 0x93u8 } else { 0x9a }).wrapping_add(language);
     let loaded = c.phrase().loaded;
     let n = 4 + !first as u32 + 3;
-    if resource == loaded {
-        c.run(start, n + 1)?;
-    } else {
-        c.run(start, n + 6)?;
-    }
+    c.run(start, if resource == loaded { n + 1 } else { n + 6 })?;
     c.set_reg(AX, part);
     c.set_reg8(r8::AL, if first { 0x93 } else { 0x9a });
     let al = pure::add(B, if first { 0x93 } else { 0x9a }, language as u16) as u8;

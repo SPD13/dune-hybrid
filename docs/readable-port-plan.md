@@ -223,6 +223,17 @@ flags read), `c.or(W, di, di);` becomes `c.set_flag(ZF, di == 0);`.
 `c.set_flag(CF, passed == 3 && bx < r[3])`, `in_view`, `on_globe`, the
 dialogue clicks, the HNM checks, ...), then 41 operations by the tool.
 
+**Branch counts in one stretch (2026-11-20).** Where both arms of an
+`if` start with a stretch from the same address, `tools/lift/hoist_runs.py`
+makes them one before the `if`, its count the branch's:
+`c.run(0xab23, if voc == loaded { 4 } else { 3 })?;`. An arm left empty
+goes. A condition reading the flags is read once before the stretch
+(`let cf = c.flag(CF);`): with interrupts in place the stretch can change
+what the `if` would read after it; other conditions reading the machine
+are left. 73 `if`s in 24 modules. The pattern of a stretch, then an `if`
+whose arm starts with another stretch, is rarer than estimated (33
+sites, most with the condition read after the first stretch): left.
+
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust
 (no flag helpers where no caller reads the flags), `c.run(start, cost)`
@@ -997,6 +1008,8 @@ places), [4722h] (a toggle of the map panel), [118Fh], [0DCE4h].
 | `tools/lift/add_table.py`, `drop_consts.py` | Not checks: add a table of one and route the ports' accesses to it; drop the globals left unused. |
 | `tools/lift/dead_flag_ops.py` | Not a check: drop single flag operations whose flags no path shows (`--dry` lists them per port). |
 | `tools/lift/merge_runs.py` | Not a check: merge back-to-back stretches of a port (`--dry` lists them). |
+| `tools/lift/hoist_runs.py` | Not a check: hoist the stretch both arms of an `if` start with into one before it, its count the branch's (`c.run(A, if cond { n } else { m })`). |
+| `tools/lift/shadow.sh [ENTRIES] [SECS]` | The shadow check of every port (or ENTRIES) in the suite's seven games, with per-entry counts. |
 | `tools/lift/name_calls.py` | Not a check: regenerate `hand/entry.rs` (a constant per routine with a name: the port's, else the listing's label) and write `c.call(entry::NAME, ret)` / `c.jump(entry::NAME)` for the numbers (2106 sites; run again after adding or renaming ports). |
 | `--save FILE` + event `T:load:1` | Real play from any point of the game (the test saves, Day 1 to 23). |
 | event `T:save:N` | The game's state as it serialises it (`DUNE37SN.SAV` in the output folder). |
@@ -1041,6 +1054,12 @@ instruction count on; diff a plain run with a `--rec on` one),
 
 - `loc_01566` and `loc_0491c`: ported, but no run reaches them, so they
   stay out of the table.
+- `map_click_pick` (81ECh, the map's click handler set through a
+  register): in the table, but never compared. Of the suite's games only
+  day13 reaches it (4 times, 2 sampled), and eight more seeds from that
+  save reach it no more; the calls it gets run the whole chain behind a
+  map click (resource, troop set out, screen pop) and end in a bail. It
+  needs a save at the map with a click on a location scripted.
 - `exit_with_error`, `out_of_memory_error`: they end the program; no check
   can follow them. Leave them generated.
 - The XMS routines (`xms_memory_func_1`, `initialize_himem_sys`,

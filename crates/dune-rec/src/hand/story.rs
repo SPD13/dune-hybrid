@@ -1444,10 +1444,8 @@ pub fn reset_visitor_positions(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.call(code::FOR_EACH_TROOP_3127, 0x3157)?;
     let di = c.reg(DI);
     let kind = c.byte(di.wrapping_add(8));
-    if kind != 0x21 {
-        c.run(0x3157, 3)?;
-    } else {
-        c.run(0x3157, 6)?;
+    c.run(0x3157, if kind != 0x21 { 3 } else { 6 })?;
+    if kind == 0x21 {
         let (dx, bx) = (c.reg(DX), c.reg(BX));
         c.update_character(13, |t| (t.x, t.y) = (dx, bx));
         c.push(di);
@@ -2207,8 +2205,8 @@ pub fn run_cs_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let si = c.word(g::CS_SCRIPT_PTR);
     let b = c.byte_in(pc::cpu::CS, si);
+    c.run(start, if b == 0xff { 8 } else { 5 })?;
     if b == 0xff {
-        c.run(start, 8)?;
         c.set_reg(SI, si);
         let s = c.code_word(0x167);
         let v = c.code_word(s);
@@ -2216,7 +2214,6 @@ pub fn run_cs_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, s);
         c.set_word(g::CS_SCRIPT_PTR, s);
     } else {
-        c.run(start, 5)?;
         c.set_reg(SI, si);
     }
     let cs = c.sreg(pc::cpu::CS);
@@ -4411,8 +4408,9 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, al as u16);
     c.push(si);
     c.call(entry::SAY_NUMBERED, 0x3530)?;
-    if c.flag(CF) {
-        c.run(0x3530, 5)?;
+    let cf = c.flag(CF);
+    c.run(0x3530, if cf { 5 } else { 2 })?;
+    if cf {
         let s = c.pop();
         c.set_reg(SI, s);
         let (ax, di) = (c.conversation().talker, c.word(g::PLACE));
@@ -4426,7 +4424,6 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x353d, 2)?;
         c.call(entry::SPEAK_EVENT_LINE, 0x3542)?;
     } else {
-        c.run(0x3530, 2)?;
         let s = c.pop();
         c.set_reg(SI, s);
     }
@@ -5803,8 +5800,8 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return leave_place(&mut c);
     }
     let b = c.progress().room;
+    c.run(0x3f6a, if b == 1 { 7 } else { 6 })?;
     if b == 1 {
-        c.run(0x3f6a, 7)?;
         pick(&mut c);
         c.call(entry::SAVE_REGS, 0x3f7c)?;
         c.run(0x3f7c, 2)?;
@@ -5813,16 +5810,14 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x3f81, 1)?;
         c.call(entry::RESTORE_REGS, 0x3f84)?;
     } else {
-        c.run(0x3f6a, 6)?;
         pick(&mut c);
     }
     let si = c.word(g::PLACE);
     let t = c.byte(si.wrapping_add(0x0a));
+    c.run(0x3f84, if t & 0x10 != 0 { 3 } else { 8 })?;
     if t & 0x10 != 0 {
-        c.run(0x3f84, 3)?;
         c.set_reg(SI, si);
     } else {
-        c.run(0x3f84, 8)?;
         c.set_reg(SI, si);
         // A first visit: noted, and counted when DH is below 20h.
         c.set_byte(si.wrapping_add(0x0a), t | 0x10);
@@ -5926,11 +5921,7 @@ fn step_3ff5(c: &mut Ctx) -> Result<(), Bail> {
     c.call(entry::MAP_BYTE_AT, 0x400a)?;
     let al = c.reg8(r8::AL);
     let bx = c.reg(BX);
-    if al & 0x40 == 0 {
-        c.run(0x400a, 3)?;
-    } else {
-        c.run(0x400a, 4)?;
-    }
+    c.run(0x400a, if al & 0x40 == 0 { 3 } else { 4 })?;
     c.xor(B, bx >> 8, bx >> 8);
     c.set_reg(BX, bx & 0xff);
     c.test(B, al as u16, 0x40);
@@ -6007,11 +5998,10 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x37c1, 1)?;
     c.call(entry::CLEAR_GAME_AREA, 0x37c4)?;
     let kind = c.progress().place_kind;
+    c.run(0x37c4, if kind == 0xff { 6 } else { 5 })?;
     if kind == 0xff {
-        c.run(0x37c4, 6)?;
         c.set_reg(AX, 0xffff);
     } else {
-        c.run(0x37c4, 5)?;
         c.set_reg(AX, 0xffff);
         let dx = c.player().x;
         c.set_reg(DX, dx);

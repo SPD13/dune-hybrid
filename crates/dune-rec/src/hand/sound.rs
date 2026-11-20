@@ -54,10 +54,8 @@ pub fn pcm_test_audio_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     let first = c.voice_buffer(0).state;
     c.cmp(B, first as u16, 3);
-    if first == 3 {
-        c.run(0xa9ec, 2)?;
-    } else {
-        c.run(0xa9ec, 1)?;
+    c.run(0xa9ec, if first == 3 { 2 } else { 1 })?;
+    if first != 3 {
         c.run(0xa9ee, 1)?;
         let second = c.voice_buffer(1).state;
         c.cmp(B, second as u16, 3);

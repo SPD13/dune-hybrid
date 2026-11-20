@@ -1132,11 +1132,11 @@ pub fn location_to_show(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x6281, 3)?;
         c.call(entry::LOCATION_KIND_CHECK, 0x628a)?;
-        if c.flag(CF) {
-            c.run(0x628a, 2)?;
+        let cf = c.flag(CF);
+        c.run(0x628a, 2)?;
+        if cf {
             false
         } else {
-            c.run(0x628a, 2)?;
             c.call(entry::COUNT_LOCATION_TROOP_SIDES, 0x628f)?;
             let dx = c.reg(DX);
             c.run(0x628f, 3)?;
@@ -1351,22 +1351,20 @@ pub fn show_message_0f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7bce, 2)?;
     c.set_reg(AX, 0x0f);
     c.call(entry::SAY_NUMBERED, 0x7bd4)?;
-    if c.flag(CF) {
-        c.run(0x7bd4, 1)?;
-    } else {
-        c.run(0x7bd4, 2)?;
+    let cf = c.flag(CF);
+    c.run(0x7bd4, if cf { 1 } else { 2 })?;
+    if !cf {
         c.call(entry::START_TEXT_VOICE, 0x7bd9)?;
     }
     let k = c.map_view().mode;
     let si = c.map_selection().shown;
+    c.run(0x7bd9, 5)?;
     if k & 0x80 != 0 {
-        c.run(0x7bd9, 5)?;
         c.set_reg(SI, si);
         c.cmp(B, k as u16, 0);
         c.call(entry::HIDE_TEXT_BOX, 0x7c60)?;
         c.run(0x7c60, 1)?;
     } else {
-        c.run(0x7bd9, 5)?;
         c.set_reg(SI, si);
         c.set_flag(CF, false);
     }
@@ -1450,10 +1448,8 @@ pub fn open_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, 0xffff);
     c.call(entry::TRANSITION_AL, 0x5a30)?;
     let k = c.map_selection().map_screen;
-    if k != 0 {
-        c.run(0x5a30, 3)?;
-    } else {
-        c.run(0x5a30, 3)?;
+    c.run(0x5a30, 3)?;
+    if k == 0 {
         c.call(entry::DRAW_MAP_CAPTION, 0x5a3a)?;
         c.run(0x5a3a, 1)?;
     }
@@ -1642,8 +1638,8 @@ pub fn dialogue_frame_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::SETUP_NON_LIP_SYNC_DATA_STRUCTURE, 0x9bb4)?;
     let si = c.reg(SI);
     let w = c.word(g::HEAD_SPRITES_DRAWN);
+    c.run(0x9bb4, if w == 0 { 6 } else { 4 })?;
     if w == 0 {
-        c.run(0x9bb4, 6)?;
         c.push(si);
         c.set_reg(SI, 0x1bf0);
         c.set_reg(DI, 0xd834);
@@ -1652,7 +1648,6 @@ pub fn dialogue_frame_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let s = c.reg(SI);
         c.set_word(s, 0x80);
     } else {
-        c.run(0x9bb4, 4)?;
         c.push(si);
         c.call(entry::DIFF_RECTS, 0x9bcf)?;
         let x = c.word(g::DIRTY_RECT);
@@ -1728,14 +1723,12 @@ pub fn unmark_regions_of(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, si);
     loop {
         let b = c.byte(si);
+        c.run(0x55c3, if b == bl { 4 } else { 2 })?;
         if b == bl {
-            c.run(0x55c3, 4)?;
             let al = c.byte(si.wrapping_add(0x10));
             c.set_reg8(r8::AL, al);
             c.call(entry::UNMARK_MAP_CELLS, 0x55cd)?;
             si = c.reg(SI);
-        } else {
-            c.run(0x55c3, 2)?;
         }
         let s = si.wrapping_add(0x1c);
         let nb = c.byte(s);
@@ -2085,8 +2078,8 @@ pub fn unmark_pending_regions(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let mut found = false;
             loop {
                 let b = c.byte(di);
+                c.run(0x55a2, if b == bl as u8 { 3 } else { 2 })?;
                 if b == bl as u8 {
-                    c.run(0x55a2, 3)?;
                     c.call(entry::LOCATION_KIND_CHECK, 0x55a9)?;
                     let cf = c.flag(CF);
                     c.run(0x55a9, 1)?;
@@ -2095,8 +2088,6 @@ pub fn unmark_pending_regions(m: &mut Machine, start: u16) -> Result<(), Bail> {
                         break;
                     }
                     di = c.reg(DI);
-                } else {
-                    c.run(0x55a2, 2)?;
                 }
                 let nd = di.wrapping_add(0x1c);
                 let nb = c.byte(nd);
@@ -2190,11 +2181,7 @@ fn draw_map_points_at(c: &mut Ctx) -> Result<(), Bail> {
                 } else {
                     0
                 };
-                if n != 0 {
-                    c.run(0x4a78, 1 + n + 1)?;
-                } else {
-                    c.run(0x4a78, 1 + 10 + 2)?;
-                }
+                c.run(0x4a78, if n != 0 { 1 + n + 1 } else { 1 + 10 + 2 })?;
                 let y = c.dec(W, bx);
                 c.set_reg(BX, y);
                 let x = c.dec(W, dx);
@@ -2781,14 +2768,13 @@ pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let al = c.byte(di.wrapping_add(8));
+    c.run(start, if al >= 0x28 { 6 + 2 } else { 12 })?;
     if al >= 0x28 {
-        c.run(start, 6 + 2)?;
         let v = c.byte(di.wrapping_add(0x0a));
         let v = pure::and(B, v as u16, 0xfd);
         c.set_byte(di.wrapping_add(0x0a), v as u8);
         c.set_reg8(r8::AL, al);
     } else {
-        c.run(start, 12)?;
         let v = c.byte(di.wrapping_add(0x0a));
         let v = pure::and(B, v as u16, 0xfd);
         c.set_byte(di.wrapping_add(0x0a), v as u8);
@@ -3605,8 +3591,8 @@ fn skill_bars_at(c: &mut Ctx) -> Result<(), Bail> {
     for i in 0..7u16 {
         let si = c.reg(SI);
         let n = c.byte(si);
+        c.run(0x7e6b, if n != 0 { 3 + 10 } else { 3 })?;
         if n != 0 {
-            c.run(0x7e6b, 3 + 10)?;
             c.set_reg8(r8::AL, n);
             c.or(B, n as u16, n as u16);
             c.set_reg8(r8::CL, n);
@@ -3630,7 +3616,6 @@ fn skill_bars_at(c: &mut Ctx) -> Result<(), Bail> {
                 c.set_reg(r, v);
             }
         } else {
-            c.run(0x7e6b, 3)?;
             c.set_reg8(r8::AL, 0);
             c.or(B, 0, 0);
         }
@@ -3740,8 +3725,8 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(BX, bx & 0xff);
             c.call(entry::LOCATION_ICON, 0x5e15)?;
             let cl = c.reg8(r8::CL);
+            c.run(0x5e15, if cl < 0x20 { 7 } else { 2 + 3 })?;
             if cl < 0x20 {
-                c.run(0x5e15, 7)?;
                 for r in [AX, BX, DX, SI] {
                     let v = c.reg(r);
                     c.push(v);
@@ -3760,8 +3745,6 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     let a = pure::add(W, a, 5);
                     c.set_reg(AX, a);
                 }
-            } else {
-                c.run(0x5e15, 2 + 3)?;
             }
             let (s, d) = (c.reg(SI), c.reg(DI));
             c.push(s);
@@ -4262,11 +4245,10 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut di = 0x100u16;
     loop {
         let f = c.byte(di.wrapping_add(0x0a));
+        c.run(0x5842, if f & 0x80 != 0 { 3 } else { 8 })?;
         if f & 0x80 != 0 {
-            c.run(0x5842, 3)?;
             c.set_reg8(r8::AL, f);
         } else {
-            c.run(0x5842, 8)?;
             c.set_reg8(r8::AL, f);
             let bp = c.reg(BP);
             c.push(bp);
@@ -4425,8 +4407,9 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.call(entry::POINT_IN_RECT, 0x5c35)?;
-    if c.flag(CF) {
-        c.run(0x5c35, 4)?;
+    let cf = c.flag(CF);
+    c.run(0x5c35, if cf { 4 } else { 2 })?;
+    if cf {
         c.update_map_view(|t| t.mode = 0x40);
         c.set_reg8(r8::AL, 0xff);
         c.call(entry::NEAREST_SHOWN_LOCATION, 0x5c41)?;
@@ -4437,7 +4420,6 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(DI, 0);
         }
     } else {
-        c.run(0x5c35, 2)?;
         c.set_reg(DI, 0);
     }
     let di = c.reg(DI);
@@ -4551,10 +4533,8 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(di);
     c.call(entry::ESTIMATE_FIELD_SPICE, 0x7498)?;
     let dl = c.reg8(r8::DL);
-    if dl > 1 {
-        c.run(0x7498, 2 + 3)?;
-    } else {
-        c.run(0x7498, 7)?;
+    c.run(0x7498, if dl > 1 { 2 + 3 } else { 7 })?;
+    if dl <= 1 {
         c.update_economy(|t| t.endgame_stage = 1);
         for p in [0xff7u16, 0x1007] {
             let v = c.byte(p);
@@ -5374,8 +5354,8 @@ pub fn route_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     c.call(entry::ADD_POINT_ENTRY, 0x814f)?;
     let si = c.reg(SI);
+    c.run(0x814f, if si == 0x8e0 { 3 } else { 6 })?;
     if si == 0x8e0 {
-        c.run(0x814f, 3)?;
         c.set_reg(SI, 0x4718);
         let mut at = 0x8158;
         loop {
@@ -5397,7 +5377,6 @@ pub fn route_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
             at = 0x8158;
         }
     } else {
-        c.run(0x814f, 6)?;
         let p = c.word(si.wrapping_add(4));
         let (dx, bx) = (c.word(p.wrapping_add(2)), c.word(p.wrapping_add(4)));
         c.set_reg(DX, dx);
@@ -6018,8 +5997,8 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let b = c.progress().room;
     let plain = t != 0xff && (t < 0x20 || b < 3);
     let mut ax = 0x40a7u16;
+    c.run(start, match (plain, t) { (true, ..0x20) => 9, (true, _) => 11, (false, 0xff) => 4, (false, _) => 8 })?;
     if plain {
-        c.run(start, if t < 0x20 { 6 } else { 8 } + 3)?;
         c.update_conversation(|t| t.pending = 0);
         c.set_reg(AX, ax);
         let di = c.reg(DI);
@@ -6038,7 +6017,6 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.set_reg(AX, ax);
     } else {
-        c.run(start, if t == 0xff { 4 } else { 8 })?;
         c.update_conversation(|t| t.pending = 0);
         c.set_reg(AX, ax);
     }
@@ -6349,8 +6327,8 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5c79, 1)?;
     c.call(entry::OPEN_ONMAP_RESOURCE, 0x5c7c)?;
     let b1 = c.word(g::SPRITE_LIST);
+    c.run(0x5c7c, if b1 != 0 { 4 } else { 3 })?;
     if b1 != 0 {
-        c.run(0x5c7c, 4)?;
         c.set_reg(DI, b1);
         c.call(entry::POINT_IN_RECT, 0x5c87)?;
         if c.flag(CF) {
@@ -6362,12 +6340,11 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0x5c87, 1)?;
     } else {
-        c.run(0x5c7c, 3)?;
         c.set_reg(DI, 0);
     }
     let b2 = c.word(g::SPRITE_LIST_2);
+    c.run(0x5c95, if b2 != 0 { 4 } else { 3 })?;
     if b2 != 0 {
-        c.run(0x5c95, 4)?;
         c.set_reg(DI, b2);
         c.call(entry::POINT_IN_RECT, 0x5ca0)?;
         if c.flag(CF) {
@@ -6376,7 +6353,6 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0x5ca0, 1)?;
     } else {
-        c.run(0x5c95, 3)?;
         c.set_reg(DI, 0);
     }
     let f = c.map_selection().skills_panel;
@@ -6490,14 +6466,12 @@ pub fn flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x4f55, 5)?;
         return flight_video_4e8e(&mut c);
     }
+    c.run(0x4f55, if mk != 0 { 7 } else { 5 })?;
     if mk != 0 {
-        c.run(0x4f55, 7)?;
         c.update_flight(|t| t.marker = 0);
         c.call(entry::SET_MARK_AT_MAP_POSITION, 0x4f6d)?;
         c.run(0x4f6d, 1)?;
         c.call(entry::REDRAW_MAP_VIEW, 0x4f70)?;
-    } else {
-        c.run(0x4f55, 5)?;
     }
     c.run(0x4f70, 1)?;
     c.call(entry::GET_MAP_POSITION, 0x4f73)?;
