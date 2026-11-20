@@ -7,8 +7,9 @@ For every direct `call X` in the generated code's instruction comments
 (crates/dune-rec/src/generated.rs, made from your own DNCDPRG.EXE), the
 code after the call is followed (through unconditional jumps, both ways
 of conditional ones, up to 40 instructions) until each flag is either
-read (a conditional jump, adc/sbb, rcl/rcr, pushf, lahf, cmc, loop[n]z,
-into) or overwritten by an instruction that sets it. A routine whose
+read (a conditional jump, adc/sbb, rcl/rcr, lahf, cmc, loop[n]z,
+into; pushf only when what it saved is not taken back by a popf, see
+walk) or overwritten by an instruction that sets it. A routine whose
 returned flags no caller reads needs no flag-exact result in a readable
 port: only its registers and memory matter. Prints, per routine: the
 flags read after some call (C Z S O P A D), and the number of call
@@ -267,17 +268,19 @@ def walk(start, after_return):
     (an INT, an indirect jump or call, past the limit) counts as read."""
     out = set()
     passed = set()
-    stack = [(start, frozenset(ALL), 0)]
+    # `saved`: the flags a `pushf` put on the stack that are live (read
+    # after the `popf` that takes them back), None when there is none.
+    stack = [(start, frozenset(ALL), 0, None)]
     seen = set()
     while stack:
-        a, live, n = stack.pop()
-        if not live or (a, live) in seen:
+        a, live, n, saved = stack.pop()
+        if (not live and not saved) or (a, live, saved) in seen:
             continue
         if n > LIMIT or a not in insn:
-            out |= live
+            out |= live | (saved or set())
             passed |= live
             continue
-        seen.add((a, live))
+        seen.add((a, live, saved))
         t = insn[a]
         op = t.split()[0]
         if op in ('rep', 'repe', 'repne', 'repz', 'repnz', 'lock') and len(t.split()) > 1:
@@ -286,10 +289,28 @@ def walk(start, after_return):
             out |= live & set(JCC[op])
             tg = target(t)
             if tg is not None:
-                stack.append((tg, live, n + 1))
+                stack.append((tg, live, n + 1, saved))
             if a in nxt:
-                stack.append((nxt[a], live, n + 1))
+                stack.append((nxt[a], live, n + 1, saved))
             continue
+        if op == 'pushf':
+            # Saved, not read: the `popf` that takes them back makes them
+            # live again (what is read after it is read of them). A second
+            # `pushf` before it: the first one's are seen as read.
+            if saved:
+                out |= saved
+            saved = frozenset(live)
+            if a in nxt:
+                stack.append((nxt[a], live, n + 1, saved))
+            continue
+        if op == 'popf' and saved is not None:
+            if a in nxt:
+                stack.append((nxt[a], saved, n + 1, None))
+            continue
+        if saved and (op == 'pop' or op in ('ret', 'retf', 'iret')):
+            # The pushed flags could be taken some other way: read.
+            out |= saved
+            saved = None
         if op in READS:
             out |= live & set(READS[op])
         if op in ('ret', 'retf', 'iret'):
@@ -309,42 +330,42 @@ def walk(start, after_return):
         if far(t):
             # Passed through: still live after it.
             if a in nxt:
-                stack.append((nxt[a], live, n + 1))
+                stack.append((nxt[a], live, n + 1, saved))
             continue
         if t.startswith('call '):
             d = direct_call(t)
             ds = [d] if d is not None else sorted(IND.get(a, ()))
             if not ds or any(x not in IN for x in ds):
-                out |= live
+                out |= live | (saved or set())
                 passed |= live
                 continue
             for x in ds:
                 out |= live & IN[x]
             live = live & set.union(*(PASS[x] for x in ds))
             if a in nxt:
-                stack.append((nxt[a], live, n + 1))
+                stack.append((nxt[a], live, n + 1, saved))
             continue
         if t.startswith('jmp') and target(t) is None and 'far' not in t and 'dword' not in t and a in IND:
             # An indirect jump: on at each target the runs took.
             for x in IND[a]:
-                stack.append((x, live, n + 1))
+                stack.append((x, live, n + 1, saved))
             continue
         if any(t.startswith(s) for s in STOP):
-            out |= live
+            out |= live | (saved or set())
             passed |= live
             continue
         live = live - WRITES.get(op, set())
         if op == 'jmp' or op.startswith('jmp'):
             tg = target(t)
             if tg is not None and 'far' not in t:
-                stack.append((tg, live, n + 1))
+                stack.append((tg, live, n + 1, saved))
             continue
         if op in ('loop', 'jcxz'):
             tg = target(t)
             if tg is not None:
-                stack.append((tg, live, n + 1))
+                stack.append((tg, live, n + 1, saved))
         if a in nxt:
-            stack.append((nxt[a], live, n + 1))
+            stack.append((nxt[a], live, n + 1, saved))
     return out if after_return else (out, passed)
 
 

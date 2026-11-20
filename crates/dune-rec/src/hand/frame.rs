@@ -163,7 +163,6 @@ pub fn stc_on_user_input(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let joystick = args & 0x80 != 0;
     c.run(0xdd89, if joystick { 4 } else { 5 })?;
-    c.test(B, args as u16, 0x80); // `read_game_port` reads them
     if joystick {
         let di = c.reg(DI);
         c.push(di);

@@ -49,7 +49,6 @@ pub fn sound_off(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let args = c.byte(g::CMD_ARGS_MEMORY);
     if args & 0x10 != 0 {
         c.run(start, 4)?; // test; jne; stc; ret
-        c.test(B, args as u16, 0x10);
         c.set_flag(CF, true);
         return c.ret();
     }

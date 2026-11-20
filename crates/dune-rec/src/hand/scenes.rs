@@ -79,8 +79,7 @@ pub fn ui_draw_book_turning_page(m: &mut Machine, start: u16) -> Result<(), Bail
     c.run(0xb1ce, 4 + if next_is_b { 0 } else { 1 } + 1)?;
     let page = c.pop();
     let next = pure::inc(W, page);
-    c.cmp(W, next, 0x0b);
-    let other = if next_is_b { next } else { c.sub(W, next, 2) };
+    let other = if next_is_b { next } else { pure::sub(W, next, 2) };
     c.set_reg(AX, other);
     c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0xb1db)?;
     c.run(0xb1db, 2)?;

@@ -2459,7 +2459,6 @@ pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if head == 0xffff {
             c.run(0x9fab, 5)?;
             c.set_reg(AX, head);
-            c.cmp(W, head, 0xffff); // the exit's flags
             c.set_flag(CF, true);
             return c.ret();
         }

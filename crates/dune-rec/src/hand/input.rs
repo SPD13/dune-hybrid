@@ -548,7 +548,6 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xdf49, 3 + joy as u32)?;
     let al = c.reg8(r8::AL);
     c.update_mouse_state(|t| t.buttons = al);
-    c.test(B, f as u16, 0x80); // `joystick_as_keys` reads them
     if joy {
         c.call(entry::JOYSTICK_AS_KEYS, 0xdf56)?;
     }

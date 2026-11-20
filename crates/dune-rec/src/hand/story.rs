@@ -1948,14 +1948,13 @@ pub fn show_speaker_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bl = c.travel().screen_kind;
     let bl = pure::and(B, bl as u16, 3) as u8;
     c.set_reg8(r8::BL, bl);
-    c.cmp(B, bl as u16, 2);
     if k == 2 {
         c.call(entry::SCENE_39, 0x36ce)?;
         c.run(0x36ce, 1)?;
         c.call(entry::COPY_GAME_RECT_FROM_FB2_TO_FB1, 0x36d1)?;
         c.run(0x36d1, 2)?;
     } else {
-        let bl = c.dec(B, bl as u16) as u8;
+        let bl = pure::dec(B, bl as u16) as u8;
         c.set_reg8(r8::BL, bl);
         if k == 1 {
             c.set_byte(g::GAME_FRAME, 1);

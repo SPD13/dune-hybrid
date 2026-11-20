@@ -87,9 +87,17 @@ reached in real play). For each:
 
    | Routines | Flags their callers read |
    |---|---|
-   | 821 | none: the port can drop every flag-exact helper on its result |
-   | 111 | some (mostly CF or ZF alone) |
-   | 257 | all, or unknown |
+   | 850 | none: the port can drop every flag-exact helper on its result |
+   | 318 | some (CF alone 224, CF and ZF 65, ZF alone 26, ...) |
+   | 48 | all, or unknown |
+
+   A `pushf` ... `popf` pair passes the flags through (2026-11-19): the
+   walk keeps the flags live at the `pushf` aside and makes them live
+   again at the `popf`, so only what is read after it counts (a `pop`
+   or a return in between still counts them as read). Before, a `pushf`
+   read them all, and everything that returned into such code (the
+   intro's whole chain through `resume_from_0309`, the HNM players, ...)
+   had all its flags read: 258 routines then, 48 now.
 
    `flags_used.py --rust` writes the table
    (`crates/dune-rec/src/hand/flags_read.rs`); the shadow check takes
