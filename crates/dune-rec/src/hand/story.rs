@@ -2021,7 +2021,7 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_situation(|t| t.battle_balance = 0);
     c.update_progress(|t| t.harkonnen_place = 0);
     if f & 2 == 0 {
-        if map::location_kind_ok(&mut c, 0x504f)? {
+        if map::location_skipped(&mut c, 0x504f)? {
             c.run(0x504f, 2)?;
             return c.ret();
         }
@@ -2560,7 +2560,7 @@ pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if k == 0 {
         let di = c.travel().target;
         c.set_reg(DI, di);
-        if map::location_kind_ok(&mut c, 0x4199)? {
+        if map::location_skipped(&mut c, 0x4199)? {
             return drop_it(&mut c, 0x4199, 3);
         }
         c.run(0x4199, 2)?;
@@ -3706,7 +3706,7 @@ pub fn event_place_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
             c.run(0x1f19, 4)?;
             c.set_reg(AX, ax);
-            if map::location_kind_ok(&mut c, 0x1f23)? {
+            if map::location_skipped(&mut c, 0x1f23)? {
                 c.run(0x1f23, 1)?;
                 break 'one;
             }

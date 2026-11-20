@@ -4,6 +4,7 @@
 //! They run for seconds: they are checked with `REC_BUDGET` raised (see
 //! `docs/decompile.md`, section 3).
 
+use super::intro;
 use super::video;
 use super::gfx;
 use super::entry;
@@ -83,8 +84,7 @@ pub fn play_night_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if c.flag(ZF) {
             return c.jump(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER);
         }
-        c.call(entry::SOUND_AT_FRAME_11, 0x4932)?;
-        if !c.flag(ZF) {
+        if intro::video_done_after_sound(&mut c, 0x4932)? {
             c.run(0x4932, 2)?;
             return c.jump(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER);
         }
@@ -165,10 +165,8 @@ pub fn play_wormsuit_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x0e8c, 2)?;
         let cx = c.reg(CX);
         c.push(cx);
-        c.call(entry::HNM_DO_FRAME_AND_CHECK_IF_FRAME_ADVANCED, 0x0e90)?;
-        while c.flag(ZF) {
+        while !gfx::frame_advanced(&mut c, 0x0e90)? {
             c.run(0x0e90, 2)?;
-            c.call(entry::HNM_DO_FRAME_AND_CHECK_IF_FRAME_ADVANCED, 0x0e90)?;
         }
         c.run(0x0e90, 4)?;
         c.set_reg8(r8::AL, 0x3c);

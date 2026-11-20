@@ -1,6 +1,7 @@
 //! The intro sequence's steps: videos, frame tasks, the talking head.
 //! Most end in `clc; ret`: CF clear tells the intro script to go on.
 
+use super::frame;
 use super::video;
 use super::input;
 use super::gfx;
@@ -25,7 +26,6 @@ mod code {
     pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
     pub const SUB_C868: u16 = 0xc868;
     pub const HNM_DO_FRAME: u16 = 0xca60;
-    pub const CHECK_IF_HNM_COMPLETE: u16 = 0xcc85;
     pub const ADD_FRAME_TASK: u16 = 0xda25;
     /// The frame task that plays the next HNM frame ([`super::intro_hnm_frame_task`]).
     pub const HNM_FRAME_TASK: u16 = 0x070c;
@@ -231,11 +231,9 @@ mod more {
     pub const GFX_COPY_WHOLE_FRAMEBUF_TO_SCREEN: u16 = 0xc4cd;
     pub const SUB_C4DD: u16 = 0xc4dd;
     pub const DRAW_SPRITE_CLIPPED: u16 = 0xc305;
-    pub const HNM_DO_FRAME_AND_CHECK_IF_FRAME_ADVANCED: u16 = 0xc9f4;
     pub const COPY_GAME_AREA_RECT_TO_CLIP_RECT: u16 = 0x5ba8;
     pub const MIDI_FUNC_2_0: u16 = 0xaeb7;
     pub const PLAY_PCM_AL: u16 = 0xabdb;
-    pub const STC_ON_USER_INPUT: u16 = 0xdd63;
     pub const OPEN_SKYRS_PALETTE: u16 = 0x0820;
     pub const ROOM_SETUP: u16 = 0x08f0;
     pub const ROOM_DRAW: u16 = 0x37b2;
@@ -252,14 +250,12 @@ fn play_logo(c: &mut Ctx, entry: u16, music: bool) -> Result<(), Bail> {
     c.call(more::SET_FB1_AS_ACTIVE_FRAMEBUFFER, at(3))?;
     loop {
         c.run(at(3), 1)?;
-        c.call(more::STC_ON_USER_INPUT, at(6))?;
-        if c.flag(CF) {
+        if frame::user_input(c, at(6))? {
             c.run(at(6), 2)?; // jb 064Ch; ret
             return c.ret();
         }
         c.run(at(6), 2)?;
-        c.call(more::HNM_DO_FRAME_AND_CHECK_IF_FRAME_ADVANCED, at(0xb))?;
-        if c.flag(ZF) {
+        if !gfx::frame_advanced(c, at(0xb))? {
             c.run(at(0xb), 1)?; // no new frame: again
             continue;
         }
@@ -284,8 +280,7 @@ fn play_logo(c: &mut Ctx, entry: u16, music: bool) -> Result<(), Bail> {
             at(0x10)
         };
         c.run(check, 1)?;
-        c.call(code::CHECK_IF_HNM_COMPLETE, check + 3)?;
-        if c.flag(ZF) {
+        if !video::video_done(c, check + 3)? {
             c.run(check + 3, 1)?;
             continue;
         }
@@ -575,6 +570,11 @@ pub fn sound_at_frame_11(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x4941, 1)?;
     }
     super::video::check_if_hnm_complete(c.m, 0xcc85)
+}
+
+/// [`sound_at_frame_11`] called: the sound started at frame 11 when due; whether no video plays (as `video_done`).
+pub(super) fn video_done_after_sound(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_zf(0x4937, ret)?)
 }
 
 /// `loc_0105b`: `loc_0425b` for each word (DI) of the 0-ended list at

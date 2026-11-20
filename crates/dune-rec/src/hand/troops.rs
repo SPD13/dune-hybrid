@@ -9,7 +9,7 @@ use super::game::{self, Location, Troop, troop_state};
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CS, CX, DF, DI, DS, DX, ES, SI, SP, SS, ZF},
+    cpu::{AX, BP, BX, CF, CS, CX, DF, DI, DS, DX, ES, SI, SP, SS},
     rec::Bail,
 };
 
@@ -612,9 +612,8 @@ pub fn estimate_field_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, Location::FIRST);
     c.set_reg(CX, 0);
     c.set_reg(DX, 0);
-    c.call(entry::LOCATION_KIND_CHECK, 0x1ce4)?;
     loop {
-        let skipped = c.flag(CF);
+        let skipped = map::location_skipped(&mut c, 0x1ce4)?;
         let place = Location(c.reg(DI));
         let next = place.offset().wrapping_add(Location::SIZE);
         let last = c.byte(next) == 0xff;
@@ -631,7 +630,6 @@ pub fn estimate_field_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if last {
             break;
         }
-        c.call(entry::LOCATION_KIND_CHECK, 0x1ce4)?;
     }
     let sum = c.reg(CX);
     c.set_reg(BX, sum >> 4);
@@ -1248,6 +1246,11 @@ pub fn troop_bit_10_by_location(m: &mut Machine, start: u16) -> Result<(), Bail>
     set_troop_bit_10(&mut c)
 }
 
+/// [`troop_bit_10_by_location`] called: whether troop SI's bit 10h of byte 3 is now set (by its location).
+pub(super) fn troop_bit_10_set_by_location(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x6b8a, ret)
+}
+
 /// `loc_06b96`: [`set_troop_bit_10`] with CF set for a troop with bit
 /// 200h of word 10h or bits 30h of word 12h, or at a location with byte
 /// 12h 0, or with bits 41h of byte 0Ah other than 40h alone.
@@ -1291,6 +1294,11 @@ pub fn troop_bit_10_by_state(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     set_troop_bit_10(&mut c)
+}
+
+/// [`troop_bit_10_by_state`] called: whether troop SI's bit 10h of byte 3 is now set (by its state).
+pub(super) fn troop_bit_10_set_by_state(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x6b96, ret)
 }
 
 /// `loc_0697c`: for the troop SI with a particle (`troop_particle`, ZF),
@@ -2195,6 +2203,11 @@ pub fn troop_bit_10_by_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     set_troop_bit_10(&mut c)
+}
+
+/// [`troop_bit_10_by_skill`] called: whether troop SI's bit 10h of byte 3 is now set (by its skill).
+pub(super) fn troop_bit_10_set_by_skill(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0x6bd7, ret)
 }
 
 /// `loc_08018`: the need BX at [`SKILL_NEEDS`] one lower (unless 0 or 80h
@@ -3978,8 +3991,8 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
     troop.set_position(c, x, y);
     let mut found = true;
     if secret {
-        let location_kind_ok = map::location_kind_ok(c, 0x8385)?;
-        found = !location_kind_ok;
+        let location_skipped = map::location_skipped(c, 0x8385)?;
+        found = !location_skipped;
         c.run(0x8385, 1)?;
     }
     if found {
@@ -4153,8 +4166,7 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     if Troop(c.reg(SI)) == Troop::number(3) {
         c.run(start, 3)?;
-        c.call(entry::DROP_REACHED_WAYPOINTS, 0x84af)?;
-        if c.flag(ZF) {
+        if !map::followed_place(&mut c, 0x84af)? {
             c.run(0x84af, 2)?;
             return c.ret();
         }
@@ -4836,16 +4848,14 @@ pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x6fe8, 2 + 7)?;
         c.set_reg(AX, ax);
         troop.set_word_10(&mut c, w10 & !0x200);
-        c.call(entry::TROOP_BIT_10_BY_STATE, 0x7070)?;
-        if c.flag(CF) {
+        if troop_bit_10_set_by_state(&mut c, 0x7070)? {
             c.run(0x7070, 2)?; // jb; ret
             return c.ret();
         }
         c.run(0x7070, 2)?;
     } else {
         c.run(0x6fe8, 3)?;
-        c.call(entry::TROOP_BIT_10_BY_STATE, 0x6ff2)?;
-        if c.flag(CF) {
+        if troop_bit_10_set_by_state(&mut c, 0x6ff2)? {
             // 707Bh: held: no rate, nothing harvested.
             c.run(0x6ff2, 2 + 4)?; // jae; jmp; 707Bh: mov; mov; or; ret
             match troop.record(&mut c) {
@@ -5118,8 +5128,7 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0x7693, 3)?;
-    c.call(entry::TROOP_BIT_10_BY_SKILL, 0x769c)?;
-    if c.flag(CF) {
+    if troop_bit_10_set_by_skill(&mut c, 0x769c)? {
         c.run(0x769c, 2)?;
         return c.ret();
     }
@@ -5214,8 +5223,7 @@ pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x70cc, if a & 0x40 == 0 { 6 } else { 5 })?;
     if a & 0x40 == 0 {
         c.set_reg8(r8::AL, a);
-        c.call(entry::TROOP_BIT_10_BY_LOCATION, 0x70da)?;
-        if c.flag(CF) {
+        if troop_bit_10_set_by_location(&mut c, 0x70da)? {
             c.run(0x70da, 2)?;
             return c.ret();
         }

@@ -258,13 +258,21 @@ call sites; the second 11 more (`condition_holds`, `troop_merged`,
 as one three-way answer gets an enum: `dos::next_cmd_char` gives
 `CmdChar::{End, Space, Other}` for `parse_cmd_is_end_of_arg`. A call at
 the end of a loop whose answer the loop's start reads becomes a `let mut`
-updated there (`scenes.rs`: `interrupted = gfx::frame_interrupted(..)`).
+updated there (`scenes.rs`: `interrupted = gfx::frame_interrupted(..)`),
+and a `call; while flag { run; call }` loop becomes
+`while sound::pcm_done(&mut c, ret)? { c.run(..)?; }`. The third pass:
+7 more (the EMS calls' `ems_failed`, `followed_place`, the
+`troop_bit_10_set_by_*` ones, ...), the call sites with a computed return
+address (`at(6)` in the logo videos), and the loops by hand (21 sites in
+all). `location_kind_check`'s answer is named `location_skipped`: CF set
+means the location loops skip it. The note on `ems_result` had CF
+backwards: `cmp ah, 80h; cmc` sets it when the EMS call failed.
 Left as they are: `res_locate_in_lookup_table` and
 `hnm_decode_frame_if_read` (CF and ZF read in different combinations),
 the command line's path and number states (the flags carried from one
 state to the next), and the routines whose flag has no clear meaning yet
-(the EMS and memory calls, `say_numbered`, `talk_as`, `text_box_for`,
-`load_voc_and_lipsync_data`, the `troop_bit_10_*` ones).
+(the memory calls, `say_numbered`, `talk_as`, `text_box_for`,
+`load_voc_and_lipsync_data`, `read_audio_file`, `move_troop_to`).
 
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust

@@ -20,8 +20,8 @@ mod cs {
     pub const XMS_HANDLE: u16 = 0xee8a;
 }
 
-/// After `int 67h`: `cmp ah, 80h; cmc; ret`: CF set if the call succeeded
-/// (AH below 80h, the error codes).
+/// After `int 67h`: `cmp ah, 80h; cmc; ret`: CF set if the call failed
+/// (AH 80h or more, the error codes).
 fn ems_result(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xed47, 3)?;
     let ah = c.reg8(super::r8::AH);
@@ -42,12 +42,22 @@ pub fn get_ems_emm_handle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     ems_result(&mut c)
 }
 
+/// [`get_ems_emm_handle`] called: whether the EMS function on the game's handle failed.
+pub(super) fn ems_handle_func_failed(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xed40, ret)
+}
+
 /// `call_ems_func` (ED45): EMS function AH.
 pub fn call_ems_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xed45)?;
     let mut c = Ctx::new(m);
     c.interp(0xed45, 0xed47)?;
     ems_result(&mut c)
+}
+
+/// [`call_ems_func`] called: whether the EMS function failed (AH 80h or more, its error codes).
+pub(super) fn ems_failed(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    c.call_cf(0xed45, ret)
 }
 
 /// The XMS driver call (EF22); ZF set if it returned AX = 1 (success).
@@ -229,8 +239,7 @@ pub fn ems_copy(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         c.run(at(0x15), 2)?;
         c.set_reg(AX, 0x4400);
-        c.call(entry::GET_EMS_EMM_HANDLE, at(0x1b))?;
-        if c.flag(CF) {
+        if ems_handle_func_failed(&mut c, at(0x1b))? {
             c.run(at(0x1b), 2)?;
             return c.ret();
         }
@@ -325,8 +334,7 @@ pub fn map_ems_for_midi_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xedb9, 5)?;
     c.set_reg(BX, 3);
     c.set_reg8(super::r8::AH, 0x43);
-    c.call(entry::CALL_EMS_FUNC, 0xedc8)?;
-    if c.flag(CF) {
+    if ems_failed(&mut c, 0xedc8)? {
         c.run(0xedc8, 2)?;
         return c.ret();
     }
@@ -602,8 +610,7 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xed4c, 2)?;
     c.set_reg8(super::r8::AH, 0x41);
-    c.call(entry::CALL_EMS_FUNC, 0xed51)?;
-    if c.flag(CF) {
+    if ems_failed(&mut c, 0xed51)? {
         c.run(0xed51, 1)?;
         return fail_edb3(&mut c);
     }
@@ -612,9 +619,9 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word_in(CS, 0xed3c, bx);
     c.set_reg8(super::r8::AH, 0x42);
     c.set_reg(BX, 0);
-    c.call(entry::CALL_EMS_FUNC, 0xed5f)?;
+    let failed = ems_failed(&mut c, 0xed5f)?;
     let bx = c.reg(BX);
-    if c.flag(CF) {
+    if failed {
         c.run(0xed5f, 1)?;
         return fail_edb3(&mut c);
     }
@@ -632,9 +639,9 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xed69, 5)?;
     c.set_reg8(super::r8::AH, 0x42);
     c.set_reg(BX, 0);
-    c.call(entry::CALL_EMS_FUNC, 0xed77)?;
+    let failed = ems_failed(&mut c, 0xed77)?;
     let bx = c.reg(BX);
-    if c.flag(CF) {
+    if failed {
         c.run(0xed77, 1)?;
         return fail_edb3(&mut c);
     }
@@ -656,8 +663,7 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, a);
     c.set_word(g::EMS_BLOCKS, a);
     c.set_reg8(super::r8::AH, 0x43);
-    c.call(entry::CALL_EMS_FUNC, 0xed9b)?;
-    if c.flag(CF) {
+    if ems_failed(&mut c, 0xed9b)? {
         c.run(0xed9b, 1)?;
         return fail_edb3(&mut c);
     }

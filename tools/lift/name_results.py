@@ -84,7 +84,7 @@ RESULTS = {
     # map
     0x62d6: ('CF', True, 'outside_view', 'whether (DX, BX) is outside the view.'),
     0x62c9: ('CF', True, 'record_off_view', 'whether the screen place of the record at SI is outside the view.'),
-    0x5d36: ('CF', True, 'location_kind_ok', 'whether the location at DI is of a kind below 28h, or from 28h with bit 8 of byte 0Ah.'),
+    0x5d36: ('CF', True, 'location_skipped', 'whether the location loops skip the location at DI: of a kind below 28h, or with bit 8 of byte 0Ah.'),
     0x627e: ('CF', True, 'location_shown', 'whether the location at DI is a place to show.'),
     0x5d1d: ('CF', True, 'point_in_view', 'whether (DX, BX) is in the view.'),
     0x5ed0: ('ZF', True, 'marker_found', "whether a marker's word is DI (BP = its entry)."),
@@ -124,10 +124,18 @@ RESULTS = {
     # dialogue and scripts, more
     0xb150: ('ZF', False, 'dialogue_found', 'whether a dialogue entry was found (DI = it).'),
     0xa396: ('ZF', False, 'condition_holds', 'whether condition AX of the CONDIT script holds.'),
+    # third pass
+    0xed45: ('CF', True, 'ems_failed', 'whether the EMS function failed (AH 80h or more, its error codes).'),
+    0xed40: ('CF', True, 'ems_handle_func_failed', "whether the EMS function on the game's handle failed."),
+    0x848f: ('ZF', False, 'followed_place', 'whether a followed place is left once the reached waypoints are dropped (DI = it).'),
+    0x4937: ('ZF', False, 'video_done_after_sound', 'the sound started at frame 11 when due; whether no video plays (as `video_done`).'),
+    0x6b96: ('CF', True, 'troop_bit_10_set_by_state', "whether troop SI's bit 10h of byte 3 is now set (by its state)."),
+    0x6bd7: ('CF', True, 'troop_bit_10_set_by_skill', "whether troop SI's bit 10h of byte 3 is now set (by its skill)."),
+    0x6b8a: ('CF', True, 'troop_bit_10_set_by_location', "whether troop SI's bit 10h of byte 3 is now set (by its location)."),
 }
 
 FLAG_READ = re.compile(r'(!?)c\.flag\((?:pc::cpu::)?(CF|ZF)\)')
-CALL = re.compile(r'c\.call\(((?:\w+::)*)(\w+), (0x[0-9a-f]+)\)\?;')
+CALL = re.compile(r'c\.call\(((?:\w+::)*)(\w+), ([^;\n]+?)\)\?;')
 # Anything that may change the flags, or hand them to code not followed.
 WRITER = re.compile(
     r'\bc\.(?!run\b|reg\b|reg8\b|sreg\b|set_reg\b|set_reg8\b|set_sreg\b|byte\b|word\b|'
@@ -320,7 +328,7 @@ def convert(modules):
     print('sites', total)
 
 
-FLAG_LOCAL = re.compile(r'^([ \t]*)let (cf|zf|z) = (!?)((?:\w+::)*(\w+))(\((?:&mut )?c, 0x[0-9a-f]+\)\?;)$', re.M)
+FLAG_LOCAL = re.compile(r'^([ \t]*)let (cf|zf|z) = (!?)((?:\w+::)*(\w+))(\((?:&mut )?c, [^;\n]+\)\?;)$', re.M)
 
 
 def rename_flag_locals(text, names):

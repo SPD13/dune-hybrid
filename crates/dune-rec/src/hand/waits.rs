@@ -11,7 +11,7 @@ use super::pure;
 use super::{B, Ctx, W, r8, entered};
 use pc::{
     Machine,
-    cpu::{AX, BX, CF, CX, DI, IF, SI, ZF},
+    cpu::{AX, BX, CF, CX, DI, IF, SI},
     rec::Bail,
 };
 
@@ -188,20 +188,17 @@ pub fn wait_for_pcm_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return wait_at_ddb0(&mut c);
     }
     c.run(0xddfa, 2)?;
-    c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xddff)?;
-    loop {
-        if c.flag(ZF) {
-            c.run(0xddff, 1)?;
-            return nz_ret(&mut c, 0xde07);
-        }
+    // Until the voice file closes, or a key or click.
+    while sound::voice_file_open(&mut c, 0xddff)? {
         c.run(0xddff, 2)?;
         if frame::user_input(&mut c, 0xde04)? {
             c.run(0xde04, 2)?;
             return c.ret();
         }
         c.run(0xde04, 2)?;
-        c.call(entry::CHECK_PCM_VOICE_FILE_OPEN, 0xddff)?;
     }
+    c.run(0xddff, 1)?;
+    nz_ret(&mut c, 0xde07)
 }
 
 /// [`wait_for_pcm_voice`] called: whether a key or click cut the wait for the voice short.
@@ -245,10 +242,8 @@ pub fn audio_test_frequency(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xa894, 2)?;
     let t0 = c.timer();
     c.push(t0);
-    c.call(entry::PCM_TEST_AUDIO_DONE, 0xa89b)?;
-    while c.flag(ZF) {
+    while sound::pcm_done(&mut c, 0xa89b)? {
         c.run(0xa89b, 2)?;
-        c.call(entry::PCM_TEST_AUDIO_DONE, 0xa89b)?;
     }
     c.run(0xa89b, 10)?;
     let t = c.timer();

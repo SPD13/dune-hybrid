@@ -304,8 +304,8 @@ pub fn location_kind_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret_cf(kind < 0x28 || f & 8 != 0)
 }
 
-/// [`location_kind_check`] called: whether the location at DI is of a kind below 28h, or from 28h with bit 8 of byte 0Ah.
-pub(super) fn location_kind_ok(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+/// [`location_kind_check`] called: whether the location loops skip the location at DI: of a kind below 28h, or with bit 8 of byte 0Ah.
+pub(super) fn location_skipped(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
     c.call_cf(0x5d36, ret)
 }
 
@@ -489,12 +489,16 @@ pub fn drop_reached_waypoints(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DI, di);
         if !go {
             // Its callers read ZF alone.
-            c.set_flag(ZF, di == 0);
-            return c.ret();
+            return c.ret_zf(di == 0);
         }
         c.call(entry::SHIFT_FOLLOWED_TROOP_NOTE, 0x84a1)?;
         (at, jmp) = (0x84a1, 1);
     }
+}
+
+/// [`drop_reached_waypoints`] called: whether a followed place is left once the reached waypoints are dropped (DI = it).
+pub(super) fn followed_place(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+    Ok(!c.call_zf(0x848f, ret)?)
 }
 
 /// `loc_08770`: with [1954h] set, `loc_0878c` with [46F3h] cleared, then
@@ -1157,9 +1161,9 @@ pub fn location_to_show(m: &mut Machine, start: u16) -> Result<(), Bail> {
         true
     } else {
         c.run(0x6281, 3)?;
-        let location_kind_ok = location_kind_ok(&mut c, 0x628a)?;
+        let location_skipped = location_skipped(&mut c, 0x628a)?;
         c.run(0x628a, 2)?;
-        if location_kind_ok {
+        if location_skipped {
             false
         } else {
             c.call(entry::COUNT_LOCATION_TROOP_SIDES, 0x628f)?;
@@ -1193,10 +1197,10 @@ pub fn location_map_kind(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0x6255, 2)?;
-    let location_kind_ok = location_kind_ok(&mut c, 0x625a)?;
+    let location_skipped = location_skipped(&mut c, 0x625a)?;
     let di = c.reg(DI);
     let f = c.byte(di.wrapping_add(0x0a));
-    if !location_kind_ok {
+    if !location_skipped {
         c.run(0x625a, 3)?;
         c.set_reg(AX, 2);
         return c.ret();
@@ -2110,9 +2114,9 @@ pub fn unmark_pending_regions(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let b = c.byte(di);
                 c.run(0x55a2, if b == bl as u8 { 3 } else { 2 })?;
                 if b == bl as u8 {
-                    let location_kind_ok = location_kind_ok(&mut c, 0x55a9)?;
+                    let location_skipped = location_skipped(&mut c, 0x55a9)?;
                     c.run(0x55a9, 1)?;
-                    if !location_kind_ok {
+                    if !location_skipped {
                         found = true;
                         break;
                     }
@@ -7062,9 +7066,9 @@ pub fn move_trail_span(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(es);
         let si = c.reg(SI);
         c.set_reg(DI, si);
-        let location_kind_ok = location_kind_ok(&mut c, 0x6580)?;
+        let location_skipped = location_skipped(&mut c, 0x6580)?;
         let di = c.reg(DI);
-        if location_kind_ok {
+        if location_skipped {
             c.run(0x6580, 3)?;
         } else if di < 0x138 {
             c.run(0x6580, 5)?;
