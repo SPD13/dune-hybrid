@@ -4,7 +4,7 @@ use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BX, CX, DS, DX, SI, SP, SS},
+    cpu::{AX, BX, CF, CX, DS, DX, SI, SP, SS, ZF},
     rec::Bail,
 };
 
@@ -32,7 +32,8 @@ pub fn draw_icons_list_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if sprite == 0xffff {
             c.run(0xc21b, 4)?; // lodsw; cmp; je; ret
             c.lods(W, DS);
-            c.cmp(W, sprite, 0xffff);
+            c.set_flag(ZF, sprite == 0xffff);
+            c.set_flag(CF, sprite < 0xffff);
             return c.ret();
         }
         c.run(0xc21b, 10)?;

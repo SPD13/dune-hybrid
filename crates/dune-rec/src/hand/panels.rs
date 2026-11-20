@@ -85,7 +85,8 @@ pub fn ui_draw_date_and_time_indicator(m: &mut Machine, start: u16) -> Result<()
     let hidden = c.word(g::FRIEZE_LEFT_SPRITE);
     if hidden != 0 {
         c.run(start, 3)?;
-        c.cmp(W, hidden, 0); // the exit's flags
+        c.set_flag(ZF, hidden == 0);
+        c.set_flag(CF, false); // the exit's flags
         return c.ret();
     }
     c.run(start, 4)?;

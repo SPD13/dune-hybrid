@@ -93,13 +93,13 @@ pub fn ui_head_animate_up(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let blocked = c.travel().screen_kind;
         if blocked != 0 {
             c.run(0x17e6, 3)?;
-            c.cmp(B, blocked as u16, 0);
+            c.set_flag(CF, false);
             return c.ret();
         }
         let step = c.situation().head_animation_step;
         if step == 0x0a {
             c.run(0x17e6, 5)?;
-            c.cmp(B, step as u16, 0x0a);
+            c.set_flag(CF, step < 0x0a);
             return c.ret();
         }
         c.run(0x17e6, 6)?;
@@ -555,7 +555,7 @@ pub fn set_sky_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let id = c.reg8(r8::BL);
     if current == id {
         c.run(0x3895, 5)?;
-        c.cmp(B, current as u16, id as u16);
+        c.set_flag(CF, current < id);
         return c.ret();
     }
     c.run(0x3895, 6)?;

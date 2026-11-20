@@ -8,7 +8,7 @@ use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CS, CX, DI, DS, DX, ES, SI, SP, SS},
+    cpu::{AX, BP, BX, CF, CS, CX, DI, DS, DX, ES, SI, SP, SS, ZF},
     rec::Bail,
 };
 
@@ -621,7 +621,8 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(g::TRANSITION_ACTIVE);
     if (k as i8) <= 0 {
         c.run(start, 3)?;
-        c.cmp(B, k as u16, 0);
+        c.set_flag(ZF, k == 0);
+        c.set_flag(CF, false);
         return c.ret();
     }
     c.run(start, 3)?;

@@ -858,7 +858,7 @@ pub fn troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.cmp(B, k as u16, 0);
     c.set_reg(DI, 0x3caf);
     if k & 0x80 == 0 {
-        c.or(W, 0x3caf, 0x3caf);
+        c.set_flag(ZF, false);
         return c.ret();
     }
     let mut cx = n_all;
@@ -866,7 +866,7 @@ pub fn troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut di = 0x3cafu16;
     loop {
         if cx == 0 {
-            c.or(W, di, di);
+            c.set_flag(ZF, di == 0);
             return c.ret();
         }
         loop {

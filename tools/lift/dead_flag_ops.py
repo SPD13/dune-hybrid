@@ -373,6 +373,8 @@ def dead(port, root, block, idx, op_pos, written):
 
 WHY = {}  # why operations stay (`--why`)
 EXPLICIT = "--explicit" in sys.argv
+# With `--explicit --apply`: those operations become `c.set_flag(..)`.
+APPLY = EXPLICIT and "--apply" in sys.argv
 
 
 def blank_comments(src):
@@ -414,6 +416,7 @@ def convert(path, dry):
         open(os.path.join(df.REPO, 'crates/dune-rec/src/hand/entry.rs'), encoding='utf-8').read())})
     edits = []  # (start, end, replacement) in src
     report = []
+    need_flags = set()  # flag names the explicit forms use
     for m in re.finditer(r'^pub fn (\w+)\(m: &mut Machine, start: u16\)[^\n]*\{\n(.*?)^\}', src, re.M | re.S):
         name, base = m.group(1), m.start(2)
         body = blank_comments(m.group(2))
@@ -440,7 +443,18 @@ def convert(path, dry):
                     ok = dead(port, root, block, idx, op.end(), WRITES[op.group(1)])
                     flags, SEEN = SEEN[0], None
                     if ok and flags and not flags & ~(CF | ZF):
-                        print(f'  {name}: {" ".join(k for k, v in FLAG_BITS.items() if v & flags)}: {text}')
+                        new = explicit_flags(text, flags)
+                        print(f'  {name}: {" ".join(k for k, v in FLAG_BITS.items() if v & flags)}: {text}'
+                              + (f'  ->  {" ".join(new)}' if new else ''))
+                        if new and APPLY:
+                            at = body.index(text.rstrip(';'), s0)
+                            ls = body.rfind('\n', 0, at) + 1
+                            indent = body[ls:at]
+                            if indent.strip() == '':
+                                edits.append((base + at, base + at + len(text),
+                                              ('\n' + indent).join(new)))
+                                n += 1
+                                need_flags.update(re.findall(r'set_flag\((\w+)', ' '.join(new)))
                 continue
             # The statement's own text in the body (tokens are stripped).
             at = body.index(text.rstrip(';'), s0)
@@ -482,10 +496,90 @@ def convert(path, dry):
         if 'pure::' in text and not re.search(r'^use super::pure;', text, re.M) \
                 and not re.search(r'^use super::\{[^}]*\bpure\b', text, re.M):
             text = re.sub(r'^(use super::)', r'use super::pure;\n\1', text, count=1, flags=re.M)
+        for f in sorted(need_flags):
+            text = import_flag(text, f)
         if crlf:
             text = text.replace('\n', '\r\n')
         open(path, 'wb').write(text.encode('utf-8'))
     return len(edits), report
+
+
+def import_flag(text, f):
+    """`f` (CF, ZF) in the file's `use pc::{ .., cpu::{..}, ..}`, unless
+    it is there already."""
+    m = re.search(r'^use pc::\{.*?^\};', text, re.M | re.S) or re.search(r'^use pc::.*?;', text, re.M | re.S)
+    if m and re.search(r'\b' + f + r'\b', m.group(0)):
+        return text
+    if m:
+        g = re.search(r'cpu::\{([^}]*)\}', m.group(0))
+        if g:
+            names = [x.strip() for x in g.group(1).split(',') if x.strip()] + [f]
+            new = m.group(0)[:g.start(1)] + ', '.join(sorted(set(names), key=lambda x: (x != 'self', x))) + m.group(0)[g.end(1):]
+            return text[:m.start()] + new + text[m.end():]
+    return re.sub(r'^(use )', 'use pc::cpu::' + f + r';\n\1', text, count=1, flags=re.M)
+
+
+def byte_arg(a):
+    """An 8-bit operand as Rust: `x as u16` is `x`, a literal stays, else
+    the low byte."""
+    a = a.strip()
+    m = re.fullmatch(r'(\w+) as u16', a)
+    if m:
+        return m.group(1)
+    if re.fullmatch(r'0x[0-9a-fA-F]+|\d+', a):
+        return a
+    if re.fullmatch(r'\w+', a):
+        return f'({a} as u8)'
+    return f'(({a}) as u8)'
+
+
+def lit(a):
+    a = a.strip()
+    if re.fullmatch(r'0x[0-9a-fA-F]+', a):
+        return int(a, 16)
+    if re.fullmatch(r'\d+', a):
+        return int(a)
+    return None
+
+
+def explicit_flags(text, flags):
+    """The statement `c.cmp(..);` (or test, or, and, xor with its result
+    unused) as `c.set_flag(..)` lines for `flags` (CF, ZF), or None."""
+    m = re.fullmatch(r'c\.(cmp|test|or|and|xor)\(((?:super::|Width::)?[BW]), (.*)\);', text, re.S)
+    if not m or re.search(r'\bc\.|\(c\b|&mut c\b|\n', m.group(3)):
+        return None
+    op, w = m.group(1), m.group(2).split('::')[-1]
+    args = split_args(m.group(3))
+    if len(args) != 2:
+        return None
+    a, b = args
+    la, lb = lit(a), lit(b)
+    mask = 0xff if w == 'B' else 0xffff
+    if w == 'B':
+        a, b = byte_arg(a), byte_arg(b)
+    if la is not None and lb is not None:
+        x, y = la & mask, lb & mask
+        val = {'cmp': x - y, 'test': x & y, 'or': x | y, 'and': x & y, 'xor': x ^ y}[op]
+        z, cf = str(val & mask == 0).lower(), str(op == 'cmp' and x < y).lower()
+    else:
+        if op == 'cmp':
+            z, cf = f'{a} == {b}', ('false' if lb == 0 else f'{a} < {b}')
+        elif op in ('test', 'and'):
+            z, cf = f'{a} & {b} == 0', 'false'
+        elif op == 'or':
+            if (la or 0) & mask or (lb or 0) & mask:
+                z = 'false'
+            else:
+                z = f'{a} == 0' if a == b else f'{a} | {b} == 0'
+            cf = 'false'
+        else:
+            z, cf = (f'{a} == {b}'), 'false'
+    out = []
+    if flags & ZF:
+        out.append(f'c.set_flag(ZF, {z});')
+    if flags & CF:
+        out.append(f'c.set_flag(CF, {cf});')
+    return out
 
 
 def main():

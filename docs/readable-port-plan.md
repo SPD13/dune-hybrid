@@ -213,6 +213,15 @@ bail). Operations whose flags nothing sees are removed (`c.cmp(..);`,
 `c.or(W, ax, ax);`) or become `pure::`. The first run took 163 of them
 in 74 ports.
 
+With `--explicit` it also lists the operations whose flags only a
+return seen as CF or ZF reads (or a `c.flag` of those), and with
+`--apply` writes them as what the callers get: `c.cmp(W, r, need);`
+becomes `c.set_flag(ZF, r == need); c.set_flag(CF, r < need);` (only the
+flags read), `c.or(W, di, di);` becomes `c.set_flag(ZF, di == 0);`.
+22 ports were rewritten that way by hand first (`point_in_rect`:
+`c.set_flag(CF, passed == 3 && bx < r[3])`, `in_view`, `on_globe`, the
+dialogue clicks, the HNM checks, ...), then 41 operations by the tool.
+
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust
 (no flag helpers where no caller reads the flags), `c.run(start, cost)`

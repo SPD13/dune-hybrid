@@ -8,7 +8,7 @@ use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CX, DI, DX, SI},
+    cpu::{AX, BP, BX, CF, CX, DI, DX, SI, ZF},
     rec::Bail,
 };
 
@@ -190,7 +190,8 @@ pub fn draw_mouse_cursor_if_needed(m: &mut Machine, start: u16) -> Result<(), Ba
     let hidden = c.mouse_state().hidden_for_rect;
     if hidden & 0x80 == 0 {
         c.run(start, 3)?;
-        c.cmp(B, hidden as u16, 0);
+        c.set_flag(ZF, hidden == 0);
+        c.set_flag(CF, false);
         return c.ret();
     }
     c.run(start, 4)?;

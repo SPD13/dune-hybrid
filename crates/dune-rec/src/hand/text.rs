@@ -5,7 +5,7 @@ use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CX, DI, DS, DX, ES, SI, ZF},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, ZF},
     rec::Bail,
 };
 
@@ -201,7 +201,7 @@ pub fn font_draw_string(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if ch == 0xff {
             c.run(0xd1bb, 4)?; // lodsb; cmp; je; ret
             c.lods(B, ES);
-            c.cmp(B, 0xff, 0xff); // the exit's flags
+            c.set_flag(CF, false); // the exit's flags
             return c.ret();
         }
         if ch == 0x0d {
@@ -288,7 +288,7 @@ pub fn text_8b11_unless_command(m: &mut Machine, start: u16) -> Result<(), Bail>
     let command = b & 0x80 != 0;
     c.run(start, if command { 4 } else { 5 })?;
     c.lods(B, DS);
-    c.or(B, b as u16, b as u16);
+    c.set_flag(CF, false);
     if command {
         return c.ret();
     }
@@ -297,7 +297,7 @@ pub fn text_8b11_unless_command(m: &mut Machine, start: u16) -> Result<(), Bail>
     let si = c.reg(SI);
     let v = c.byte(si);
     c.run(0x88ea, if v >= 0xfe { 3 } else { 4 })?;
-    c.cmp(B, v as u16, 0xfe);
+    c.set_flag(CF, v < 0xfe);
     c.ret()
 }
 

@@ -7,7 +7,7 @@ use super::pure;
 use super::{B, Ctx, W, characters, entered, game, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CX, DI, DS, DX, ES, SI, SP, SS, ZF},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, ES, SI, SP, SS, ZF},
     rec::Bail,
 };
 
@@ -1709,7 +1709,7 @@ pub fn redraw_dialogue_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x9791, 4)?;
     c.set_reg(AX, talker);
     if talker == 0xffff {
-        c.cmp(W, talker, 0xffff);
+        c.set_flag(CF, talker < 0xffff);
         return c.ret();
     }
     c.call(entry::SETUP_LIP_SYNC_DATA_FROM_SPRITE_SHEET, 0x979c)?;
@@ -1943,7 +1943,7 @@ pub fn show_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let phrase = c.reg(AX);
     if phrase == 0 {
         c.run(start, 3)?;
-        c.or(W, 0, 0);
+        c.set_flag(CF, false);
         return c.ret();
     }
     let mode = c.map_view().mode;
@@ -2943,7 +2943,7 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(g::BOOK_VIDEO_BUTTON_FLAGS, 0);
     c.set_reg(AX, icons);
     if icons == 0 {
-        c.or(W, icons, icons); // the exit's flags
+        c.set_flag(CF, false); // the exit's flags
         return c.ret();
     }
     c.set_byte(g::BOOK_VIDEO_BUTTON_FLAGS, 0x80);

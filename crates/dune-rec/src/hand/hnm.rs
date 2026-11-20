@@ -257,7 +257,8 @@ pub fn hnm_ring_has_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, w);
             c.set_reg(BX, r);
             c.set_reg(AX, need);
-            c.cmp(W, r, need);
+            c.set_flag(ZF, r == need);
+            c.set_flag(CF, r < need);
             return c.ret();
         }
     }
@@ -270,7 +271,8 @@ pub fn hnm_ring_has_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, a);
     if !carry {
         let v = c.video_state().wrapped_at;
-        c.cmp(W, v, a);
+        c.set_flag(ZF, v == a);
+        c.set_flag(CF, v < a);
     }
     c.ret()
 }

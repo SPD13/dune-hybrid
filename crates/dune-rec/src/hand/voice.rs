@@ -37,7 +37,7 @@ pub fn music_enabled(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     let s = c.sound_state().settings;
-    c.test(W, s, 0x100);
+    c.set_flag(ZF, s & 0x100 == 0);
     c.ret()
 }
 
@@ -208,7 +208,7 @@ pub fn refill_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if first != 0 && second != 0 {
         c.run(0xa9bc, 7)?;
         c.set_reg(SI, g::VOC_BUFFER);
-        c.cmp(B, second as u16, 0);
+        c.set_flag(ZF, second == 0);
         return c.ret();
     }
     c.run(0xa9bc, if first == 0 { 4 } else { 7 } + 5)?;
@@ -459,7 +459,7 @@ pub fn play_requested_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, if al == 0 { 5 } else { 4 })?;
     c.set_reg8(r8::AL, al);
     c.update_sound_state(|t| t.current_music = 0);
-    c.or(B, al as u16, al as u16);
+    c.set_flag(CF, false);
     if al == 0 {
         return c.ret();
     }
@@ -482,11 +482,11 @@ pub fn fade_out_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let present = c.sound_state().present;
     let n = if set & 1 != 0 { 4 } else if present & 0x40 != 0 { 6 } else { 8 };
     c.run(0xadc1, n)?;
-    c.test(B, set as u16, 1);
+    c.set_flag(CF, false);
     if set & 1 != 0 {
         return c.ret();
     }
-    c.test(B, present as u16, 0x40);
+    c.set_flag(CF, false);
     if present & 0x40 != 0 {
         return c.ret();
     }
@@ -1114,7 +1114,7 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let s = c.sound_state().present;
         if s & 0x80 != 0 {
             c.run(0xad66, 5)?;
-            c.cmp(B, s as u16, 0); // the exit's flags
+            c.set_flag(CF, false); // the exit's flags
             return c.ret();
         }
         let ops = |c: &mut Ctx| {
@@ -1128,7 +1128,7 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xad66, 2 + 4 + 1)?;
         c.set_reg(BX, 0x375c);
         c.set_reg8(r8::AL, 0);
-        c.or(B, 0, 0); // the exit's flags
+        c.set_flag(CF, false); // the exit's flags
         return c.ret();
     }
     if v & 0x80 == 0 {
@@ -1149,7 +1149,7 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, 0x375c);
     c.set_reg8(r8::AL, a);
     c.update_sound_state(|t| t.requested_music = a);
-    c.cmp(B, a as u16, cur as u16); // the exit's flags
+    c.set_flag(CF, a < cur); // the exit's flags
     if a == cur {
         return c.ret();
     }
@@ -1557,7 +1557,8 @@ pub fn set_lipsync_data_to_al(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cur = c.byte(g::LIPSYNC_FRAME);
     if al == cur {
         c.run(0xa82e, 3)?;
-        c.cmp(B, al as u16, cur as u16);
+        c.set_flag(ZF, al == cur);
+        c.set_flag(CF, al < cur);
         return c.ret();
     }
     c.run(0xa82e, 5)?;

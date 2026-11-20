@@ -4,7 +4,7 @@ use super::entry;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, CF, DI, DS, ES, IF},
+    cpu::{AX, CF, DI, DS, ES, IF, ZF},
     rec::Bail,
 };
 
@@ -19,7 +19,8 @@ pub fn advance_lipsync(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.check(start, 11)?;
     let di = c.word(g::LIPSYNC_PTR);
     c.set_reg(DI, di);
-    c.or(W, di, di);
+    c.set_flag(ZF, di == 0);
+    c.set_flag(CF, false);
     if di == 0 {
         c.count(4);
         return c.ret();
@@ -28,7 +29,8 @@ pub fn advance_lipsync(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, seg);
     let shape = c.byte_in(ES, di);
     c.set_reg8(r8::AL, shape);
-    c.cmp(B, shape as u16, 0xff);
+    c.set_flag(ZF, shape == 0xff);
+    c.set_flag(CF, shape < 0xff);
     if shape == 0xff {
         c.count(8);
         return c.ret();
@@ -70,7 +72,8 @@ pub fn check_pcm_voice_file_open(m: &mut Machine, start: u16) -> Result<(), Bail
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     let handle = c.word(g::VOICE_FILE_HANDLE);
-    c.cmp(W, handle, 0);
+    c.set_flag(ZF, handle == 0);
+    c.set_flag(CF, false);
     c.ret()
 }
 
@@ -185,7 +188,8 @@ pub fn check_midi(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xde0c, 6)?;
         let ax = c.reg(AX);
         c.push(ax);
-        c.or(B, ax & 0xff, 1); // the exit's flags (ZF clear)
+        c.set_flag(ZF, false);
+        c.set_flag(CF, false); // the exit's flags (ZF clear)
         let v = c.pop();
         c.set_reg(AX, v);
         return c.ret();

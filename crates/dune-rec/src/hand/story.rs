@@ -6,7 +6,7 @@ use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, SI, SP, SS, Width},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, DX, SI, SP, SS, Width, ZF},
     rec::Bail,
 };
 
@@ -3542,7 +3542,7 @@ pub fn ui_comm(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, bp);
     let di = c.word(g::COMM_STEP);
     c.set_reg(DI, di);
-    c.or(W, di, di); // the exit's flags
+    c.set_flag(ZF, di == 0); // the exit's flags
     c.ret()
 }
 
@@ -5330,7 +5330,7 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let st = c.progress().talk_reason;
         if st == 0 {
             c.run(0x3609, 3)?;
-            c.cmp(B, 0, 0);
+            c.set_flag(CF, false);
             return c.ret();
         }
         c.run(0x3609, 3)?;
@@ -5373,7 +5373,7 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let st = c.progress().talk_reason;
     if st == 0 {
         c.run(0x363a, 3)?;
-        c.cmp(B, 0, 0);
+        c.set_flag(CF, false);
         return c.ret();
     }
     c.run(0x363a, 3)?;

@@ -4,7 +4,7 @@ use super::pure;
 use super::{B, Ctx, W, entered, globals as g};
 use pc::{
     Machine,
-    cpu::{AX, BX, CF, DI, DX, ES, SI},
+    cpu::{AX, BX, CF, DI, DX, ES, SI, ZF},
     rec::Bail,
 };
 
@@ -118,9 +118,11 @@ pub fn check_if_hnm_complete(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let state = c.video_state().playing;
     c.run(start, if state == 0 { 3 } else { 4 })?;
-    c.cmp(B, state as u16, 0);
+    c.set_flag(ZF, state == 0);
+    c.set_flag(CF, false);
     if state != 0 {
-        c.cmp(B, state as u16, 1);
+        c.set_flag(ZF, state == 1);
+        c.set_flag(CF, state < 1);
     }
     c.ret()
 }

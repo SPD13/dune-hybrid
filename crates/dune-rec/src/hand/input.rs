@@ -5,7 +5,7 @@ use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BX, CX, DX, SI},
+    cpu::{AX, BX, CX, DX, SI, ZF},
     rec::Bail,
 };
 
@@ -82,7 +82,7 @@ pub fn kb_check_for_esc_key_hit(m: &mut Machine, start: u16) -> Result<(), Bail>
     let esc = key == 1;
     c.run(start, if esc { 7 } else { 4 })?;
     c.set_byte(g::ESC_HIT, 0);
-    c.cmp(B, key as u16, 1);
+    c.set_flag(ZF, key == 1);
     if esc {
         c.set_byte(g::ESC_HIT, 1);
         c.set_byte(g::KEY_HIT, 0);

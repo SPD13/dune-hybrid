@@ -11,7 +11,7 @@ use super::entry;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
-    cpu::{AX, BP, BX, CX, DI, DS, ES, SI},
+    cpu::{AX, BP, BX, CF, CX, DI, DS, ES, SI, ZF},
     rec::Bail,
 };
 
@@ -34,7 +34,8 @@ pub fn add_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, count);
     let n = count.wrapping_add(1);
     c.set_reg(AX, n);
-    c.cmp(W, n, MAX_TASKS); // the flags of a full list's exit
+    c.set_flag(ZF, n == MAX_TASKS);
+    c.set_flag(CF, n < MAX_TASKS); // the flags of a full list's exit
     if n > MAX_TASKS {
         c.count(8);
         return c.ret();
@@ -53,7 +54,8 @@ pub fn add_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.stos(W);
     let walk = c.word(g::FRAME_TASK_WALK);
     c.set_reg(BP, walk);
-    c.or(W, walk, walk); // the flags of the exits
+    c.set_flag(ZF, walk == 0);
+    c.set_flag(CF, false); // the flags of the exits
     if walk == 0 {
         c.count(24);
         return c.ret();
@@ -183,9 +185,9 @@ pub fn add_room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let animated = low == 4 && high < 0x20;
     c.run(0x3a7f, if low != 4 { 4 } else if !animated { 6 } else { 8 })?;
     c.set_reg(AX, place);
-    c.cmp(super::B, low, 4);
+    c.set_flag(CF, (low as u8) < 4);
     if low == 4 {
-        c.cmp(super::B, high, 0x20);
+        c.set_flag(CF, (high as u8) < 0x20);
     }
     if animated {
         c.set_reg(SI, ROOM_ANIMATION_TASK);

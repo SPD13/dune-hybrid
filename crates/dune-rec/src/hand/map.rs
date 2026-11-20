@@ -1368,7 +1368,7 @@ pub fn show_message_0f(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x7bd9, 5)?;
         c.set_reg(SI, si);
-        c.cmp(B, k as u16, 0);
+        c.set_flag(CF, false);
     }
     super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
 }
