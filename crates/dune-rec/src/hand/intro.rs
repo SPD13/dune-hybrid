@@ -45,7 +45,7 @@ pub fn clear_global_y_offset(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     let ax = c.reg(AX);
-    let zero = c.xor(W, ax, ax);
+    let zero = pure::xor(W, ax, ax);
     c.set_reg(AX, zero);
     c.interp(0x057b, 0x057f)?; // call far [gfxVtable33]
     c.run(0x057f, 1)?;

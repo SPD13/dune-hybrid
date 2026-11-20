@@ -185,8 +185,6 @@ pub fn draw_moon_and_sun(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, size);
     let lines = c.lods(W, DS);
     c.set_reg(CX, lines);
-    let ch = c.reg8(r8::CH);
-    c.xor(B, ch as u16, ch as u16); // `xor ch, ch`: the driver's far call sees these flags
     c.set_reg8(r8::CH, 0);
     c.set_reg(BP, g::SKY_CLIP_RECT);
     c.interp(0x1abd, 0x1ac2)?;
@@ -970,7 +968,6 @@ pub fn redraw_head_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x17c1, 4 + if k == 0 { 1 } else { 3 })?;
     c.set_reg(SI, 0x1e6e);
     c.push(0x1e6e);
-    c.cmp(B, k as u16, 0);
     if k == 0 {
         c.call(entry::COPY_RECT_FB2_TO_FB1_AT_SI, 0x17cf)?;
         c.run(0x17cf, 2)?;
@@ -1005,7 +1002,6 @@ pub fn sky_fade_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let alt = c.byte(g::SKY_VARIANT);
     c.run(start, 2 + 4 + if alt == 0 { 2 } else { 0 } + 2)?;
-    c.cmp(B, alt as u16, 0); // the driver's far call sees these flags
     let (cx, bx) = if alt == 0 { (0xf0, 0x180) } else { (0x1c5, 0xdb) };
     c.set_reg(CX, cx);
     c.set_reg(BX, bx);
@@ -1018,7 +1014,6 @@ pub fn sky_fade_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x3938, 3 + if cinematic == 0 { 2 } else { 0 })?;
     let a = c.pop();
     c.set_reg(AX, a);
-    c.cmp(B, cinematic as u16, 0); // the second far call sees these
     if cinematic == 0 {
         c.set_reg(CX, 0x30);
         c.set_reg(BX, 0x2d0);
@@ -1116,7 +1111,6 @@ pub fn chankiss(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(ds);
     let nds = c.screen_buffers().active;
     c.set_sreg(DS, nds);
-    c.xor(W, 0, 0);
     c.set_reg(DX, 0);
     c.set_reg(BX, 0x32);
     c.set_reg(BP, 3);
@@ -1182,7 +1176,6 @@ pub fn bring_portrait(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.pop();
     c.set_reg(DX, x.min(0xf0));
     c.set_reg(BX, y.min(0x71));
-    c.cmp(W, y, 0x71); // the driver's far call sees these flags
     let es = c.screen_buffers().second;
     c.set_sreg(ES, es);
     let ds = c.sreg(DS);
@@ -1731,7 +1724,7 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::LABEL_RECT, dx);
     c.set_word(g::LABEL_RECT_TOP, bx);
     c.set_word(g::LABEL_RECT_RIGHT, 0xe3);
-    let b = c.add(W, bx, 7); // the driver's far call sees these flags
+    let b = c.add(W, bx, 7); // through the driver's far call (reads none); not shown unread after
     c.set_reg(BX, b);
     c.set_word(g::LABEL_RECT_BOTTOM, b);
     let bg = c.byte(g::TEXT_BACK_COLOUR);

@@ -319,7 +319,7 @@ pub fn draw_sprite_clipped_clobbering(m: &mut Machine, start: u16) -> Result<(),
     c.set_reg(SI, sheet);
     c.set_sreg(DS, seg);
     let ax = c.reg(AX);
-    let index = c.shl1(W, ax, 1);
+    let index = pure::shl1(W, ax, 1);
     c.set_reg(BP, index);
     let offset = c.word_in(DS, index.wrapping_add(sheet));
     let si = pure::add(W, sheet, offset);
@@ -327,8 +327,6 @@ pub fn draw_sprite_clipped_clobbering(m: &mut Machine, start: u16) -> Result<(),
     let size = c.lods(W, DS);
     c.set_reg(DI, size);
     c.lods(W, DS);
-    let ah = c.reg8(r8::AH);
-    c.xor(B, ah as u16, ah as u16);
     c.set_reg8(r8::AH, 0);
     let ax = c.reg(AX);
     c.set_reg(CX, ax);
@@ -431,7 +429,7 @@ pub fn copy_rect_clipped(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if x1 <= x0 {
         return c.ret();
     }
-    let h = c.sub(W, y1, y0); // the driver's far call sees the flags
+    let h = pure::sub(W, y1, y0);
     c.set_reg(AX, h);
     if y1 <= y0 {
         return c.ret();

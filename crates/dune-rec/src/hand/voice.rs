@@ -1507,7 +1507,7 @@ pub fn decode_sd_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, moved);
     c.set_reg(SI, 0x1a);
     let di = c.reg(DI);
-    c.xor(W, di, di); // `xor di, di`: the driver's far call sees these flags
+    c.xor(W, di, di); // through the driver's far call (reads none); not shown unread after
     c.set_reg(DI, 0);
     let counted = c.m.cpu.instructions;
     c.m.cpu.string_op(&mut c.m.hw, 0xa4, Some(ES), 0xf3);

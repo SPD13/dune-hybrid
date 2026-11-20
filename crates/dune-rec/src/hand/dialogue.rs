@@ -4283,7 +4283,7 @@ fn frame_8fd1(c: &mut Ctx) -> Result<(), Bail> {
     c.set_word(g::TEXT_BOX_FLAGS, 0x80);
     c.set_word(g::TEXT_BOX_HANDLER, 0x7bed);
     let v = c.word(g::TEXT_BOX_Y0);
-    let v = c.sub(W, v, 2); // the driver's far call sees these flags
+    let v = c.sub(W, v, 2); // through the driver's far call (reads none); not shown unread after
     c.set_word(g::TEXT_BOX_Y0, v);
     let al = c.byte(g::PLACE_PANEL_FILL);
     c.set_reg8(r8::AL, al);

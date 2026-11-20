@@ -293,14 +293,8 @@ pub fn redraw_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BP, before);
     c.set_reg8(r8::AL, shown);
     c.update_mouse_state(|t| t.cursor_shown = 0);
-    c.or(B, shown as u16, shown as u16);
     if shown & 0x80 == 0 {
-        c.cmp(W, dx, cx0);
         if dx == cx0 {
-            c.cmp(W, bx, cy0);
-            if bx == cy0 {
-                c.cmp(W, image, before);
-            }
         }
     }
     if !unchanged {

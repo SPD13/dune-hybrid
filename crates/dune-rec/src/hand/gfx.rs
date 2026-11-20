@@ -54,7 +54,6 @@ pub fn update_screen_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (front, screen) = (c.screen_buffers().front, c.screen_buffers().screen);
     c.run(start, if front == screen { 4 } else { 3 })?;
     c.set_reg(AX, front);
-    c.cmp(W, front, screen);
     if front != screen {
         c.interp(0xc0fd, 0xc101)?;
         c.run(0xc101, 1)?;
@@ -394,7 +393,7 @@ pub fn draw_sprite_centred(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let half = h >> 1;
     c.set_reg(AX, half);
     let bx = c.reg(BX);
-    let bx = c.sub(W, bx, half); // the driver's far call sees the flags
+    let bx = pure::sub(W, bx, half);
     c.set_reg(BX, bx);
     c.set_reg(BP, g::DIRTY_RECT);
     c.interp(0xc368, 0xc36d)?;
@@ -552,7 +551,7 @@ pub fn gfx_call_18(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if screen == front {
         return c.ret();
     }
-    let es = c.add(W, screen, 0x1e0);
+    let es = pure::add(W, screen, 0x1e0);
     c.set_reg(AX, es);
     c.set_sreg(ES, es);
     c.interp(0x4b26, 0x4b2a)?;
@@ -633,8 +632,6 @@ pub fn gfx_zero_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let es = c.pop();
     c.set_sreg(ES, es);
     c.set_reg(DI, sp);
-    let ax = c.reg(AX);
-    c.xor(W, ax, ax);
     c.set_reg(AX, 0);
     c.push(cx);
     c.m.cpu.string_op(&mut c.m.hw, 0xaa, None, 0xf3); // rep stosb
@@ -644,7 +641,6 @@ pub fn gfx_zero_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let sp = c.reg(SP);
     c.set_reg(DX, sp);
     let bp = c.reg(BP);
-    c.or(W, bp, bp);
     if bp == 0 {
         c.interp(0x159b, 0x159f)?;
         c.run(0x159f, 3)?;

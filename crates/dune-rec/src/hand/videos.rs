@@ -250,11 +250,9 @@ pub fn draw_video_sprite_and_wait(m: &mut Machine, start: u16) -> Result<(), Bai
     c.push(t0);
     c.set_reg(SI, at);
     c.set_reg(DX, dx.saturating_sub(ox));
-    // The driver's far call sees the flags of this `sub` (or the `xor`
-    // when it went below 0).
-    let mut y = c.sub(W, bx, oy);
+    let mut y = pure::sub(W, bx, oy);
     if bx < oy {
-        y = c.xor(W, y, y);
+        y = pure::xor(W, y, y);
     }
     c.set_reg(BX, y);
     let ds = c.sreg(DS);

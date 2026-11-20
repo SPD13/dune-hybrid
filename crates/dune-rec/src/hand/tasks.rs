@@ -210,7 +210,6 @@ pub fn sky_fade_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let flag = c.byte(g::SKY_VARIANT);
     c.run(0x391d, if flag != 0 { 6 } else { 8 })?;
     let (cx, bx) = if flag != 0 { (0x1c5, 0xdb) } else { (0xf0, 0x180) };
-    c.cmp(B, flag as u16, 0);
     c.set_reg(CX, cx);
     c.set_reg(BX, bx);
     let n = c.byte(g::FRAME_TASKS_ACTIVE);
@@ -222,7 +221,6 @@ pub fn sky_fade_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x3938, if video != 0 { 3 } else { 5 })?;
     let ax = c.pop();
     c.set_reg(AX, ax);
-    c.cmp(B, video as u16, 0);
     if video == 0 {
         c.set_reg(CX, 0x30);
         c.set_reg(BX, 0x2d0);

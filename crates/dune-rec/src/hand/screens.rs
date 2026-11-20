@@ -302,8 +302,8 @@ pub fn draw_panel_button_frame(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let d = v.wrapping_sub(3);
     c.run(start, if d >= 3 { 5 } else { 7 })?;
     c.set_reg(AX, d);
-    // The driver's far call sees these flags.
-    c.cmp(W, d, 3);
+    // These flags pass through the driver's far call (it reads none) and
+    // are not shown unread after it.
     if d >= 3 {
         return c.ret();
     }

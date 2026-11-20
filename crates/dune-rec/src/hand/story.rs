@@ -2301,7 +2301,7 @@ pub fn draw_scene_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0xc526, 5)?;
-    c.cmp(W, h, 0x1ad6); // the driver's far call sees these flags
+    c.cmp(W, h, 0x1ad6); // through the driver's far call (reads none); not shown unread after
     let ds = c.sreg(pc::cpu::DS);
     c.push(ds);
     let es = c.screen_buffers().screen;
@@ -7313,8 +7313,9 @@ pub fn sal_polygon(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, v);
         c.set_reg(DX, lo);
         let x = if back { hi.wrapping_sub(1) } else { hi.wrapping_add(1) };
-        // The driver's far call sees the flags of the `sub` (forward) or
-        // the `neg` (backwards).
+        // The flags of the `sub` (forward) or the `neg` (backwards) pass
+        // through the driver's far call (it reads none) and are not shown
+        // unread after it.
         let l = c.sub(W, x, lo);
         c.set_reg(CX, l);
         if l != 0 {

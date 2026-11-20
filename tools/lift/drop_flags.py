@@ -22,8 +22,9 @@ those flags:
 - it hands its context to a helper that could (the same rules, followed
   through the helpers it hands it on to; the helpers stay as they are);
 - it has a far call run (`c.interp`) whose flags are not those of a call
-  just before it: the code there could read them (an INT's service reads
-  no result flags);
+  just before it, other than one into a driver entry that reads none
+  (`driver_flags.py`): the code there could read them (an INT's service
+  reads no result flags);
 - it can stop (a `c.run` that is not a call's return) where the original
   goes on reading flags (`flags_used.py --at`);
 - a flag helper spans lines (the script works line by line).
@@ -126,12 +127,26 @@ for _a, _t in re.findall(r'// ([0-9a-f]{4}): (.*)', open(os.path.join(
     INSN.setdefault(int(_a, 16), _t.strip())
 
 
-def only_int(a, b):
-    """Whether `c.interp(a, b)` runs a single INT: a BIOS/DOS service, which
-    reads no result flags (the shadow check doesn't compare them there) and
-    passes on the ones it doesn't set."""
+# The driver entries that read no flags on entry, by the address of their
+# far pointer in the game's tables (`driver_flags.py`).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import driver_flags  # noqa: E402
+DRIVER_NO_READS = {a for a, (_, _, r, _) in driver_flags.table().items() if not r}
+
+
+def reads_no_flags(a, b):
+    """Whether `c.interp(a, b)` runs a single instruction that reads no
+    result flags and passes on those it doesn't set: an INT (no BIOS/DOS
+    service reads them; the shadow check doesn't compare them there), or
+    a far call through a driver table slot whose code reads none on entry
+    (`driver_flags.py`)."""
     ops = [INSN[x] for x in INSN if a <= x < b]
-    return len(ops) == 1 and ops[0].startswith('int ')
+    if len(ops) != 1:
+        return False
+    if ops[0].startswith('int '):
+        return True
+    m = re.fullmatch(r'call far dword ptr (?:ss:|ds:)?\[0x([0-9A-Fa-f]+)\]', ops[0])
+    return bool(m) and int(m.group(1), 16) in DRIVER_NO_READS
 
 
 def interps_after_calls(text):
@@ -139,13 +154,13 @@ def interps_after_calls(text):
     gets the flags of a call or another `c.interp` just before it: back
     from it on the same straight path (no block boundary) to a call
     without anything that sets flags in between. An INT's service reads
-    none (`only_int`)."""
+    none, nor do the driver entries `reads_no_flags` knows."""
     lines = text.split('\n')
     for i, line in enumerate(lines):
         if 'c.interp(' not in line:
             continue
         m = re.search(r'c\.interp\(0x([0-9a-f]+), 0x([0-9a-f]+)\)', line)
-        if m and only_int(int(m.group(1), 16), int(m.group(2), 16)):
+        if m and reads_no_flags(int(m.group(1), 16), int(m.group(2), 16)):
             continue
         ok = False
         for j in range(i - 1, -1, -1):

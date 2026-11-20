@@ -338,9 +338,14 @@ code segment written (a harness artifact).
   not keep them exact before an INT. The flags the service leaves as it
   found them pass through: the replay keeps the port's values there (in
   the CPU and in the FLAGS on the stack the service patched for its
-  IRET), so a reader after the INT still checks the port's own. A port
-  that has the interpreter run a far call (`c.interp`) keeps its flags
-  exact before it: the analysis doesn't follow a driver's code.
+  IRET), so a reader after the INT still checks the port's own. The
+  drivers' entries read none either: `tools/lift/driver_flags.py` walks
+  each slot of the three lifted drivers (every path, into near calls,
+  `pushf` ... `popf` passing the flags through, anything it can't follow
+  reading what is still unwritten) and finds no flag read on entry in any
+  of the 61. So a far call through the game's driver tables (38B5h,
+  396Dh, 3989h) passes the flags through like an INT. Other far calls
+  (CS:[CC92h], [39B7h], CS:[EE8Ch]) still count as reading them.
 - **The harness's stack.** The harness calls routines with a random SP,
   sometimes outside the game's stack; there the flags an interrupt pushes
   where a port stops are not in the dead stack the check leaves out, and
@@ -1008,6 +1013,7 @@ places), [4722h] (a toggle of the map panel), [118Fh], [0DCE4h].
 | `tools/lift/add_table.py`, `drop_consts.py` | Not checks: add a table of one and route the ports' accesses to it; drop the globals left unused. |
 | `tools/lift/dead_flag_ops.py` | Not a check: drop single flag operations whose flags no path shows (`--dry` lists them per port). |
 | `tools/lift/merge_runs.py` | Not a check: merge back-to-back stretches of a port (`--dry` lists them). |
+| `tools/lift/driver_flags.py` | Not a check: the flags each driver entry reads on entry (none). |
 | `tools/lift/hoist_runs.py` | Not a check: hoist the stretch both arms of an `if` start with into one before it, its count the branch's (`c.run(A, if cond { n } else { m })`). |
 | `tools/lift/shadow.sh [ENTRIES] [SECS]` | The shadow check of every port (or ENTRIES) in the suite's seven games, with per-entry counts. |
 | `tools/lift/name_calls.py` | Not a check: regenerate `hand/entry.rs` (a constant per routine with a name: the port's, else the listing's label) and write `c.call(entry::NAME, ret)` / `c.jump(entry::NAME)` for the numbers (2106 sites; run again after adding or renaming ports). |

@@ -700,7 +700,7 @@ pub fn hnm_decode_video_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = c.lods(W, DS);
     c.set_reg(AX, vid);
     c.set_reg(BX, a);
-    c.cmp(W, vid, 0x19); // the driver's far call sees the flags
+    c.cmp(W, vid, 0x19); // the far call through CS:[CC92h] (not a driver table's) could read them
     if vid >= 0x19 {
         c.interp(0xcce3, 0xcce8)?;
         c.run(0xcce8, 2)?;

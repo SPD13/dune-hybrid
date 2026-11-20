@@ -70,7 +70,7 @@ pub fn draw_sprite_clobbering_bx_dx(m: &mut Machine, start: u16) -> Result<(), B
         c.set_reg8(r8::CH, colour);
     }
     let ax = c.pop();
-    let scale = c.and(W, ax, 0x1c00); // the flags the driver's far call sees
+    let scale = c.and(W, ax, 0x1c00); // through the driver's far call (reads none); not shown unread after
     c.set_reg(AX, scale);
     if scale == 0 {
         c.interp(0xc263, 0xc268)?;
@@ -136,7 +136,6 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd207, if flags & 0x40 != 0 { 5 } else { 3 })?;
     if flags & 0x40 != 0 {
         c.push(si);
-        c.test(B, flags as u16, 0x40);
         let fb = c.screen_buffers().active;
         c.set_sreg(ES, fb);
         c.push(si);
@@ -146,7 +145,6 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, si);
     } else {
         c.push(si);
-        c.test(B, flags as u16, 0x40);
     }
     let si = c.reg(SI);
     let flags = c.byte(si.wrapping_add(8));
@@ -411,7 +409,6 @@ pub fn blit_repeated_x(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(sw);
     let a = c.lods(W, DS);
     c.set_reg(CX, a);
-    c.xor(B, a >> 8, a >> 8); // the driver's far call sees the flags
     let sh = a & 0xff;
     c.set_reg(AX, sh);
     c.push(sh);
@@ -475,8 +472,9 @@ fn tile_run(c: &mut Ctx, r: usize, size: u16, pos: u16, at: u16) -> Result<(), B
         c.set_reg(AX, a);
         let v = c.word_in(SS, bp.wrapping_add(pos));
         c.set_word_in(SS, bp.wrapping_add(pos), v.wrapping_add(a));
-        // The driver's far call sees the flags of this `sub`, or of the
-        // `add` that trims the last tile.
+        // The flags of this `sub`, or of the `add` that trims the last tile,
+        // pass through the driver's far call (it reads none) and are not
+        // shown unread after it.
         let left = c.sub(W, left, a);
         c.set_reg(r, left);
         if borrow {

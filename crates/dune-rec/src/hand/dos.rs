@@ -1023,7 +1023,6 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bp = c.reg(BP);
     c.run(0xe602, 3 + if bp == 0 { 2 } else { 0 })?;
     c.update_screen_buffers(|t| t.front = bp);
-    c.or(W, bp, bp); // the driver's far call sees the flags
     if bp == 0 {
         c.set_reg(DI, 0xdbd4);
         c.call(entry::BUMP_ALLOC, 0xe610)?;
@@ -1062,7 +1061,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xe638, 3)?;
     let f = c.byte(g::CMD_ARGS);
     c.set_reg8(r8::AL, f);
-    let a = c.and(B, f as u16, 2); // the driver's far call sees the flags
+    let a = pure::and(B, f as u16, 2);
     c.set_reg8(r8::AL, a as u8);
     c.set_reg(BP, 0xce7a);
     c.interp(0xe640, 0xe644)?;

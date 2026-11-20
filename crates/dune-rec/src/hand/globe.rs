@@ -1842,7 +1842,7 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let dx = c.word(g::MAP_MARK);
         c.set_reg(DX, dx);
         let t = c.word(g::MAP_MARK_Y);
-        let a = c.sub(W, t, 0x12); // the driver's far call sees these flags
+        let a = c.sub(W, t, 0x12); // through the driver's far call (reads none); not shown unread after
         c.set_reg(AX, a);
         let di = c.word(g::MAP_GFX_DATA);
         let es = c.word(g::MAP_GFX_SEGMENT);
@@ -1965,7 +1965,6 @@ pub fn draw_zoomed_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x4c60);
     let a = c.pop();
     c.set_reg(AX, a);
-    c.test(B, f as u16, 0x40); // the driver's far call sees these flags
     if f & 0x40 != 0 {
         return c.ret();
     }

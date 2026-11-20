@@ -465,8 +465,6 @@ pub fn draw_talking_head_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> 
         let size = c.lods(W, DS);
         c.set_reg(DI, size);
         c.lods(W, DS);
-        let ah = c.reg8(r8::AH);
-        c.xor(B, ah as u16, ah as u16); // `xor ah, ah`: the driver's far call sees these flags
         c.set_reg8(r8::AH, 0);
         let ax = c.reg(AX);
         c.set_reg(CX, ax);
@@ -675,7 +673,6 @@ pub fn settings_apply_music_volume(m: &mut Machine, start: u16) -> Result<(), Ba
     let settings = c.sound_state().settings;
     let off = settings & 4 == 0;
     c.run(start, if off { 5 } else { 4 })?;
-    c.test(W, settings, 4);
     if off {
         c.set_byte(SLIDERS[0], 0xff);
     }
@@ -703,7 +700,6 @@ pub fn settings_apply_sound_volume(m: &mut Machine, start: u16) -> Result<(), Ba
     }
     let sw = c.byte(SWITCHES[1]);
     c.set_reg(AX, (sw as u16) << 8 | v as u16);
-    c.cmp(B, v as u16, 4);
     if v < 4 {
         c.set_reg8(r8::AL, 4);
     }
@@ -721,7 +717,6 @@ pub fn settings_apply_voice_volume(m: &mut Machine, start: u16) -> Result<(), Ba
     c.run(start, 6 + (v < 4) as u32)?;
     c.set_reg(AX, 0x64);
     c.set_reg(BX, (sw as u16) << 8 | v as u16);
-    c.cmp(B, v as u16, 4);
     if v < 4 {
         c.set_reg8(r8::BL, 4);
     }
@@ -1133,7 +1128,6 @@ pub fn scene_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !zf {
         let dx = c.reg(DX).wrapping_sub(1);
         c.set_reg(DX, dx);
-        c.cmp(B, bl as u16, 0x0a); // the driver's far call sees these flags
     }
     if !picture {
         c.interp(0x0d1e, 0x0d22)?;

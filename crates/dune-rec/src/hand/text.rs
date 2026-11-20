@@ -439,7 +439,7 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xd0b5, 5)?;
         let ax = c.reg(AX);
         let x = c.font_pen().at[0];
-        let x = c.add(W, x, ax); // the driver's far call sees the flags
+        let x = pure::add(W, x, ax);
         c.update_font_pen(|t| t.at[0] = x);
         c.set_reg8(r8::CL, ax as u8);
         c.set_reg8(r8::CH, 9);

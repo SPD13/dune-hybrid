@@ -533,7 +533,7 @@ pub fn draw_text_box_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(r + 8, 0x80);
     c.set_word(r + 0x0c, 0x7bed);
     let y = c.word(r + 2);
-    let y = c.sub(W, y, 2); // the driver's far call sees these flags
+    let y = pure::sub(W, y, 2);
     c.set_word(r + 2, y);
     let al = c.byte(g::PLACE_PANEL_FILL);
     c.set_reg8(r8::AL, al);
@@ -559,7 +559,6 @@ pub fn draw_text_sheet(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, h);
     let top = 0x92u16.wrapping_sub(h);
     c.set_reg(BX, top);
-    c.xor(W, 0, 0); // `xor dx, dx`: the driver's far call sees these flags
     c.set_reg(DX, 0);
     c.set_reg8(r8::CH, 0xff);
     c.set_reg(DI, 0x140);
@@ -874,7 +873,7 @@ pub fn toggle_box_cell_highlight(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_reg(BX, y);
     let offset = (c.reg8(r8::AL) as u16) << 2;
     c.set_reg(AX, offset);
-    let x = c.add(W, x, offset); // the driver's far call sees these flags
+    let x = pure::add(W, x, offset);
     c.set_reg(DX, x);
     c.set_reg(SI, 5);
     c.set_reg(CX, 7);
@@ -2026,7 +2025,6 @@ pub fn draw_sprite_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let w = c.lods(W, DS);
         c.set_reg(DI, w);
         let h = c.lods(W, DS);
-        c.xor(B, 0, 0); // `xor ah, ah`: the driver's far call sees these flags
         let h = h & 0xff;
         c.set_reg(AX, h);
         c.set_reg(CX, h);
@@ -2978,7 +2976,7 @@ pub fn map_header_by_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0x575b, 3)?;
-    c.cmp(B, 0, 0); // the driver's far call sees these flags
+    c.cmp(B, 0, 0); // through the driver's far call (reads none); not shown unread after
     let es = c.screen_buffers().screen;
     c.set_sreg(ES, es);
     c.interp(0x5766, 0x576a)?;
@@ -3192,7 +3190,7 @@ pub fn clear_map_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.stos(W);
     }
     let a = c.lods(W, DS);
-    let a = c.sub(W, a, 2); // the driver's far call sees these flags
+    let a = pure::sub(W, a, 2);
     c.set_reg(AX, a);
     c.stos(W);
     let di = c.reg(DI);
@@ -5442,8 +5440,9 @@ pub fn route_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DI, next);
         c.push(s1);
         c.set_reg(CX, cy);
-        // The driver's far call sees the flags of the last step: the
-        // `xor` of the two moves, the `cmp` with 50h, or the seam's `add`.
+        // The flags of the last step (the `xor` of the two moves, the `cmp`
+        // with 50h, or the seam's `add`) pass through the driver's far call
+        // (it reads none) and are not shown unread after it.
         c.set_reg(AX, dax ^ dsi);
         c.set_reg(SI, dsi);
         match (chk, seam) {

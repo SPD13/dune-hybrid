@@ -302,7 +302,7 @@ def follow_stmt(port, text, pending, skip=0):
             continue
         if meth == 'interp':
             a, b = (port.addr(x) for x in args[:2])
-            if a is not None and b is not None and df.only_int(a, b):
+            if a is not None and b is not None and df.reads_no_flags(a, b):
                 continue
             raise Live('interp')
         if meth == 'set_flag':

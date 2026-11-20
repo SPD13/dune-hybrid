@@ -9,8 +9,9 @@
 SAVES=${SAVES:-$REPO/../dune-hybrid/tests-data/saves}
 T=$LIFT_DATA/shadow
 SECS=${2:-300}
-ENTRIES=${1:-$(python -c "
-import re;t=open('$REPO/crates/dune-rec/src/hand/mod.rs',encoding='utf-8').read();print(','.join(sorted(set(re.findall(r'\(0x([0-9a-f]+), \w+::\w+,',t)))))")}
+ENTRIES=${1:-$(cd "$REPO" && python -c "
+import re;t=open('crates/dune-rec/src/hand/mod.rs',encoding='utf-8').read();print(','.join(sorted(set(re.findall(r'\(0x([0-9a-f]+), \w+::\w+,',t)))))")}
+[ -n "$ENTRIES" ] || { echo "shadow.sh: no entries"; exit 1; }
 mkdir -p $T
 while read name seed lang save; do
     ev="61.5:key:1:1,61.6:key:1:0"; extra=""
