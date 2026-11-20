@@ -348,10 +348,10 @@ pub fn initialize_joystick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0xea32, 3 + 12 + 2 + 1)?;
     c.set_reg(SI, 0x39ab);
-    let mut acc = c.xor(W, 0, 0);
+    let mut acc = pure::xor(W, 0, 0);
     for _ in 0..4 {
         let w = c.lods(W, DS);
-        acc = c.or(W, acc, w);
+        acc = pure::or(W, acc, w);
     }
     c.set_reg(CX, 0);
     c.set_reg(BX, acc);
@@ -558,7 +558,6 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0xcec8);
     c.set_reg(DI, di0);
     let (mut dx, mut bx, mut ax) = (0u16, 0u16, 0u16);
-    c.xor(W, 0, 0);
     c.set_reg(DX, 0);
     c.set_reg(BX, 0);
     c.set_reg(AX, 0);
@@ -587,7 +586,7 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
             bx = bx.wrapping_add(v);
             c.set_reg(BX, bx);
         }
-        di = c.add(W, di, 6);
+        di = pure::add(W, di, 6);
         c.set_reg(DI, di);
         c.set_reg(CX, 12 - k);
     }

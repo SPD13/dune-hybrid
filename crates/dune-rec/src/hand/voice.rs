@@ -685,7 +685,6 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if al & 0x80 != 0 {
             c.run(0xc8a3, 6)?;
             c.lods(B, DS);
-            c.or(B, al as u16, al as u16); // the wait (`loc_0e387`) pushes these flags
             c.set_reg(AX, 0x12c);
             c.call(entry::WAIT_A_BIT, 0xc8b0)?;
             c.run(0xc8b0, 1)?;

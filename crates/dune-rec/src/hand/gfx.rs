@@ -512,7 +512,7 @@ pub fn open_resource_and_draw_sprite_0(m: &mut Machine, start: u16) -> Result<()
     c.run(0xc2f7, 6)?;
     for r in [AX, BX, DX] {
         let v = c.reg(r);
-        let z = c.xor(W, v, v);
+        let z = pure::xor(W, v, v);
         c.set_reg(r, z);
     }
     c.push(0);

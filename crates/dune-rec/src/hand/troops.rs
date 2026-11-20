@@ -855,7 +855,6 @@ pub fn troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.run(start, n)?;
-    c.cmp(B, k as u16, 0);
     c.set_reg(DI, 0x3caf);
     if k & 0x80 == 0 {
         c.set_flag(ZF, false);

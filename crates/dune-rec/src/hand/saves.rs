@@ -989,7 +989,6 @@ pub fn load_save_game_timestamp(m: &mut Machine, start: u16) -> Result<(), Bail>
         let d = pure::inc(B, d as u16);
         c.set_byte(di.wrapping_add(7), d as u8);
         let next = c.word(si);
-        c.cmp(W, next, 0xa3);
         if next == 0xa3 {
             return c.ret();
         }

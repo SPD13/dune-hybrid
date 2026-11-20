@@ -664,7 +664,6 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xd2ac, 3)?;
             let d2 = pure::sub(W, t, bx);
             c.set_reg(AX, d2);
-            c.cmp(W, d2, 6);
             if !more {
                 break;
             }
@@ -718,7 +717,7 @@ pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(g::FRIEZE_SIDES);
     for off in [0x0au16, 0x18] {
         let v = c.word(g::FRIEZE_SIDES + off);
-        let v = c.add(W, v, step);
+        let v = pure::add(W, v, step);
         c.set_word(g::FRIEZE_SIDES + off, v);
     }
     c.set_reg(CX, 2);
@@ -735,7 +734,7 @@ pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     for off in [0x0au16, 0x18] {
         let v = c.word(si.wrapping_add(off));
-        let v = c.add(W, v, ax);
+        let v = pure::add(W, v, ax);
         c.set_word(si.wrapping_add(off), v);
     }
     c.set_reg(CX, 2);

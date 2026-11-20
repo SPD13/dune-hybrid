@@ -233,7 +233,6 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
         let cinematic = c.byte(g::CINEMATIC);
         if cinematic != 0 {
             c.run(0xe35c, 2 + 8)?;
-            c.cmp(B, cinematic as u16, 0);
             for r in [BX, CX, DX, SI, DI, BP] {
                 let v = c.reg(r);
                 c.push(v);
@@ -264,7 +263,6 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
         c.set_reg(AX, now);
         let p = pure::sub(W, now, bx);
         c.set_reg(AX, p);
-        c.cmp(W, p, bp);
         if !more {
             let al = pure::or(B, p & 0xff, 1);
             c.set_reg(AX, p & 0xff00 | al);
@@ -531,8 +529,7 @@ pub fn skip_zero_words(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let left = cx.wrapping_sub(1);
         let again = w == 0 && left != 0;
         c.run(0xc827, 3 + if again { 0 } else if w == 0 { 3 } else { 5 })?;
-        let ax = c.lods(W, DS);
-        c.or(W, ax, ax);
+        c.lods(W, DS);
         c.set_reg(CX, left);
         if again {
             continue;

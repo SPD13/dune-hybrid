@@ -1430,13 +1430,11 @@ pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let shown = c.word(g::REACH);
     if ax <= shown {
         c.run(0x7c11, 2 + 1)?;
-        c.cmp(W, ax, shown);
     } else {
         let d = c.word(g::TROOP_MARKER_PARTICLE);
         c.run(0x7c11, 2 + 4 + if d != 0 { 3 } else { 0 } + 1)?;
         c.update_topic_troop(|t| t.out_of_reach = 0xff);
         c.set_reg(DI, d);
-        c.or(W, d, d);
         if d != 0 {
             c.set_reg(AX, 0x1916);
             c.set_word(d.wrapping_add(0xd), 0x1916);

@@ -55,6 +55,7 @@ class Live(Exception):
     pass
 
 
+
 # --- Parsing a body into statements and blocks ---------------------------
 
 def tokens(src):
@@ -227,6 +228,17 @@ def follow_stmt(port, text, pending, skip=0):
         if pending == 0:
             return None
         if m.group('kw'):
+            kw = m.group(0)
+            if kw in ('break', 'continue') and LOOPS:
+                # To the innermost loop followed: its exits, or its top.
+                ctx = LOOPS[-1]
+                lab = re.match(r"\s*'(\w+)", text[m.end():])
+                if lab and lab.group(1) != ctx['label']:
+                    raise Live('labelled ' + kw)
+                if not re.fullmatch(r"\s*(break|continue)(\s+'\w+)?\s*;?\s*", text):
+                    raise Live(kw + ' with a value')
+                ctx['exits' if kw == 'break' else 'cont'] |= pending
+                return None
             raise Live('break/continue')
         if m.group('cpu'):
             raise Live('c.m')
@@ -336,6 +348,13 @@ def follow_items(port, items, i, pending):
                     return None
                 i = j
                 continue
+            if it.kind == 'loop':
+                r = enter_loop(port, it, pending)
+                if r is None:
+                    return None
+                pending = r
+                i += 1
+                continue
             raise Live(it.kind)
         r = follow_stmt(port, it[1], pending)
         if r is None:
@@ -345,30 +364,105 @@ def follow_items(port, items, i, pending):
     return pending
 
 
+LOOPS = []  # the loops being followed, innermost last: label, exits, cont
+
+
+def loop_head(head):
+    """A loop's label, kind (loop, while, for) and the expression its head
+    evaluates."""
+    h = head.strip()
+    lab = re.match(r"'(\w+):\s*", h)
+    label = lab.group(1) if lab else None
+    h = h[lab.end():] if lab else h
+    kind = h.split()[0] if h.split() else 'loop'
+    if kind == 'while':
+        cond = h[len('while'):]
+    elif kind == 'for':
+        cond = h.split(' in ', 1)[1] if ' in ' in h else ''
+    else:
+        cond = ''
+    return label, kind, cond
+
+
+def enter_loop(port, b, pending):
+    """A loop reached with `pending`: its head, its body once (a path that
+    goes round again has a subset of the flags pending, so it is covered),
+    and the flags pending where it is left (its breaks, and a `while` /
+    `for` ending at its head), or None when it is never left."""
+    label, kind, cond = loop_head(b.head)
+    p = pending
+    if cond.strip():
+        p = follow_stmt(port, cond, p)
+        if p is None:
+            return None
+    exits = p if kind != 'loop' else 0
+    ctx = {'label': label, 'exits': 0, 'cont': 0}
+    LOOPS.append(ctx)
+    try:
+        follow_items(port, b.items, 0, p)
+    finally:
+        LOOPS.pop()
+    exits |= ctx['exits']
+    return exits or None
+
+
 def dead(port, root, block, idx, op_pos, written):
     """Whether the operation in statement `block.items[idx]` (at offset
     `op_pos` in its text) has flags no path sees."""
+    outer = LOOPS[:]
     try:
+        # The loops the operation is in, innermost last: their breaks and
+        # continues are followed.
+        chain, x = [], block
+        while x is not None:
+            chain.append(x)
+            x = x.parent
+        for lp in reversed(chain):
+            if lp.kind == 'loop':
+                LOOPS.append({'label': loop_head(lp.head)[0], 'exits': 0, 'cont': 0, 'block': lp})
         stmt = block.items[idx][1]
         r = follow_stmt(port, stmt, written, op_pos)
-        if r is None:
-            return True
-        b, i, pending = block, idx + 1, r
+        b = block
+        if r is not None:
+            r = follow_items(port, b.items, idx + 1, r)
+        # `r`: the flags pending where the path falls out of `b` (None: no
+        # path does).
         while True:
-            r = follow_items(port, b.items, i, pending)
-            if r is None:
+            if b.kind == 'loop':
+                ctx = LOOPS.pop()
+                assert ctx.get('block') is b
+                # Round again from the top with what fell out or continued
+                # (once: rounds after it are covered), then out at the exits.
+                again = (r or 0) | ctx['cont']
+                exits = ctx['exits']
+                if again:
+                    exits |= enter_loop(port, b, again) or 0
+                r = exits or None
+                k = b.parent.items.index(b) + 1
+            elif b.kind in ('if', 'else'):
+                # Past the if-chain this block is part of.
+                parent = b.parent
+                k = parent.items.index(b) + 1
+                while k < len(parent.items) and isinstance(parent.items[k], Block) and parent.items[k].kind == 'else':
+                    k += 1
+            else:
+                if r is not None:
+                    raise Live('end of ' + b.kind)
+                if b.parent is None:
+                    return True
+                k = len(b.parent.items)
+            b = b.parent
+            if b is None:
                 return True
-            if b.kind not in ('if', 'else'):
-                raise Live('end of ' + b.kind)
-            # Past the if-chain this block is part of.
-            parent = b.parent
-            k = parent.items.index(b) + 1
-            while k < len(parent.items) and isinstance(parent.items[k], Block) and parent.items[k].kind == 'else':
-                k += 1
-            b, i, pending = parent, k, r
+            if r is not None:
+                r = follow_items(port, b.items, k, r)
+            elif not any('block' in l for l in LOOPS):
+                return True
     except Live as e:
         WHY[re.sub(r' [0-9a-f]{4}$| \w+$', '', str(e))] = WHY.get(re.sub(r' [0-9a-f]{4}$| \w+$', '', str(e)), 0) + 1
         return False
+    finally:
+        LOOPS[:] = outer
 
 
 WHY = {}  # why operations stay (`--why`)

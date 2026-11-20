@@ -160,7 +160,6 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
         16
     };
     c.run(0xd218, n + if n == 16 { 0 } else { 3 })?;
-    c.test(B, flags as u16, 0x20);
     if flags & 0x20 == 0 {
         for r in [DX, BX, DI, CX] {
             let v = c.lods(W, DS);

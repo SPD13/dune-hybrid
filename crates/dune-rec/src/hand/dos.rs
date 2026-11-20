@@ -1352,7 +1352,6 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xe702, 3)?;
         let s = pure::add(W, si, 0x19);
         c.set_reg(SI, s);
-        c.cmp(B, next as u16, 0);
         if next == 0 {
             break;
         }
@@ -1374,7 +1373,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, step);
     let (d, e) = (c.word_in(SS, 0xdbbc), c.word_in(SS, 0xdbbe));
     c.set_sreg(ES, e);
-    let di = c.add(W, d, 2);
+    let di = pure::add(W, d, 2);
     c.set_reg(DI, di);
     let mut si = 0x145u16;
     loop {
@@ -1389,7 +1388,6 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, si);
         c.stos(W);
         let di = c.reg(DI);
-        c.cmp(W, di, 0x140);
         if di >= 0x140 {
             break;
         }
