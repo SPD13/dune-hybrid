@@ -973,21 +973,20 @@ pub fn load_save_game_timestamp(m: &mut Machine, start: u16) -> Result<(), Bail>
         let next = c.word(si.wrapping_add(4));
         c.run(0xb33c, 3 + (ch == 0x80) as u32 + 7 + (next == 0xa3) as u32)?;
         let mut ax = c.sbb(W, ax, ax);
-        c.cmp(B, ch, 0x80);
         if ch == 0x80 {
             ax = !ax;
         }
-        let ax = c.and(W, ax, cx);
+        let ax = pure::and(W, ax, cx);
         c.set_reg(AX, ax);
         let v = c.word(si);
-        let v = c.and(W, v, 0x3fff);
-        let v = c.or(W, v, ax);
+        let v = pure::and(W, v, 0x3fff);
+        let v = pure::or(W, v, ax);
         c.set_word(si, v);
-        let si = c.add(W, si, 4);
+        let si = pure::add(W, si, 4);
         c.set_reg(SI, si);
         let di = c.reg(DI);
         let d = c.byte(di.wrapping_add(7));
-        let d = c.inc(B, d as u16);
+        let d = pure::inc(B, d as u16);
         c.set_byte(di.wrapping_add(7), d as u8);
         let next = c.word(si);
         c.cmp(W, next, 0xa3);

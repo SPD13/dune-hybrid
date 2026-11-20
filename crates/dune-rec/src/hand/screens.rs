@@ -625,7 +625,6 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(start, 3)?;
-    c.cmp(B, k as u16, 0);
     c.call(entry::SAVE_REGS, 0xd28a)?;
     c.run(0xd28a, 2)?;
     c.set_byte(g::TRANSITION_ACTIVE, 0);
@@ -662,7 +661,7 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let more = t.wrapping_sub(bx) < 6;
             c.set_reg(AX, t);
             c.run(0xd2ac, 3)?;
-            let d2 = c.sub(W, t, bx);
+            let d2 = pure::sub(W, t, bx);
             c.set_reg(AX, d2);
             c.cmp(W, d2, 6);
             if !more {
@@ -701,8 +700,6 @@ pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(start, 8 + 3 + 6)?;
     }
-    let cx = c.reg(CX);
-    c.xor(W, cx, cx);
     c.set_reg(SI, g::FRIEZE_SIDES);
     let ax = c.sub(W, a, 0);
     c.set_reg(AX, ax);
@@ -1338,14 +1335,12 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.sequence().playing;
     if k != 0 {
         c.run(start, 3)?;
-        c.cmp(B, k as u16, 0);
         c.call(entry::SET_MODE_BUTTONS, 0x2ebc)?;
         c.run(0x2ebc, 1)?;
         c.call(entry::RESET_DIALOGUE, 0x2ebf)?;
         return list_2220_at(&mut c);
     }
     c.run(start, 4)?;
-    c.cmp(B, 0, 0);
     let di = c.word(g::PLACE);
     c.set_reg(DI, di);
     c.call(entry::NOTE_POINT, 0x2ed0)?;
@@ -1353,7 +1348,6 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::BUILD_ACTION_LIST, 0x2ed3)?;
     let mode = c.travel().screen_kind;
     c.run(0x2ed3, if mode == 0 { 3 } else { 2 })?;
-    c.cmp(B, mode as u16, 0);
     if mode == 0 {
         c.call(entry::RESET_DIALOGUE_THEN_SET_UP_PLACE, 0x2edd)?;
     }
@@ -1364,7 +1358,6 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let hide = y >= 0x74;
     c.run(0x2edd, if hide { 6 } else { 4 })?;
     c.set_reg(AX, y);
-    c.cmp(W, y, 0x74);
     if hide {
         c.set_reg(AX, 0xdbec);
         c.push(0xdbec);
@@ -1557,8 +1550,6 @@ pub fn press_panel_button(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     if start == 0xd443 {
         c.run(0xd443, 2)?;
-        let cx = c.reg(CX);
-        c.xor(W, cx, cx);
     } else {
         c.run(start, 3)?;
     }
@@ -1567,11 +1558,9 @@ pub fn press_panel_button(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (ax, bx) = (c.reg(AX), c.reg(BX));
     if bx == 0 {
         c.run(0xd448, 3)?;
-        c.or(W, bx, bx);
         return c.ret();
     }
     c.run(0xd448, 5)?;
-    c.or(W, bx, bx);
     c.test(B, ax >> 8, 0x40);
     if ax & 0x4000 != 0 {
         return c.ret();

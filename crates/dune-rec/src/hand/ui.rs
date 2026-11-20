@@ -99,14 +99,11 @@ pub fn ui_head_animate_up(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let step = c.situation().head_animation_step;
         if step == 0x0a {
             c.run(0x17e6, 5)?;
-            c.cmp(B, 0, 0);
             c.cmp(B, step as u16, 0x0a);
             return c.ret();
         }
         c.run(0x17e6, 6)?;
-        c.cmp(B, 0, 0);
-        c.cmp(B, step as u16, 0x0a);
-        let step = c.inc(B, step as u16) as u8;
+        let step = pure::inc(B, step as u16) as u8;
         c.update_situation(|t| t.head_animation_step = step);
         c.call(code::HEAD_STEP, 0x17fb)?;
         c.run(0x17fb, 2)?;
@@ -548,7 +545,6 @@ pub fn set_sky_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let tasks = c.byte(g::FRAME_TASKS_ACTIVE);
     if tasks == 0 {
         c.run(0x3895, 3)?;
-        c.cmp(B, 0, 0);
         c.call(code::OPEN_SKY_OR_SKYDN_PALETTE, 0x38b0)?;
         c.run(0x38b0, 1)?;
         c.call(code::SUB_398C, 0x38b3)?;
@@ -559,13 +555,10 @@ pub fn set_sky_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let id = c.reg8(r8::BL);
     if current == id {
         c.run(0x3895, 5)?;
-        c.cmp(B, tasks as u16, 0);
         c.cmp(B, current as u16, id as u16);
         return c.ret();
     }
     c.run(0x3895, 6)?;
-    c.cmp(B, tasks as u16, 0);
-    c.cmp(B, current as u16, id as u16);
     c.set_byte(g::FRAME_TASKS_ACTIVE, 0x30);
     c.call(code::OPEN_SKY_OR_SKYDN_PALETTE, 0x38aa)?;
     c.run(0x38aa, 1)?; // jmp 39B9h
@@ -1565,7 +1558,6 @@ pub fn open_dialogue_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::BOOK_PAGE_KINDS, 0);
     c.set_reg(BP, 0x2032);
     c.set_reg(BX, 0xd917);
-    c.xor(W, 0, 0);
     c.set_reg(CX, 0);
     c.call(entry::INSTALL_UI_LIST, 0xaf43)?;
     panel_with_head_at(&mut c, 0xaf43)

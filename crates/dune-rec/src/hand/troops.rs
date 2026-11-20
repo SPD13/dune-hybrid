@@ -870,7 +870,7 @@ pub fn troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
         loop {
-            di = c.add(W, di, 0x11);
+            di = pure::add(W, di, 0x11);
             let w = c.word(di.wrapping_add(0x0a));
             c.cmp(W, w, si);
             cx = cx.wrapping_sub(1);
@@ -1221,7 +1221,7 @@ pub fn troop_bit_10_by_location(m: &mut Machine, start: u16) -> Result<(), Bail>
     let mut c = Ctx::new(m);
     c.run(start, 5)?;
     let a = Location(c.reg(DI)).byte_0a(&mut c);
-    let ah = c.and(B, a as u16, 0x41);
+    let ah = pure::and(B, a as u16, 0x41);
     c.set_reg8(r8::AH, ah as u8);
     c.cmp(B, ah, 1);
     let cf = c.flag(CF);
@@ -1262,7 +1262,7 @@ pub fn troop_bit_10_by_state(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.cmp(B, b12 as u16, 1);
             if b12 >= 1 {
                 c.set_reg8(r8::AL, a);
-                let v = c.xor(B, a as u16, 0x40);
+                let v = pure::xor(B, a as u16, 0x40);
                 let v = c.and(B, v, 0x41);
                 c.set_reg8(r8::AL, v as u8);
                 if v != 0 {
@@ -2168,7 +2168,7 @@ pub fn troop_bit_10_by_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_flag(CF, true);
             if n > 8 {
                 let b = c.byte(si.wrapping_add(0x19));
-                let a = c.and(B, b as u16, 2);
+                let a = pure::and(B, b as u16, 2);
                 c.set_reg8(r8::AL, a as u8);
                 c.cmp(B, a, 1);
             }
@@ -4781,7 +4781,6 @@ pub fn tally_job4_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, if counted { 6 } else { 3 })?;
     // Exact: the flags of its last instruction are returned.
     if !counted {
-        c.cmp(B, state as u16, 4);
         return c.ret();
     }
     let cx = c.reg(CX).wrapping_add(1);

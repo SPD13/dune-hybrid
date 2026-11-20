@@ -63,10 +63,9 @@ pub fn ui_draw_book_turning_page(m: &mut Machine, start: u16) -> Result<(), Bail
     let back = dx & 0x8000 != 0;
     c.run(0xb1b6, 3 + if back { 0 } else { 1 } + 4)?;
     c.set_reg(AX, 0x0b);
-    c.or(W, dx, dx);
     let mut page = 0x0b;
     if !back {
-        page = c.dec(W, 0x0b);
+        page = pure::dec(W, 0x0b);
     }
     c.set_reg(AX, page);
     c.set_reg(BX, 0x9e);
@@ -79,7 +78,7 @@ pub fn ui_draw_book_turning_page(m: &mut Machine, start: u16) -> Result<(), Bail
     let next_is_b = page + 1 == 0x0b;
     c.run(0xb1ce, 4 + if next_is_b { 0 } else { 1 } + 1)?;
     let page = c.pop();
-    let next = c.inc(W, page);
+    let next = pure::inc(W, page);
     c.cmp(W, next, 0x0b);
     let other = if next_is_b { next } else { c.sub(W, next, 2) };
     c.set_reg(AX, other);
@@ -135,7 +134,7 @@ pub fn play_chapter_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::HNM_CLOSE_RESOURCE, 0xb21a)?;
     c.run(0xb21a, 2)?;
     let p = c.byte(g::PAUSE_ALLOWED);
-    let p = c.inc(B, p as u16) as u8;
+    let p = pure::inc(B, p as u16) as u8;
     c.set_byte(g::PAUSE_ALLOWED, p);
     c.call(code::PCM_STOP_VOC, 0xb221)?;
     c.run(0xb221, 1)?;
@@ -364,13 +363,10 @@ pub fn room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     if bp == 0x201a {
         c.run(0xc0b9, 5)?;
-        c.cmp(W, bp, 0x2012);
         c.cmp(W, bp, 0x201a);
         return c.ret();
     }
     c.run(0xc0b9, 6)?;
-    c.cmp(W, bp, 0x2012);
-    c.cmp(W, bp, 0x201a);
     c.set_reg8(r8::AL, 0x0c);
     c.call(code::SUB_C0D5, 0xc0ca)?;
     let cx = c.reg(CX);
@@ -380,7 +376,6 @@ pub fn room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0xc0ca, 4)?;
-    c.cmp(W, cx, 0x18);
     c.set_reg8(r8::AL, 4);
     super::audio::audio_start_voc(c.m, 0xab15)
 }
@@ -393,7 +388,7 @@ pub fn load_irul_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
     let language = c.byte(g::LANGUAGE);
-    let r = c.add(B, 0x69, language as u16);
+    let r = pure::add(B, 0x69, language as u16);
     c.set_reg(AX, r);
     c.call(code::OPEN_RESOURCE_BY_INDEX, 0xcf06)?;
     c.run(0xcf06, 2)?;
@@ -428,7 +423,6 @@ pub fn play_irul_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xcf22, 4 + 1)?;
         c.set_reg(SI, next);
         c.lods(W, DS);
-        c.cmp(W, at, frame);
         if due {
             c.call(code::IRUL_SUBTITLE, 0xcf30)?;
             c.run(0xcf30, 1)?;

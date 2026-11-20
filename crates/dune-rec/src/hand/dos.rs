@@ -1,5 +1,6 @@
 //! Services: EMS (INT 67h), the XMS driver, DOS file calls.
 
+use super::pure;
 use super::entry;
 use super::{B, Ctx, W, entered, globals as g};
 use pc::{
@@ -104,14 +105,12 @@ pub fn parse_cmd_is_end_of_arg(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.check(start, 9)?;
     c.set_reg8(AL, 0x0d);
     let (si, end) = (c.reg(SI), c.reg(BP));
-    c.cmp(W, si, end);
     let mut n = 3 + 2; // mov; cmp; jae; cmp al, 20h; ret
     if si < end {
         let mut ch = c.lods(B, DS) as u8;
-        c.cmp(B, ch as u16, 0x61);
         n += 3; // lodsb; cmp; jb
         if ch >= 0x61 {
-            ch = c.and(B, ch as u16, 0xdf) as u8;
+            ch = pure::and(B, ch as u16, 0xdf) as u8;
             c.set_reg8(AL, ch);
             n += 1;
         }
@@ -981,7 +980,6 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_flag(DF, false);
     // Before the game's timer handler, a tick at a stop gives the BIOS's
     // the flags: those at E5A6h and E62Bh are kept.
-    c.xor(W, 0, 0);
     c.set_reg(AX, 0);
     c.rep_counted(0xaa);
     c.run(0xe5a6, 6)?;
@@ -1056,7 +1054,6 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(g::LANGUAGE, a);
     let ax = c.pop();
     c.set_reg(AX, ax);
-    c.or(B, f as u16, f as u16);
     if joy {
         c.push(ax);
         c.call(entry::INITIALIZE_JOYSTICK, 0xe62a)?;
@@ -1263,7 +1260,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xe692, 4)?;
         c.set_reg(SI, 0x37f7);
         let v = c.byte(g::PATCH_FILE_DIGIT);
-        let v = c.inc(B, v as u16);
+        let v = pure::inc(B, v as u16);
         c.set_byte(g::PATCH_FILE_DIGIT, v as u8);
         c.cmp(B, d as u16, 0x39);
         if d > 0x39 {
@@ -1328,7 +1325,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_reg(CX, end);
                 c.set_reg(SI, end);
                 let di = c.reg(DI);
-                let n = c.sub(W, end, di);
+                let n = pure::sub(W, end, di);
                 let s = c.sub(W, end, 2);
                 c.set_reg(SI, s);
                 c.set_reg(DI, s.wrapping_add(0xa));
@@ -1346,13 +1343,13 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(entry::RES_STORE_IN_LOOKUP_TABLE, 0xe6fc)?;
             c.run(0xe6fc, 1)?;
             let v = c.word_in(SS, 0xd820);
-            let v = c.add(W, v, 0xa);
+            let v = pure::add(W, v, 0xa);
             c.set_word_in(SS, 0xd820, v);
         }
         let si = c.reg(SI);
         let next = c.byte(si.wrapping_add(0x19));
         c.run(0xe702, 3)?;
-        let s = c.add(W, si, 0x19);
+        let s = pure::add(W, si, 0x19);
         c.set_reg(SI, s);
         c.cmp(B, next as u16, 0);
         if next == 0 {
@@ -1364,7 +1361,7 @@ pub fn open_dune_dat(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(DS, v);
     c.set_reg(SI, 0x145);
     let end = c.word(g::RES_LOOKUP_TABLE_END);
-    let a = c.sub(W, end, 0x145);
+    let a = pure::sub(W, end, 0x145);
     c.set_reg(AX, a);
     c.xor(W, 0, 0);
     c.set_reg(DX, 0);

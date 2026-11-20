@@ -40,8 +40,6 @@ pub fn close_pcm_voice_file_handle(m: &mut Machine, start: u16) -> Result<(), Ba
     let dat = c.word(g::DUNE_DAT_HANDLE);
     let close = handle != 0 && handle != dat;
     c.run(start, if handle == 0 { 6 } else { 8 })?;
-    let bx = c.reg(BX);
-    c.xor(W, bx, bx);
     c.set_word(g::VOICE_FILE_HANDLE, 0);
     c.set_reg(BX, handle);
     c.or(W, handle, handle);
@@ -177,7 +175,6 @@ pub fn audio_start_voc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_sreg(ES, seg);
     } else {
         c.run(0xab23, 3)?;
-        c.cmp(B, voc as u16, loaded as u16);
         c.call(code::PCM_STOP_VOC, 0xab2c)?;
         let voc = c.reg8(r8::AL);
         c.run(0xab2c, 3)?;

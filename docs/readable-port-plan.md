@@ -187,6 +187,24 @@ ports whose callers read flags (about 390) need their exit flags kept,
 which a line-by-line tool can't place safely: they are for the hand
 rewrite, module by module.
 
+**Then each operation alone (2026-11-19).** `tools/lift/dead_flag_ops.py`
+looks at every flag-exact operation of every port on its own, including
+the ports whose callers read flags: from the operation on, along each
+path (into both arms of an `if` and past it), it keeps the set of flags
+the operation wrote until another operation writes them again (`cmp`,
+`test`, `add`, `sub`, the logic ones and `neg` all six; `inc` / `dec`
+all but CF; `set_flag` one; a call to a routine that passes none of the
+flags it was entered with to its RET) or something sees one: a
+`c.flag`, `adc` / `sbb` / `rcl` / `rcr`, an INT or far call, a call or
+jump to a routine that reads flags on entry, a stop where the original
+reads them (`flags_used.py --at`), the port's `ret` when its callers
+read one of them (`flags_read.rs`), a tail through to a routine that
+passes them on, or anything it doesn't follow (a helper handed the
+context, `c.m`, a loop, a `match`, a block used as a value, an explicit
+bail). Operations whose flags nothing sees are removed (`c.cmp(..);`,
+`c.or(W, ax, ax);`) or become `pure::`. The first run took 163 of them
+in 74 ports.
+
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust
 (no flag helpers where no caller reads the flags), `c.run(start, cost)`
@@ -951,6 +969,7 @@ places), [4722h] (a toggle of the map panel), [118Fh], [0DCE4h].
 | `tools/lift/suite.sh record\|check` | Seven games from the start and from the saves, against a stored reference (states, screens and a save written near the end). |
 | `tools/lift/flags_used.py` | Which routines' returned flags any caller reads. |
 | `tools/lift/add_table.py`, `drop_consts.py` | Not checks: add a table of one and route the ports' accesses to it; drop the globals left unused. |
+| `tools/lift/dead_flag_ops.py` | Not a check: drop single flag operations whose flags no path shows (`--dry` lists them per port). |
 | `tools/lift/merge_runs.py` | Not a check: merge back-to-back stretches of a port (`--dry` lists them). |
 | `tools/lift/name_calls.py` | Not a check: regenerate `hand/entry.rs` (a constant per routine with a name: the port's, else the listing's label) and write `c.call(entry::NAME, ret)` / `c.jump(entry::NAME)` for the numbers (2106 sites; run again after adding or renaming ports). |
 | `--save FILE` + event `T:load:1` | Real play from any point of the game (the test saves, Day 1 to 23). |

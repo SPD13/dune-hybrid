@@ -3,6 +3,7 @@
 //! shadow check can't see them; `--rec on` runs them, checked by whole-run
 //! state hashes (`STATE_HASH=1`, against plain emulation).
 
+use super::pure;
 use super::entry;
 use super::globals as g;
 use super::{B, Ctx, W, entered, r8};
@@ -116,7 +117,7 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x05b7)?;
             c.run(0x05b7, 2)?;
             let v = c.dialogue_text().flags;
-            let v = c.and(B, v as u16, 0x7f);
+            let v = pure::and(B, v as u16, 0x7f);
             c.update_dialogue_text(|t| t.flags = v as u8);
             c.call(entry::REMOVE_ROOM_FRAME_TASK, 0x05bf)?;
             c.run(0x05bf, 1)?;
@@ -134,7 +135,6 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let ax = c.reg(AX);
             let neg = ax & 0x8000 != 0;
             c.run(0x05cc, 2 + if neg { 0 } else { 2 })?;
-            c.or(W, ax, ax);
             if !neg {
                 c.set_reg(BP, 0x0f66);
                 c.call(entry::TRANSITION_AL, 0x05d6)?;
@@ -147,7 +147,7 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0x05df)?;
             c.run(0x05df, 2)?;
             let v = c.dialogue_text().flags;
-            let v = c.or(B, v as u16, 0x80);
+            let v = pure::or(B, v as u16, 0x80);
             c.update_dialogue_text(|t| t.flags = v as u8);
             c.call(entry::STC_ON_USER_INPUT, 0x05e7)?;
             if c.flag(CF) {
@@ -544,8 +544,6 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xe4ad, 5)?;
     c.set_reg(SI, 0x80);
     let n = c.lods(B, DS);
-    let ah = c.reg(AX) >> 8;
-    c.xor(B, ah, ah);
     c.set_reg(AX, n);
     let si = c.reg(SI);
     let bp = c.add(W, n, si);
@@ -600,8 +598,7 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_sreg(ES, g::GAME_DS);
                 let bl = c.byte_in(CS, di.wrapping_add(1));
                 c.set_reg(BX, bl as u16);
-                c.xor(B, 0, 0);
-                let bx = c.add(W, bl as u16, 0x2942);
+                let bx = pure::add(W, bl as u16, 0x2942);
                 c.set_reg(BX, bx);
                 let bits = c.byte_in(CS, di.wrapping_add(2));
                 c.set_reg8(r8::AL, bits);
@@ -625,15 +622,13 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                         let path = to == 0x3826;
                         c.run(0xe507, 7)?;
                         let si = c.reg(SI);
-                        let si = c.dec(W, si);
+                        let si = pure::dec(W, si);
                         c.set_reg(SI, si);
-                        c.cmp(W, to, 0x3826);
                         if path {
                             c.set_reg(DI, to);
                             c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe552)?;
                             Parse::Path
                         } else {
-                            c.xor(W, 0, 0);
                             c.set_reg(DX, 0);
                             c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe517)?;
                             Parse::Number
@@ -678,7 +673,7 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     Some(d) => {
                         let dx = c.reg(DX);
                         let dx = c.shl1(W, dx, 4);
-                        let dl = c.or(B, dx & 0xff, d);
+                        let dl = pure::or(B, dx & 0xff, d);
                         c.set_reg(DX, (dx & 0xff00) | dl);
                         c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe517)?;
                         Parse::Number
@@ -688,11 +683,10 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                         c.run(0xe537, 4 + if more { 2 } else { 0 })?;
                         let (bx, dx) = (c.reg(BX), c.reg(DX));
                         c.m.cpu.write16(&mut c.m.hw, ES, bx, dx);
-                        let bx = c.add(W, bx, 2);
+                        let bx = pure::add(W, bx, 2);
                         c.set_reg(BX, bx);
                         c.cmp(B, al, 0x20);
                         if more {
-                            c.xor(W, 0, 0);
                             c.set_reg(DX, 0);
                             c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe517)?;
                             Parse::Number
@@ -710,8 +704,6 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     let more = di < 0x3898;
                     c.run(0xe552, 4 + more as u32)?;
                     c.stos(B);
-                    let di = c.reg(DI);
-                    c.cmp(W, di, 0x3898);
                     if more {
                         c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe552)?;
                         continue;
@@ -732,7 +724,7 @@ pub fn parse_command_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
             Parse::Skip => {
                 c.run(0xe542, 2)?;
                 let si = c.reg(SI);
-                let si = c.dec(W, si);
+                let si = pure::dec(W, si);
                 c.set_reg(SI, si);
                 c.call(entry::PARSE_CMD_IS_END_OF_ARG, 0xe546)?;
                 loop {

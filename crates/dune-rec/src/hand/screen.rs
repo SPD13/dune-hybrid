@@ -322,7 +322,7 @@ pub fn draw_sprite_clipped_clobbering(m: &mut Machine, start: u16) -> Result<(),
     let index = c.shl1(W, ax, 1);
     c.set_reg(BP, index);
     let offset = c.word_in(DS, index.wrapping_add(sheet));
-    let si = c.add(W, sheet, offset);
+    let si = pure::add(W, sheet, offset);
     c.set_reg(SI, si);
     let size = c.lods(W, DS);
     c.set_reg(DI, size);

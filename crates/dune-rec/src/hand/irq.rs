@@ -131,7 +131,6 @@ pub fn hnm_render_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail
     }
     let es = c.sreg(ES);
     c.push(es);
-    c.xor(W, 0, 0);
     let due = c.byte(g::HNM_FLAG_MSB);
     c.set_byte(g::HNM_FLAG_MSB, 0);
     c.set_reg(AX, due as u16);

@@ -1,6 +1,7 @@
 //! The intro sequence's steps: videos, frame tasks, the talking head.
 //! Most end in `clc; ret`: CF clear tells the intro script to go on.
 
+use super::pure;
 use super::entry;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -665,7 +666,7 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
             if zf {
                 break true;
             }
-            si = c.inc(W, si);
+            si = pure::inc(W, si);
             c.set_reg(SI, si);
             c.cmp(W, si, 8);
             if si > 8 {
@@ -710,7 +711,7 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(g::TALK_MODE, 0);
     c.update_video_state(|t| t.delay = 6);
     let v = c.byte(g::GAME_STARTS);
-    let v = c.inc(B, v as u16);
+    let v = pure::inc(B, v as u16);
     c.set_byte(g::GAME_STARTS, v as u8);
     c.set_reg(DX, 0x200a);
     c.set_reg(BX, 0x180);

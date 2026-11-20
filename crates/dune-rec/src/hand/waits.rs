@@ -316,20 +316,18 @@ pub fn measure_pit_speed(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.or(B, al, al);
     }
     if measured {
-        c.xor(W, 0, 0);
         c.set_reg(DX, r);
         c.set_reg(CX, 0x1745);
         // `div cx` (its flags are overwritten by the `shl` below).
         let d2 = c.shl1(W, r, 1);
         c.set_reg(DX, d2);
-        c.cmp(W, d2, 0x1745);
         let mut a = q;
         if up {
-            a = c.inc(W, a);
+            a = pure::inc(W, a);
         }
-        a = c.dec(W, a);
+        a = pure::dec(W, a);
         if neg {
-            a = c.inc(W, a);
+            a = pure::inc(W, a);
         }
         c.cmp(W, a, 0x0a);
         if a >= 0x0a {

@@ -37,7 +37,6 @@ pub fn draw_icons_list_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0xc21b, 10)?;
         c.lods(W, DS);
-        c.cmp(W, sprite, 0xffff);
         let x = c.lods(W, DS);
         let y = c.lods(W, DS);
         c.set_reg(AX, sprite);

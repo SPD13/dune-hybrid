@@ -31,17 +31,13 @@ pub fn hnm_close_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(start, 5)?;
     }
-    let bx = c.reg(BX);
-    c.xor(W, bx, bx);
     c.set_word(g::HNM_FILE_HANDLE, 0);
     c.set_reg(BX, handle);
-    c.or(W, handle, handle);
     if handle != 0 {
         c.call(entry::HNM_RESET_FRAME_COUNTER, 0xca0e)?; // hnm_reset_frame_counter
         let dat = c.word(g::DUNE_DAT_HANDLE);
         if handle == dat {
             c.run(0xca0e, 4)?; // cmp; je; xor cx; ret
-            c.cmp(W, handle, dat);
         } else {
             c.run(0xca0e, 3)?;
             c.cmp(W, handle, dat);
@@ -137,7 +133,7 @@ pub fn hnm_prefetch_flagged(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // is written right after a stretch of its `mov` alone (see `ticks.rs`).
     c.run(start, 2)?;
     let flags = c.video_state().flags;
-    let msb = c.and(B, flags as u16, 0x80) as u8;
+    let msb = pure::and(B, flags as u16, 0x80) as u8;
     c.set_reg8(r8::AL, msb);
     c.run(0xca94, 1)?;
     c.set_byte(g::HNM_FLAG_MSB, msb);

@@ -54,7 +54,6 @@ pub fn sound_off(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(start, 3)?;
-    c.test(B, args as u16, 0x10);
     c.call(code::MUSIC_ENABLED, 0xaed0)?;
     let on = !c.flag(pc::cpu::ZF);
     c.run(0xaed0, 3)?; // je; clc / stc; ret
@@ -160,7 +159,7 @@ pub fn open_pcm_voice_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 7)?;
     c.set_reg(DX, g::VOICE_FILE_NAME);
     let ax = c.reg(AX);
-    let zero = c.xor(W, ax, ax);
+    let zero = pure::xor(W, ax, ax);
     c.set_reg(AX, zero);
     c.update_voice_buffer(0, |b| b.data[0] = 0);
     c.update_voice_buffer(0, |b| b.set_state_word(0));
@@ -210,15 +209,12 @@ pub fn refill_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if first != 0 && second != 0 {
         c.run(0xa9bc, 7)?;
         c.set_reg(SI, g::VOC_BUFFER);
-        c.cmp(B, first as u16, 0);
         c.cmp(B, second as u16, 0);
         return c.ret();
     }
     c.run(0xa9bc, if first == 0 { 4 } else { 7 } + 5)?;
     c.set_reg(SI, g::VOC_BUFFER);
-    c.cmp(B, first as u16, 0);
     if first != 0 {
-        c.cmp(B, second as u16, 0);
         c.set_reg(SI, VOC_BUFFER_2);
     }
     let handle = c.word(g::VOICE_FILE_HANDLE);
@@ -427,12 +423,12 @@ pub fn swap_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, si);
     let (off, seg) = (c.word(si), c.word(si.wrapping_add(2)));
     c.set_sreg(ES, seg);
-    let di = c.add(W, off, 6);
+    let di = pure::add(W, off, 6);
     c.set_reg(DI, di);
     c.call(entry::TRANSFER_SD_BLOCK, 0xaa00)?;
     c.interp(0xaa00, 0xaa04)?;
     c.run(0xaa04, 4)?;
-    let x = c.xor(W, 0x3811, 0x3819);
+    let x = pure::xor(W, 0x3811, 0x3819);
     c.set_reg(AX, x);
     let v = c.word(g::VOICE_BUFFER_PLAYING);
     let v = c.xor(W, v, x);
@@ -586,7 +582,7 @@ pub fn wait_voice_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xabb9, 6 + if left { 2 } else { 2 })?;
         let bx = c.pop();
         c.set_reg(BX, bx);
-        let d = c.sub(W, t, bx);
+        let d = pure::sub(W, t, bx);
         c.set_reg(AX, d);
         c.cmp(W, d, 0x3e8);
         if !left {
@@ -1123,7 +1119,6 @@ pub fn pick_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
         let ops = |c: &mut Ctx| {
-            c.cmp(B, f as u16, 0);
             c.cmp(B, s as u16, 0);
         };
         return song_list_at(&mut c, 0xad66, 4, f, ops);

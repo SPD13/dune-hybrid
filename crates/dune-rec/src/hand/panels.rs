@@ -695,7 +695,6 @@ pub fn settings_apply_sound_volume(m: &mut Machine, start: u16) -> Result<(), Ba
     let off = settings & 0x400 == 0;
     let v = if off { 0xff } else { c.byte(SLIDERS[1]) };
     c.run(start, 2 + if off { 3 } else { 0 } + 4 + (v < 4) as u32)?;
-    c.test(W, settings, 0x400);
     if off {
         c.set_reg8(r8::AL, 0xff);
         c.set_byte(SLIDERS[1], 0xff);
@@ -900,25 +899,23 @@ pub fn voc_get_lipsync_data(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_flag(CF, true);
     c.set_reg(DI, buf);
     c.set_sreg(ES, seg);
-    di = c.add(W, buf, 0x1a);
+    di = pure::add(W, buf, 0x1a);
     c.set_reg(DI, di);
-    let kind = c.byte_in(ES, di);
-    c.cmp(B, kind as u16, 5);
     if text {
         let len = c.word_in(ES, di.wrapping_add(1));
         c.set_reg(CX, len);
-        di = c.add(W, di, 4);
+        di = pure::add(W, di, 4);
         c.set_reg(DI, di);
         c.set_reg(AX, di);
-        let data = c.add(W, di, 2);
+        let data = pure::add(W, di, 2);
         c.set_reg(AX, data);
         c.set_word(g::LIPSYNC_PTR, data);
-        di = c.add(W, di, len);
+        di = pure::add(W, di, len);
         c.set_reg(DI, di);
     }
     c.update_voice_buffer(0, |b| b.data[0] = di);
     let size = c.voice_buffer(0).size;
-    let size = c.sub(W, size, di);
+    let size = pure::sub(W, size, di);
     c.update_voice_buffer(0, |b| b.size = size);
     c.call(code::SUB_A9B9, 0xa87c)?;
     c.run(0xa87c, 2)?;

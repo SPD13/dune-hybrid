@@ -232,9 +232,8 @@ pub fn find_location_by_word_6(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.run(start, n)?;
     let mut si = LOCATIONS_BEFORE;
     loop {
-        si = c.add(W, si, LOCATION_SIZE);
+        si = pure::add(W, si, LOCATION_SIZE);
         let w = c.word(si);
-        c.cmp(W, w, 0xffff);
         if w == 0xffff {
             c.or(W, si, si);
             break;

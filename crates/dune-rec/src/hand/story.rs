@@ -468,9 +468,7 @@ pub fn is_4_in_phases_15_to_1f(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let al = c.reg8(r8::AL);
     let phase = c.progress().phase;
     c.run(start, if al != 4 { 4 } else { 6 })?;
-    c.cmp(B, al as u16, 4);
     if al == 4 {
-        c.cmp(B, phase as u16, 0x15);
         if phase >= 0x15 {
             c.cmp(B, phase as u16, 0x20);
             return c.ret();
@@ -611,17 +609,13 @@ pub fn pick_one_of_two_speakers(m: &mut Machine, start: u16) -> Result<(), Bail>
         11
     };
     c.run(start, n)?;
-    c.cmp(W, ax, 0xffff);
     let mut v = ax;
     if ax != 0xffff {
-        c.cmp(B, ax >> 8, 0xff);
         if ax >> 8 != 0xff {
-            c.test(W, w0, 0x80);
             if w0 & 0x80 == 0 {
                 v = v.rotate_left(8);
             }
         }
-        c.xor(B, v >> 8, v >> 8);
         v &= 0xff;
     }
     c.or(W, v, v);
@@ -1261,7 +1255,6 @@ pub fn speak_event_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, if di == 0 { 3 } else { 5 })?;
     let w = c.word(g::TOPIC_PLACE_RECORD);
     c.push(w);
-    c.or(W, di, di);
     if di != 0 {
         let ax = c.reg(AX);
         c.push(ax);
@@ -1273,7 +1266,6 @@ pub fn speak_event_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x2b0d, 4)?;
     let ax = c.reg(AX);
     c.update_situation(|t| t.event_kind = ax as u8);
-    c.xor(B, 0, 0);
     c.set_reg(AX, ax >> 8);
     c.call(entry::TALK_AS, 0x2b17)?;
     c.run(0x2b17, 1)?;
@@ -1954,10 +1946,10 @@ pub fn show_speaker_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.travel().screen_kind & 3;
     c.run(0x368e, if k == 2 { 6 } else if k == 1 { 12 } else { 8 })?;
     let v = c.flight().marker;
-    let v = c.or(B, v as u16, 1);
+    let v = pure::or(B, v as u16, 1);
     c.update_flight(|t| t.marker = v as u8);
     let bl = c.travel().screen_kind;
-    let bl = c.and(B, bl as u16, 3) as u8;
+    let bl = pure::and(B, bl as u16, 3) as u8;
     c.set_reg8(r8::BL, bl);
     c.cmp(B, bl as u16, 2);
     if k == 2 {
@@ -1985,7 +1977,6 @@ pub fn show_speaker_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x36b9, if neg { 4 } else { 5 })?;
             c.pop();
             c.set_reg(AX, ax);
-            c.or(W, ax, ax);
             if !neg {
                 c.update_conversation(|t| t.talker = ax);
                 c.call(entry::REDRAW_DIALOGUE_SCENE, 0x36c4)?;
@@ -2337,7 +2328,7 @@ pub fn check_allocator_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
     let a = c.word(g::ALLOCATOR_NEXT_SEGMENT);
-    let a = c.add(W, a, 0x2f13);
+    let a = pure::add(W, a, 0x2f13);
     c.set_reg(AX, a);
     let b = c.word(g::ALLOCATOR_LAST_SEGMENT);
     c.cmp(W, a, b);

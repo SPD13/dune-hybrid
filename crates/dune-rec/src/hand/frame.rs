@@ -255,7 +255,6 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
             }
         } else {
             c.run(0xe35c, 3)?;
-            c.cmp(B, 0, 0);
             c.call(code::PAUSE_IF_P_KEY_PRESSED, 0xe37b)?;
         }
         let now = c.timer();
@@ -264,11 +263,11 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
         let more = passed < bp;
         c.run(0xe37b, if more { 4 } else { 6 })?;
         c.set_reg(AX, now);
-        let p = c.sub(W, now, bx);
+        let p = pure::sub(W, now, bx);
         c.set_reg(AX, p);
         c.cmp(W, p, bp);
         if !more {
-            let al = c.or(B, p & 0xff, 1);
+            let al = pure::or(B, p & 0xff, 1);
             c.set_reg(AX, p & 0xff00 | al);
             return c.ret();
         }
@@ -299,7 +298,7 @@ pub fn hnm_wait_for_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let early = passed >> 8 == 0 && (passed as u8) < rate;
         let n = 4 + if passed >> 8 != 0 { 1 } else { 2 + if early { 1 } else { 1 } };
         c.run(0xcadd, n - 1)?;
-        let p = c.sub(W, now, tick);
+        let p = pure::sub(W, now, tick);
         c.set_reg(AX, p);
         c.or(B, p >> 8, p >> 8);
         if p >> 8 == 0 {
@@ -349,8 +348,6 @@ pub fn hnm_do_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let flags = c.video_state().flags;
         let high = flags & 0x80 != 0;
         c.run(0xca60, 5)?; // cmp; je; cmp; jns; then a call either way
-        c.cmp(W, handle, 0);
-        c.cmp(B, flags as u16, 0);
         if high {
             c.call(code::HNM_FRAME_END, 0xca71)?;
             c.run(0xca71, 1)?;
@@ -368,7 +365,7 @@ pub fn hnm_do_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let pal = c.video_state().palette_chunk;
             c.run(0xca7e, 5)?; // jb; mov; inc; je; then a call either way
             c.set_reg(AX, pal);
-            let ax = c.inc(W, pal);
+            let ax = pure::inc(W, pal);
             c.set_reg(AX, ax);
             if pal != 0xffff {
                 c.call(code::HNM_HANDLE_PAL_CHUNK, 0xca89)?;
@@ -385,7 +382,7 @@ pub fn hnm_do_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // (see `ticks.rs`).
         c.run(0xca8f, 2)?;
         let flags = c.video_state().flags;
-        let msb = c.and(B, flags as u16, 0x80) as u8;
+        let msb = pure::and(B, flags as u16, 0x80) as u8;
         c.set_reg8(r8::AL, msb);
         c.run(0xca94, 1)?;
         c.set_byte(g::HNM_FLAG_MSB, msb);

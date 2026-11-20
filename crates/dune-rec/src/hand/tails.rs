@@ -905,10 +905,10 @@ pub fn say_next_place_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let n = if v == 0xffff { 3 + 1 } else if v != 0 { 3 + 2 } else { 3 + 2 + 1 };
     c.run(0x973e, n + 2)?;
     c.set_reg(SI, v);
-    let s = c.inc(W, v);
+    let s = pure::inc(W, v);
     c.set_reg(SI, s);
     if s != 0 {
-        let s = c.dec(W, s);
+        let s = pure::dec(W, s);
         c.set_reg(SI, s);
     }
     if v == 0 || v == 0xffff {
@@ -1434,7 +1434,6 @@ pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         let d = c.word(g::TROOP_MARKER_PARTICLE);
         c.run(0x7c11, 2 + 4 + if d != 0 { 3 } else { 0 } + 1)?;
-        c.cmp(W, ax, shown);
         c.update_topic_troop(|t| t.out_of_reach = 0xff);
         c.set_reg(DI, d);
         c.or(W, d, d);
@@ -1463,10 +1462,9 @@ pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.pop();
     c.set_reg(SI, v);
     c.update_map_selection(|t| t.panel = 0);
-    c.cmp(B, k as u16, 0x80);
     if k == 0x80 {
         let v = c.map_selection().panel;
-        let v = c.inc(B, v as u16);
+        let v = pure::inc(B, v as u16);
         c.update_map_selection(|t| t.panel = v as u8);
         c.call(entry::SPREAD_LOCATION_BITS, 0x7c4e)?;
         c.run(0x7c4e, 2)?;
@@ -2100,16 +2098,10 @@ pub fn open_selection_orders_screen(m: &mut Machine, start: u16) -> Result<(), B
     let calls = !past && inhab && !b6;
     c.run(0x780d, n + if calls { 0 } else { 2 })?;
     c.set_reg(BP, 0x2122);
-    c.cmp(W, ax, shown);
     if !past {
         c.set_reg8(r8::AL, k);
-        c.test(B, k as u16, 0x20);
-        if k & 0x20 != 0 {
-            c.cmp(B, k as u16, 0x22);
-        }
         if inhab {
             c.set_reg(BP, 0x214a);
-            c.test(B, k as u16, 0x40);
             if !b6 {
                 c.set_reg(BP, 0x210a);
                 let f = c.map_selection().map_screen;
@@ -2744,7 +2736,7 @@ pub fn play_intro_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(bp, 0x02ce)?;
     c.run(0x02ce, 3)?;
     let ax = c.pop();
-    let ax = c.add(W, ax, 0x117);
+    let ax = pure::add(W, ax, 0x117);
     c.set_reg(AX, ax);
     c.call(entry::FONT_SELECT_TALL_FONT, 0x02d5)?;
     c.run(0x02d5, 1)?;

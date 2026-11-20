@@ -314,8 +314,7 @@ pub fn ui_head_animate_down(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
         c.run(0x181e, 4)?;
-        c.cmp(super::B, step as u16, 0);
-        let step = c.dec(super::B, step as u16) as u8;
+        let step = pure::dec(super::B, step as u16) as u8;
         c.update_situation(|t| t.head_animation_step = step);
         c.call(entry::REDRAW_HEAD_PANEL, 0x182c)?;
         c.run(0x182c, 2)?;
@@ -506,7 +505,7 @@ pub fn open_resource_and_draw_sprite_0(m: &mut Machine, start: u16) -> Result<()
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     let ah = c.reg8(super::r8::AH) as u16;
-    let z = c.xor(B, ah, ah);
+    let z = pure::xor(B, ah, ah);
     c.set_reg8(super::r8::AH, z as u8);
     c.call(code::OPEN_RESOURCE_BY_INDEX, 0xc2f7)?;
     c.run(0xc2f7, 6)?;
@@ -550,7 +549,6 @@ pub fn gfx_call_18(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, if screen == front { 5 } else { 6 })?;
     c.set_reg(AX, screen);
     c.set_reg(SI, front);
-    c.cmp(W, screen, front);
     if screen == front {
         return c.ret();
     }
@@ -628,7 +626,7 @@ pub fn gfx_zero_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::SCRATCH_COUNT, cx);
     c.set_word(g::SPAN_ROW, bx);
     let sp = c.reg(SP);
-    let sp = c.sub(W, sp, cx);
+    let sp = pure::sub(W, sp, cx);
     c.set_reg(SP, sp);
     let ss = c.sreg(SS);
     c.push(ss);
@@ -656,7 +654,7 @@ pub fn gfx_zero_block(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let cx = c.reg(CX);
     let sp = c.reg(SP);
-    let sp = c.add(W, sp, cx);
+    let sp = pure::add(W, sp, cx);
     c.set_reg(SP, sp);
     c.ret()
 }

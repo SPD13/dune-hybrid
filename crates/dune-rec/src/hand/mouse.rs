@@ -290,7 +290,6 @@ pub fn redraw_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, image);
     c.set_word(g::MOUSE_CURSOR_IMAGE, image);
     c.set_reg(BP, before);
-    c.xor(B, 0, 0);
     c.set_reg8(r8::AL, shown);
     c.update_mouse_state(|t| t.cursor_shown = 0);
     c.or(B, shown as u16, shown as u16);

@@ -6,6 +6,7 @@
 //! (the current entry, and the entries left), which adding or removing a
 //! task keeps right.
 
+use super::pure;
 use super::entry;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -228,7 +229,7 @@ pub fn sky_fade_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let n = c.byte(g::FRAME_TASKS_ACTIVE);
     let last = n == 1;
     c.run(0x394a, if last { 5 } else { 3 })?;
-    let n = c.dec(B, n as u16);
+    let n = pure::dec(B, n as u16);
     c.set_byte(g::FRAME_TASKS_ACTIVE, n as u8);
     if !last {
         return c.ret();

@@ -719,7 +719,6 @@ pub fn open_resource_by_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (`check_hsq_checksum`).
 pub fn read_and_maybe_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::CF;
-    use super::B;
     entered(start, 0xf0d6)?;
     let mut c = Ctx::new(m);
     let ax = c.word(g::LOADING_RESOURCE);
@@ -727,7 +726,6 @@ pub fn read_and_maybe_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let below = (ax as u8) < lim;
     c.run(0xf0d6, 4)?;
     c.set_reg(AX, ax);
-    c.cmp(B, ax & 0xff, lim as u16);
     if below {
         c.call(entry::ALLOC_EXTENDED_MEMORY, 0xf0e2)?;
         c.run(0xf0e2, 2)?;
@@ -741,7 +739,6 @@ pub fn read_and_maybe_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let below = (ax as u8) < lim;
     c.run(0xf0e7, 4)?;
     c.set_reg(AX, ax);
-    c.cmp(B, ax & 0xff, lim as u16);
     if below {
         c.call(entry::MEMORY_FUNC_QQ, 0xf0f3)?;
         c.run(0xf0f3, 1)?;

@@ -1133,7 +1133,6 @@ pub fn record_outside_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(start, 5)?;
-    c.cmp(B, k as u16, 1);
     let si = c.reg(SI);
     let (x, y) = (c.word(si.wrapping_add(2)), c.word(si.wrapping_add(4)));
     c.set_reg(DX, x);
@@ -1158,7 +1157,6 @@ pub fn location_to_show(m: &mut Machine, start: u16) -> Result<(), Bail> {
         true
     } else {
         c.run(0x6281, 3)?;
-        c.test(B, f as u16, 2);
         c.call(entry::LOCATION_KIND_CHECK, 0x628a)?;
         if c.flag(CF) {
             c.run(0x628a, 2)?;
@@ -1989,10 +1987,10 @@ pub fn draw_skills_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0x0e);
     c.rep_counted(0xa5);
     let bx = c.word(g::SKILL_BARS_BOX_Y0);
-    let bx = c.add(W, bx, 4);
+    let bx = pure::add(W, bx, 4);
     c.set_reg(BX, bx);
     let dx = c.word(g::SKILL_BARS_BOX);
-    let dx = c.add(W, dx, 0x50);
+    let dx = pure::add(W, dx, 0x50);
     c.set_reg(DX, dx);
     c.set_reg(SI, g::LOCATION_SKILL_NEEDS);
     let bp = c.word(g::SKILL_BARS_BOX_Y1);
@@ -2005,7 +2003,7 @@ pub fn draw_skills_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cx = c.word(g::SKILL_BARS_BOX_COLOURS);
     c.set_reg(CX, cx);
     let dx = c.word(g::SKILL_BARS_BOX);
-    let dx = c.add(W, dx, 8);
+    let dx = pure::add(W, dx, 8);
     c.set_reg(DX, dx);
     c.set_reg(AX, 0x6f);
     c.call(entry::FONT_DRAW_STRING_WITH_COLOR_AT_POS, 0x7d5c)?;
@@ -4920,7 +4918,6 @@ pub fn enter_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return map_view_redraw(&mut c, start, 2, |c| c.cmp(B, v as u16, 0));
     }
     c.run(start, 3)?;
-    c.cmp(B, v as u16, 0);
     c.call(entry::LEAVE_SCREENS, 0x5a60)?;
     c.run(0x5a60, 1)?;
     c.call(entry::HOLD_TRAVEL, 0x5a63)?;
@@ -6428,8 +6425,6 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if ax < 0x14 && di != cur {
         // Near and another place than the caption's: on at 5FB0h.
         c.run(0x5cbc, 5)?; // cmp; jnb; cmp; je; jmp
-        c.cmp(W, ax, 0x14);
-        c.cmp(W, di, cur);
         return c.jump(0x5fb0);
     }
     c.run(0x5cbc, if ax < 0x14 { 5 } else { 3 })?;
@@ -7118,9 +7113,8 @@ pub fn move_trail_span(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.cmp(W, di, 0x138);
         } else {
             c.run(0x6580, 5)?;
-            c.cmp(W, di, 0x138);
             let v = c.byte(di.wrapping_add(0x0a));
-            let v = c.and(B, v as u16, 0x7f);
+            let v = pure::and(B, v as u16, 0x7f);
             c.set_byte(di.wrapping_add(0x0a), v as u8);
             c.call(entry::LOCATION_RAIDED, 0x658f)?;
             c.run(0x658f, 2)?;

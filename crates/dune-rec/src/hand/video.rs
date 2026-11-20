@@ -242,7 +242,7 @@ pub fn ui_elements_for_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut n = 2 + 2; // mov ax; mov di; stc; ret
     for (i, image) in CURSORS_WITH_UI.into_iter().enumerate() {
         if i > 0 {
-            di = c.add(W, di, 0x0e);
+            di = pure::add(W, di, 0x0e);
             n += 1;
         }
         c.cmp(W, cursor, image);
@@ -289,10 +289,10 @@ pub fn strcpy_to_filename_buf(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let (si, di) = (c.reg(SI), c.reg(DI));
         let ch = c.byte(si);
         c.set_reg8(super::r8::AL, ch);
-        let si = c.inc(W, si);
+        let si = pure::inc(W, si);
         c.set_reg(SI, si);
         c.set_byte(di, ch);
-        let di = c.inc(W, di);
+        let di = pure::inc(W, di);
         c.set_reg(DI, di);
         c.or(B, ch as u16, ch as u16);
         if ch == 0 {

@@ -249,15 +249,15 @@ pub fn hnm_open_at_body_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xcda6, 9)?;
     let size = c.reg(AX);
     let end = c.word(g::HNM_CE74);
-    let di = c.sub(W, end, size);
-    let di = c.sub(W, di, 2);
+    let di = pure::sub(W, end, size);
+    let di = pure::sub(W, di, 2);
     c.set_reg(DI, di);
     c.update_video_state(|t| t.next_chunk[0] = di);
     c.stos(W);
     let di = c.reg(DI);
     c.update_video_state(|t| t.fill[0] = di);
     c.set_reg(CX, size);
-    let cx = c.sub(W, size, 2);
+    let cx = pure::sub(W, size, 2);
     c.set_reg(CX, cx);
     super::hnm::hnm_read_bytes(c.m, 0xcdbf)
 }

@@ -56,8 +56,6 @@ pub fn get_and_reset_key_scancode(m: &mut Machine, start: u16) -> Result<(), Bai
     entered(start, 0xdd5a)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
-    let al = c.reg8(r8::AL);
-    c.xor(B, al as u16, al as u16);
     let key = c.byte(g::KEY_HIT);
     c.set_byte(g::KEY_HIT, 0);
     c.set_reg8(r8::AL, key);
@@ -368,7 +366,7 @@ pub fn initialize_joystick(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let bad = (a >> 8) >= 4;
         c.run(at, 4 + bad as u32)?;
         c.set_reg(AX, v);
-        let a = c.sub(W, v, 4);
+        let a = pure::sub(W, v, 4);
         c.set_reg(AX, a);
         c.cmp(B, a >> 8, 4);
         if bad {
@@ -378,14 +376,14 @@ pub fn initialize_joystick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xea5a, 12)?;
     let dx = c.reg(DX);
     let ax = c.shr1(W, dx, 1);
-    let dx = c.add(W, dx, ax);
+    let dx = pure::add(W, dx, ax);
     c.set_reg(DX, dx);
     c.set_reg(SI, 0x39ab);
     c.set_word(g::JOYSTICK_LEFT, ax);
     c.set_word(g::JOYSTICK_RIGHT, dx);
     let bx = c.reg(BX);
     let ax = c.shr1(W, bx, 1);
-    let bx = c.add(W, bx, ax);
+    let bx = pure::add(W, bx, ax);
     c.set_reg(AX, ax);
     c.set_reg(BX, bx);
     c.set_word(g::JOYSTICK_UP, ax);
@@ -419,12 +417,11 @@ pub fn initialize_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     let ok = ax == 0xffff;
     c.run(0xe98a, 2 + if ok { 3 } else { 1 })?;
-    let ax = c.inc(W, ax);
+    let ax = pure::inc(W, ax);
     c.set_reg(AX, ax);
     if !ok {
         return c.ret();
     }
-    c.xor(W, 0, 0);
     c.set_reg(CX, 0);
     c.xor(W, 0, 0);
     c.set_reg(DX, 0);
@@ -600,7 +597,7 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, a);
     c.run(0xdf7c, 1)?;
     let k = c.byte(g::KEY_ENTER);
-    let a = c.or(B, a as u16, k as u16) as u8;
+    let a = pure::or(B, a as u16, k as u16) as u8;
     c.set_reg8(r8::AL, a);
     c.run(0xdf80, 1)?;
     let k = c.byte(g::JOYSTICK_BUTTON);

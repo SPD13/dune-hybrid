@@ -168,10 +168,10 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.lods(W, DS);
         let s = c.lods(W, DS);
-        let ax = c.inc(W, s);
+        let ax = pure::inc(W, s);
         c.set_reg(AX, ax);
         if s != 0xffff {
-            let ax = c.dec(W, ax);
+            let ax = pure::dec(W, ax);
             c.set_reg(AX, ax);
             c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0xd233)?;
             c.run(0xd233, 3)?;
