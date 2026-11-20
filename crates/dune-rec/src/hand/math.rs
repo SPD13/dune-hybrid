@@ -231,15 +231,16 @@ pub fn rand(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `rand_masked` (E3B7): a random word from the second generator, ANDed
-/// with BX. Flags from the `and`; DX kept.
+/// with BX; ZF set when it is 0 (its callers read ZF alone). DX kept.
 pub fn rand_masked(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe3b7)?;
     let mut c = Ctx::new(m);
     c.run(start, 11)?;
     lcg(&mut c, g::RAND_MASKED_SEED, 0xe56d);
     let (ax, bx) = (c.reg(AX), c.reg(BX));
-    let r = c.and(Width::W, ax, bx);
+    let r = ax & bx;
     c.set_reg(AX, r);
+    c.set_flag(pc::cpu::ZF, r == 0);
     c.ret()
 }
 

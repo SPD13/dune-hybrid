@@ -319,13 +319,15 @@ pub fn allow_scripted_action(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0a1e2`: ZF set when [47A5h] is FFh (`cmp` flags).
+/// `loc_0a1e2`: ZF set when [47A5h] is FFh, CF when it is not (the
+/// flags of `cmp [47A5h], FFh`; its callers read those two).
 pub fn is_scripted_action_allowed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa1e2)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     let v = c.conversation().flag_47a5;
-    c.cmp(B, v as u16, 0xff);
+    c.set_flag(pc::cpu::ZF, v == 0xff);
+    c.set_flag(CF, v != 0xff);
     c.ret()
 }
 
@@ -468,13 +470,8 @@ pub fn is_4_in_phases_15_to_1f(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let al = c.reg8(r8::AL);
     let phase = c.progress().phase;
     c.run(start, if al != 4 { 4 } else { 6 })?;
-    if al == 4 {
-        if phase >= 0x15 {
-            c.cmp(B, phase as u16, 0x20);
-            return c.ret();
-        }
-    }
-    c.set_flag(pc::cpu::CF, false);
+    // Its callers read CF alone.
+    c.set_flag(pc::cpu::CF, al == 4 && (0x15..0x20).contains(&phase));
     c.ret()
 }
 

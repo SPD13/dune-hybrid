@@ -42,7 +42,7 @@ pub fn set_mouse_pos(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let args = c.byte(g::CMD_ARGS);
     if no_driver(&mut c) {
         c.run(start, 3)?;
-        c.test(B, args as u16, 0x40);
+        c.set_flag(pc::cpu::CF, false); // `test`: its callers read CF alone
         return c.ret();
     }
     c.run(start, 10)?;

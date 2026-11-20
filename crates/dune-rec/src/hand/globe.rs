@@ -412,24 +412,15 @@ pub fn on_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
         10
     };
     c.run(start, n)?;
-    let x = c.sub(W, dx, 0x60);
     c.set_reg(DX, x);
-    let cf = c.flag(CF);
-    c.set_flag(CF, !cf);
-    if dx < 0x60 {
-        return c.ret();
+    // Its callers read CF alone.
+    let mut on = false;
+    if dx >= 0x60 && x < 0x80 {
+        let y = bx.wrapping_sub(0x19);
+        c.set_reg(BX, y);
+        on = bx >= 0x19 && y < 0x6d;
     }
-    c.cmp(W, x, 0x80);
-    if x >= 0x80 {
-        return c.ret();
-    }
-    let y = c.sub(W, bx, 0x19);
-    c.set_reg(BX, y);
-    let cf = c.flag(CF);
-    c.set_flag(CF, !cf);
-    if bx >= 0x19 {
-        c.cmp(W, y, 0x6d);
-    }
+    c.set_flag(CF, on);
     c.ret()
 }
 

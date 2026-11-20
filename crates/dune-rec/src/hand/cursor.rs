@@ -93,17 +93,13 @@ pub fn point_in_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let (dx, bx, di) = (c.reg(DX), c.reg(BX), c.reg(DI));
     let r = [c.word(di), c.word(di.wrapping_add(2)), c.word(di.wrapping_add(4)), c.word(di.wrapping_add(6))];
-    // The tests made, in order, until one says outside (CF clear); the
-    // last one's CF is the answer (only CF is read).
+    // The tests made, in order, until one says outside: two
+    // instructions each, after the first four.
     let tests = [dx > r[0], dx < r[2], bx > r[1]];
     let passed = tests.iter().take_while(|&&t| t).count();
-    if passed == 3 {
-        c.run(start, 8)?;
-        c.cmp(W, bx, r[3]);
-    } else {
-        c.run(start, 2 * passed as u32 + 4)?;
-        c.set_flag(CF, false);
-    }
+    c.run(start, if passed == 3 { 8 } else { 2 * passed as u32 + 4 })?;
+    // Its callers read CF alone.
+    c.set_flag(CF, passed == 3 && bx < r[3]);
     c.ret()
 }
 

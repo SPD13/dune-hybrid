@@ -51,7 +51,7 @@ pub fn mouse_stuff(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `get_and_reset_key_scancode` (DD5A): AL = the last key's scancode
-/// (taken, so it reads once); ZF set if none. Flags from `or al, al`.
+/// (taken, so it reads once); ZF set if none (its callers read ZF alone).
 pub fn get_and_reset_key_scancode(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xdd5a)?;
     let mut c = Ctx::new(m);
@@ -59,7 +59,7 @@ pub fn get_and_reset_key_scancode(m: &mut Machine, start: u16) -> Result<(), Bai
     let key = c.byte(g::KEY_HIT);
     c.set_byte(g::KEY_HIT, 0);
     c.set_reg8(r8::AL, key);
-    c.or(B, key as u16, key as u16);
+    c.set_flag(pc::cpu::ZF, key == 0);
     c.ret()
 }
 

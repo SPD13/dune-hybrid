@@ -229,20 +229,9 @@ pub fn in_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
         10
     };
     c.run(start, n)?;
-    c.cmp(W, dx, v[0]);
-    let cf = c.flag(CF);
-    c.set_flag(CF, !cf);
-    if dx >= v[0] {
-        c.cmp(W, dx, v[2]);
-        if dx < v[2] {
-            c.cmp(W, bx, v[1]);
-            let cf = c.flag(CF);
-            c.set_flag(CF, !cf);
-            if bx >= v[1] {
-                c.cmp(W, bx, v[3]);
-            }
-        }
-    }
+    // Its callers read CF alone.
+    let inside = dx >= v[0] && dx < v[2] && bx >= v[1] && bx < v[3];
+    c.set_flag(CF, inside);
     c.ret()
 }
 
@@ -298,13 +287,8 @@ pub fn location_kind_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(di.wrapping_add(0x0a));
     let n = if kind < 0x28 { 3 } else if f & 8 == 0 { 5 } else { 6 };
     c.run(start, n)?;
-    c.cmp(B, kind as u16, 0x28);
-    if kind >= 0x28 {
-        c.test(B, f as u16, 8);
-        if f & 8 != 0 {
-            c.set_flag(CF, true);
-        }
-    }
+    // Its callers read CF alone.
+    c.set_flag(CF, kind < 0x28 || f & 8 != 0);
     c.ret()
 }
 
@@ -333,12 +317,9 @@ pub fn find_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, cost)?;
     c.set_reg(AX, word);
     c.set_reg(BP, entry);
-    // The exit's flags: the match's `cmp`, or `or bp, bp` at the end.
-    if found {
-        c.cmp(W, word, wanted);
-    } else {
-        c.or(W, entry, entry);
-    }
+    // Its callers read ZF alone: the match's `cmp`, or `or bp, bp` at the
+    // end (BP is never 0).
+    c.set_flag(ZF, found);
     c.ret()
 }
 
@@ -446,8 +427,9 @@ pub fn add_point_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_082a0`: ZF set unless the current UI elements are one of the two
-/// map lists (212Eh, 2136h) with bit 40h of [46EBh] clear.
+/// `loc_082a0`: ZF set when the current UI elements are one of the two
+/// map lists (212Eh, 2136h) and bit 40h of [46EBh] is set (AL then its
+/// complement).
 pub fn map_list_without_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x82a0)?;
     let mut c = Ctx::new(m);
@@ -457,16 +439,12 @@ pub fn map_list_without_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let first = bp == 0x212e;
     let ours = first || bp == 0x2136;
     c.run(0x82a3, if first { 2 } else { 3 } + 1 + if ours { 3 } else { 0 } + 1)?;
-    c.cmp(W, bp, 0x212e);
-    if !first {
-        c.cmp(W, bp, 0x2136);
-    }
+    let k = c.map_view().mode;
     if ours {
-        let k = c.map_view().mode;
-        let al = !k;
-        c.set_reg8(r8::AL, al);
-        c.test(B, al as u16, 0x40);
+        c.set_reg8(r8::AL, !k);
     }
+    // Its callers read ZF alone.
+    c.set_flag(ZF, ours && k & 0x40 != 0);
     c.ret()
 }
 
@@ -484,13 +462,9 @@ pub fn drop_reached_waypoints(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let go = here && f & 0x40 == 0;
         c.run(at, jmp + if !here { 5 } else if !go { 7 } else { 6 })?;
         c.set_reg(DI, di);
-        let w = c.word(si.wrapping_add(4));
-        c.cmp(W, w, di);
-        if here {
-            c.test(B, f as u16, 0x40);
-        }
         if !go {
-            c.or(W, di, di);
+            // Its callers read ZF alone.
+            c.set_flag(ZF, di == 0);
             return c.ret();
         }
         c.call(entry::SHIFT_FOLLOWED_TROOP_NOTE, 0x84a1)?;
@@ -1129,7 +1103,7 @@ pub fn record_outside_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.map_view().mode;
     if k < 1 {
         c.run(start, 3)?;
-        c.cmp(B, k as u16, 1);
+        c.set_flag(CF, true); // its callers read CF alone
         return c.ret();
     }
     c.run(start, 5)?;
