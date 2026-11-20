@@ -138,7 +138,7 @@ pub fn setup_globe_draw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(ds);
     let es = c.pop();
     c.set_sreg(ES, es);
-    c.set_reg(DI, g::GLOBE_MAP);
+    c.set_reg(DI, g::SCRATCH_BUFFER);
     c.set_reg(SI, 0x92);
     c.call(code::LOAD_RESOURCE_TO, 0xb8b2)?;
     c.run(0xb8b2, 3)?;
@@ -2091,7 +2091,7 @@ pub fn map_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb58b)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::TRIG_LOOKUP, 0xb58e)?;
+    c.call(entry::LATITUDE_LOOKUP, 0xb58e)?;
     let (ax, bp, dx) = (c.reg(AX), c.reg(BP), c.reg(DX));
     let (base, seg) = (c.word(0xdcfe), c.word(g::MAP_GFX_SEGMENT));
     c.run(0xb58e, 8)?;

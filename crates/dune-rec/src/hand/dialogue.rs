@@ -579,7 +579,7 @@ pub fn start_speaker(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.word(at) | bit;
         c.set_word(at, v);
     }
-    let record = 0x10 * speaker as u16 + 0x0fd8;
+    let record = 0x10 * speaker as u16 + g::CHARACTERS;
     c.set_reg(AX, record);
     c.update_conversation(|t| t.speaker = record);
     c.set_reg(SI, record);
@@ -731,7 +731,7 @@ pub fn speaker_text_setup(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let map_up = c.map_view().mode != 0;
     c.run(0x9f56, if map_up { 6 } else { 7 })?;
     c.set_reg8(r8::CL, 0x10);
-    let record = (c.reg(AX) & 0xff) * 0x10 + 0x0fd8;
+    let record = (c.reg(AX) & 0xff) * 0x10 + g::CHARACTERS;
     c.set_reg(AX, record);
     c.update_conversation(|t| t.speaker = record);
     if !map_up {
@@ -1431,7 +1431,7 @@ pub fn add_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DI, g::SPEAKER_SLOTS);
         c.save(&[CX]);
         c.set_reg8(r8::CL, first);
-        let leaving = 0x10 * first as u16 + 0x0fd8;
+        let leaving = 0x10 * first as u16 + g::CHARACTERS;
         c.set_reg(SI, leaving);
         let note = c.byte(leaving.wrapping_add(0x0e)).wrapping_add(0x64);
         c.set_reg(AX, leaving & 0xff00 | note as u16);
@@ -1612,7 +1612,7 @@ pub fn pick_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 } else {
                     let a = (c.byte(g::CHARACTER_15_SLOT) as u16) << 1;
                     ah = (a >> 8) as u8;
-                    s = c.word(a.wrapping_add(0x4758));
+                    s = c.word(a.wrapping_add(g::CHARACTER_15_TROOPS));
                     n += 4;
                 }
             }
@@ -3397,7 +3397,7 @@ fn record_handler_9234(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x9234, 5)?;
     // The handler is reached by an indirect jump: the flags of the
     // address's `add` go with it.
-    let at = c.add(W, record * 0x10, 0x0fd8);
+    let at = c.add(W, record * 0x10, g::CHARACTERS);
     c.set_reg(AX, at);
     c.set_reg(SI, at);
     let to = c.word(at.wrapping_add(4));
@@ -3418,7 +3418,7 @@ fn phrase_9381(c: &mut Ctx) -> Result<(), Bail> {
         Some(k) => k,
     };
     let cost = 2 + asked.is_none() as u32 + 2 + if asked == Some(8) { 3 + (last & 0x80 != 0) as u32 } else { 0 } + 7;
-    let record = c.word(0x4758 + phrase as u16 * 2);
+    let record = c.word(g::CHARACTER_15_TROOPS + phrase as u16 * 2);
     c.run(0x9381, cost)?;
     c.set_byte(g::CHARACTER_15_SLOT, phrase);
     c.set_reg(AX, phrase as u16 * 2);

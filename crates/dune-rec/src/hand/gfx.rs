@@ -164,12 +164,12 @@ pub fn clear_game_area(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `map_func_gfx` (B977): driver function 23 on the map: ES = the front
-/// buffer, DS:SI = the map data, AL = [DD02h], BP = the trig table.
+/// buffer, DS:SI = the map data, AL = [DD02h], BP = the latitude table.
 pub fn map_func_gfx(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb977)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
-    c.set_reg(BP, g::TRIG_TABLE);
+    c.set_reg(BP, g::LATITUDE_TABLE);
     let front = c.screen_buffers().front;
     c.set_sreg(ES, front);
     let al = c.byte(g::MAP_GFX_ARG);

@@ -1695,7 +1695,7 @@ pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.situation().days_in_phase;
     let v = pure::inc(B, v as u16);
     c.update_situation(|t| t.days_in_phase = v as u8);
-    c.call(entry::REFRESH_RECORDS_FD8, 0x1c5f)?;
+    c.call(entry::FIX_CHARACTER_ROOMS, 0x1c5f)?;
     c.run(0x1c5f, 1)?;
     c.call(entry::PICK_ATTACK_LOCATION, 0x1c62)?;
     let d = c.situation().character_1_days.wrapping_add(1);

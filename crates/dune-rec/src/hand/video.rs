@@ -238,7 +238,7 @@ pub fn ui_elements_for_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.check(start, 14)?;
     let cursor = c.word(g::MOUSE_CURSOR_IMAGE);
     c.set_reg(AX, cursor);
-    let mut di = g::UI_ELEMENTS_BY_CURSOR;
+    let mut di = g::ARROW_CURSOR_BUTTONS;
     let mut n = 2 + 2; // mov ax; mov di; stc; ret
     for (i, image) in CURSORS_WITH_UI.into_iter().enumerate() {
         if i > 0 {

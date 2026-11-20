@@ -36,7 +36,6 @@ const UI_ELEMENTS_WITH_POINTS: u16 = 0x201a;
 const POINTS: u16 = 0x28e9;
 const PARTICLE_SIZE: u16 = 0x11;
 const EIGHT_POINTS: u16 = 0x2462;
-const EIGHT_POINTS_ON: u16 = 0x4749;
 
 /// `[BP+n]` (SS).
 fn frame(c: &mut Ctx, n: u16) -> u16 {
@@ -273,7 +272,7 @@ pub fn hotspots_markers(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0e11c`: the 8 points at [`EIGHT_POINTS`] (when bit 0 of
-/// [`g::MAP_MODE`] and [`EIGHT_POINTS_ON`] are set).
+/// [`g::MAP_MODE`] and [`g::MAP_POINTER_BOX`] are set).
 pub fn hotspots_eight_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xe11c)?;
     let mut c = Ctx::new(m);
@@ -282,7 +281,7 @@ pub fn hotspots_eight_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 3)?;
         return c.ret();
     }
-    let on = c.word(EIGHT_POINTS_ON);
+    let on = c.word(g::MAP_POINTER_BOX);
     c.run(start, if on == 0 { 5 } else { 6 })?;
     if on == 0 {
         return c.ret();

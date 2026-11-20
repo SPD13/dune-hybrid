@@ -197,7 +197,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x1ae0, time::get_ingame_time_of_day, "get_ingame_time_of_day"),
     (0x395c, time::sky_palette_for_game_time, "get_sky_palette_id_from_game_time_in_bl"),
     // Maths, registers.
-    (0xb5a0, math::trig_lookup, "tablat_lookup_from_bx_to_ax_bp"),
+    (0xb5a0, math::latitude_lookup, "tablat_lookup_from_bx_to_ax_bp"),
     (0xb58b, globe::map_func, "map_func"),
     (0xdb44, math::shl_cx_and_dx, "shl_cx_and_dx"),
     (0xe16f, math::nearness_right, "sub_e16f"),
@@ -743,7 +743,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x1e01, troops::character_at_flagged_troop_location, "loc_01e01"),
     (0x1eda, troops::attack_clock_tick, "loc_01eda"),
     (0x221d, troops::troop_to_place, "loc_0221d"),
-    (0x1d66, troops::refresh_records_fd8, "loc_01d66"),
+    (0x1d66, troops::fix_character_rooms, "loc_01d66"),
     (0x1cda, troops::estimate_field_spice, "loc_01cda"),
     (0x21fa, troops::random_2_to_12, "loc_021fa"),
     (0x1bec, story::revisit_harkonnen_place, "loc_01bec"),

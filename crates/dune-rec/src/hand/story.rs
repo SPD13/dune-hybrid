@@ -72,7 +72,7 @@ set_flag!(
 set_flag!(
     /// `sub_1127`: the handler of phase 38h (and 39h): character 0's location
     /// byte ([0FDBh], its +3) = FFh.
-    on_phase_38, 0x1127, g::FLAG_0FDB, 0xff
+    on_phase_38, 0x1127, g::CHARACTER_0_LOCATION, 0xff
 );
 set_flag!(
     /// `sub_a5aa`: [`g::SETTINGS_HOVER`] = 0: the cursor is on no slider or
@@ -1738,7 +1738,7 @@ fn for_records_here(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx
     let (bx, dx) = (c.reg(BX), c.reg(DX));
     c.push(bx);
     c.push(dx);
-    c.set_reg(SI, 0x0fd8);
+    c.set_reg(SI, g::CHARACTERS);
     c.set_reg(CX, 0x10);
     let (y, x) = (c.player().y, c.player().x);
     c.set_reg(BX, y);
@@ -7501,7 +7501,7 @@ pub fn place_troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
             n += 3; // shl; add; jmp
             slots = Some((v, first));
-            (who, slot, ax) = (15, 0x4758u16.wrapping_add((v as u16) << 1), (v as u16) << 1);
+            (who, slot, ax) = (15, g::CHARACTER_15_TROOPS.wrapping_add((v as u16) << 1), (v as u16) << 1);
         }
     } else {
         n += 10; // mov bp; mov di; mov al; and; and; or; mov [0EEh]; or; mov al; jne

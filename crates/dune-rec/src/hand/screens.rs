@@ -411,19 +411,17 @@ pub(super) fn set_buttons(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&m
     c.push(ds);
     let es = c.pop();
     c.set_sreg(ES, es);
-    c.set_reg(DI, BUTTONS);
+    c.set_reg(DI, g::PANEL_BUTTONS);
     c.set_reg(CX, 0x2a);
     c.rep_counted(0xa5);
     c.run(0xd735, 1)?;
     c.call(entry::DRAW_PANEL_BUTTON_FRAME, 0xd738)?;
     c.run(0xd738, 3)?;
-    c.set_reg(SI, BUTTONS);
+    c.set_reg(SI, g::PANEL_BUTTONS);
     c.set_reg(CX, 6);
     super::gfx::draw_ui_elements_list_at_ds_si(c.m, 0xd1f2)
 }
 
-/// The 6 buttons of the panel (UI elements).
-const BUTTONS: u16 = 0x1b8e;
 
 /// `loc_0d72b`: the buttons from SI (see [`set_buttons`]).
 pub fn set_buttons_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -1062,7 +1060,7 @@ fn buttons_from_d735(c: &mut Ctx, at: u16, n: u32, ops: impl FnOnce(&mut Ctx)) -
     ops(c);
     c.call(entry::DRAW_PANEL_BUTTON_FRAME, 0xd738)?;
     c.run(0xd738, 3)?;
-    c.set_reg(SI, BUTTONS);
+    c.set_reg(SI, g::PANEL_BUTTONS);
     c.set_reg(CX, 6);
     super::gfx::draw_ui_elements_list_at_ds_si(c.m, 0xd1f2)
 }
@@ -1194,7 +1192,7 @@ pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ct
     c.set_reg(DI, di);
     c.call(entry::DRAW_PANEL_BUTTON_FRAME, 0xd738)?;
     c.run(0xd738, 3)?;
-    c.set_reg(SI, BUTTONS);
+    c.set_reg(SI, g::PANEL_BUTTONS);
     c.set_reg(CX, 6);
     super::gfx::draw_ui_elements_list_at_ds_si(c.m, 0xd1f2)
 }

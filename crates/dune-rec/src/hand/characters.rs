@@ -88,4 +88,4 @@ impl Single for Character {
     }
 }
 
-const _: () = assert!(g::BYTE_0FD8 == AT && g::FLAG_0FDB == AT + 3);
+const _: () = assert!(g::CHARACTERS == AT && g::CHARACTER_0_LOCATION == AT + 3);

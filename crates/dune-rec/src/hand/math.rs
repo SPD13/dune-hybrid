@@ -1,4 +1,4 @@
-//! Arithmetic helpers: trig table, random numbers, register save/restore.
+//! Arithmetic helpers: the latitude table, random numbers, register save/restore.
 
 use super::entry;
 use super::pure;
@@ -9,12 +9,12 @@ use pc::{
     rec::Bail,
 };
 
-/// `tablat_lookup_from_bx_to_ax_bp` (B5A0): sine/cosine lookup. BX is a
-/// signed angle index; a negative one reads the mirrored entry and negates
-/// the value.
+/// `tablat_lookup_from_bx_to_ax_bp` (B5A0): row BX of the latitude table
+/// ([`g::LATITUDE_TABLE`], 8 bytes a row). BX is signed; a negative one
+/// reads row -BX and negates its first word.
 ///
 /// Exit: AX = value, BP = 2 × scale, BX unchanged. Flags from `shl bp, 1`.
-pub fn trig_lookup(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn latitude_lookup(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb5a0)?;
     let mut c = Ctx::new(m);
     let bx = c.reg(BX);
@@ -32,8 +32,8 @@ pub fn trig_lookup(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         offset
     };
-    let value = c.word(g::TRIG_TABLE.wrapping_add(entry));
-    let scale = c.word(g::TRIG_TABLE.wrapping_add(entry).wrapping_add(2));
+    let value = c.word(g::LATITUDE_TABLE.wrapping_add(entry));
+    let scale = c.word(g::LATITUDE_TABLE.wrapping_add(entry).wrapping_add(2));
     let ax = if negative {
         let v = pure::neg(W, value);
         c.set_flag(CF, value != 0);

@@ -1075,18 +1075,32 @@ gauges (sprite 41h + the character, FFh none). dialogue.rs's own
 `BOOK_PAGE` (11BFh) was `g::BOOK_POSITION`. [122Ah] is `PALACE_ROOM_2_LABEL` (was
 `COUNTER_122A`).
 
-Doubts about older names, not renamed yet (each needs a look at all its
-uses): `TRIG_TABLE` (4948h) is where resource BAh (the locations' data) is
-read and the globe reads it as its latitude rows, so not sine/cosine;
-`UI_ELEMENTS_BY_CURSOR` (1B9Ch) is panel button 1 (1B8Eh + 0Eh);
-the
-local `KEYS_GLIDE` (cursor.rs, CE9Eh) is the Ctrl key's state;
-`POINT_4710` (map.rs) is `PLACE_BOX`. The module-local constants that
-were the same memory under the same or a weaker name now use the global
-(`SHOWN_TROOP`, `MAP_BOX`, the glide fields, `PLACE_BOX`, the troops'
-tick words, ...); the local `KEYS_GLIDE` is `g::KEY_CTRL` now. Locals
-whose meaning differs from the global's at the same address are left:
-`GAUGES` / `SPEAKER_SLOTS` (1152h), `MAP_SCREEN` / `TALK_MODE` (28E7h),
-`EIGHT_POINTS_ON` / `MAP_POINTER_BOX` (4749h), `NEEDS_4C60` /
-`GLOBE_MAP` (4C60h, a buffer used for both), `SHOWN_LIST`,
-`SHOWN_INDEX`, `REDRAWING`, `FIRST_400`.
+The last doubts, settled from all their uses in the listing:
+
+- [4948h] is `LATITUDE_TABLE` (was `TRIG_TABLE`): resource BAh
+  (`TABLAT`, 18Ch words byte-swapped when loaded at 00D3h), 8-byte rows
+  the globe's drawing reads; its lookup B5A0h is `latitude_lookup` (was
+  `trig_lookup`).
+- [4C60h] is `SCRATCH_BUFFER` (was `GLOBE_MAP`): many screens load into
+  or build in it (the globe's map, resource 92h; the skill needs on the
+  map; polygons; the text box's background; 900Bh clears 5960h words).
+  troops.rs keeps `SKILL_NEEDS` as an alias of it.
+- [1B8Eh] is `PANEL_BUTTONS` (the panel's 6 UI elements, was screens.rs's
+  `BUTTONS`); [1B9Ch] is `ARROW_CURSOR_BUTTONS` (was
+  `UI_ELEMENTS_BY_CURSOR`): buttons 1 to 4, one per arrow cursor image.
+- [0FD8h] is `CHARACTERS` (was `BYTE_0FD8`; troops.rs's `RECORDS_FD8`),
+  [0FDBh] `CHARACTER_0_LOCATION` (was `FLAG_0FDB`); `loc_01d66` is
+  `fix_character_rooms` (was `refresh_records_fd8`): a character at a
+  location whose kind changed, or in a room past the kind's last, goes to
+  room 1.
+- The locals that were the same memory now use the global:
+  `EIGHT_POINTS_ON` is `g::MAP_POINTER_BOX` (its left is 0 while the
+  pointer is outside the view), `REDRAWING` `g::SKIP_BOX_RESTORE`,
+  `FIRST_400` `g::ATTACK_TARGET` (the location attacked is the one with
+  a troop of bit 400h), `SHOWN_LIST` / `SHOWN_INDEX`
+  `g::CHARACTER_15_TROOPS` / `g::CHARACTER_15_SLOT`.
+
+The local `KEYS_GLIDE` (cursor.rs) is `g::KEY_CTRL`, `POINT_4710` (map.rs)
+`PLACE_BOX`; the other module-local constants that were the same memory
+under the same or a weaker name use the global too (`SHOWN_TROOP`,
+`MAP_BOX`, the glide fields, the troops' tick words, ...).

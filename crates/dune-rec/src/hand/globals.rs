@@ -180,8 +180,10 @@ pub const BYTE_11D0: u16 = 0x11d0;
 /// entries: label phrase, 4 button codes; 3Ah at the start); `on_phase_04`
 /// takes it one down (39h).
 pub const PALACE_ROOM_2_LABEL: u16 = 0x122a;
-pub const BYTE_0FD8: u16 = 0x0fd8;
-pub const FLAG_0FDB: u16 = 0x0fdb;
+/// [0FD8h]: the characters' records, 10h bytes each (`characters.rs`).
+pub const CHARACTERS: u16 = 0x0fd8;
+/// [0FDBh]: character 0's location index (its record's byte 3; FFh none).
+pub const CHARACTER_0_LOCATION: u16 = 0x0fdb;
 pub const WORD_1154: u16 = 0x1154;
 /// The count of [`g::JOINED`] from which `troop_joins` calls 121Fh.
 pub const JOINED_ENOUGH: u16 = 0x1178;
@@ -247,10 +249,17 @@ pub const HNM_FLAG_NAMES: u16 = 0x33a3;
 /// game area's copies are made from it.
 pub const DIRTY_RECT: u16 = 0xd834;
 pub const RECT_D83C: u16 = 0xd83c;
-/// Sine/cosine table: 4-byte entries (value, scale), indexed by angle.
-pub const TRIG_TABLE: u16 = 0x4948;
-/// UI element tables, one of 0Eh bytes per cursor image.
-pub const UI_ELEMENTS_BY_CURSOR: u16 = 0x1b9c;
+/// [4948h]: the latitude table (resource BAh, `TABLAT`: 18Ch words, byte-
+/// swapped when loaded), 8-byte rows; the globe's drawing and
+/// `latitude_lookup` read it (was taken for a sine/cosine table).
+pub const LATITUDE_TABLE: u16 = 0x4948;
+/// [1B9Ch]: panel buttons 1 to 4 (0Eh-byte UI elements in [`PANEL_BUTTONS`]),
+/// one for each of the arrow cursor images left, up, right, down
+/// (`ui_elements_for_cursor`).
+pub const ARROW_CURSOR_BUTTONS: u16 = 0x1b9c;
+/// [1B8Eh]: the panel's 6 buttons (UI elements of 0Eh bytes), copied in
+/// from a set (1D72h, ...) by `set_buttons_si`.
+pub const PANEL_BUTTONS: u16 = 0x1b8e;
 
 // --- Video, fonts, HNM ------------------------------------------------------
 
@@ -574,9 +583,12 @@ pub const MUSIC_LOADED: u16 = 0xdbca;
 
 // --- The globe, the frieze ------------------------------------------------------
 
-/// The globe's map (resource 92h) and its rotation (0..18Eh, the row
-/// table after it).
-pub const GLOBE_MAP: u16 = 0x4c60;
+/// [4C60h]: the scratch buffer many screens load into or build in (5960h
+/// words cleared at 900Bh): the globe's map (resource 92h), the skill
+/// needs on the map (`skill_needs`), polygons (`SAL_polygon`), the text
+/// box's background, ... Was taken for the globe's map alone.
+pub const SCRATCH_BUFFER: u16 = 0x4c60;
+/// The globe's rotation (0..18Eh, the row table after it).
 pub const GLOBE_ROTATION: u16 = 0x494c;
 /// The mark on the map (x, then y at [`MAP_MARK_Y`]; set from the map
 /// position, 5B60h): the centre of the map's projection, and the globe's

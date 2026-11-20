@@ -335,14 +335,12 @@ pub fn count_location_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// Set while [`redraw_map_and_panel`] runs.
-const REDRAWING: u16 = 0x46d8;
 
-/// `loc_07b2b`: unless [`REDRAWING`], driver function 30 (`loc_0c0e8`).
+/// `loc_07b2b`: unless [`g::SKIP_BOX_RESTORE`], driver function 30 (`loc_0c0e8`).
 pub fn gfx_call_30_unless_redrawing(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7b2b)?;
     let mut c = Ctx::new(m);
-    let redrawing = c.byte(REDRAWING);
+    let redrawing = c.byte(g::SKIP_BOX_RESTORE);
     c.run(start, 3)?;
     if redrawing != 0 {
         return c.ret();
@@ -350,7 +348,7 @@ pub fn gfx_call_30_unless_redrawing(m: &mut Machine, start: u16) -> Result<(), B
     super::gfx::gfx_call_30(c.m, 0xc0e8)
 }
 
-/// `loc_07b36`: `loc_08770`, `loc_05f79`, `loc_079de` with [`REDRAWING`]
+/// `loc_07b36`: `loc_08770`, `loc_05f79`, `loc_079de` with [`g::SKIP_BOX_RESTORE`]
 /// set and the transition flag at 80h; then both cleared, and [46F4h]
 /// (SI, DI kept).
 pub fn redraw_map_and_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -360,7 +358,7 @@ pub fn redraw_map_and_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (si, di) = (c.reg(SI), c.reg(DI));
     c.push(si);
     c.push(di);
-    c.set_byte(REDRAWING, 1);
+    c.set_byte(g::SKIP_BOX_RESTORE, 1);
     c.set_byte(g::TRANSITION_ACTIVE, 0x80);
     c.call(entry::REFRESH_MAP_PANEL_BUTTONS, 0x7b45)?;
     c.run(0x7b45, 1)?;
@@ -447,7 +445,7 @@ pub fn character_at_flagged_troop_location(m: &mut Machine, start: u16) -> Resul
 
 /// `loc_01eda`: every 32nd call ([`g::ATTACK_CLOCK`] up by 8 to 0): `loc_01eb1`
 /// for each troop (`for_each_troop`), the message pair 709h (`loc_029f0`),
-/// [`g::ATTACKS_PENDING`] one down, and [`FIRST_400`] = the first location with a
+/// [`g::ATTACKS_PENDING`] one down, and [`g::ATTACK_TARGET`] = the first location with a
 /// troop of bit 400h of word 12h (`location_has_troop_400`); when none,
 /// 0 and `loc_011cb`. CX, SI kept.
 pub fn attack_clock_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -487,7 +485,7 @@ pub fn attack_clock_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DI, next);
         c.call(entry::LOCATION_HAS_TROOP_400, 0x1ef9)?;
     };
-    c.set_word(FIRST_400, found);
+    c.set_word(g::ATTACK_TARGET, found);
     if found == 0 {
         c.call(entry::GO_TO_PHASE_60, 0x1f10)?;
         c.run(0x1f10, 3)?;
@@ -496,8 +494,6 @@ pub fn attack_clock_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// The first location with a troop of bit 400h, or 0 ([11DBh]).
-const FIRST_400: u16 = 0x11db;
 
 /// `loc_0221d`: the record SI moved to the place of `loc_05344` (from its
 /// word 0): words 0 and 2 = `loc_040ae`'s DX, BX; bit 4 of byte 0Fh when
@@ -529,19 +525,19 @@ pub fn troop_to_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// The number of the location the player is at ([9]).
 const PLAYER_PLACE: u16 = 9;
 
-/// `loc_01d66`: for the 12 10h-byte records from [`RECORDS_FD8`] at a
+/// `loc_01d66`: for the first 12 characters' records ([`g::CHARACTERS`]) at a
 /// location (byte 2 80h, byte 3 its number, not FFh): word 0 = (the
 /// location's byte 8, 1) when its byte 1 differs from that, or its byte 0
 /// is above the limit for it (CS:[`LIMITS_1D35`]). The registers as the
 /// last record left them.
-pub fn refresh_records_fd8(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn fix_character_rooms(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1d66)?;
     let mut c = Ctx::new(m);
     let (mut ax, mut bx, mut di) = (c.reg(AX), c.reg(BX), c.reg(DI));
     let mut cost = 3;
     let mut writes = Vec::new();
     for i in 0..12 {
-        let record = RECORDS_FD8 + 0x10 * i;
+        let record = g::CHARACTERS + 0x10 * i;
         let w2 = c.word(record + 2);
         ax = w2;
         cost += 5;
@@ -582,12 +578,10 @@ pub fn refresh_records_fd8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     c.set_reg(DI, di);
     c.set_reg(CX, 0);
-    c.set_reg(SI, RECORDS_FD8 + 0x10 * 12);
+    c.set_reg(SI, g::CHARACTERS + 0x10 * 12);
     c.ret()
 }
 
-/// Twelve 10h-byte records ([0FD8h]), see `refresh_records_fd8`.
-const RECORDS_FD8: u16 = 0x0fd8;
 /// Bytes in the code segment: a limit per location kind.
 const LIMITS_1D35: u16 = 0x1d35;
 
@@ -791,7 +785,7 @@ pub fn start_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_068eb`: SI = the troop shown: in the zoomed map ([`g::MAP_MODE`]
 /// 80h or more) troop [`g::SHOWN_TROOP`] (`troop_ptr`, AX kept but AL that
-/// number), else the one at [`SHOWN_LIST`] by [`SHOWN_INDEX`] (AX twice
+/// number), else the one at [`g::CHARACTER_15_TROOPS`] by [`g::CHARACTER_15_SLOT`] (AX twice
 /// the index, AL the troop's number).
 pub fn shown_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x68eb)?;
@@ -804,17 +798,14 @@ pub fn shown_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(start, 12)?;
-    let index = c.byte(SHOWN_INDEX) as u16 * 2;
-    let troop = Troop(c.word(SHOWN_LIST.wrapping_add(index)));
+    let index = c.byte(g::CHARACTER_15_SLOT) as u16 * 2;
+    let troop = Troop(c.word(g::CHARACTER_15_TROOPS.wrapping_add(index)));
     c.set_reg(SI, troop.offset());
     let id = troop.id(&mut c);
     c.set_reg(AX, index & 0xff00 | id as u16);
     c.ret()
 }
 
-/// The list of troops `shown_troop` picks from by [`SHOWN_INDEX`].
-const SHOWN_LIST: u16 = 0x4758;
-const SHOWN_INDEX: u16 = 0x476c;
 
 
 /// `loc_06917`: DI = the particle of the troop SI (not hidden, bit 40h),
@@ -2186,7 +2177,7 @@ pub fn troop_bit_10_by_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
     set_troop_bit_10(&mut c)
 }
 
-/// `loc_08018`: the need BX at [`NEEDS_4C60`] one lower (unless 0 or 80h
+/// `loc_08018`: the need BX at [`SKILL_NEEDS`] one lower (unless 0 or 80h
 /// and up) for each troop travelling to DI and moving (job bits 3)
 /// to elsewhere (word 0Ch) with BL in byte 0Eh; then, at the location
 /// [`g::LAST_PLACE`] before phase 50h, need 1 one lower the same way. AL as
@@ -2196,7 +2187,7 @@ pub fn lower_needs_by_movers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     let (place, skill) = (c.reg(DI), c.reg(BX));
-    let need_at = NEEDS_4C60.wrapping_add(skill);
+    let need_at = SKILL_NEEDS.wrapping_add(skill);
     for troop in Troop::all() {
         let state = troop.state(&mut c);
         let need = c.byte(need_at);
@@ -2238,17 +2229,18 @@ pub fn lower_needs_by_movers(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x804c, 5)?;
         return c.ret();
     }
-    let need = c.byte(NEEDS_4C60 + 1);
+    let need = c.byte(SKILL_NEEDS + 1);
     let stays = need.wrapping_sub(1) & 0x80 != 0;
     c.run(0x804c, 8 + stays as u32)?;
     if !stays {
-        c.set_byte(NEEDS_4C60 + 1, need - 1);
+        c.set_byte(SKILL_NEEDS + 1, need - 1);
     }
     c.ret()
 }
 
-/// The needs `lower_needs_by_movers` lowers ([4C60h], one byte a skill).
-const NEEDS_4C60: u16 = 0x4c60;
+/// The needs `skill_needs` writes and `lower_needs_by_movers` lowers, one
+/// byte a skill, in the scratch buffer.
+const SKILL_NEEDS: u16 = g::SCRATCH_BUFFER;
 
 /// `loc_0708a`: the troop SI's production rate into word 0Ch (AX): its
 /// effective motivation (`troop_motivation`) plus the top of skill 0,
@@ -2627,7 +2619,7 @@ const SLOT_OFFSETS: u16 = 0x1672;
 /// the player is at [`PALACE_7C8`]: of the locations below kind 28h
 /// (byte 8), without bit 80h of byte 0Ah and other than [`PLACE_2C0`],
 /// the one where `loc_01ea1` counts the most troops (DX, over its chain)
-/// becomes [`FIRST_400`] ([`g::ATTACKS_PENDING`] one more), then `loc_01ea9` for
+/// becomes [`g::ATTACK_TARGET`] ([`g::ATTACKS_PENDING`] one more), then `loc_01ea9` for
 /// its troops and the message pair 0F08h (`call_29f0_f`). CX the count,
 /// BX that location.
 pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -2688,7 +2680,7 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1e8c, 5)?;
     let target = c.reg(BX);
     c.set_reg(DI, target);
-    c.set_word(FIRST_400, target);
+    c.set_word(g::ATTACK_TARGET, target);
     let n = c.situation().attacks_pending.wrapping_add(1);
     c.update_situation(|t| t.attacks_pending = n);
     c.set_reg(BP, 0x1ea9);
@@ -2969,7 +2961,7 @@ pub fn set_troop_activity(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_07f90`: for the troop SI, the nearest other location from location
 /// 3 on (no bit 80h of byte 0Ah, byte 8 below 28h) that still needs skill
 /// BX once its own troops' skills and the movers are counted
-/// (`skill_needs` into [`NEEDS_4C60`], `lower_needs_by_movers`):
+/// (`skill_needs` into [`SKILL_NEEDS`], `lower_needs_by_movers`):
 /// [`NEAREST`] it, [`NEAREST_DISTANCE`] its distance (FFFFh while none).
 /// The distance: the larger of the x delta's high byte and the y delta
 /// (by their low bytes), too far from 32h (by its low byte), a quarter
@@ -3027,15 +3019,15 @@ pub fn nearest_needing_location(m: &mut Machine, start: u16) -> Result<(), Bail>
             if !far && distance < best {
                 // The needs there: its own troops' skills off, then movers.
                 c.save(&[BX]);
-                c.set_reg(BX, NEEDS_4C60);
+                c.set_reg(BX, SKILL_NEEDS);
                 c.call(entry::SKILL_NEEDS, 0x7ff5)?;
                 let skill = c.word_in(SS, c.reg(SP));
-                let need = c.byte(NEEDS_4C60.wrapping_add(skill));
+                let need = c.byte(SKILL_NEEDS.wrapping_add(skill));
                 c.run(0x7ff5, 3 + (need != 0) as u32)?;
                 c.restore(&[BX]);
                 if need != 0 {
                     c.call(entry::LOWER_NEEDS_BY_MOVERS, 0x8000)?;
-                    let need = c.byte(NEEDS_4C60.wrapping_add(c.reg(BX)));
+                    let need = c.byte(SKILL_NEEDS.wrapping_add(c.reg(BX)));
                     c.run(0x8000, if need != 0 { 4 } else { 2 })?;
                     if need != 0 {
                         let (d, at) = (c.reg(DX), c.reg(DI));
