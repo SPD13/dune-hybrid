@@ -163,9 +163,7 @@ pub fn read_dune_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     loop {
         c.run(0xe741, 3)?;
-        let dx = c.reg(DX);
         c.set_reg(AX, 0);
-        c.xor(W, dx, dx); // the seek reads the flags
         c.set_reg(DX, 0);
         c.call(code::SEEK_DUNE_DAT_OFFSET_DXAX, 0xe748)?;
         c.run(0xe748, 6)?;
@@ -173,8 +171,6 @@ pub fn read_dune_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let seg = seg.wrapping_add(0x800);
         c.set_reg(AX, seg);
         c.set_sreg(ES, seg);
-        let di = c.reg(DI);
-        c.xor(W, di, di); // the read reads the flags
         c.set_reg(DI, 0);
         c.set_reg(CX, 0xffff);
         c.call(code::READ_DUNE_DAT_CX_TO_ESDI, 0xe758)?;
@@ -300,7 +296,7 @@ pub fn open_res_or_file(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let handle = c.reg(AX);
     c.set_reg(BX, handle);
     let cx = c.reg(CX);
-    let zero = c.xor(W, cx, cx);
+    let zero = pure::xor(W, cx, cx);
     c.set_reg(CX, zero);
     c.set_reg(DX, zero);
     c.set_reg(AX, 0x4202);
@@ -572,8 +568,6 @@ pub fn open_file_size(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let ax = c.reg(AX);
     c.set_reg(BX, ax);
-    let cx = c.reg(CX);
-    c.xor(W, cx, cx);
     c.set_reg(CX, 0);
     c.set_reg(DX, 0);
     c.set_reg(AX, 0x4202);

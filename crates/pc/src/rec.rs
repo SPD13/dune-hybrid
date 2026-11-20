@@ -1102,15 +1102,36 @@ impl Machine {
             }
         };
         let IoEvent::Callback { before, after, writes, .. } = ev else { unreachable!() };
-        if let Some(d) = compare_cpu(&before, &self.cpu) {
+        // No service reads the result flags (CF..OF; `Machine::service` only
+        // sets some of them), so they don't count here: readable ports leave
+        // them inexact where no one reads them.
+        if let Some(d) = compare_cpu_masked(&before, &self.cpu, FLAG_BITS) {
             self.hw.io_log.fail(format!("io: service int {n:02x} asked with different registers: {d}"));
             return;
         }
+        // The result flags the service left as it found them pass through:
+        // they keep the port's values, in the CPU and in the FLAGS on the
+        // stack the service patched for its IRET (`write_back_flags`), so a
+        // later reader still checks the port's own. The ones it set are the
+        // original's.
+        let mine = self.cpu.flags();
+        let theirs = after.flags();
+        let kept = FLAG_BITS & !(before.flags() ^ theirs);
+        let stacked = cpu::linear(before.sregs[SS], before.regs[SP].wrapping_add(4));
         let count = self.cpu.instructions;
         self.cpu = *after;
         self.cpu.instructions = count;
+        self.cpu.set_flags(theirs & !kept | mine & kept);
         for (a, v) in writes {
-            self.hw.mem[a as usize] = v;
+            let k = if a == stacked {
+                kept as u8
+            } else if a == stacked + 1 {
+                (kept >> 8) as u8
+            } else {
+                0
+            };
+            let m = if k == 0 { 0 } else if a == stacked { mine as u8 } else { (mine >> 8) as u8 };
+            self.hw.mem[a as usize] = v & !k | m & k;
         }
     }
 
@@ -2088,6 +2109,11 @@ fn modrm_len(modrm: u8) -> u16 {
 const FLAG_BITS: u16 = 0x8d5;
 
 fn compare_cpu(c1: &Cpu, c2: &Cpu) -> Option<String> {
+    compare_cpu_masked(c1, c2, 0)
+}
+
+/// [`compare_cpu`] leaving out the flags in `ignore`.
+fn compare_cpu_masked(c1: &Cpu, c2: &Cpu, ignore: u16) -> Option<String> {
     for (i, (a, b)) in c1.regs.iter().zip(&c2.regs).enumerate() {
         if a != b {
             return Some(format!("reg {} {a:04x} vs {b:04x}", ["AX", "CX", "DX", "BX", "SP", "BP", "SI", "DI"][i]));
@@ -2103,7 +2129,7 @@ fn compare_cpu(c1: &Cpu, c2: &Cpu) -> Option<String> {
     }
     // Flags the 286 leaves undefined after some instructions are compared
     // too: the interpreter's values are the reference.
-    if c1.flags() != c2.flags() {
+    if (c1.flags() ^ c2.flags()) & !ignore != 0 {
         return Some(format!("flags {:04x} vs {:04x}", c1.flags(), c2.flags()));
     }
     None

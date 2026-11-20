@@ -161,16 +161,13 @@ pub fn move_cursor_by(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_mouse_state(|t| t.y = y);
     c.set_reg(SI, 0xdc40);
     c.set_reg(AX, y);
-    c.test(B, f as u16, 0x40);
     if !tell {
         return c.ret();
     }
     let sh = c.word(g::MOUSE_SCALE);
-    // The position scaled up for the driver. INT 33h sees the flags of
-    // the last shift, or (a count of 0 leaves them) of the one before,
-    // or of the `test`.
-    let ax = c.shl(W, x, sh as u8);
-    let d = c.shl(W, y, (sh >> 8) as u8);
+    // The position scaled up for the driver.
+    let ax = pure::shl(W, x, sh as u8);
+    let d = pure::shl(W, y, (sh >> 8) as u8);
     c.set_reg(DX, d);
     c.set_reg(CX, ax);
     c.set_reg(AX, 4);
@@ -407,7 +404,6 @@ pub fn initialize_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let none = es | bx == 0;
     c.run(0xe97f, 3 + if none { 1 } else { 1 })?;
     c.set_reg(AX, es);
-    c.or(W, es, bx);
     c.set_reg(AX, es | bx);
     if none {
         return c.ret();
@@ -423,7 +419,6 @@ pub fn initialize_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.set_reg(CX, 0);
-    c.xor(W, 0, 0);
     c.set_reg(DX, 0);
     c.set_reg(AX, 4);
     c.interp(0xe994, 0xe996)?;
@@ -432,14 +427,14 @@ pub fn initialize_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let neg = k & 0x80 != 0;
         c.run(0xe996, 2 + if neg { 0 } else { 5 })?;
         let k = c.byte(g::MOUSE_SCALE) as u16;
-        let k = c.inc(B, k);
+        let k = pure::inc(B, k);
         c.set_byte(g::MOUSE_SCALE, k as u8);
         if neg {
             break;
         }
         c.set_reg8(r8::CL, k as u8);
         c.set_reg(AX, 1);
-        let a = c.shl(W, 1, k as u8);
+        let a = pure::shl(W, 1, k as u8);
         c.set_reg(AX, a);
         c.set_reg(CX, a);
         c.set_reg(AX, 4);
@@ -457,14 +452,14 @@ pub fn initialize_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let neg = k & 0x80 != 0;
         c.run(0xe9b3, 2 + if neg { 0 } else { 4 })?;
         let k = c.byte(g::MOUSE_SCALE_Y) as u16;
-        let k = c.inc(B, k);
+        let k = pure::inc(B, k);
         c.set_byte(g::MOUSE_SCALE_Y, k as u8);
         if neg {
             break;
         }
         c.set_reg8(r8::CL, k as u8);
         c.set_reg(DX, 1);
-        let d = c.shl(W, 1, k as u8);
+        let d = pure::shl(W, 1, k as u8);
         c.set_reg(DX, d);
         c.set_reg(AX, 4);
         c.interp(0xe9c5, 0xe9c7)?;
@@ -473,7 +468,6 @@ pub fn initialize_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.interp(0xe9ca, 0xe9cc)?;
         c.run(0xe9cc, 2)?;
         let dx = c.reg(DX);
-        c.or(W, dx, dx);
         if dx != 0 {
             break;
         }
@@ -482,7 +476,7 @@ pub fn initialize_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x10);
     c.set_reg(DX, 0x10);
     let v = c.word(g::MOUSE_SCALE);
-    let v = c.and(W, v, 0x7f7f);
+    let v = pure::and(W, v, 0x7f7f);
     c.set_word(g::MOUSE_SCALE, v);
     c.set_reg(CX, v);
     let ax = c.m.cpu.shift(5, W, 0x10, v as u32 & 0xff) as u16;
@@ -523,7 +517,6 @@ pub fn get_mouse_pos_etc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let kb = f & 0x40 != 0;
     c.run(0xdf21, 3 + if kb { 0 } else { 1 })?;
     c.set_reg8(r8::AL, 0);
-    c.test(B, f as u16, 0x40); // the flags INT 33h sees
     if !kb {
         c.set_reg(AX, 3);
         c.interp(0xdf2d, 0xdf2f)?;

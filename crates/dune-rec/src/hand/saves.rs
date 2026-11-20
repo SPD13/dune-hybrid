@@ -525,7 +525,6 @@ pub fn read_resource_to_esdi(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xf248, if bx == dat { 4 } else { 3 })?;
         let dx = c.pop();
         c.set_reg(DX, dx);
-        c.cmp(W, bx, dat);
         if bx != dat {
             return super::files::read_ffff_to_esdi_and_close(c.m, 0xf260);
         }

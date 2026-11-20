@@ -145,7 +145,6 @@ pub fn stc_on_user_input(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let args = c.byte(g::CMD_ARGS);
     c.run(0xdd69, if args & 0x40 != 0 { 5 } else { 6 })?;
-    c.test(B, args as u16, 0x40); // the flags INT 33h sees
     if args & 0x40 == 0 {
         c.set_reg(AX, 3);
         c.interp(0xdd7c, 0xdd7e)?; // the mouse's buttons

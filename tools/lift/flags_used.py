@@ -179,7 +179,9 @@ for site, targets in {0x6cba: [0x6fe5, 0x70cc, 0x0f66, 0x71ef, 0x72b0, 0x7693, 0
 
 def far(t):
     """A far call or an INT: into BIOS, DOS or a driver, which give the
-    flags back (IRET) or set their own. An INT also reads them (see walk)."""
+    flags back (IRET) or set their own. No service reads the result flags
+    (the shadow check doesn't compare them at a service either): passed
+    through."""
     return t.startswith('int ') or (t.startswith('call ') and ('far' in t or 'dword' in t))
 
 
@@ -322,11 +324,6 @@ def walk(start, after_return):
             else:
                 passed |= live
             continue
-        if t.startswith('int '):
-            # The service sees the flags it is called with (an INT pushes
-            # them; the checks compare a service's registers and flags):
-            # read. Passed through after it.
-            out |= live
         if far(t):
             # Passed through: still live after it.
             if a in nxt:

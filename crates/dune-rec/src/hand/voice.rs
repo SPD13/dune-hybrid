@@ -221,7 +221,7 @@ pub fn refill_voice_buffer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     let (dx, es) = (c.word(si), c.word(si.wrapping_add(2)));
     c.set_sreg(ES, es);
-    let dx = c.add(W, dx, 6);
+    let dx = pure::add(W, dx, 6);
     c.set_reg(DX, dx);
     c.push(si);
     c.call(code::READ_AUDIO_FILE, 0xa9df)?;

@@ -55,7 +55,8 @@ reached in real play). For each:
    made in the shared code and for its tail jumps (code run on behalf of
    the routines that jump into it), not for the routine's own mask (its
    port runs only from its entry). `--why ADDR` shows where a mask comes
-   from. An INT counts as reading all flags (its service sees them).
+   from. An INT passes the flags through: no service reads the result
+   flags, and the shadow check doesn't compare them at a service.
    When the analysis changes, `tools/lift/recheck_dropped.py BASE` puts
    the ports the tools converted (those with `pure::`) back to their
    exact form where the conversion's rules would now refuse them (masks
@@ -316,11 +317,19 @@ code segment written (a harness artifact).
   in the CPU part only, gone in the next state (`flight_step`, once in
   two of the seven games). A flag that is read and wrong still shows in
   the memory soon after.
-- **INT and far calls.** A port that has the interpreter run an INT or a
-  far call (`c.interp`) keeps its flags exact before it: an INT pushes
-  them and its service sees them (the check compares a service's
-  registers and flags), and a far call's code isn't followed by the
-  analysis.
+  Likewise the arithmetic flags of the FLAGS word an INT left on the stack
+  when the hash is taken inside a service's stub (CS F000h): before an INT
+  those are the port's, inexact where no one reads them (the INT 33h stub
+  at the 20-second mark in five of the seven games).
+- **INT and far calls.** No BIOS/DOS service reads the result flags
+  (CF..OF; `Machine::service` only sets some), so the shadow check
+  compares a service's registers but not those flags, and a port need
+  not keep them exact before an INT. The flags the service leaves as it
+  found them pass through: the replay keeps the port's values there (in
+  the CPU and in the FLAGS on the stack the service patched for its
+  IRET), so a reader after the INT still checks the port's own. A port
+  that has the interpreter run a far call (`c.interp`) keeps its flags
+  exact before it: the analysis doesn't follow a driver's code.
 - **The harness's stack.** The harness calls routines with a random SP,
   sometimes outside the game's stack; there the flags an interrupt pushes
   where a port stops are not in the dead stack the check leaves out, and

@@ -412,8 +412,24 @@ fn state_hash(m: &Machine) -> String {
     let fnv = |h: u64, bytes: &[u8]| bytes.iter().fold(h, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
     // The dead part of the stack is not state (see `pc::rec::dead_stack`).
     let dead = pc::rec::dead_stack(&m.cpu);
-    let mem = fnv(0xcbf2_9ce4_8422_2325, &m.hw.mem[..dead.start.min(m.hw.mem.len())]);
-    let mem = fnv(mem, &m.hw.mem[dead.end.min(m.hw.mem.len())..]);
+    // Inside a BIOS/DOS service's stub the INT's frame is on the stack:
+    // its FLAGS word's arithmetic flags are the caller's, which a readable
+    // port leaves inexact before an INT (no service reads them), so they
+    // are left out like the CPU's below.
+    let masked;
+    let mut all: &[u8] = &m.hw.mem;
+    if m.cpu.sregs[pc::cpu::CS] == pc::STUB_SEG {
+        let a = pc::cpu::linear(m.cpu.sregs[pc::cpu::SS], m.cpu.regs[pc::cpu::SP].wrapping_add(4)) as usize;
+        if a + 1 < all.len() {
+            let mut v = m.hw.mem.clone();
+            v[a] &= !0xd5;
+            v[a + 1] &= !0x08;
+            masked = v;
+            all = &masked;
+        }
+    }
+    let mem = fnv(0xcbf2_9ce4_8422_2325, &all[..dead.start.min(all.len())]);
+    let mem = fnv(mem, &all[dead.end.min(all.len())..]);
     let mut regs = Vec::new();
     // Not the arithmetic flags (CF, PF, AF, ZF, SF, OF): a readable port
     // leaves those inexact where nothing reads them, and a hash taken

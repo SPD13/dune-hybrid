@@ -40,7 +40,6 @@ pub fn hnm_close_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0xca0e, 4)?; // cmp; je; xor cx; ret
         } else {
             c.run(0xca0e, 3)?;
-            c.cmp(W, handle, dat);
             c.set_reg8(r8::AH, 0x3e);
             c.interp(0xca16, 0xca18)?; // DOS close
             c.run(0xca18, 2)?;

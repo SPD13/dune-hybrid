@@ -38,7 +38,6 @@ pub fn pit_timer_callback(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_flag(pc::cpu::DF, false);
     // Its CF (clear) reaches the BIOS's handler when held: the `dec`
     // before the chain keeps CF (else the frame tasks' CF).
-    c.cmp(B, clock.held as u16, 0);
     if !held {
         timer_tick(&mut c)?;
     }

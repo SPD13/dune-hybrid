@@ -262,7 +262,7 @@ pub fn xms_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word_in(CS, 0xec88, (to >> 16) as u16 | 0x9200);
     let from = (c.reg(BX) as u32) << 10;
     let bx = from as u16;
-    let dl = c.add(B, (from >> 16) as u16 & 0xff, 0x10); // the flags INT 15h sees
+    let dl = c.add(B, (from >> 16) as u16 & 0xff, 0x10); // INT 15h passes on the flags it doesn't set, to the callers
     c.set_reg(BX, bx);
     let dx = 0x9200 | dl;
     c.set_reg(DX, dx);
@@ -296,7 +296,6 @@ pub fn map_ems_for_midi_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0xedb9, 5)?;
-    c.test(B, f as u16, 0x0f); // INT 67h sees the flags
     c.set_reg(BX, 3);
     c.set_reg8(super::r8::AH, 0x43);
     c.call(entry::CALL_EMS_FUNC, 0xedc8)?;
@@ -308,8 +307,6 @@ pub fn map_ems_for_midi_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let dx = c.reg(DX);
     c.set_word_in(CS, 0xed3e, dx);
     c.set_reg(AX, 0x4401);
-    let bx = c.reg(BX);
-    c.xor(W, bx, bx); // likewise
     c.set_reg(BX, 0);
     c.call(entry::CALL_EMS_FUNC, 0xedd7)?;
     for (at, ax, bx, ret) in [(0xedd7u16, 0x4402u16, 1u16, 0xede2u16), (0xede2, 0x4403, 2, 0xeded)] {
@@ -347,13 +344,11 @@ pub fn init_extended_memory_allocator(m: &mut Machine, start: u16) -> Result<(),
     let mut c = Ctx::new(m);
     let f = c.byte(g::CMD_ARGS_MEMORY);
     c.run(0xea7b, 2 + (f & 0x80 != 0) as u32)?;
-    c.test(B, f as u16, 0x80); // `loc_0eea0` reads the flags
     if f & 0x80 != 0 {
         c.call(entry::INITIALIZE_HIMEM_SYS, 0xea85)?;
     }
     let f = c.byte(g::CMD_ARGS_MEMORY);
     c.run(0xea85, 2 + (f & 0x48 != 0) as u32)?;
-    c.test(B, f as u16, 0x48); // `ems_init` reads the flags
     if f & 0x48 != 0 {
         c.call(entry::EMS_INIT, 0xea8f)?;
     }
@@ -589,7 +584,6 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx = c.reg(BX);
     c.set_word_in(CS, 0xed3c, bx);
     c.set_reg8(super::r8::AH, 0x42);
-    c.xor(W, bx, bx); // INT 67h sees the flags
     c.set_reg(BX, 0);
     c.call(entry::CALL_EMS_FUNC, 0xed5f)?;
     let bx = c.reg(BX);
@@ -610,8 +604,6 @@ pub fn ems_init(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xed69, 5)?;
     c.set_reg8(super::r8::AH, 0x42);
-    let bx = c.reg(BX);
-    c.xor(W, bx, bx); // likewise
     c.set_reg(BX, 0);
     c.call(entry::CALL_EMS_FUNC, 0xed77)?;
     let bx = c.reg(BX);
@@ -680,7 +672,6 @@ pub fn uninitialize_memory_driver(m: &mut Machine, start: u16) -> Result<(), Bai
     }
     let h = c.word_in(CS, 0xed3a);
     c.run(0xe8e2, 2 + 2 * (h != 0) as u32)?;
-    c.cmp(W, h, 0); // `call_ems_func` reads the flags
     if h != 0 {
         c.set_reg8(r8::AH, 0x45);
         c.call(entry::GET_EMS_EMM_HANDLE, 0xe8ef)?;
@@ -688,7 +679,6 @@ pub fn uninitialize_memory_driver(m: &mut Machine, start: u16) -> Result<(), Bai
     let d = c.word_in(CS, 0xed3e);
     c.run(0xe8ef, 3 + 2 * (d != 0) as u32)?;
     c.set_reg(DX, d);
-    c.or(W, d, d); // likewise (INT 67h)
     if d != 0 {
         c.set_reg8(r8::AH, 0x45);
         c.call(entry::CALL_EMS_FUNC, 0xe8fd)?;
@@ -996,7 +986,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::CL, 4);
     let ds = c.sreg(DS);
     c.set_reg(CX, ds);
-    let a = c.add(W, 0x4c6f >> 4, ds); // the flags INT 21h sees
+    let a = pure::add(W, 0x4c6f >> 4, ds);
     c.set_reg(AX, a);
     c.set_word(g::BACKBUFFER, a);
     c.set_reg8(r8::AH, 0x19);
@@ -1011,8 +1001,6 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let dl = c.reg8(r8::DL);
     c.set_byte(g::CTRL_BREAK_SAVED, dl);
     c.set_reg(AX, 0x3301);
-    let dx = c.reg(DX);
-    c.xor(W, dx, dx); // likewise
     c.set_reg(DX, 0);
     c.interp(0xe5da, 0xe5dc)?;
     c.run(0xe5dc, 1)?;
@@ -1064,7 +1052,6 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let mouse = f & 0x40 == 0;
     c.run(0xe62b, 2 + mouse as u32)?;
-    c.test(B, f as u16, 0x40); // `initialize_mouse` reads the flags
     if mouse {
         c.call(entry::INITIALIZE_MOUSE, 0xe632)?;
         c.run(0xe632, 1)?;

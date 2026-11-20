@@ -21,9 +21,9 @@ those flags:
   (but a loop's literal list of targets);
 - it hands its context to a helper that could (the same rules, followed
   through the helpers it hands it on to; the helpers stay as they are);
-- it has an INT or far call run (`c.interp`) whose flags are not those of
-  a call just before it: an INT pushes the flags and its service sees
-  them;
+- it has a far call run (`c.interp`) whose flags are not those of a call
+  just before it: the code there could read them (an INT's service reads
+  no result flags);
 - it can stop (a `c.run` that is not a call's return) where the original
   goes on reading flags (`flags_used.py --at`);
 - a flag helper spans lines (the script works line by line).
@@ -119,14 +119,33 @@ FLAG_SETTERS = re.compile(r'c\.(add|sub|and|or|xor|inc|dec|neg|shl1|shr1|shl|shr
                           r'\b(?!c\b)\w+\((?:&mut c|c)[,)]')  # a helper: unknown
 
 
+# The instructions of the generated code, for what a `c.interp` runs.
+INSN = {}
+for _a, _t in re.findall(r'// ([0-9a-f]{4}): (.*)', open(os.path.join(
+        REPO, 'crates/dune-rec/src/generated.rs'), encoding='utf-8').read()):
+    INSN.setdefault(int(_a, 16), _t.strip())
+
+
+def only_int(a, b):
+    """Whether `c.interp(a, b)` runs a single INT: a BIOS/DOS service, which
+    reads no result flags (the shadow check doesn't compare them there) and
+    passes on the ones it doesn't set."""
+    ops = [INSN[x] for x in INSN if a <= x < b]
+    return len(ops) == 1 and ops[0].startswith('int ')
+
+
 def interps_after_calls(text):
-    """Whether every `c.interp` (an INT or far call, which sees the flags)
+    """Whether every `c.interp` of a far call (whose code sees the flags)
     gets the flags of a call or another `c.interp` just before it: back
     from it on the same straight path (no block boundary) to a call
-    without anything that sets flags in between."""
+    without anything that sets flags in between. An INT's service reads
+    none (`only_int`)."""
     lines = text.split('\n')
     for i, line in enumerate(lines):
         if 'c.interp(' not in line:
+            continue
+        m = re.search(r'c\.interp\(0x([0-9a-f]+), 0x([0-9a-f]+)\)', line)
+        if m and only_int(int(m.group(1), 16), int(m.group(2), 16)):
             continue
         ok = False
         for j in range(i - 1, -1, -1):
@@ -195,10 +214,9 @@ def blocker(text, consts, seen):
         if int(a, 16) not in rets and read_at.get(int(a, 16), True):
             return f'stops at {a} where flags are read'
     if 'c.interp(' in text and not interps_after_calls(text):
-        # An INT pushes the flags and its service sees them; a far call's
-        # code isn't followed by the analysis. Fine only where the flags
-        # it gets are a call's.
-        return 'an INT or far call sees the flags'
+        # A far call's code isn't followed by the analysis. Fine only where
+        # the flags it gets are a call's.
+        return 'a far call sees the flags'
     for kind, target in re.findall(r'c\.(call|jump)\(([^,)]+)', text):
         t = target.strip()
         if re.fullmatch(r'0x[0-9a-fA-F]+', t):
