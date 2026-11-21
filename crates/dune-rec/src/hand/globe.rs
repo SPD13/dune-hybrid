@@ -1,6 +1,7 @@
 //! The globe view (its background, decorations sliding open and shut, the
 //! rotation table) and the frieze sides of the game screen.
 
+use super::math;
 use super::video;
 use super::records;
 use super::cursor;
@@ -528,6 +529,12 @@ pub fn map_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let screen_x = c.word(g::GLOBE_CENTRE_X);
     c.set_reg(DX, ((x >> 16) as u16).wrapping_add(screen_x));
     c.ret()
+}
+
+/// [`map_to_screen`] called: the screen point of the map point (DX along, BX row) (DX, BX).
+pub(super) fn screen_point(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0xb647, ret)?;
+    Ok((c.reg(DX), c.reg(BX)))
 }
 
 /// `loc_0b683`: with SF from the caller: BP, DX made a span (DX the
@@ -2093,8 +2100,8 @@ pub fn map_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb58b)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::LATITUDE_LOOKUP, 0xb58e)?;
-    let (ax, bp, dx) = (c.reg(AX), c.reg(BP), c.reg(DX));
+    let (latitude, scale2) = math::latitude_row(&mut c, 0xb58e)?;
+    let (ax, bp, dx) = (latitude, scale2, c.reg(DX));
     let (base, seg) = (c.word(0xdcfe), c.word(g::MAP_GFX_SEGMENT));
     c.run(0xb58e, 8)?;
     let p = bp as u32 * dx as u32;

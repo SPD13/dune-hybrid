@@ -140,6 +140,12 @@ pub fn get_orni_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`get_orni_position`] called: the ornithopter's screen position (DX, BX).
+pub(super) fn orni_position(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0x3a95, ret)?;
+    Ok((c.reg(DX), c.reg(BX)))
+}
+
 /// `get_map_position` (407E): a map position in (DX, BX): the words at 4
 /// and 6, BX sign-extended from its low byte. When that byte is 80h, the
 /// position of the record at [`g::PLACE`] instead (and SI

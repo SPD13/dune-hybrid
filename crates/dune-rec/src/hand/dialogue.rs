@@ -459,6 +459,12 @@ pub fn skip_32_strings(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`skip_32_strings`] called: SI past 20h zero-ended strings (SI).
+pub(super) fn past_32_strings(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x996c, ret)?;
+    Ok(c.reg(SI))
+}
+
 /// `loc_09a60`: SI past AX zero-ended strings at ES:SI (`repne scasb`
 /// each; none for AL 0), [47CEh] = 8. BX 0, AL 0. Callers read the flags
 /// (its last `or` or `dec`).
@@ -781,8 +787,7 @@ pub fn start_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (si, bp) = (c.reg(SI), c.reg(BP));
     let text = si.wrapping_add(c.word_in(ES, bp.wrapping_add(si)));
     c.set_reg(SI, text);
-    c.call(entry::SKIP_32_STRINGS, 0x992a)?;
-    let text = c.reg(SI);
+    let text = past_32_strings(&mut c, 0x992a)?;
     let previous = c.dialogue_text().next;
     if previous != 0 {
         c.run(0x992a, 5)?;
@@ -888,10 +893,9 @@ pub fn number_words(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, record);
     let number = if kind == 0x38 { c.progress().smuggler_debt } else { c.economy().smuggler_price as u16 };
     c.set_reg(AX, number);
-    c.call(entry::DECIMAL_DIGITS, 0x9b1f)?;
+    let (_, tens_units) = text::decimal_parts(&mut c, 0x9b1f)?;
     c.run(0x9b1f, 4)?;
-    let ax = c.reg(AX);
-    c.set_reg(CX, ax);
+    c.set_reg(CX, tens_units);
     let (table, texts) = (c.word(g::SPRITE_SHEET), c.word(g::SPRITE_SHEET + 2));
     c.set_reg(SI, table);
     c.set_sreg(ES, texts);
@@ -1659,6 +1663,12 @@ pub fn pick_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`pick_sentence`] called: the sentence picked for the speaker (AX; AH 0).
+pub(super) fn picked_sentence(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x9123, ret)?;
+    Ok(c.reg(AX))
+}
+
 /// `open_talking_head_resource`: resource AX + 2 opened
 /// (`open_resource_by_index`).
 pub fn open_talking_head_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -1839,9 +1849,8 @@ pub fn dialogue_text_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     let (si, bp) = (c.reg(SI), c.reg(BP));
                     let next = si.wrapping_add(c.word_in(ES, bp.wrapping_add(si)));
                     c.set_reg(SI, next);
-                    c.call(entry::SKIP_32_STRINGS, 0x9a35)?;
+                    let at = past_32_strings(&mut c, 0x9a35)?;
                     c.run(0x9a35, 2)?;
-                    let at = c.reg(SI);
                     c.update_dialogue_text(|t| t.next = at);
                     Step::Phrase
                 }
@@ -3180,8 +3189,7 @@ fn lip_sync_setup_at(c: &mut Ctx) -> Result<(), Bail> {
     let alt = talker == 0x0c && c.character(12).flags & 0x10 != 0;
     c.run(0x91a0, if talker != 0x0c { 4 } else if alt { 7 } else { 6 })?;
     c.update_situation(|t| t.sentence_bank = if alt { 0x0a } else { 0 });
-    c.call(entry::PICK_SENTENCE, 0x91bb)?;
-    let head = c.reg(AX);
+    let head = picked_sentence(c, 0x91bb)?;
     if head == c.word(g::LOADED_HEAD) {
         c.run(0x91bb, 2)?;
         return open_talking_head_resource(c.m, 0x920f);
@@ -4393,10 +4401,9 @@ pub fn show_person_on_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if late {
         let person = c.sentence().noted_record;
         c.set_reg(DI, person);
-        c.call(entry::PLACE_PHRASE, 0xa29d)?;
+        let phrase = story::place_phrase_number(&mut c, 0xa29d)?;
         c.run(0xa29d, 1)?;
-        let v = c.reg(AX);
-        c.set_word(g::NEXT_PHRASE, v);
+        c.set_word(g::NEXT_PHRASE, phrase);
     }
     let book = c.byte(g::TALK_MODE) == 1;
     let person = c.sentence().noted_record;

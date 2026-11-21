@@ -112,7 +112,7 @@ RESULTS = {
     0x5e42: ('location_icon_of', [('AX', 'icon', 'u16'), ('CX', 'kind', 'u8')],
              'the map icon of the location at SI (AX) and its kind (CL).'),
     0x456c: ('place_phrase_number', [('AX', 'phrase', 'u16')], 'the phrase number of the place DI (AX).'),
-    0x9123: ('picked_sentence', [('AX', 'sentence', 'u8')], 'the sentence picked for the speaker (AL).'),
+    0x9123: ('picked_sentence', [('AX', 'sentence', 'u16')], 'the sentence picked for the speaker (AX; AH 0).'),
     0xe159: ('rect_hotspot_point', [('AX', 'hot_x', 'u16'), ('SI', 'hot_y', 'u16')],
              'the hotspot of the rect at DI: the middle across (AX), a quarter above the bottom (SI).'),
     0x642e: ('bytes_with_10', [('DX', 'count', 'u16')], 'how many of the 6 bytes from ES:SI - 1 have bits 30h = 10h (DX).'),
@@ -146,6 +146,7 @@ IMPLICIT = {
     'SI': ('lods', 'movs', 'cmps', 'outs', 'int', 'rep'),
     'DI': ('stos', 'movs', 'scas', 'cmps', 'ins', 'int', 'rep'),
 }
+CLOSURE = re.compile(r'(?:^|[=(,]\s*|\bmove\s+)\|[^|\n]*\|(?!\|)|^\s*fn ')
 READ_ONLY = {'cmp', 'test', 'push', 'out'}
 DEST_FIRST = {'mov', 'add', 'sub', 'and', 'or', 'xor', 'adc', 'sbb', 'inc', 'dec', 'neg', 'not', 'shl', 'shr',
               'sal', 'sar', 'rol', 'ror', 'rcl', 'rcr', 'pop', 'lea', 'les', 'lds', 'in'}
@@ -244,6 +245,11 @@ def sites(text, fname, cs, outs_of):
             nl = len(text) if nl < 0 else nl
             code = re.sub(r'//.*', '', text[pos:nl])
             if LOOP.match(code) and depth >= 0:
+                break
+            # A closure (or nested fn) runs later, when called: what it
+            # reads is not the call's result. (`c.update_x(|t| ..)` runs its
+            # closure there, on the view alone.)
+            if CLOSURE.search(re.sub(r'\bc\.update_\w+\(\|\w+\|', '', code)):
                 break
             if depth < 0:
                 break

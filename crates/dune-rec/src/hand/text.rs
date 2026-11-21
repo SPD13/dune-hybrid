@@ -328,6 +328,12 @@ pub fn decimal_digits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`decimal_digits`] called: AX's thousands and hundreds (DX) and tens and units (AX), `aam`'d.
+pub(super) fn decimal_parts(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0x8a23, ret)?;
+    Ok((c.reg(DX), c.reg(AX)))
+}
+
 /// `loc_08ed3`: CL (CX) = the width of the word at SI by the font's
 /// width table [47A0h] (as at the start), to a space, CR or a control
 /// code that ends it; codes 6 and 8 switch [47A0h] to CF6Ch / CEECh; in

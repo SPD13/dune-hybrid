@@ -47,6 +47,12 @@ pub fn latitude_lookup(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`latitude_lookup`] called: row BX of the latitude table: its value (AX), twice its scale (BP).
+pub(super) fn latitude_row(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0xb5a0, ret)?;
+    Ok((c.reg(AX), c.reg(BP)))
+}
+
 /// `shl_cx_and_dx` (DB44): shifts CX and DX left by AL.
 ///
 /// Exit: AX = CX = CX << AL, DX = DX << AL (counts mod 32). Flags from the
@@ -442,6 +448,12 @@ pub fn direction_256(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, al.wrapping_neg());
     c.set_flag(CF, false);
     c.ret()
+}
+
+/// [`direction_256`] called: the direction of (DX, BX) in 256ths of a turn (AL).
+pub(super) fn direction_of(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
+    c.call(0x514e, ret)?;
+    Ok(c.reg(AX) as u8)
 }
 
 /// `loc_05133`: the direction from (DI, CX) to (DX, BX) in 256ths: the

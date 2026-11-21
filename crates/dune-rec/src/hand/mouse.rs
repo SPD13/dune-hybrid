@@ -14,7 +14,6 @@ use pc::{
 
 mod code {
     pub const SHL_CX_AND_DX: u16 = 0xdb44;
-    pub const GET_MOUSE_CURSOR_IMAGE_ADDR: u16 = 0xdc6a;
 }
 
 /// The cursor images.
@@ -270,8 +269,7 @@ pub fn redraw_mouse(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (x, y) = (c.mouse_state().x, c.mouse_state().y);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
-    c.call(code::GET_MOUSE_CURSOR_IMAGE_ADDR, 0xdc32)?;
-    let image = c.reg(BP);
+    let image = cursor_image(&mut c, 0xdc32)?;
     let before = c.word(g::MOUSE_CURSOR_IMAGE);
     let shown = c.mouse_state().cursor_shown;
     let (dx, bx) = (c.reg(DX), c.reg(BX));
@@ -370,6 +368,12 @@ pub fn get_mouse_cursor_image_addr(m: &mut Machine, start: u16) -> Result<(), Ba
         c.set_reg(AX, ax);
     }
     c.ret()
+}
+
+/// [`get_mouse_cursor_image_addr`] called: the cursor image for the mouse at (DX, BX) (BP).
+pub(super) fn cursor_image(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0xdc6a, ret)?;
+    Ok(c.reg(BP))
 }
 
 /// From DC94h (`sub_d6fe` said no): the instructions to the `ret` (with

@@ -1,6 +1,7 @@
 //! Troops: 1Bh-byte records from [`g::TROOPS`], numbered from 1; and the
 //! per-location byte 19h, its bits spread over bytes and back.
 
+use super::globe;
 use super::time;
 use super::records;
 use super::math;
@@ -695,6 +696,12 @@ pub fn random_2_to_12(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
     }
+}
+
+/// [`random_2_to_12`] called: a random number from 2 to 12 (AL).
+pub(super) fn roll_2_to_12(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
+    c.call(0x21fa, ret)?;
+    Ok(c.reg(AX) as u8)
 }
 
 /// From 6603 (the stretch from `at`, `prefix` instructions before, done by
@@ -2372,6 +2379,12 @@ pub fn troop_rate(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`troop_rate`] called: the troop SI's new production rate (AX).
+pub(super) fn production_rate(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x708a, ret)?;
+    Ok(c.reg(AX))
+}
+
 /// `loc_06827`: BP = the sprite of the troop SI facing its location: the
 /// direction (0 to 3) of the larger of the two deltas to it (the x delta
 /// by its high byte), by its activity (`troop_activity`), from the table
@@ -2662,8 +2675,8 @@ pub fn troop_screen_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let (x, y) = (troop.x(&mut c), troop.y(&mut c));
         c.set_reg(DX, x);
         c.set_reg(BX, y);
-        c.call(entry::MAP_TO_SCREEN, 0x68b8)?;
-        let (sx, sy) = (c.reg(DX) as i16, c.reg(BX) as i16);
+        let (screen_x, screen_y) = globe::screen_point(&mut c, 0x68b8)?;
+        let (sx, sy) = (screen_x as i16, screen_y as i16);
         // Which of its four tests fails first (each `cmp`, `jle`/`jge`).
         let failed = [sx <= -16, sy <= -16, sx >= 0x148, sy >= 0xa0].iter().position(|&f| f);
         c.run(0x68b8, failed.map_or(10, |k| 2 * k as u32 + 4))?;
@@ -3543,6 +3556,12 @@ pub fn troop_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`troop_step`] called: the troop's step: x (DX, the scale signed) and y (BX, ±1); both 0 when close.
+pub(super) fn troop_step_delta(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0x8604, ret)?;
+    Ok((c.reg(DX), c.reg(BX)))
+}
+
 /// `loc_06770`: BP = the sprite list for the troop SI (see
 /// [`sprite_list_of`]); a travelling troop's goes on into
 /// `troop_facing_sprite`.
@@ -3971,8 +3990,7 @@ fn steps_8313(c: &mut Ctx) -> Result<(), Bail> {
     loop {
         c.run(0x8313, 2)?;
         c.save(&[CX]);
-        c.call(entry::TROOP_STEP, 0x8317)?;
-        let (dy, dx) = (c.reg(BX), c.reg(DX));
+        let (dx, dy) = troop_step_delta(c, 0x8317)?;
         let still = dy | dx == 0;
         c.run(0x8317, if still { 4 } else { 7 })?;
         c.restore(&[CX]);
@@ -4943,8 +4961,7 @@ pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x6ffa, 2)?;
     let w10 = troop.word_10(&mut c);
     troop.set_word_10(&mut c, w10 | 0x100);
-    c.call(entry::TROOP_RATE, 0x7002)?;
-    let rate = c.reg(AX);
+    let rate = production_rate(&mut c, 0x7002)?;
     let old = troop.word_0e(&mut c);
     let total = old.wrapping_add(rate);
     let crossed = (total ^ old) & 0xff80 != 0;

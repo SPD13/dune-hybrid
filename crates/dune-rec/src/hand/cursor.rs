@@ -121,6 +121,12 @@ pub fn rect_hotspot(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`rect_hotspot`] called: the hotspot of the rect at DI: the middle across (AX), a quarter above the bottom (SI).
+pub(super) fn rect_hotspot_point(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0xe159, ret)?;
+    Ok((c.reg(AX), c.reg(SI)))
+}
+
 fn hotspot(c: &mut Ctx) {
     let di = c.reg(DI);
     let bottom = c.word(di.wrapping_add(6));
@@ -211,9 +217,8 @@ pub fn hotspots_particles(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.call(code::RECT_HOTSPOT, 0xe0c1)?;
                 c.run(0xe0c1, 1)?;
                 if score(&mut c, 0xe0c1, 2)? {
-                    c.call(code::RECT_HOTSPOT, 0xe0cf)?;
+                    let (ax, si) = rect_hotspot_point(&mut c, 0xe0cf)?;
                     c.run(0xe0cf, 2)?;
-                    let (ax, si) = (c.reg(AX), c.reg(SI));
                     set_frame(&mut c, 4, ax);
                     set_frame(&mut c, 6, si);
                 }
@@ -1133,9 +1138,8 @@ pub(super) fn keyboard_move(c: &mut Ctx) -> Result<(), Bail> {
                 c.call(code::RECT_HOTSPOT, 0xe018)?;
                 c.run(0xe018, 1)?;
                 if score(c, 0xe018, 2)? {
-                    c.call(code::RECT_HOTSPOT, 0xe026)?;
+                    let (ax, si) = rect_hotspot_point(c, 0xe026)?;
                     c.run(0xe026, 2)?;
-                    let (ax, si) = (c.reg(AX), c.reg(SI));
                     set_frame(c, 4, ax);
                     set_frame(c, 6, si);
                 }

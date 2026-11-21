@@ -1913,6 +1913,12 @@ pub fn place_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`place_phrase`] called: the phrase number of the place DI (AX).
+pub(super) fn place_phrase_number(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x456c, ret)?;
+    Ok(c.reg(AX))
+}
+
 /// `loc_04658`: unless a message runs ([473Fh]): phrase 57h shown as a
 /// message (its far pointer at 473Fh, 55h at 4743h, the box at 4745h by
 /// [473Eh]) by the frame task 46B5h every 18h ticks. Registers kept.
@@ -3913,9 +3919,9 @@ pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let a = pure::add(B, al, 0xe0);
         c.set_reg(AX, ah << 8 | a);
-        c.call(entry::DIRECTION_STEP, 0x0ccf)?;
+        let (_, step_y) = map::step_for_direction(&mut c, 0x0ccf)?;
         c.run(0x0ccf, 3)?;
-        let (bx, dx) = (c.reg(BX), c.reg(DX));
+        let (bx, dx) = (step_y, c.reg(DX));
         let dx = (bx & 0xff) << 8 | dx & 0xff;
         c.set_reg(DX, dx);
         c.set_reg(SI, dx);
@@ -4246,10 +4252,9 @@ pub fn update_people(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 }
                 c.run(0x2179, n0 + 2 + 5)?;
                 ops0(&mut c);
-                c.call(entry::RANDOM_2_TO_12, 0x21ea)?;
+                let roll = troops::roll_2_to_12(&mut c, 0x21ea)?;
                 c.run(0x21ea, 2)?;
-                let al = c.reg8(r8::AL);
-                c.set_byte(si, al);
+                c.set_byte(si, roll);
                 break 'one;
             }
             let cur = c.progress().place_index;
@@ -6288,9 +6293,8 @@ fn figures_3a24(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(AX, 0x33);
     c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x3a57)?;
     c.run(0x3a57, 1)?;
-    c.call(entry::GET_ORNI_POSITION, 0x3a5a)?;
+    let (dx, bx) = records::orni_position(c, 0x3a5a)?;
     c.run(0x3a5a, 6)?;
-    let (dx, bx) = (c.reg(DX), c.reg(BX));
     let a = c.add(W, dx, 0x0c);
     c.set_word(g::ROOM_FIGURES_X, a);
     let a = c.add(W, bx, 8);

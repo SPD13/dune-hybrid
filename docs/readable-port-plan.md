@@ -299,7 +299,13 @@ listing, name the register or write it implicitly (`mul`, `lodsb`,
 74 call sites; the second 13 more (`troops::troop_sides`, `linked_slot`,
 `time::sky_palette`, `video::draw_position`, ...), 24 sites with those
 the first pass's routines gained once a stretch's sources stopped counting
-as writes.
+as writes. The third: 17 more (the step vectors `troop_step_delta` and
+`step_for_direction`, `globe::screen_point`, `orni_position`,
+`rect_hotspot_point`, `latitude_row`, `cursor_image`, `decimal_parts`,
+...), 20 sites. A read inside a closure is not the call's result (the
+closure runs when called, `format_interpolated_string`'s `shift` after DX
+has moved on): the scan stops at one, except the `c.update_x(|t| ..)`
+ones, which run on the spot.
 
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust

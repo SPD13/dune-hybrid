@@ -1,6 +1,7 @@
 //! The map screen: its view rect ([`VIEW`]), the cursor's place on it,
 //! the mouse rect, marks and rects copied around.
 
+use super::math;
 use super::video;
 use super::story;
 use super::troops;
@@ -38,6 +39,12 @@ pub fn place_box_origin(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     c.ret()
+}
+
+/// [`place_box_origin`] called: the point of the place box (DX, BX).
+pub(super) fn place_box_point(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0x557b, ret)?;
+    Ok((c.reg(DX), c.reg(BX)))
 }
 
 /// `loc_058e4`: `loc_057e5` with a 100h-byte buffer on the stack (BP),
@@ -709,6 +716,12 @@ pub fn direction_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`direction_step`] called: the step for the direction AL (DX, BX).
+pub(super) fn step_for_direction(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0x5198, ret)?;
+    Ok((c.reg(DX), c.reg(BX)))
+}
+
 /// `loc_05323`: for the place at [BP] (SS): `loc_05133` with its words 2,
 /// 4; [BP+2] = the octant of the result ((AL + 10h) >> 5). BX, DX kept.
 pub fn place_octant(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -1100,6 +1113,12 @@ pub fn location_icon(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`location_icon`] called: the map icon of the location at SI (AX) and its kind (CL).
+pub(super) fn location_icon_of(c: &mut Ctx, ret: u16) -> Result<(u16, u8), Bail> {
+    c.call(0x5e42, ret)?;
+    Ok((c.reg(AX), c.reg(CX) as u8))
+}
+
 /// `loc_05f91`: the map's marks dropped ([46F8h], [46F7h]), the front
 /// buffer active, the sprite list gone with its rect (1668h) redrawn,
 /// then driver function 30 unless redrawing.
@@ -1309,6 +1328,12 @@ pub fn count_10_bytes(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg(DX, dx);
     c.ret()
+}
+
+/// [`count_10_bytes`] called: how many of the 6 bytes from ES:SI - 1 have bits 30h = 10h (DX).
+pub(super) fn bytes_with_10(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x642e, ret)?;
+    Ok(c.reg(DX))
 }
 
 /// `loc_080ac`: BP = 2136h; bit 40h of its byte 3 (through SS) set, CX 1,
@@ -2282,8 +2307,7 @@ pub fn map_point_moved(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 5)?;
     c.set_byte(g::CURSOR_PLAIN, 0);
     c.set_reg8(r8::AL, k);
-    c.call(entry::PLACE_BOX_ORIGIN, 0x59ac)?;
-    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    let (dx, bx) = place_box_point(&mut c, 0x59ac)?;
     let (x, y) = (c.travel().kept[0], c.travel().kept[1]);
     if dx == x && bx == y {
         c.run(0x59ac, 4)?;
@@ -3759,10 +3783,9 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let bx = (m2 as u16) << 8 | bx & 0xff;
             c.set_word(di.wrapping_add(4), bx);
             c.set_reg(BX, bx & 0xff);
-            c.call(entry::LOCATION_ICON, 0x5e15)?;
-            let cl = c.reg8(r8::CL);
-            c.run(0x5e15, if cl < 0x20 { 7 } else { 2 + 3 })?;
-            if cl < 0x20 {
+            let (_, kind) = location_icon_of(&mut c, 0x5e15)?;
+            c.run(0x5e15, if kind < 0x20 { 7 } else { 2 + 3 })?;
+            if kind < 0x20 {
                 for r in [AX, BX, DX, SI] {
                     let v = c.reg(r);
                     c.push(v);
@@ -4620,13 +4643,12 @@ pub fn grow_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(BX, 0xfa00 | bl as u16);
             let si = c.word(di.wrapping_add(6));
             c.set_reg(SI, si);
-            c.call(entry::COUNT_10_BYTES, 0x6414)?;
-            let dx = c.reg(DX);
-            let d = (dx >> 1).wrapping_add(1);
+            let count = bytes_with_10(&mut c, 0x6414)?;
+            let d = (count >> 1).wrapping_add(1);
             let v = bl.wrapping_add(d as u8);
             let cap = v >= 0xfa;
             c.run(0x6414, 5 + cap as u32 + 1)?;
-            let d = pure::shr1(W, dx, 1);
+            let d = pure::shr1(W, count, 1);
             let d = pure::inc(W, d);
             c.set_reg(DX, d);
             let v = pure::add(B, bl as u16, d & 0xff);
@@ -4807,8 +4829,8 @@ pub fn heading_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, b);
     let bp = c.word(b.wrapping_add(0x4880));
     c.set_reg(BP, bp);
-    c.call(entry::DIRECTION_STEP, 0x521b)?;
-    let (bp, dx, bx) = (c.reg(BP), c.reg(DX), c.reg(BX));
+    let (step_x, step_y) = step_for_direction(&mut c, 0x521b)?;
+    let (bp, dx, bx) = (c.reg(BP), step_x, step_y);
     let fits = |q: i32| (-0x7fff..=0x7fff).contains(&q);
     let q1 = (bp as i16 as i32) * (dx as i16 as i32) / 0x20;
     let q2 = (bx as i16 as i32) * (bp as i16 as i32) / 0x20;
@@ -5548,9 +5570,9 @@ pub fn message_subject(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0xffff);
     c.set_reg(DX, mouse_x.wrapping_sub(pointer.wrapping_add(0x0b)));
     c.set_reg(BX, mouse_y.wrapping_sub(top));
-    c.call(entry::DIRECTION_256, 0x45b7)?;
+    let direction_ = math::direction_of(&mut c, 0x45b7)?;
     // By eighths, only near an eighth's middle.
-    let turned = c.reg8(r8::AL).wrapping_add(3);
+    let turned = direction_.wrapping_add(3);
     let off = turned & 0x1f;
     if off >= 6 {
         c.run(0x45b7, 6)?;
