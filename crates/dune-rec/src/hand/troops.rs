@@ -589,7 +589,7 @@ pub fn fix_character_rooms(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let place = Location::number(number);
         let w = c.word(record);
-        let kind = place.byte_08(&mut c);
+        let kind = place.kind(&mut c);
         di = place.offset();
         ax = w;
         bx = bx & 0xff00 | kind as u16;
@@ -1054,7 +1054,7 @@ pub fn grow_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let place = Location(c.reg(DI));
     let stage = place.byte_0b(&mut c);
-    let cost = if place.byte_08(&mut c) >= 0x20 {
+    let cost = if place.kind(&mut c) >= 0x20 {
         3
     } else if stage >= 0x0c {
         5
@@ -2610,7 +2610,7 @@ pub fn troop_orders_menu(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let w10 = troop.word_10(&mut c);
     let place = Location(troop.location(&mut c));
     let taken = place.byte_0a(&mut c) & 8 != 0;
-    let kind = place.byte_08(&mut c);
+    let kind = place.kind(&mut c);
     // The instructions to the test it stops at.
     let mut cost = 15 + (job != 1) as u32 + (phase >= 5) as u32;
     let stop = if phase < 4 {
@@ -2777,7 +2777,7 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0);
     let mut place = Location(Location::FIRST);
     loop {
-        if place.byte_08(&mut c) >= 0x28 {
+        if place.kind(&mut c) >= 0x28 {
             c.run(0x1e60, 2)?;
         } else if place.byte_0a(&mut c) & 0x80 != 0 {
             c.run(0x1e60, 4)?;
@@ -2856,8 +2856,8 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x6e31, 7)?;
         let b = place.byte_0a(&mut c);
         place.set_byte_0a(&mut c, b & !8);
-        let b = place.byte_08(&mut c);
-        place.set_byte_08(&mut c, b & 7);
+        let b = place.kind(&mut c);
+        place.set_kind(&mut c, b & 7);
         bump(&mut c, g::SIETCHES_HELD);
         c.call(entry::SET_PEOPLE_STATE_AT_PLACE, 0x6e47)?;
         c.run(0x6e47, 2)?;
@@ -3120,7 +3120,7 @@ pub fn nearest_needing_location(m: &mut Machine, start: u16) -> Result<(), Bail>
             c.set_reg(SP, sp.wrapping_add(6));
             return c.ret();
         }
-        let kind = place.byte_08(&mut c);
+        let kind = place.kind(&mut c);
         if place.byte_0a(&mut c) & 0x80 != 0 {
             c.run(0x7fa5, 4)?;
         } else if kind >= 0x28 {
@@ -4328,7 +4328,7 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
         }
         let target = Location(c.word_in(SS, c.reg(SP)));
-        let kind = target.byte_08(&mut c);
+        let kind = target.kind(&mut c);
         let flags = target.byte_0a(&mut c);
         let stays = kind < 0x28 && flags & 2 != 0;
         c.run(0x84ef, if kind >= 0x28 { 3 } else if stays { 6 } else { 7 })?;
@@ -4644,7 +4644,7 @@ pub fn raid_rally_own_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         troop.set_state(&mut c, 0x22);
         return c.ret();
     }
-    let far = Location(c.reg(DI)).byte_08(&mut c) >= 0x28;
+    let far = Location(c.reg(DI)).kind(&mut c) >= 0x28;
     c.run(start, if far { 11 } else { 10 })?;
     let w = troop.word_10(&mut c) | 0x400 | if far { 0x20 } else { 0 };
     troop.set_word_10(&mut c, w);

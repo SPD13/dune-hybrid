@@ -4,6 +4,7 @@
 //! 20h, 21h..27h, 28h..2Fh and 30h and up the kinds that
 //! `get_location_type_string_offset` and `calc_SAL_index` tell apart.
 
+use super::game::Location;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -26,7 +27,7 @@ pub fn calc_sal_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.check(start, 14)?;
     let si = c.reg(SI);
-    let kind = c.byte(si.wrapping_add(8));
+    let kind = Location(si).kind(&mut c);
     c.set_reg8(r8::CL, kind);
     let mut ax = c.reg(AX);
     let mut n = 2; // mov cl, [si+8]; ret
@@ -62,7 +63,7 @@ pub fn get_location_type_string_offset(m: &mut Machine, start: u16) -> Result<()
     let bx = c.reg(BX);
     c.push(bx);
     let di = c.reg(DI);
-    let kind = c.byte(di.wrapping_add(8));
+    let kind = Location(di).kind(&mut c);
     c.set_reg8(r8::BL, kind);
     let mut ax = pure::xor(W, 0, 0);
     let mut n = 5; // push, mov, xor; pop, ret
@@ -296,7 +297,7 @@ pub fn location_coords(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.m.cpu.mul_div(&mut c.m.hw, B, 6, LOCATION_SIZE as u32); // div bl
     let n = c.reg8(r8::AL);
     let n = pure::inc(B, n as u16) as u8;
-    let kind = c.byte(di.wrapping_add(8));
+    let kind = Location(di).kind(&mut c);
     c.set_reg(BX, (n as u16) << 8 | 0x80);
     c.set_reg(DX, (kind as u16) << 8 | 1);
     c.ret()

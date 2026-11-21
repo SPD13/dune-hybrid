@@ -393,12 +393,15 @@ impl Location {
         self.byte(c, 0)
     }
 
-    /// Byte 8: compared with 28h by `raid_rally_own_troop`; kept to its low
-    /// three bits when the location is freed (`troop_day_update`).
-    pub fn byte_08(self, c: &mut Ctx) -> u8 {
+    /// Byte 8: its kind. Below 28h a sietch (`abandon_location`, which
+    /// makes it 28h + its low three bits; `location_kind_check`,
+    /// `raid_rally_own_troop` compare with 28h); `grow_location` grows
+    /// those below 20h; kept to its low three bits when the location is
+    /// freed (`troop_day_update`).
+    pub fn kind(self, c: &mut Ctx) -> u8 {
         self.byte(c, 8)
     }
-    pub fn set_byte_08(self, c: &mut Ctx, v: u8) {
+    pub fn set_kind(self, c: &mut Ctx, v: u8) {
         self.set_byte(c, 8, v)
     }
 

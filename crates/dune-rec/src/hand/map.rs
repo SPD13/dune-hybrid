@@ -311,8 +311,8 @@ pub fn location_kind_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5d36)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
-    let kind = c.byte(di.wrapping_add(8));
-    let f = c.byte(di.wrapping_add(0x0a));
+    let kind = Location(di).kind(&mut c);
+    let f = Location(di).byte_0a(&mut c);
     let n = if kind < 0x28 { 3 } else if f & 8 == 0 { 5 } else { 6 };
     c.run(start, n)?;
     // Its callers read CF alone.
@@ -1115,7 +1115,7 @@ pub fn location_icon(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let zoom = c.map_view().mode & 0x80 != 0;
     let si = c.reg(SI);
-    let kind = c.byte(si.wrapping_add(8));
+    let kind = Location(si).kind(&mut c);
     let reached = [0x20u8, 0x21, 0x28, 0x30].iter().take_while(|&&t| kind >= t).count() as u32;
     c.run(start, 3 + zoom as u32 + 1 + 3 * reached + if reached < 4 { 3 } else { 1 })?;
     let mut ax = if zoom { 0x7a } else { 0x3a };
@@ -1188,7 +1188,7 @@ pub fn location_to_show(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(code::SAVE_REGS, 0x6281)?;
     let di = c.reg(DI);
-    let f = c.byte(di.wrapping_add(0x0a));
+    let f = Location(di).byte_0a(&mut c);
     let show = if f & 2 != 0 {
         c.run(0x6281, 3)?;
         c.test(B, f as u16, 2);
@@ -1232,7 +1232,7 @@ pub fn location_map_kind(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x6255, 2)?;
     let location_skipped = location_skipped(&mut c, 0x625a)?;
     let di = c.reg(DI);
-    let f = c.byte(di.wrapping_add(0x0a));
+    let f = Location(di).byte_0a(&mut c);
     if !location_skipped {
         c.run(0x625a, 3)?;
         c.set_reg(AX, 2);
@@ -2429,7 +2429,7 @@ pub fn caption_count_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::FONT_DRAW_STRING_WITH_COLOR_AT_POS, 0x6071)?;
     let di = c.reg(DI);
     let al = c.byte(di.wrapping_add(0x1b));
-    let f = c.byte(di.wrapping_add(0x0a));
+    let f = Location(di).byte_0a(&mut c);
     c.run(0x6071, 5)?;
     c.set_reg8(r8::AL, al);
     c.set_reg(SI, 0x75);
@@ -2589,7 +2589,7 @@ pub fn location_circle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 3)?;
     c.set_byte(g::CIRCLE_COLOUR, 0x20);
     let di = c.reg(DI);
-    let r = c.byte(di.wrapping_add(0x0b));
+    let r = Location(di).byte_0b(&mut c);
     c.set_reg(CX, r as u16);
     circle_at(&mut c, 0x6458)
 }
