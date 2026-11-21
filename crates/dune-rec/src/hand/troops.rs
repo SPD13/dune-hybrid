@@ -5159,7 +5159,7 @@ pub fn job_10(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x767d)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
-    let v = c.byte(di.wrapping_add(0x1a));
+    let v = Location(di).byte_1a(&mut c);
     if v == 0 {
         let k = c.situation().job10_counter;
         let wraps = k == 0xff;
@@ -5186,7 +5186,7 @@ pub fn job_9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7711)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
-    let a = c.byte(di.wrapping_add(0x0a));
+    let a = Location(di).byte_0a(&mut c);
     if a & 0x20 != 0 {
         c.run(0x7711, 3)?;
         return c.jump(entry::SET_TROOP_ACTIVITY);
@@ -5204,11 +5204,11 @@ pub fn job_9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !carry {
         return c.ret();
     }
-    let a = c.byte(di.wrapping_add(0x0a));
-    c.set_byte(di.wrapping_add(0x0a), a | 0x20);
-    let b = c.byte(di.wrapping_add(8));
+    let a = Location(di).byte_0a(&mut c);
+    Location(di).set_byte_0a(&mut c, a | 0x20);
+    let b = Location(di).kind(&mut c);
     let b = pure::or(B, b as u16, 8) as u8; // the flags the tail gets
-    c.set_byte(di.wrapping_add(8), b);
+    Location(di).set_kind(&mut c, b);
     c.set_byte(di.wrapping_add(0x1b), 5);
     c.jump(entry::SET_TROOP_ACTIVITY)
 }
@@ -5437,7 +5437,7 @@ pub fn job_4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::TROOP_DAY_UPDATE, 0x71f2)?;
     let troop = Troop(c.reg(SI));
     let di = c.reg(DI);
-    let a = c.byte(di.wrapping_add(0x0a));
+    let a = Location(di).byte_0a(&mut c);
     if a & 4 != 0 {
         // 725Fh: word 0Eh's count.
         let w = troop.word_0e(&mut c);

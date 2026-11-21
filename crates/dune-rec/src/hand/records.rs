@@ -4,6 +4,7 @@
 //! 20h, 21h..27h, 28h..2Fh and 30h and up the kinds that
 //! `get_location_type_string_offset` and `calc_SAL_index` tell apart.
 
+use super::game::Troop;
 use super::game::Location;
 use super::entry;
 use super::pure;
@@ -205,12 +206,12 @@ pub fn count_troop_sides(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.check(start, 8)?;
     let si = c.reg(SI);
-    let b3 = c.byte(si.wrapping_add(3));
+    let b3 = Troop(si).state(&mut c);
     if b3 & 0x20 != 0 {
         c.count(3);
         return c.ret();
     }
-    let b10 = c.byte(si.wrapping_add(0x10));
+    let b10 = Troop(si).byte_10(&mut c);
     if b10 & 0x80 != 0 {
         let cx = c.reg(CX);
         let cx = pure::inc(W, cx);

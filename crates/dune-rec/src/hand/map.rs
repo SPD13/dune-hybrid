@@ -1,6 +1,7 @@
 //! The map screen: its view rect ([`VIEW`]), the cursor's place on it,
 //! the mouse rect, marks and rects copied around.
 
+use super::game::Troop;
 use super::draw;
 use super::text;
 use super::tasks;
@@ -504,8 +505,8 @@ pub fn drop_reached_waypoints(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         let si = c.reg(SI);
         let di = c.word(g::FOLLOWED_TROOP_PLACE);
-        let here = c.word(si.wrapping_add(4)) == di;
-        let f = c.byte(si.wrapping_add(3));
+        let here = Troop(si).location(&mut c) == di;
+        let f = Troop(si).state(&mut c);
         let go = here && f & 0x40 == 0;
         c.run(at, jmp + if !here { 5 } else if !go { 7 } else { 6 })?;
         c.set_reg(DI, di);

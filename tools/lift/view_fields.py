@@ -49,6 +49,9 @@ for f in sorted(os.listdir(HAND)):
                 j -= 1
             doc = ' '.join(l[3:] for l in lines[j + 1:i])
             regs = {r.lower() for r in DOC.findall(doc)}
+            # The troops' jobs and callbacks: DI the troop's location.
+            if ty == 'Location' and re.search(r"\bthe location's\b|DI the location\b", doc):
+                regs.add('di')
             ctx = 'c' if 'c: &mut Ctx' in lines[i] else '&mut c'
             k = i
             while k < len(lines) and lines[k] != '}':
@@ -59,7 +62,7 @@ for f in sorted(os.listdir(HAND)):
                 ok = {r for r in regs if len(re.findall(rf'\blet (?:mut )?{r}\b', body)) == 1
                       and re.search(rf'\blet {r} = c\.reg\({r.upper()}\);', body)}
                 for n in range(i, k + 1):
-                    if '|' in lines[n]:
+                    if re.search(r'(?:^|[=(,]\s*|\bmove\s+)\|[^|\n]*\|(?!\|)', lines[n]):
                         continue  # closures take their own context
 
                     def sub(m):
