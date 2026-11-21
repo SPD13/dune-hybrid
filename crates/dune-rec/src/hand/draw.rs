@@ -261,6 +261,12 @@ pub fn draw_head_if_needed_and_update_screen_rect_at_si(m: &mut Machine, start: 
     update_rect_at_si(&mut Ctx::new(m), 0xc4f0, 0, None)
 }
 
+/// [`draw_head_if_needed_and_update_screen_rect_at_si`] called: the head drawn if needed, the screen rect at SI updated.
+pub(super) fn draw_head_and_update_rect(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, rect);
+    c.call(0xc4f0, ret)
+}
+
 /// `update_screen_at_sprite_rect_updating_head` (C4ED): the clip
 /// rectangle.
 pub fn update_screen_at_sprite_rect_updating_head(m: &mut Machine, start: u16) -> Result<(), Bail> {

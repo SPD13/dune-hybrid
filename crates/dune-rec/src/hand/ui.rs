@@ -802,6 +802,12 @@ pub fn decrease_troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail
     c.ret()
 }
 
+/// [`decrease_troop_motivation`] called: the troop at SI loses AL motivation.
+pub(super) fn lower_motivation(c: &mut Ctx, points: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::AL, points);
+    c.call(0x6f93, ret)
+}
+
 /// `loc_0a49c`: the counter at SI on the back buffer (the front buffer
 /// pointer [0DBDAh] kept): resource 55h opened, then sprite 3 + the tens
 /// of its byte at the place in the words after it (`loc_0a45c`), drawn
@@ -810,6 +816,12 @@ pub fn draw_counter(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa49c)?;
     let mut c = Ctx::new(m);
     draw_counter_at(&mut c)
+}
+
+/// [`draw_counter`] called: the counter at SI on the back buffer.
+pub(super) fn draw_counter_of(c: &mut Ctx, counter: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, counter);
+    c.call(0xa49c, ret)
 }
 
 fn draw_counter_at(c: &mut Ctx) -> Result<(), Bail> {
@@ -851,8 +863,7 @@ pub fn draw_counters(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.sound_state().settings;
     c.run(start, if f & 8 != 0 { 4 } else { 2 })?;
     if f & 8 != 0 {
-        c.set_reg(SI, 0x28a6);
-        c.call(entry::DRAW_COUNTER, 0xa48b)?;
+        draw_counter_of(&mut c, 0x28a6, 0xa48b)?;
     }
     let f = c.sound_state().settings;
     if f & 0x800 == 0 {
@@ -860,8 +871,7 @@ pub fn draw_counters(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0xa48b, 4)?;
-    c.set_reg(SI, 0x28ae);
-    c.call(entry::DRAW_COUNTER, 0xa499)?;
+    draw_counter_of(&mut c, 0x28ae, 0xa499)?;
     c.run(0xa499, 1)?;
     c.set_reg(SI, 0x28b6);
     draw_counter_at(&mut c)
@@ -1365,16 +1375,14 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let dx = pure::add(W, dx, 3);
         c.set_reg(DX, dx);
         let n = c.byte(di);
-        c.set_reg8(r8::CL, n);
-        c.call(entry::DRAW_MARKS, 0x19ba)?;
+        panels::draw_mark_row(&mut c, n, 0x19ba)?;
         c.run(0x19ba, 3)?;
         let bx = c.reg(BX);
         let bx = pure::add(W, bx, 7);
         c.set_reg(BX, bx);
         let di = c.reg(DI);
         let n = c.byte(di.wrapping_add(0x0c));
-        c.set_reg8(r8::CL, n);
-        c.call(entry::DRAW_MARKS, 0x19c3)?;
+        panels::draw_mark_row(&mut c, n, 0x19c3)?;
         let di = c.reg(DI);
         let third = c.byte(di.wrapping_add(0x18));
         c.run(0x19c3, 4 + if third != 0 { 2 } else { 0 })?;

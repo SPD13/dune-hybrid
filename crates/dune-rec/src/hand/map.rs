@@ -1,6 +1,7 @@
 //! The map screen: its view rect ([`VIEW`]), the cursor's place on it,
 //! the mouse rect, marks and rects copied around.
 
+use super::draw;
 use super::text;
 use super::tasks;
 use super::screens;
@@ -767,6 +768,12 @@ pub fn place_octant(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bx = c.pop();
     c.set_reg(BX, bx);
     c.ret()
+}
+
+/// [`place_octant`] called: the octant of the place at [BP] (SS) into [BP+2].
+pub(super) fn octant_of_place(c: &mut Ctx, place: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(BP, place);
+    c.call(0x5323, ret)
 }
 
 /// `loc_05344`: DI = the location nearest to (DX, BX) (not of bit 80h of
@@ -2599,6 +2606,12 @@ pub fn draw_location_circle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     circle_at(&mut c, 0x6458)
 }
 
+/// [`draw_location_circle`] called: the circle of radius CX around the location DI.
+pub(super) fn draw_circle_of(c: &mut Ctx, radius: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(CX, radius);
+    c.call(0x6447, ret)
+}
+
 fn circle_at(c: &mut Ctx, at: u16) -> Result<(), Bail> {
     let di = c.reg(DI);
     let (x, y) = (c.word(di.wrapping_add(2)), c.word(di.wrapping_add(4)));
@@ -2868,16 +2881,14 @@ pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x74f1, 3)?;
         let di = c.reg(DI);
         c.push(di);
-        c.set_reg(CX, 5);
-        c.call(entry::DRAW_LOCATION_CIRCLE, 0x74f8)?;
+        draw_circle_of(&mut c, 5, 0x74f8)?;
         return abandon_tail(&mut c);
     }
     troops::run_for_each_troop(&mut c, 0x7506, 0x74f1)?;
     c.run(0x74f1, 3)?;
     let di = c.reg(DI);
     c.push(di);
-    c.set_reg(CX, 5);
-    c.call(entry::DRAW_LOCATION_CIRCLE, 0x74f8)?;
+    draw_circle_of(&mut c, 5, 0x74f8)?;
     abandon_tail(&mut c)
 }
 
@@ -5832,8 +5843,7 @@ pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
         c.call(entry::MARKER_AT_DX_BX, 0x555b)?;
     }
     c.run(0x555b, 2)?;
-    c.set_reg(SI, 0x4710);
-    c.call(entry::DRAW_HEAD_IF_NEEDED_AND_UPDATE_SCREEN_RECT_AT_SI, 0x5561)?;
+    draw::draw_head_and_update_rect(c, 0x4710, 0x5561)?;
     c.run(0x5561, 1)?;
     c.call(entry::SWAP_PROJECTION, 0x5564)?;
     c.run(0x5564, 4)?;
@@ -6017,8 +6027,7 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let di = c.reg(DI);
         c.push(di);
         let p = c.word(g::PLACE);
-        c.set_reg(DI, p);
-        c.call(entry::NOTED_LOCATION_SKILL_NEEDS, 0x87b2)?;
+        troops::note_skill_needs(&mut c, p, 0x87b2)?;
         let k = c.byte(g::LOCATION_SKILL_NEED_1);
         c.run(0x87b2, 4 + if k == 0 { 1 } else { 0 })?;
         let d = c.pop();
@@ -6805,19 +6814,16 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if at != 0x52ff {
             c.run(at - 3, 2)?;
         }
-        c.set_reg(BP, bp);
-        c.call(entry::PLACE_OCTANT, ret)?;
+        octant_of_place(&mut c, bp, ret)?;
     }
     c.run(0x530e, 4)?;
     let ax = c.reg(AX);
     let ax = pure::add(W, ax, 0xda);
     c.set_reg(AX, ax);
     c.set_word(g::PHRASE_ARG_DIRECTION, ax);
-    c.set_reg(BP, 0xcc);
-    c.call(entry::PLACE_OCTANT, 0x531a)?;
+    octant_of_place(&mut c, 0xcc, 0x531a)?;
     c.run(0x531a, 2)?;
-    c.set_reg(BP, 0xd2);
-    c.call(entry::PLACE_OCTANT, 0x5320)?;
+    octant_of_place(&mut c, 0xd2, 0x5320)?;
     c.run(0x5320, 3)?;
     let di = c.pop();
     c.set_reg(DI, di);

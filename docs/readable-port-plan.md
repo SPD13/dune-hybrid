@@ -330,7 +330,9 @@ everywhere, a value the site did not set read from the register right
 before (`let item = c.reg8(r8::CL);`, 5 such). Setting a register to the
 value it holds changes nothing, so the machine sees the same as before.
 The first pass: 57 routines (troop loops, drawing, text, transitions,
-waits, frame tasks, resources), 345 call sites. Inputs that callers set
+waits, frame tasks, resources), 345 call sites. The second: 27 more
+(`files::load_driver`, `dialogue::speak_as`, `story::tell_about_troop`,
+`mouse::hide_mouse_at`, the rect copies, ...), 58 sites. Inputs that callers set
 through a stretch run in place (most of SI the troop, DI the location)
 stay registers until those stretches are written out.
 

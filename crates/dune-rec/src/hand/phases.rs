@@ -2,7 +2,6 @@
 //! the discovery of locations they trigger.
 
 use super::story;
-use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -105,8 +104,7 @@ fn discover_list(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x105b, 5)?;
         c.lods(W, CS);
         c.or(W, next, next);
-        c.set_reg(DI, next);
-        c.call(entry::DISCOVER_LOCATION, 0x1066)?;
+        discover_at(c, next, 0x1066)?;
         c.run(0x1066, 1)?; // jmp 105Bh
     }
 }
@@ -191,4 +189,10 @@ pub fn on_phase_58(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn discover_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x425b)?;
     discover(&mut Ctx::new(m))
+}
+
+/// [`discover_location`] called: the location DI discovered.
+pub(super) fn discover_at(c: &mut Ctx, location: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(DI, location);
+    c.call(0x425b, ret)
 }

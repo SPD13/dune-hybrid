@@ -3,6 +3,7 @@
 //! task, the IRUL videos (with subtitles), the font glyph routines, the
 //! pause key.
 
+use super::saves;
 use super::waits;
 use super::text;
 use super::screen;
@@ -174,9 +175,7 @@ pub fn ui_stats_draw_ingame_day_and_charisma(m: &mut Machine, start: u16) -> Res
     let charisma = c.progress().charisma;
     c.set_reg(AX, charisma as u16);
     let half = pure::shr1(W, charisma as u16, 1);
-    c.set_reg(AX, half);
-    c.set_reg(SI, 0xc3);
-    c.call(code::FIND_STRING_AND_REPLACE_DIGITS, 0xbe14)?;
+    saves::replace_digits(&mut c, half, 0xc3, 0xbe14)?;
     c.run(0xbe14, 1)?;
     c.call(code::FONT_SELECT_TALL_FONT, 0xbe17)?;
     c.run(0xbe17, 2)?;

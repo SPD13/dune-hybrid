@@ -106,6 +106,12 @@ pub fn open_skyrs_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
     open_palette(&mut c)
 }
 
+/// [`open_skyrs_palette`] called: palette BL of SKYRS.
+pub(super) fn open_sky_palette(c: &mut Ctx, palette: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::BL, palette);
+    c.call(0x0820, ret)
+}
+
 /// The ornithopters: from 3A73, the next position (DX + 46h, BX + 0Ah);
 /// `loop` back to 3A6A, which draws one (`sub_3aa9`, keeping CX, BX, DX).
 fn ornis(c: &mut Ctx, mut draw_first: bool) -> Result<(), Bail> {

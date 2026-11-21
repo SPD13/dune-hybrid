@@ -1,6 +1,8 @@
 //! Dialogue state: the talking character's mode bytes (47C2h, 47C4h,
 //! 47DCh...), the phrase pointers, and small steps of the conversation.
 
+use super::screen;
+use super::draw;
 use super::video;
 use super::tasks;
 use super::sprites;
@@ -67,6 +69,12 @@ pub fn talk_as(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::TEXT_BOX_FLAGS, 0);
     c.update_sentence(|t| t.talking = 0);
     c.ret()
+}
+
+/// [`talk_as`] called: the character AX talks.
+pub(super) fn speak_as(c: &mut Ctx, character: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, character);
+    c.call(0x96d8, ret)
 }
 
 /// `loc_0970b`: the phrase AX (words from [`PHRASES`]) set up
@@ -150,6 +158,12 @@ pub fn start_text_voice_talking(m: &mut Machine, start: u16) -> Result<(), Bail>
     c.run(0x9ef7, 2)?;
     c.update_sentence(|t| t.talking = 0);
     c.ret()
+}
+
+/// [`start_text_voice_talking`] called: the text voice with the talking character AL.
+pub(super) fn talk_text_voice(c: &mut Ctx, talking: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::AL, talking);
+    c.call(0x9ef1, ret)
 }
 
 /// `loc_09f1c`: the lip sync set up (`setup_lip_sync_data_from_current`),
@@ -612,6 +626,12 @@ pub fn start_speaker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`start_speaker`] called: the speaker AL (CL) starts talking.
+pub(super) fn start_speaking(c: &mut Ctx, speaker: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, speaker);
+    c.call(0x93df, ret)
+}
+
 
 /// `loc_096f1`: the character AX talks; for sentence 0Eh first the troop [4756h]
 /// described (`loc_031f6`); then [`say_sentence`].
@@ -624,8 +644,7 @@ pub fn say_numbered(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_conversation(|t| t.talker = ax);
     if described {
         let troop = c.word(g::CHARACTER_14_TROOP);
-        c.set_reg(SI, troop);
-        c.call(entry::DESCRIBE_TROOP, 0x96ff)?;
+        story::tell_about_troop(&mut c, troop, 0x96ff)?;
         c.run(0x96ff, 1)?;
         c.set_reg(AX, 0x0e);
     }
@@ -1675,6 +1694,12 @@ pub fn open_talking_head_resource(m: &mut Machine, start: u16) -> Result<(), Bai
     super::resources::open_resource_by_index(c.m, 0xc13e)
 }
 
+/// [`open_talking_head_resource`] called: resource AX + 2 opened.
+pub(super) fn open_head_resource(c: &mut Ctx, head: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, head);
+    c.call(0x920f, ret)
+}
+
 /// `loc_098b2`: unless [47C3h], the dialogue text closed: [4540h] 0, bits
 /// C0h of [47D1h] cleared, [47C8h] taken (AX); when there was one, the
 /// text frame 1BF0h emptied (its word 8 and [1C06h] 0) and redrawn
@@ -1702,8 +1727,7 @@ pub fn close_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::PICTURE_FLAGS, 0);
     c.call(entry::COPY_RECT_FB2_TO_FB1_AT_SI, 0x98dc)?;
     c.run(0x98dc, 2)?;
-    c.set_reg(SI, 0x1bf0);
-    c.call(entry::DRAW_HEAD_IF_NEEDED_AND_UPDATE_SCREEN_RECT_AT_SI, 0x98e2)?;
+    draw::draw_head_and_update_rect(&mut c, 0x1bf0, 0x98e2)?;
     c.run(0x98e2, 1)?;
     drop_dialogue_text(c.m, 0x9b8b)
 }
@@ -1732,8 +1756,7 @@ pub fn redraw_dialogue_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let boxed = c.text_box().shown != 0;
     c.run(0x979f, if boxed { 4 } else { 2 })?;
     if boxed {
-        c.set_reg(SI, g::TEXT_BOX);
-        c.call(entry::GFX_COPY_RECT_FB1_TO_FB2, 0x97ac)?;
+        screen::copy_rect_to_fb2(&mut c, g::TEXT_BOX, 0x97ac)?;
     }
     let text = c.dialogue_text().shown;
     c.run(0x97ac, if text != 0 { 5 } else { 4 })?;
@@ -2240,15 +2263,13 @@ pub fn two_heads_text_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 3)?;
     c.call(entry::SWAP_GAME_STATE, 0x99c8)?;
     c.run(0x99c8, 2)?;
-    c.set_reg(AX, 7);
-    c.call(entry::OPEN_TALKING_HEAD_RESOURCE, 0x99ce)?;
+    open_head_resource(&mut c, 7, 0x99ce)?;
     c.run(0x99ce, 1)?;
     c.call(entry::DIALOGUE_TEXT_STEP, 0x99d1)?;
     c.run(0x99d1, 1)?;
     c.call(entry::SWAP_GAME_STATE, 0x99d4)?;
     c.run(0x99d4, 2)?;
-    c.set_reg(AX, 0x2d);
-    c.call(entry::OPEN_TALKING_HEAD_RESOURCE, 0x99da)?;
+    open_head_resource(&mut c, 0x2d, 0x99da)?;
     dialogue_text_step(c.m, 0x99da)
 }
 
@@ -2547,8 +2568,7 @@ pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(entry::FORMAT_INTERPOLATED_STRING, 0xa02c)?;
         }
         c.run(0xa02c, 2)?;
-        c.set_reg(SI, TEXT_BUFFER);
-        c.call(entry::LAYOUT_TEXT, 0xa032)?;
+        lay_out_text(&mut c, TEXT_BUFFER, 0xa032)?;
         c.run(0xa032, 1)?;
     } else {
         let book = c.economy().book != 0;
@@ -2692,8 +2712,7 @@ pub fn start_speaker_dialogue(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_conversation(|t| t.talker = talker);
     let talker = if troop {
         let troop = c.word(g::CHARACTER_14_TROOP);
-        c.set_reg(SI, troop);
-        c.call(entry::DESCRIBE_TROOP, 0x976f)?;
+        story::tell_about_troop(&mut c, troop, 0x976f)?;
         c.run(0x976f, 1)?;
         c.set_reg(AX, 0x0e);
         0x0e
@@ -3444,8 +3463,7 @@ fn phrase_93aa(c: &mut Ctx) -> Result<(), Bail> {
     }
     c.run(0x93d8, 2)?;
     let talker = c.pop();
-    c.set_reg(AX, talker);
-    c.call(entry::START_SPEAKER, 0x93dc)?;
+    start_speaking(c, talker, 0x93dc)?;
     c.run(0x93dc, 1)?;
     next_line_from_9472(c)
 }
@@ -3598,6 +3616,12 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.m.cpu.ip = 0x8b91;
     Err(Bail)
+}
+
+/// [`layout_text`] called: the text SI laid out in its box.
+pub(super) fn lay_out_text(c: &mut Ctx, text: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, text);
+    c.call(0x8b11, ret)
 }
 
 /// The text's lines as [`break_lines`] leaves them: a count, then 6
@@ -4014,8 +4038,7 @@ fn show_text_88d2(c: &mut Ctx) -> Result<(), Bail> {
         return c.ret();
     }
     let back = c.reg(SI).wrapping_sub(1);
-    c.set_reg(SI, back);
-    c.call(entry::LAYOUT_TEXT, 0x88ea)?;
+    lay_out_text(c, back, 0x88ea)?;
     let at = c.reg(SI);
     let end = c.byte(at);
     c.run(0x88ea, if end >= 0xfe { 3 } else { 4 })?;
@@ -4428,8 +4451,7 @@ pub fn show_person_on_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::MARKER_AT_RECORD, 0xa2fe)?;
     c.run(0xa2fe, 3)?;
     c.update_map_view(|t| t.mode = 0);
-    c.set_reg(SI, 0x22ec);
-    c.call(entry::GFX_COPY_RECT_FB1_TO_FB2, 0xa309)?;
+    screen::copy_rect_to_fb2(&mut c, 0x22ec, 0xa309)?;
     c.run(0xa309, 2)?;
     c.restore(&[SI]);
     c.ret()

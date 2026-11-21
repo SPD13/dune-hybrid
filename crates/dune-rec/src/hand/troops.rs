@@ -1,6 +1,7 @@
 //! Troops: 1Bh-byte records from [`g::TROOPS`], numbered from 1; and the
 //! per-location byte 19h, its bits spread over bytes and back.
 
+use super::ui;
 use super::story;
 use super::gfx;
 use super::globe;
@@ -446,7 +447,8 @@ pub fn location_has_troop_400(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// [`location_has_troop_400`] called: whether a troop of the location DI's chain has bit 400h of word 12h.
-pub(super) fn troop_with_400_here(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+pub(super) fn troop_with_400_here(c: &mut Ctx, location: u16, ret: u16) -> Result<bool, Bail> {
+    c.set_reg(DI, location);
     c.call_cf(0x1e24, ret)
 }
 
@@ -504,8 +506,7 @@ pub fn attack_clock_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1eef, 3)?;
     let n = c.situation().attacks_pending.wrapping_sub(1);
     c.update_situation(|t| t.attacks_pending = n);
-    c.set_reg(DI, Location::FIRST);
-    let troop_with_400_here = troop_with_400_here(&mut c, 0x1ef9)?;
+    let troop_with_400_here = troop_with_400_here(&mut c, Location::FIRST, 0x1ef9)?;
     // Each location in turn until `location_has_troop_400` gives CF.
     let found = loop {
         let place = c.reg(DI);
@@ -520,8 +521,7 @@ pub fn attack_clock_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
             break 0;
         }
         c.run(0x1ef9, 5)?;
-        c.set_reg(DI, next);
-        c.call(entry::LOCATION_HAS_TROOP_400, 0x1ef9)?;
+        self::troop_with_400_here(&mut c, next, 0x1ef9)?;
     };
     c.set_word(g::ATTACK_TARGET, found);
     if found == 0 {
@@ -1913,6 +1913,12 @@ pub fn noted_location_skill_needs(m: &mut Machine, start: u16) -> Result<(), Bai
     skill_needs_at(&mut c)
 }
 
+/// [`noted_location_skill_needs`] called: the skill needs of the location DI into 46FEh.
+pub(super) fn note_skill_needs(c: &mut Ctx, location: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(DI, location);
+    c.call(0x7f27, ret)
+}
+
 /// `loc_07f2a`: the 7 skill needs of the location DI (bytes 14h on)
 /// copied to BX, then lowered by each of its troops' skills (byte 19h,
 /// one bit per need). DI kept, ES = DS.
@@ -2864,8 +2870,7 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, days);
     c.run(0x6e51, if days > 8 { 5 } else { 3 })?;
     if days > 8 {
-        c.set_reg8(r8::AL, 1);
-        c.call(entry::DECREASE_TROOP_MOTIVATION, 0x6e5d)?;
+        ui::lower_motivation(&mut c, 1, 0x6e5d)?;
     }
     let id = Troop(c.reg(SI)).id(&mut c);
     let first = Location(c.reg(DI)).first_troop(&mut c) == id;
@@ -4332,8 +4337,7 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
         if kind < 0x28 {
-            c.set_reg8(r8::AL, 3);
-            c.call(entry::DECREASE_TROOP_MOTIVATION, 0x8501)?;
+            ui::lower_motivation(&mut c, 3, 0x8501)?;
         }
     }
     c.run(0x8501, 4)?;

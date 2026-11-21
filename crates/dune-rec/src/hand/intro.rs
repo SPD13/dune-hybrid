@@ -1,6 +1,8 @@
 //! The intro sequence's steps: videos, frame tasks, the talking head.
 //! Most end in `clc; ret`: CF clear tells the intro script to go on.
 
+use super::sprites;
+use super::phases;
 use super::waits;
 use super::tasks;
 use super::screen;
@@ -231,7 +233,6 @@ mod more {
     pub const COPY_GAME_AREA_RECT_TO_CLIP_RECT: u16 = 0x5ba8;
     pub const MIDI_FUNC_2_0: u16 = 0xaeb7;
     pub const PLAY_PCM_AL: u16 = 0xabdb;
-    pub const OPEN_SKYRS_PALETTE: u16 = 0x0820;
     pub const ROOM_SETUP: u16 = 0x08f0;
     pub const ROOM_DRAW: u16 = 0x37b2;
 }
@@ -452,8 +453,7 @@ pub fn intro_load_desert_sky_animation(m: &mut Machine, start: u16) -> Result<()
     c.run(start, 1)?;
     c.call(more::GFX_CLEAR_ACTIVE_FRAMEBUFFER, 0x0800)?;
     c.run(0x0800, 2)?;
-    c.set_reg8(r8::BL, 8);
-    c.call(more::OPEN_SKYRS_PALETTE, 0x0805)?;
+    sprites::open_sky_palette(&mut c, 8, 0x0805)?;
     c.run(0x0805, 2)?;
     c.set_reg(CX, 0xf0);
     c.set_reg(BX, 0x180);
@@ -583,8 +583,7 @@ pub fn for_each_in_code_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if w == 0 {
             return c.ret();
         }
-        c.set_reg(pc::cpu::DI, w);
-        c.call(entry::DISCOVER_LOCATION, 0x1066)?;
+        phases::discover_at(&mut c, w, 0x1066)?;
         (at, jmp) = (0x1066, 1);
     }
 }

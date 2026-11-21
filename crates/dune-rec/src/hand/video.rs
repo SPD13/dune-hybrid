@@ -339,6 +339,12 @@ pub fn strcpy_to_filename_buf(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`strcpy_to_filename_buf`] called: the string at DX copied to the filename buffer.
+pub(super) fn copy_file_name(c: &mut Ctx, name: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(DX, name);
+    c.call(0xf2fc, ret)
+}
+
 /// `swap_byte_arrays` (99B2): swaps CX words between SI and DI (DS).
 /// Exit: SI, DI past them, CX = 0, AX = the last word from SI's side;
 /// flags from the last `add di, 2`.

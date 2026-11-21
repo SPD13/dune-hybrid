@@ -131,6 +131,13 @@ pub fn call_restore_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     hide(&mut Ctx::new(m))
 }
 
+/// [`call_restore_cursor`] called: the cursor hidden over (DX, BX), drawn again on return.
+pub(super) fn hide_mouse_at(c: &mut Ctx, x: u16, y: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(DX, x);
+    c.set_reg(BX, y);
+    c.call(0xdbb2, ret)
+}
+
 /// From DBEC: shows the cursor one level more; when that makes it 0, draws
 /// it at the mouse position (driver function 3), noting where. Registers
 /// kept.

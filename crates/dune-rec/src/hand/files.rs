@@ -1,6 +1,7 @@
 //! Files: DUNE.DAT and loose files, the memory allocator's helpers, the
 //! keyboard buffer, waiting on the timer.
 
+use super::dos;
 use super::input;
 use super::entry;
 use super::pure;
@@ -155,6 +156,14 @@ pub fn load_driver_ax_with_vtable_at_si(m: &mut Machine, start: u16) -> Result<(
     }
 }
 
+/// [`load_driver_ax_with_vtable_at_si`] called: driver AX loaded, the segments of its CX far pointers at SI filled in.
+pub(super) fn load_driver(c: &mut Ctx, driver: u16, vtable: u16, count: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, driver);
+    c.set_reg(SI, vtable);
+    c.set_reg(CX, count);
+    c.call(0xe57b, ret)
+}
+
 /// `read_dune_dat_toc` (E741): reads DUNE.DAT's table of contents (from
 /// its start, up to FFFFh bytes) to 800h paragraphs above the allocator's
 /// segment; again until it reads.
@@ -163,9 +172,7 @@ pub fn read_dune_dat_toc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     loop {
         c.run(0xe741, 3)?;
-        c.set_reg(AX, 0);
-        c.set_reg(DX, 0);
-        c.call(code::SEEK_DUNE_DAT_OFFSET_DXAX, 0xe748)?;
+        dos::seek_dune_dat(&mut c, 0, 0, 0xe748)?;
         c.run(0xe748, 6)?;
         let seg = c.word(g::ALLOCATOR_NEXT_SEGMENT);
         let seg = seg.wrapping_add(0x800);
@@ -390,6 +397,12 @@ pub fn alloc_check_cx_pages_available(m: &mut Machine, start: u16) -> Result<(),
         c.call(code::ALLOC_MORE, 0xf12e)?;
         c.run(0xf12e, 1)?;
     }
+}
+
+/// [`alloc_check_cx_pages_available`] called: CX paragraphs made free above the allocator.
+pub(super) fn make_room(c: &mut Ctx, paragraphs: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(CX, paragraphs);
+    c.call(0xf11c, ret)
 }
 
 /// A memory driver call through a near pointer in the code segment, with

@@ -1,5 +1,6 @@
 //! Story progress, the intro script, and one-line flag setters.
 
+use super::dialogue;
 use super::waits;
 use super::video;
 use super::text;
@@ -939,8 +940,7 @@ pub fn revisit_harkonnen_place(m: &mut Machine, start: u16) -> Result<(), Bail> 
     }
     c.run(start, 4)?;
     let di = c.word(g::PLACE);
-    c.set_reg(DI, di);
-    c.call(entry::ENTER_LOCATION, 0x1bfa)?;
+    enter_location_at(&mut c, di, 0x1bfa)?;
     let f = c.byte(g::COMM_CALLER);
     let still = c.progress().harkonnen_place;
     c.run(0x1bfa, 2 + (f != 0) as u32 + 2 + if still != 0 { 1 } else { 2 })?;
@@ -1291,14 +1291,12 @@ pub fn speak_event_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x2b0d, 4)?;
     let ax = c.reg(AX);
     c.update_situation(|t| t.event_kind = ax as u8);
-    c.set_reg(AX, ax >> 8);
-    c.call(entry::TALK_AS, 0x2b17)?;
+    dialogue::speak_as(&mut c, ax >> 8, 0x2b17)?;
     c.run(0x2b17, 1)?;
     c.call(entry::ADD_TWO_HEADS_TEXT_TASK, 0x2b1a)?;
     c.run(0x2b1a, 3)?;
     c.update_situation(|t| t.event_kind = 0xff);
-    c.set_reg8(r8::AL, 1);
-    c.call(entry::START_TEXT_VOICE_TALKING, 0x2b24)?;
+    dialogue::talk_text_voice(&mut c, 1, 0x2b24)?;
     c.run(0x2b24, 2)?;
     let di = c.pop();
     talk_about_location(&mut c, di, 0x2b28)?;
@@ -2077,6 +2075,12 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ah << 8 | al);
     c.set_byte(g::HARKONNEN_PLACE_ICONS, ah as u8);
     c.ret()
+}
+
+/// [`enter_location`] called: entering the location at DI.
+pub(super) fn enter_location_at(c: &mut Ctx, location: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(DI, location);
+    c.call(0x503c, ret)
 }
 
 /// `sub_4415`: leaving the map's hotspot mode (when [46EBh] was set): the
@@ -2867,14 +2871,12 @@ pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x2b0d, 4)?;
     let ax = c.reg(AX);
     c.update_situation(|t| t.event_kind = ax as u8);
-    c.set_reg(AX, ax >> 8);
-    c.call(entry::TALK_AS, 0x2b17)?;
+    dialogue::speak_as(&mut c, ax >> 8, 0x2b17)?;
     c.run(0x2b17, 1)?;
     c.call(entry::ADD_TWO_HEADS_TEXT_TASK, 0x2b1a)?;
     c.run(0x2b1a, 3)?;
     c.update_situation(|t| t.event_kind = 0xff);
-    c.set_reg8(r8::AL, 1);
-    c.call(entry::START_TEXT_VOICE_TALKING, 0x2b24)?;
+    dialogue::talk_text_voice(&mut c, 1, 0x2b24)?;
     c.run(0x2b24, 2)?;
     let d = c.pop();
     talk_about_location(&mut c, d, 0x2b28)?;
@@ -3506,7 +3508,8 @@ pub fn ui_comm(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'one;
             }
             c.run(0x2023, 7)?;
-            if troops::troop_with_400_here(&mut c, 0x2037)? {
+            let location = c.reg(DI);
+            if troops::troop_with_400_here(&mut c, location, 0x2037)? {
                 c.run(0x2037, 1)?;
                 break 'one;
             }
@@ -4049,6 +4052,12 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`describe_troop`] called: the troop SI described in the condition variables.
+pub(super) fn tell_about_troop(c: &mut Ctx, troop: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, troop);
+    c.call(0x31f6, ret)
+}
+
 /// `sub_1027`: bit 80h of [122Eh] cleared, then the panel's buttons
 /// (`panel_buttons`).
 pub fn on_phase_08(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -4515,8 +4524,7 @@ pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x354c, 12)?;
     ops(&mut c);
     let ax = c.conversation().talker;
-    c.set_reg(AX, ax);
-    c.call(entry::START_SPEAKER, 0x35a9)?;
+    dialogue::start_speaking(&mut c, ax, 0x35a9)?;
     c.run(0x35a9, 1)?;
     c.call(entry::FADE_PANEL, 0x35ac)?;
     c.run(0x35ac, 1)?;
@@ -5959,8 +5967,7 @@ fn step_3ff5(c: &mut Ctx) -> Result<(), Bail> {
     c.set_byte(g::WALK_STEPS, 0);
     c.set_word(g::PLACE, si);
     c.set_word(g::LAST_PLACE, si);
-    c.set_reg(DI, si);
-    c.call(entry::ENTER_LOCATION, 0x4031)?;
+    enter_location_at(c, si, 0x4031)?;
     c.run(0x4031, 3)?;
     c.update_place_forces(|t| t.our_loss = 0);
     c.update_place_forces(|t| t.harkonnen_loss = 0);
@@ -6602,8 +6609,7 @@ fn scene_record_3551(c: &mut Ctx) -> Result<(), Bail> {
         return c.ret();
     }
     let ax = c.conversation().talker;
-    c.set_reg(AX, ax);
-    c.call(entry::START_SPEAKER, 0x35a9)?;
+    dialogue::start_speaking(c, ax, 0x35a9)?;
     c.run(0x35a9, 1)?;
     c.call(entry::FADE_PANEL, 0x35ac)?;
     c.run(0x35ac, 1)?;
@@ -6829,8 +6835,7 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x2c47, 1)?;
     c.call(entry::TRANSITION_TO_TALK_SCREEN, 0x2c4a)?;
     c.run(0x2c4a, 2)?;
-    c.set_reg8(r8::AL, 1);
-    c.call(entry::START_TEXT_VOICE_TALKING, 0x2c4f)?;
+    dialogue::talk_text_voice(c, 1, 0x2c4f)?;
     c.run(0x2c4f, 1)?;
     c.call(entry::DROP_OLDEST_EVENT, 0x2c52)?;
     c.run(0x2c52, 4)?;

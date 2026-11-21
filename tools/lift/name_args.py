@@ -131,6 +131,39 @@ ARGS = {
     0xcdbf: (None, [('CX', 'count', 'u16')], None),
     0xab15: ('start_voc', [('AL', 'voc', 'u8')], 'VOC AL started, unless a voice plays or PCM is off.'),
     0xb389: ('save_to_slot', [('CL', 'slot', 'u8')], 'the game saved to slot CL.'),
+    # second pass
+    0xe57b: ('load_driver', [('AX', 'driver', 'u16'), ('SI', 'vtable', 'u16'), ('CX', 'count', 'u16')],
+             "driver AX loaded, the segments of its CX far pointers at SI filled in."),
+    0xe2db: ('replace_digits', [('AX', 'number', 'u16'), ('SI', 'string', 'u16')],
+             'AX written into the number of string SI.'),
+    0xe290: ('draw_number_at_pos', [('AX', 'number', 'u16'), ('DX', 'x', 'u16'), ('BX', 'y', 'u16')],
+             'AX drawn as 3 digits at (DX, BX).'),
+    0x5323: ('octant_of_place', [('BP', 'place', 'u16')], 'the octant of the place at [BP] (SS) into [BP+2].'),
+    0xf11c: ('make_room', [('CX', 'paragraphs', 'u16')], 'CX paragraphs made free above the allocator.'),
+    0xc4f0: ('draw_head_and_update_rect', [('SI', 'rect', 'u16')],
+             'the head drawn if needed, the screen rect at SI updated.'),
+    0xf2d6: ('seek_dune_dat', [('DX', 'high', 'u16'), ('AX', 'low', 'u16')], 'DUNE.DAT sought to DX:AX.'),
+    0x9ef1: ('talk_text_voice', [('AL', 'talking', 'u8')], 'the text voice with the talking character AL.'),
+    0x96d8: ('speak_as', [('AX', 'character', 'u16')], 'the character AX talks.'),
+    0x93df: ('start_speaking', [('AX', 'speaker', 'u16')], 'the speaker AL (CL) starts talking.'),
+    0x920f: ('open_head_resource', [('AX', 'head', 'u16')], 'resource AX + 2 opened.'),
+    0x8b11: ('lay_out_text', [('SI', 'text', 'u16')], 'the text SI laid out in its box.'),
+    0xa49c: ('draw_counter_of', [('SI', 'counter', 'u16')], 'the counter at SI on the back buffer.'),
+    0x6f93: ('lower_motivation', [('AL', 'points', 'u8')], 'the troop at SI loses AL motivation.'),
+    0x7f27: ('note_skill_needs', [('DI', 'location', 'u16')], 'the skill needs of the location DI into 46FEh.'),
+    0x1e24: (None, [('DI', 'location', 'u16')], None),
+    0xd1a6: ('draw_phrases', [('SI', 'list', 'u16')], 'the strings listed at SI (string, x, y, colour).'),
+    0x31f6: ('tell_about_troop', [('SI', 'troop', 'u16')], 'the troop SI described in the condition variables.'),
+    0x503c: ('enter_location_at', [('DI', 'location', 'u16')], 'entering the location at DI.'),
+    0x0820: ('open_sky_palette', [('BL', 'palette', 'u8')], 'palette BL of SKYRS.'),
+    0xc4aa: ('copy_rect_to_screen', [('SI', 'rect', 'u16')], 'the rect at SI from the screen buffer to the front.'),
+    0xc477: ('copy_rect_to_fb2', [('SI', 'rect', 'u16')], 'the rect at SI from framebuffer 1 to 2.'),
+    0x425b: ('discover_at', [('DI', 'location', 'u16')], 'the location DI discovered.'),
+    0x19df: ('draw_mark_row', [('CL', 'marks', 'u8')], 'up to 5 marks in a row from (DX, BX), for CL.'),
+    0x6447: ('draw_circle_of', [('CX', 'radius', 'u16')], 'the circle of radius CX around the location DI.'),
+    0xf2fc: ('copy_file_name', [('DX', 'name', 'u16')], 'the string at DX copied to the filename buffer.'),
+    0xdbb2: ('hide_mouse_at', [('DX', 'x', 'u16'), ('BX', 'y', 'u16')],
+             'the cursor hidden over (DX, BX), drawn again on return.'),
 }
 
 FAMILY = {'AX': ('AX', 'AL', 'AH'), 'BX': ('BX', 'BL', 'BH'), 'CX': ('CX', 'CL', 'CH'), 'DX': ('DX', 'DL', 'DH'),
@@ -267,7 +300,7 @@ def write_wrappers(modules, ps, named):
 
 def uses_r8(text):
     """`r8` imported where the text uses it."""
-    if 'r8::' in text and not re.search(r'^use super::\{[^}]*\br8\b', text, re.M):
+    if re.search(r'(?<!::)\br8::', text) and not re.search(r'^use super::\{[^}]*\br8\b', text, re.M):
         text = re.sub(r'^(use super::\{[^}]*?)\};', r'\1, r8};', text, count=1, flags=re.M)
     return text
 
@@ -341,7 +374,8 @@ def convert_site(text, s, e, a, kind, m, f, ps, named):
         if text[ls:s].strip():
             return None  # a raw call is a statement of its own
         if mod + '.rs' == f:
-            path_ = name
+            # A local of the same name hides the fn.
+            path_ = f'self::{name}' if re.search(rf'\blet (?:mut )?{name}\b', body) else name
         elif re.search(rf'^\s*(?:pub )?mod {mod}\b', text, re.M):
             path_ = f'super::{mod}::{name}'
         else:
@@ -363,6 +397,11 @@ def convert_site(text, s, e, a, kind, m, f, ps, named):
 
 def convert(modules):
     cs, ps, named = consts(), ports(), named_calls()
+    clash = [f'{ps[a][0]}.rs has a fn {new} already' for a, (new, _, _) in ARGS.items()
+             if new and a not in named and ps.get(a, (None,))[0] in modules
+             and re.search(rf'\bfn {new}\b', read(os.path.join(HAND, ps[a][0] + '.rs'))[0])]
+    if clash:
+        sys.exit('\n'.join(clash))
     write_wrappers(modules, ps, named)
     todo = {a for a in ARGS if ps.get(a, (None,))[0] in modules}
     total = skipped = 0

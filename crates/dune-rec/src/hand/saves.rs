@@ -1,6 +1,7 @@
 //! Saved games (their RLE, restoring the map's bits and the game's
 //! state), particles, numbers in strings, reading resources.
 
+use super::video;
 use super::text;
 use super::files;
 use super::entry;
@@ -191,8 +192,7 @@ pub fn load_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cl = c.reg8(r8::CL).wrapping_add(0x31);
     c.set_reg8(r8::CL, cl);
     c.set_byte(g::SAVE_FILE_DIGIT, cl);
-    c.set_reg(CX, 0x578);
-    c.call(entry::ALLOC_CHECK_CX_PAGES_AVAILABLE, 0xb3c7)?;
+    files::make_room(&mut c, 0x578, 0xb3c7)?;
     c.run(0xb3c7, 2)?;
     c.set_reg(DX, 0x38a8);
     c.call(entry::OPEN_NONRES_FILE, 0xb3cd)?;
@@ -508,6 +508,13 @@ pub fn find_string_and_replace_digits(m: &mut Machine, start: u16) -> Result<(),
     number(&mut c)
 }
 
+/// [`find_string_and_replace_digits`] called: AX written into the number of string SI.
+pub(super) fn replace_digits(c: &mut Ctx, number: u16, string: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, number);
+    c.set_reg(SI, string);
+    c.call(0xe2db, ret)
+}
+
 /// `read_resource_to_esdi` (F244): the resource named at DX read to ES:DI
 /// (again until it reads, from DUNE.DAT; a file of its own read and
 /// closed).
@@ -710,6 +717,14 @@ pub fn draw_number_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::FONT_SET_DRAW_POSITION, 0xe293)?;
     let ax = c.reg(AX);
     draw_number(&mut c, 0xe293, 1, ax, |_| {})
+}
+
+/// [`draw_number_at`] called: AX drawn as 3 digits at (DX, BX).
+pub(super) fn draw_number_at_pos(c: &mut Ctx, number: u16, x: u16, y: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, number);
+    c.set_reg(DX, x);
+    c.set_reg(BX, y);
+    c.call(0xe290, ret)
 }
 
 /// From B2CD (the stretch from `at`, `prefix` instructions before, done by
@@ -931,8 +946,7 @@ pub fn load_save_game_timestamp(m: &mut Machine, start: u16) -> Result<(), Bail>
     loop {
         c.run(0xb316, 2)?;
         let di = c.reg(DI);
-        c.set_reg(DX, di);
-        c.call(entry::STRCPY_TO_FILENAME_BUF, 0xb31b)?;
+        video::copy_file_name(&mut c, di, 0xb31b)?;
         c.run(0xb31b, 1)?;
         c.set_reg(AX, 0x3d00);
         c.interp(0xb31e, 0xb320)?;

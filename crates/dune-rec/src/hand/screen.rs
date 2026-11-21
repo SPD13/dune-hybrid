@@ -144,6 +144,12 @@ pub fn gfx_copy_rect_fb1_to_fb2(m: &mut Machine, start: u16) -> Result<(), Bail>
     copy_rect_fb1_to_fb2(&mut Ctx::new(m))
 }
 
+/// [`gfx_copy_rect_fb1_to_fb2`] called: the rect at SI from framebuffer 1 to 2.
+pub(super) fn copy_rect_to_fb2(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, rect);
+    c.call(0xc477, ret)
+}
+
 /// `copy_game_rect_from_fb2_to_fb1` (C474): despite the name, the game
 /// area from the front buffer to the second framebuffer.
 pub fn copy_game_rect_from_fb2_to_fb1(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -184,6 +190,12 @@ pub fn gfx_copy_rect_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> 
         return c.ret();
     }
     rect_to_screen(&mut c, 0xc4c6, true)
+}
+
+/// [`gfx_copy_rect_to_screen`] called: the rect at SI from the screen buffer to the front.
+pub(super) fn copy_rect_to_screen(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, rect);
+    c.call(0xc4aa, ret)
 }
 
 /// `particles_update_screen_rect` (C51E): the rectangle (DX, BX) to (BP,

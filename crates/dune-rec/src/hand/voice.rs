@@ -1,6 +1,7 @@
 //! Voice files (streamed in 8 KB parts into two buffers) and music
 //! loading.
 
+use super::draw;
 use super::waits;
 use super::tasks;
 use super::resources;
@@ -23,7 +24,6 @@ mod code {
     pub const READ_AUDIO_FILE: u16 = 0xa93f;
     pub const MIDI_FUNC_2_0: u16 = 0xaeb7;
     pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
-    pub const ALLOC_CHECK: u16 = 0xf11c;
     pub const HSQ_DECOMP_SKIP_HEADER: u16 = 0xf403;
     pub const HEX_DIGIT: u16 = 0xa8b1;
 }
@@ -292,8 +292,7 @@ pub fn load_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let sheet = c.word(g::RESOURCE_ID);
     c.push(sheet);
     c.push(resource);
-    c.set_reg(CX, 0x2af);
-    c.call(code::ALLOC_CHECK, 0xae90)?;
+    files::make_room(&mut c, 0x2af, 0xae90)?;
     c.run(0xae90, 3)?;
     let si = c.pop();
     c.set_reg(SI, si);
@@ -1723,8 +1722,7 @@ fn lip_sprite_9e75(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x9ebf, 3)?;
         let v = c.pop();
         c.set_sreg(DS, v);
-        c.set_reg(SI, 0x47d4);
-        c.call(entry::DRAW_HEAD_IF_NEEDED_AND_UPDATE_SCREEN_RECT_AT_SI, 0x9ec6)?;
+        draw::draw_head_and_update_rect(c, 0x47d4, 0x9ec6)?;
         c.run(0x9ec6, 1)?;
         return c.jump(entry::DRAW_MOUSE_CURSOR_IF_NEEDED);
     }

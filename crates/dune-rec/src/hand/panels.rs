@@ -2,6 +2,8 @@
 //! device's animations, the ornithopter, the settings sliders, talking
 //! heads without lip sync, lip sync start and stop.
 
+use super::screen;
+use super::saves;
 use super::tasks;
 use super::resources;
 use super::frame;
@@ -32,7 +34,6 @@ mod code {
     pub const DRAW_MOON_AND_SUN: u16 = 0x1a9b;
     pub const FONT_SELECT_SMALL_FONT: u16 = 0xd075;
     pub const GET_INGAME_DAY: u16 = 0x1ad1;
-    pub const DRAW_NUMBER: u16 = 0xe290;
     pub const SAVE_REGS: u16 = 0xe270;
     pub const RESTORE_REGS: u16 = 0xe283;
     pub const FONT_SET_DRAW_POSITION: u16 = 0xd04e;
@@ -122,10 +123,7 @@ pub fn ui_draw_date_and_time_indicator(m: &mut Machine, start: u16) -> Result<()
     let day = day.wrapping_add(1);
     let n = if day >= 100 { 6 } else if day >= 10 { 9 } else { 10 };
     c.run(0x1a76, n)?;
-    c.set_reg(AX, day);
-    c.set_reg(DX, if day >= 100 { 0x0b } else if day >= 10 { 9 } else { 7 });
-    c.set_reg(BX, 0xbe);
-    c.call(code::DRAW_NUMBER, 0x1a90)?;
+    saves::draw_number_at_pos(&mut c, day, if day >= 100 { 0x0b } else if day >= 10 { 9 } else { 7 }, 0xbe, 0x1a90)?;
     c.run(0x1a90, 2)?;
     c.set_reg8(r8::AL, b' ');
     let draw = c.word(g::FONT_DRAW);
@@ -1049,6 +1047,12 @@ pub fn draw_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
+/// [`draw_marks`] called: up to 5 marks in a row from (DX, BX), for CL.
+pub(super) fn draw_mark_row(c: &mut Ctx, marks: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::CL, marks);
+    c.call(0x19df, ret)
+}
+
 /// `loc_01a0f`: unless [1AFEh] is set, the date panel's frame (UI element
 /// 1AF4h) and the date drawn and copied to the screen (rect 1F06h), the
 /// cursor restored first; the sprite sheet [2784h] opened again.
@@ -1071,8 +1075,7 @@ pub fn redraw_date_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1a26, 1)?;
     c.call(entry::UI_DRAW_DATE_AND_TIME_INDICATOR, 0x1a29)?;
     c.run(0x1a29, 2)?;
-    c.set_reg(SI, 0x1f06);
-    c.call(entry::GFX_COPY_RECT_TO_SCREEN, 0x1a2f)?;
+    screen::copy_rect_to_screen(&mut c, 0x1f06, 0x1a2f)?;
     c.run(0x1a2f, 2)?;
     let ax = c.pop();
     resources::open_resource(&mut c, ax, 0x1a33)?;

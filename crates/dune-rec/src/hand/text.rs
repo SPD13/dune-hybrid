@@ -1,5 +1,6 @@
 //! Text: the phrase and command strings, the font, drawing strings.
 
+use super::dialogue;
 use super::resources;
 use super::video;
 use super::sound;
@@ -290,6 +291,12 @@ pub fn font_draw_phrase_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
+/// [`font_draw_phrase_list`] called: the strings listed at SI (string, x, y, colour).
+pub(super) fn draw_phrases(c: &mut Ctx, list: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, list);
+    c.call(0xd1a6, ret)
+}
+
 /// `loc_088e1`: past a command byte (bit 7) at SI, or `loc_08b11` on the
 /// text there (CF clear when it stops at an FEh/FFh byte).
 pub fn text_8b11_unless_command(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -304,8 +311,7 @@ pub fn text_8b11_unless_command(m: &mut Machine, start: u16) -> Result<(), Bail>
     if command {
         return c.ret();
     }
-    c.set_reg(SI, si);
-    c.call(entry::LAYOUT_TEXT, 0x88ea)?;
+    dialogue::lay_out_text(&mut c, si, 0x88ea)?;
     let si = c.reg(SI);
     let v = c.byte(si);
     c.run(0x88ea, if v >= 0xfe { 3 } else { 4 })?;

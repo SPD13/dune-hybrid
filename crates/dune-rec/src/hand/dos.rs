@@ -106,6 +106,13 @@ pub fn seek_dune_dat_offset_dxax(m: &mut Machine, start: u16) -> Result<(), Bail
     c.ret()
 }
 
+/// [`seek_dune_dat_offset_dxax`] called: DUNE.DAT sought to DX:AX.
+pub(super) fn seek_dune_dat(c: &mut Ctx, high: u16, low: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(DX, high);
+    c.set_reg(AX, low);
+    c.call(0xf2d6, ret)
+}
+
 /// `parse_cmd_is_end_of_arg` (E56B): the next character of the command
 /// line (DS:SI, ending at BP), upper-cased; CR (0Dh) past the end. ZF set
 /// for a space, CF for the end or a control character (`cmp al, 20h`; its
@@ -1129,7 +1136,7 @@ pub fn initialize_system(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// BP 3349h, `loc_0a650`, `alloc_music_buffer`); with EMS for music
 /// (`loc_0ae28`) `loc_0e826` and [2943h] bit 4 cleared.
 pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    use pc::cpu::{BP, SI};
+    use pc::cpu::BP;
     use super::r8;
     entered(start, 0xe76a)?;
     let mut c = Ctx::new(m);
@@ -1140,10 +1147,7 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::CL, 4);
         // The music driver's entry: (high nibble) + 7.
         let a = (f >> 4) as u16 + 7;
-        c.set_reg(AX, a);
-        c.set_reg(SI, 0x398b);
-        c.set_reg(CX, 8);
-        c.call(entry::LOAD_DRIVER_AX_WITH_VTABLE_AT_SI, 0xe77e)?;
+        files::load_driver(&mut c, a, 0x398b, 8, 0xe77e)?;
         c.run(0xe77e, 1)?;
         let v = c.word(g::SOUND_DRIVER_ARG);
         c.set_reg(AX, v);
@@ -1185,10 +1189,8 @@ pub fn initialize_audio(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let f = c.byte(g::AUDIO_DRIVERS);
         c.set_reg8(r8::AL, f);
         // The sound driver's entry: (low nibble) + 2.
-        c.set_reg(AX, (f & 0xf) as u16 + 2);
-        c.set_reg(SI, 0x396f);
-        c.set_reg(CX, 7);
-        c.call(entry::LOAD_DRIVER_AX_WITH_VTABLE_AT_SI, 0xe7d7)?;
+        let driver_ = (f & 0xf) as u16 + 2;
+        files::load_driver(&mut c, driver_, 0x396f, 7, 0xe7d7)?;
         c.run(0xe7d7, 3)?;
         c.set_reg(BP, 0x3349);
         c.set_reg(CX, 0xa);

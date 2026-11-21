@@ -3,6 +3,8 @@
 //! starts with a byte: its kind in the low 4 bits (0Fh: none to leave),
 //! FFh at the end of the stack.
 
+use super::troops;
+use super::text;
 use super::waits;
 use super::tasks;
 use super::sprites;
@@ -798,8 +800,7 @@ pub fn stats_screen_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::RESULTS_DATE, t);
     c.call(entry::FONT_SELECT_SMALL_FONT, 0xbdda)?;
     c.run(0xbdda, 2)?;
-    c.set_reg(SI, 0x2494);
-    c.call(entry::FONT_DRAW_PHRASE_LIST, 0xbde0)?;
+    text::draw_phrases(&mut c, 0x2494, 0xbde0)?;
     let step = c.string_step(B);
     let (mut si, mut di, mut cx) = (0xdd11u16, 0xdd17u16, 6u16);
     let mut n = 5;
@@ -1456,8 +1457,7 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let di = c.reg(DI);
                 c.push(di);
                 let p = c.word(g::PLACE);
-                c.set_reg(DI, p);
-                c.call(entry::NOTED_LOCATION_SKILL_NEEDS, 0x2f45)?;
+                troops::note_skill_needs(&mut c, p, 0x2f45)?;
                 c.run(0x2f45, 9)?;
                 let d = c.pop();
                 c.set_reg(DI, d);

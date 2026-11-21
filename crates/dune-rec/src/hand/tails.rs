@@ -3,6 +3,10 @@
 //! into the next one. The routine they go on to runs as its own port
 //! when it has one, else in the original from there.
 
+use super::video;
+use super::text;
+use super::mouse;
+use super::files;
 use super::time;
 use super::tasks;
 use super::sprites;
@@ -262,9 +266,7 @@ pub fn leave_globe_to_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xbc84, 1)?;
     c.call(entry::SET_MARK_AT_MAP_POSITION, 0xbc87)?;
     c.run(0xbc87, 3)?;
-    c.set_reg(DX, 0xa0);
-    c.set_reg(BX, 0x4f);
-    c.call(entry::CALL_RESTORE_CURSOR, 0xbc90)?;
+    mouse::hide_mouse_at(&mut c, 0xa0, 0x4f, 0xbc90)?;
     c.run(0xbc90, 1)?;
     c.call(entry::OPEN_BOX, 0xbc93)?;
     c.run(0xbc93, 1)?;
@@ -814,8 +816,7 @@ pub fn results_draw_text_and_icons(m: &mut Machine, start: u16) -> Result<(), Ba
     c.set_word(g::RESULTS_DATE, d);
     c.call(entry::FONT_SELECT_SMALL_FONT, 0xbe48)?;
     c.run(0xbe48, 2)?;
-    c.set_reg(SI, 0x2494);
-    c.call(entry::FONT_DRAW_PHRASE_LIST, 0xbe4e)?;
+    text::draw_phrases(&mut c, 0x2494, 0xbe4e)?;
     c.run(0xbe4e, 3)?;
     tasks::add_task(&mut c, 0xbe57, 0xc, 0xbe57)?;
     c.jump(entry::ANIMATE_RESULT_BARS)
@@ -856,8 +857,7 @@ pub fn intro_desert_sky_next_picture(m: &mut Machine, start: u16) -> Result<(), 
     let ah = if n == 0xd { 0x0a } else { 0x1e };
     c.set_reg8(r8::AH, ah);
     c.set_byte(g::FRAME_TASKS_ACTIVE, ah);
-    c.set_reg8(r8::BL, n);
-    c.call(entry::OPEN_SKYRS_PALETTE, 0x084a)?;
+    sprites::open_sky_palette(&mut c, n, 0x084a)?;
     c.run(0x084a, 2)?;
     c.set_reg(CX, 0xf0);
     c.set_reg(BX, 0x180);
@@ -1783,8 +1783,7 @@ pub fn create_save_cl(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xb3a1, 3)?;
     let v = c.pop();
     c.set_sreg(DS, v);
-    c.set_reg(DX, 0x38a8);
-    c.call(entry::STRCPY_TO_FILENAME_BUF, 0xb3a8)?;
+    video::copy_file_name(&mut c, 0x38a8, 0xb3a8)?;
     c.run(0xb3a8, 3)?;
     c.set_reg(DI, 0);
     let cx = c.reg(CX);
@@ -1975,8 +1974,7 @@ pub fn open_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7b05, 3)?;
     let v = c.pop();
     c.set_sreg(pc::cpu::DS, v);
-    c.set_reg(SI, 0x47d4);
-    c.call(entry::GFX_COPY_RECT_TO_SCREEN, 0x7b0c)?;
+    screen::copy_rect_to_screen(&mut c, 0x47d4, 0x7b0c)?;
     c.run(0x7b0c, 1)?;
     c.jump(entry::OPEN_ONMAP_RESOURCE)
 }
@@ -2343,8 +2341,7 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb427)?;
     let mut c = Ctx::new(m);
     c.run(0xb427, 2)?;
-    c.set_reg(CX, 0x578);
-    c.call(entry::ALLOC_CHECK_CX_PAGES_AVAILABLE, 0xb42d)?;
+    files::make_room(&mut c, 0x578, 0xb42d)?;
     c.run(0xb42d, 9)?;
     c.set_reg(DI, 0x100);
     c.push(0x100);
@@ -2628,8 +2625,7 @@ pub fn set_up_talk_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0x2ca7)?;
     c.run(0x2ca7, 2)?;
     let state = c.conversation().talker;
-    c.set_reg(AX, state);
-    c.call(entry::TALK_AS, 0x2cad)?;
+    dialogue::speak_as(&mut c, state, 0x2cad)?;
     c.run(0x2cad, 6)?;
     c.set_reg(AX, 0);
     c.set_word(g::TEXT_BOX_FLAGS, 0);
