@@ -1,6 +1,11 @@
 //! The intro sequence's steps: videos, frame tasks, the talking head.
 //! Most end in `clc; ret`: CF clear tells the intro script to go on.
 
+use super::waits;
+use super::tasks;
+use super::screen;
+use super::resources;
+use super::draw;
 use super::frame;
 use super::video;
 use super::input;
@@ -26,7 +31,6 @@ mod code {
     pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
     pub const SUB_C868: u16 = 0xc868;
     pub const HNM_DO_FRAME: u16 = 0xca60;
-    pub const ADD_FRAME_TASK: u16 = 0xda25;
     /// The frame task that plays the next HNM frame ([`super::intro_hnm_frame_task`]).
     pub const HNM_FRAME_TASK: u16 = 0x070c;
     /// The desert sky animation's frame task.
@@ -121,9 +125,7 @@ fn hnm_with_frame_task(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x0704, 3)?;
     let bp = c.reg(BP);
     let zero = c.xor(W, bp, bp);
-    c.set_reg(BP, zero);
-    c.set_reg(SI, code::HNM_FRAME_TASK);
-    c.call(code::ADD_FRAME_TASK, 0x070c)?;
+    tasks::add_task(c, code::HNM_FRAME_TASK, zero, 0x070c)?;
     hnm_frame_task(c)
 }
 
@@ -189,9 +191,7 @@ fn desert_sky(m: &mut Machine, start: u16, entry: u16, every: u16) -> Result<(),
     entered(start, entry)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    c.set_reg(SI, code::DESERT_SKY_TASK);
-    c.set_reg(BP, every);
-    c.call(code::ADD_FRAME_TASK, entry + 9)?;
+    tasks::add_task(&mut c, code::DESERT_SKY_TASK, every, entry + 9)?;
     go_on(&mut c, entry + 9)
 }
 
@@ -214,10 +214,7 @@ pub fn intro_midnight(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(super::r8::BL, 0x0b);
     c.call(code::OPEN_SKY_PALETTE_AND_DRAW, 0x086d)?;
     c.run(0x086d, 4)?;
-    c.set_reg(AX, 7);
-    c.set_reg(DX, 0x13);
-    c.set_reg(BX, 0x4a);
-    c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0x0879)?;
+    draw::draw_sprite_clobbering(&mut c, 7, 0x13, 0x4a, 0x0879)?;
     go_on(&mut c, 0x0879)
 }
 
@@ -463,8 +460,7 @@ pub fn intro_load_desert_sky_animation(m: &mut Machine, start: u16) -> Result<()
     c.interp(0x080b, 0x080f)?;
     c.run(0x080f, 3)?;
     c.set_byte(g::FRAME_TASKS_ACTIVE, 0);
-    c.set_reg(AX, 0x2e);
-    c.call(more::OPEN_RESOURCE_BY_INDEX, 0x081a)?;
+    resources::open_resource(&mut c, 0x2e, 0x081a)?;
     c.run(0x081a, 2)?; // mov si, 1500h; jmp C21Bh
     c.set_reg(SI, 0x1500);
     super::sprites::draw_icons_list_at_si(c.m, 0xc21b)
@@ -476,8 +472,7 @@ pub fn intro_27_baron_guards_play(m: &mut Machine, start: u16) -> Result<(), Bai
     entered(start, 0x08b6)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_reg(AX, 0x30);
-    c.call(more::OPEN_RESOURCE_BY_INDEX, 0x08bc)?;
+    resources::open_resource(&mut c, 0x30, 0x08bc)?;
     c.run(0x08bc, 1)?;
     c.call(more::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0x08bf)?;
     c.run(0x08bf, 1)?;
@@ -491,10 +486,7 @@ pub fn intro_27_baron_guards_play(m: &mut Machine, start: u16) -> Result<(), Bai
         c.call(more::COPY_GAME_AREA_TO_SCREEN_FB2_TO_FB1, 0x08c9)?;
         c.run(0x08c9, 4)?;
         let x = c.pop();
-        c.set_reg(DX, x);
-        c.set_reg(BX, 0x0d);
-        c.set_reg(AX, 5);
-        c.call(more::DRAW_SPRITE_CLIPPED, 0x08d3)?;
+        gfx::draw_sprite_clipped_at(&mut c, 5, x, 0x0d, 0x08d3)?;
         c.run(0x08d3, 2)?;
         c.set_reg(AX, 6);
         c.call(more::DRAW_SPRITE_CLIPPED, 0x08d9)?;
@@ -673,26 +665,20 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
         };
         if !skipped {
             c.run(0x0264, 3)?;
-            c.set_reg(BP, 0x301);
-            c.set_reg8(r8::AL, 0x10);
-            c.call(entry::TRANSITION_AL, 0x026c)?;
+            screen::transition_drawn(&mut c, 0x301, 0x10, 0x026c)?;
             c.run(0x026c, 2)?;
-            c.set_reg(AX, 0xc8);
-            c.call(entry::WAIT_INTERRUPTABLE, 0x0272)?;
+            waits::wait_or_input(&mut c, 0xc8, 0x0272)?;
             c.run(0x0272, 2)?;
             c.set_reg8(r8::BL, 0x0c);
             c.call(entry::START_SKY_TASK, 0x0277)?;
             c.run(0x0277, 3)?;
             c.set_byte(g::SKY_PALETTE_SET, 1);
-            c.set_reg(AX, 0x4b0);
-            c.call(entry::WAIT_INTERRUPTABLE, 0x0282)?;
+            waits::wait_or_input(&mut c, 0x4b0, 0x0282)?;
             c.run(0x0282, 1)?;
             c.call(entry::STOP_SKY_FADE, 0x0285)?;
             c.run(0x0285, 4)?;
             c.set_byte(g::SKY_PALETTE_SET, 0);
-            c.set_reg(BP, 0xc0ad);
-            c.set_reg8(r8::AL, 0x10);
-            c.call(entry::TRANSITION_AL, 0x0292)?;
+            screen::transition_drawn(&mut c, 0xc0ad, 0x10, 0x0292)?;
         }
     }
     c.run(0x0292, 1)?;

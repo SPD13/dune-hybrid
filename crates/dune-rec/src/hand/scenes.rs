@@ -3,10 +3,15 @@
 //! task, the IRUL videos (with subtitles), the font glyph routines, the
 //! pause key.
 
+use super::waits;
+use super::text;
+use super::screen;
+use super::resources;
+use super::panels;
+use super::mouse;
 use super::cursor;
 use super::video;
 use super::gfx;
-use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -23,10 +28,7 @@ mod code {
     pub const LOAD_ICONES_SPRITES: u16 = 0xc137;
     pub const DRAW_SPRITE: u16 = 0xc2fd;
     pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
-    pub const WAIT_A_BIT: u16 = 0xe387;
-    pub const DRAW_UI_ELEMENTS_LIST: u16 = 0xd1f2;
     pub const MIDI_FUNC_2_0: u16 = 0xaeb7;
-    pub const TRANSITION: u16 = 0xc108;
     pub const KB_CLEAR_SCANCODE: u16 = 0xde4e;
     pub const HNM_CLOSE_RESOURCE: u16 = 0xca01;
     pub const PCM_STOP_VOC: u16 = 0xac14;
@@ -37,11 +39,9 @@ mod code {
     pub const FIND_STRING_AND_REPLACE_DIGITS: u16 = 0xe2db;
     pub const STRING_UPDATE_ORDINAL_SUFFIX: u16 = 0xbfa7;
     pub const FONT_SELECT_TALL_FONT: u16 = 0xd068;
-    pub const RESTORE_MOUSE_IF_RECT_INTERSECTS: u16 = 0xdb74;
     pub const FONT_SET_DRAW_POSITION: u16 = 0xd04e;
     pub const FONT_DRAW_GLYPH_SMALL: u16 = 0xd12f;
     pub const SUB_C0D5: u16 = 0xc0d5;
-    pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
     pub const IRUL_SUBTITLE: u16 = 0xcf4b;
     pub const PLAY_MUSIC_MORNING: u16 = 0xad57;
     pub const FONT_GET_DRAW_POSITION: u16 = 0xd05f;
@@ -73,8 +73,7 @@ pub fn ui_draw_book_turning_page(m: &mut Machine, start: u16) -> Result<(), Bail
     c.push(page);
     c.call(code::DRAW_SPRITE, 0xb1c8)?;
     c.run(0xb1c8, 2)?;
-    c.set_reg(AX, 0x0a);
-    c.call(code::WAIT_A_BIT, 0xb1ce)?;
+    waits::wait_ticks(&mut c, 0x0a, 0xb1ce)?;
     let next_is_b = page + 1 == 0x0b;
     c.run(0xb1ce, 4 + if next_is_b { 0 } else { 1 } + 1)?;
     let page = c.pop();
@@ -83,12 +82,9 @@ pub fn ui_draw_book_turning_page(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_reg(AX, other);
     c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0xb1db)?;
     c.run(0xb1db, 2)?;
-    c.set_reg(AX, 0x0a);
-    c.call(code::WAIT_A_BIT, 0xb1e1)?;
+    waits::wait_ticks(&mut c, 0x0a, 0xb1e1)?;
     c.run(0xb1e1, 3)?;
-    c.set_reg(SI, g::FRIEZE_SIDES);
-    c.set_reg(CX, 1);
-    c.call(code::DRAW_UI_ELEMENTS_LIST, 0xb1ea)?;
+    gfx::draw_ui_elements(&mut c, g::FRIEZE_SIDES, 1, 0xb1ea)?;
     c.run(0xb1ea, 2)?;
     let dx = c.pop();
     c.set_reg(DX, dx);
@@ -107,9 +103,7 @@ pub fn play_chapter_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::MIDI_FUNC_2_0, 0xb1f5)?;
     c.run(0xb1f5, 4)?;
     c.set_byte(g::VOC_PCM_PLAYING, 1);
-    c.set_reg8(r8::AL, 0x34);
-    c.set_reg(BP, 0xb236);
-    c.call(code::TRANSITION, 0xb202)?;
+    screen::transition_drawn(&mut c, 0xb236, 0x34, 0xb202)?;
     c.run(0xb202, 1)?;
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xb205)?;
     c.run(0xb205, 2)?;
@@ -140,9 +134,7 @@ pub fn play_chapter_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0xb224)?;
     c.interp(0xb224, 0xb228)?;
     c.run(0xb228, 3)?;
-    c.set_reg8(r8::AL, 0x34);
-    c.set_reg(BP, 0xb23f);
-    c.call(code::TRANSITION, 0xb230)?;
+    screen::transition_drawn(&mut c, 0xb23f, 0x34, 0xb230)?;
     c.run(0xb230, 1)?;
     c.call(code::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0xb233)?;
     c.run(0xb233, 1)?; // jmp ABC6h
@@ -203,8 +195,7 @@ pub fn animate_result_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xbe5a)?;
     c.run(0xbe5a, 2)?;
-    c.set_reg(SI, g::GAME_AREA_RECT);
-    c.call(code::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0xbe60)?;
+    mouse::hide_mouse_over(&mut c, g::GAME_AREA_RECT, 0xbe60)?;
     c.run(0xbe60, 1)?;
     c.call(code::LOAD_ICONES_SPRITES, 0xbe63)?;
     c.run(0xbe63, 2)?;
@@ -365,8 +356,7 @@ pub fn room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0xc0b9, 6)?;
-    c.set_reg8(r8::AL, 0x0c);
-    c.call(code::SUB_C0D5, 0xc0ca)?;
+    panels::transition_front_buffer(&mut c, 0x0c, 0xc0ca)?;
     let cx = c.reg(CX);
     if cx != 0x18 {
         c.run(0xc0ca, 3)?;
@@ -387,8 +377,7 @@ pub fn load_irul_hsq(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 3)?;
     let language = c.byte(g::LANGUAGE);
     let r = pure::add(B, 0x69, language as u16);
-    c.set_reg(AX, r);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0xcf06)?;
+    resources::open_resource(&mut c, r, 0xcf06)?;
     c.run(0xcf06, 2)?;
     c.set_word(g::SUBTITLE_NEXT, 0x35a8);
     let ax = c.reg(AX);
@@ -674,8 +663,7 @@ pub fn stats_numbers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 4)?;
     c.set_reg(DI, 0x115e);
     c.set_reg(BP, 0x116a);
-    c.set_reg(SI, 0xc4);
-    c.call(entry::GET_PHRASE_OR_COMMAND_STRING_SI, 0xbf32)?;
+    text::string_ptr(&mut c, 0xc4, 0xbf32)?;
     for (at, src, to) in [
         (0xbf32u16, 0xa4u16, 0xbf73u16),
         (0xbf38, 0xa2, 0xbf73),

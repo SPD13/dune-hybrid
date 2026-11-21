@@ -1,6 +1,14 @@
 //! Dialogue state: the talking character's mode bytes (47C2h, 47C4h,
 //! 47DCh...), the phrase pointers, and small steps of the conversation.
 
+use super::video;
+use super::tasks;
+use super::sprites;
+use super::panels;
+use super::mouse;
+use super::gfx;
+use super::frame;
+use super::files;
 use super::text;
 use super::resources;
 use super::story;
@@ -18,7 +26,6 @@ use pc::{
 };
 
 mod code {
-    pub const ADD_FRAME_TASK: u16 = 0xda25;
     pub const DIALOGUE_STEP: u16 = 0x9f9e;
 }
 
@@ -112,9 +119,7 @@ pub fn add_two_heads_text_task(m: &mut Machine, start: u16) -> Result<(), Bail> 
     entered(start, 0x9945)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    c.set_reg(SI, 0x99be);
-    c.set_reg(BP, 0x10);
-    c.call(code::ADD_FRAME_TASK, 0x994e)?;
+    tasks::add_task(&mut c, 0x99be, 0x10, 0x994e)?;
     c.run(0x994e, 1)?;
     c.ret()
 }
@@ -358,8 +363,7 @@ pub fn append_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 3)?;
     c.save(&[SI]);
     let phrase = c.reg(AX);
-    c.set_reg(SI, phrase);
-    c.call(entry::GET_PHRASE_OR_COMMAND_STRING_SI, 0xb12c)?;
+    text::string_ptr(&mut c, phrase, 0xb12c)?;
     c.run(0xb12c, 3)?;
     let at = c.conversation().append_at;
     c.set_reg(DI, at);
@@ -406,8 +410,7 @@ pub fn sentence_offset(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if k == 0 {
         c.run(start, 5)?;
         c.set_reg8(r8::AL, 0);
-        c.set_reg(BX, 6);
-        c.call(entry::RAND_MASKED, 0x995c)?;
+        math::random_masked(&mut c, 6, 0x995c)?;
         c.run(0x995c, 3)?;
         let bp = c.reg(AX).wrapping_add(c.situation().sentence_bank);
         c.set_reg(BP, bp);
@@ -812,9 +815,7 @@ pub fn start_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0x9943, 4)?;
-    c.set_reg(SI, 0x99be);
-    c.set_reg(BP, 0x10);
-    c.call(code::ADD_FRAME_TASK, 0x994e)?;
+    tasks::add_task(&mut c, 0x99be, 0x10, 0x994e)?;
     c.run(0x994e, 1)?;
     c.ret()
 }
@@ -978,11 +979,7 @@ pub fn sentence_number_part(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for w in &mut words {
         *w = c.lods(W, DS);
     }
-    c.set_reg(CX, words[3]);
-    c.set_reg(DX, words[1]);
-    c.set_reg(BX, words[2]);
-    c.set_reg(AX, words[0]);
-    c.call(entry::FONT_DRAW_INTERPOLATED_STRING, 0x9afe)?;
+    panels::draw_interpolated_at(&mut c, words[0], words[1], words[2], words[3], 0x9afe)?;
     c.run(0x9afe, 1)?;
     c.call(entry::FONT_SELECT_TALL_FONT, 0x9b01)?;
     c.run(0x9b01, 1)?;
@@ -1038,9 +1035,7 @@ pub fn speak_number_part(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x9b6e, 4)?;
         let es = c.sreg(ES);
         c.push(es);
-        c.set_reg(BP, 0x99f6);
-        c.set_reg(AX, 0x0c);
-        c.call(entry::WAIT_PROCESSING_FRAME_TASKS_INTERRUPTABLE, 0x9b78)?;
+        frame::draw_then_wait(&mut c, 0x99f6, 0x0c, 0x9b78)?;
         let es = c.word_in(SS, c.reg(SP));
         let at = c.dialogue_text().next;
         let ended = c.byte_at_seg(es, at) == 0xff;
@@ -1825,8 +1820,7 @@ pub fn dialogue_text_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 }
                 c.call(entry::BLIT_DIALOGUE_FRAME, 0x9a10)?;
                 c.run(0x9a10, 2)?;
-                c.set_reg(SI, g::DIRTY_RECT);
-                c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x9a16)?;
+                mouse::hide_mouse_over(&mut c, g::DIRTY_RECT, 0x9a16)?;
                 c.run(0x9a16, 1)?;
                 c.call(entry::DRAW_HEAD_IF_NEEDED_AND_UPDATE_SCREEN_RECT_AT_SI, 0x9a19)?;
                 c.run(0x9a19, 1)?;
@@ -1975,8 +1969,7 @@ pub fn show_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, 8)?;
     note(&mut c);
-    c.set_reg(SI, phrase);
-    c.call(entry::GET_PHRASE_OR_COMMAND_STRING_SI, 0x88cf)?;
+    text::string_ptr(&mut c, phrase, 0x88cf)?;
     c.run(0x88cf, 1)?;
     c.call(entry::EXPAND_PHRASE, 0x88d2)?;
     show_text_88d2(&mut c)
@@ -2014,9 +2007,7 @@ pub fn start_text_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(entry::SETUP_LIP_SYNC_DATA_FROM_CURRENT, 0xa75f)?;
     c.run(0xa75f, 3)?;
-    c.set_reg(BP, 0);
-    c.set_reg(SI, 0xa7c2);
-    c.call(code::ADD_FRAME_TASK, 0xa768)?;
+    tasks::add_task(&mut c, 0xa7c2, 0, 0xa768)?;
     c.run(0xa768, 2)?;
     c.set_byte(g::VOC_PCM_PLAYING, 1);
     c.set_reg(SI, 0x3811);
@@ -2296,8 +2287,7 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // The panel redrawn on the front buffer (`loc_098b2` through
         // `loc_0c097`; it reads the flags `loc_08c8a` left).
         c.run(0x97f5, 2)?;
-        c.set_reg(BP, 0x98b2);
-        c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x97fb)?;
+        gfx::draw_on_front_buffer(&mut c, 0x98b2, 0x97fb)?;
         c.run(0x97fb, 4)?;
         let buttons = c.travel().held;
         c.update_travel(|t| t.held = 0);
@@ -2404,13 +2394,11 @@ fn line_end_9858(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x9870, 6)?;
         c.set_reg8(r8::AL, stage);
         c.cmp(B, stage as u16, 0x10); // `loc_0c097` reads the flags
-        c.set_reg(BP, 0x37b2);
-        c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x989e)?;
+        gfx::draw_on_front_buffer(c, 0x37b2, 0x989e)?;
         c.run(0x989e, 1)?;
         c.call(entry::HANDLE_FLAG_23, 0x98a1)?;
         c.run(0x98a1, 2)?;
-        c.set_reg(AX, 0xc8);
-        c.call(entry::WAIT_PROCESSING_FRAME_TASKS, 0x98a7)?;
+        files::wait_ticks_with_tasks(c, 0xc8, 0x98a7)?;
         c.run(0x98a7, 2)?;
         c.set_word(g::PICTURE_FLAGS, 0);
     }
@@ -2543,8 +2531,7 @@ pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, append);
     if append != TEXT_BUFFER {
         c.run(0xa00f, 2)?;
-        c.set_reg(SI, phrase);
-        let at = text::string_ptr(&mut c, 0xa014)?;
+        let at = text::string_ptr(&mut c, phrase, 0xa014)?;
         if c.byte_in(ES, at) >= 0x80 {
             // A code first: the buffer cut back one entry.
             c.run(0xa014, 7)?;
@@ -2901,8 +2888,7 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(end.wrapping_sub(1), 0xff);
     c.call(entry::TEXT_8B11_UNLESS_COMMAND, 0xb08b)?;
     c.run(0xb08b, 2)?;
-    c.set_reg(SI, 0x2408);
-    c.call(entry::DRAW_RECT_OUTLINE_AT_SI, 0xb091)?;
+    gfx::outline_rect(&mut c, 0x2408, 0xb091)?;
     c.run(0xb091, 1)?;
     c.call(entry::UI_DRAW_HEAD_AND_SHOULDERS, 0xb094)?;
     // The mark, when the text ends high enough.
@@ -2914,8 +2900,7 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, middle);
     if mark {
         c.set_reg(DX, 0x93);
-        c.set_reg(AX, 0x32);
-        c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xb0af)?;
+        resources::open_resource(&mut c, 0x32, 0xb0af)?;
         c.run(0xb0af, 2)?;
         c.set_reg(AX, 4);
         c.call(entry::DRAW_SPRITE_CLOBBERING_BX_DX, 0xb0b5)?;
@@ -2926,16 +2911,11 @@ pub fn book_page(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let record = c.pop();
     c.set_reg(AX, record);
     if !first {
-        c.set_reg(AX, ((record & 0x0c) >> 2) + 0x103);
-        c.set_reg(BX, 0x8b);
-        c.set_reg(DX, 0xfa);
-        c.set_reg(CX, 0x64);
-        c.call(entry::FONT_DRAW_STRING_WITH_COLOR_AT_POS, 0xb0d4)?;
+        let string = ((record & 0x0c) >> 2) + 0x103;
+        text::draw_string_at(&mut c, string, 0xfa, 0x8b, 0x64, 0xb0d4)?;
     }
     c.run(0xb0d4, 3)?;
-    c.set_reg(BX, 3);
-    c.set_reg(DX, 0x132);
-    c.call(entry::FONT_SET_DRAW_POSITION, 0xb0dd)?;
+    video::set_draw_position(&mut c, 0x132, 3, 0xb0dd)?;
     // The page number, two digits (a leading 0 blank).
     let number = ((c.word(g::BOOK_POSITION).wrapping_sub(0xaa) >> 1).wrapping_add(1)) as u8;
     let (tens, units) = (number / 10, number % 10);
@@ -3085,8 +3065,7 @@ pub fn text_box_for(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_flag(pc::cpu::CF, false); // the exit's flags (`clc`)
                 return c.ret();
             }
-            c.set_reg(BX, 1);
-            if math::rand_masked_zero(&mut c, 0x8dd6)? {
+            if math::rand_masked_zero(&mut c, 1, 0x8dd6)? {
                 c.run(0x8dd6, 3)?;
                 c.set_flag(pc::cpu::CF, false); // the exit's flags (`clc`)
                 return c.ret();
@@ -3509,9 +3488,7 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::CHECK_DIALOGUE_ENTRIES, 0x8b21)?;
     let [x, y] = c.text_box().pen;
     c.run(0x8b21, 3)?;
-    c.set_reg(DX, x);
-    c.set_reg(BX, y);
-    c.call(entry::FONT_SET_DRAW_POSITION, 0x8b2c)?;
+    video::set_draw_position(&mut c, x, y, 0x8b2c)?;
     // The lines spread over the box.
     let spread = c.text_box().style & 0x0c;
     let count = c.word_in(SS, LINES);
@@ -3896,8 +3873,7 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                 if !wait {
                     return c.ret();
                 }
-                c.set_reg(BX, 3);
-                c.call(entry::RAND_MASKED, 0x89e0)?;
+                math::random_masked(&mut c, 3, 0x89e0)?;
                 c.run(0x89e0, 1)?;
                 c.call(entry::SET_SENTENCE_VOICE_PART, 0x89e3)?;
                 c.run(0x89e3, 1)?;
@@ -4315,8 +4291,7 @@ fn book_8ff5(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x8ff5, 3)?;
     let si = c.reg(SI);
     c.push(si);
-    c.set_reg(AX, 0x32);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x8ffc)?;
+    resources::open_resource(c, 0x32, 0x8ffc)?;
     c.run(0x8ffc, 4)?;
     c.set_reg(AX, 3);
     c.set_reg(SI, 0x2265);
@@ -4417,11 +4392,9 @@ pub fn show_person_on_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0xa2a0, 8)?;
     c.update_conversation(|t| t.line_state = 0);
-    c.set_reg(AX, 0x21);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xa2bb)?;
+    resources::open_resource(&mut c, 0x21, 0xa2bb)?;
     c.run(0xa2bb, 2)?;
-    c.set_reg(SI, 0x22e4);
-    c.call(entry::DRAW_ICONS_LIST_AT_SI, 0xa2c1)?;
+    sprites::draw_icons(&mut c, 0x22e4, 0xa2c1)?;
     c.run(0xa2c1, 8 + 0x2a80 + 6)?; // the `rep` iterations too
     // `std; rep movsb`: the picture moved up, from its end down.
     let picture = c.word(g::TEXT_SHEET);
@@ -4444,9 +4417,7 @@ pub fn show_person_on_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::SET_MARK_AT_RECORD, 0xa2e0)?;
     c.run(0xa2e0, 4)?;
     c.update_map_view(|t| t.mode = 1);
-    c.set_reg(SI, 0x22f4);
-    c.set_reg(DI, 0x46e3);
-    c.call(entry::COPY_RECT_AT_SI_TO_DI, 0xa2ee)?;
+    video::copy_rect_to(&mut c, 0x22f4, 0x46e3, 0xa2ee)?;
     for (to, back) in [(0x5b93u16, 0xa2f1u16), (0xb6c3, 0xa2f4), (0xc137, 0xa2f7), (0x5dce, 0xa2fa)] {
         c.run(back - 3, 1)?;
         c.call(to, back)?;
@@ -4480,8 +4451,7 @@ pub fn reward_talk_by_talker(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, talker);
             if c.progress().event_flags & 2 != 0 {
                 c.run(0xa186, 4)?;
-                c.set_reg8(r8::AL, 0x28);
-                c.call(entry::INCREASE_CHARISMA_BY_AL, 0xa192)?;
+                story::raise_charisma(&mut c, 0x28, 0xa192)?;
                 c.run(0xa192, 2)?;
                 return charisma_tail(&mut c, 0xffce);
             }

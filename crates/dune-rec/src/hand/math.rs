@@ -256,13 +256,15 @@ pub fn rand_masked(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// [`rand_masked`] called: a random word ANDed with BX (AX).
-pub(super) fn random_masked(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+pub(super) fn random_masked(c: &mut Ctx, mask: u16, ret: u16) -> Result<u16, Bail> {
+    c.set_reg(BX, mask);
     c.call(0xe3b7, ret)?;
     Ok(c.reg(AX))
 }
 
 /// [`rand_masked`] called: whether the random word ANDed with BX is 0 (AX = it).
-pub(super) fn rand_masked_zero(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+pub(super) fn rand_masked_zero(c: &mut Ctx, mask: u16, ret: u16) -> Result<bool, Bail> {
+    c.set_reg(BX, mask);
     c.call_zf(0xe3b7, ret)
 }
 
@@ -338,7 +340,8 @@ pub fn rand_below(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// [`rand_below`] called: a random number 0..=BX (AX).
-pub(super) fn random_upto(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+pub(super) fn random_upto(c: &mut Ctx, max: u16, ret: u16) -> Result<u16, Bail> {
+    c.set_reg(BX, max);
     c.call(0xe3df, ret)?;
     Ok(c.reg(AX))
 }

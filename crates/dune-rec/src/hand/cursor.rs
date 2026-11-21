@@ -587,7 +587,8 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 c.set_reg(CX, 0);
                 loop {
                     c.run(0xd565, 1)?;
-                    let (item_x, _) = screens::item_position(&mut c, 0xd568)?;
+                    let item = c.reg8(r8::CL);
+                    let (item_x, _) = screens::item_position(&mut c, item, 0xd568)?;
                     let bp = c.reg(BP);
                     if item_x == bp {
                         c.run(0xd568, 2)?;

@@ -2,12 +2,17 @@
 //! DS:38B5, Cryogenic's `gfxVtable`), the sprite drawing wrappers, HNM
 //! frame steps and UI drawing.
 
+use super::waits;
+use super::text;
+use super::resources;
+use super::mouse;
+use super::files;
 use super::map;
 use super::hnm;
 use super::frame;
 use super::entry;
 use super::pure;
-use super::{B, Ctx, W, entered, globals as g};
+use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
     cpu::{AX, BP, BX, CS, CX, DI, DS, DX, ES, SI, SP, SS},
@@ -18,16 +23,13 @@ mod code {
     pub const SET_FB1_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc07c;
     pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
     pub const DRAW_LINE: u16 = 0xc53e;
-    pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     pub const LOAD_ICONES_SPRITES: u16 = 0xc137;
     pub const APPLY_PALETTE: u16 = 0xc1ba;
     pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
     pub const DRAW_SPRITE_CLIPPED_CLOBBERING: u16 = 0xc30d;
     pub const HNM_DO_FRAME: u16 = 0xca60;
-    pub const GET_PHRASE_OR_COMMAND_STRING_SI: u16 = 0xcf70;
     pub const FONT_DRAW_STRING: u16 = 0xd1bb;
     pub const DRAW_UI_ELEMENT: u16 = 0xd200;
-    pub const WAIT_A_BIT: u16 = 0xe387;
 }
 
 /// Bytes per UI element record.
@@ -84,6 +86,12 @@ pub fn gfx_call_bp_with_front_buffer_as_screen(m: &mut Machine, start: u16) -> R
     c.ret()
 }
 
+/// [`gfx_call_bp_with_front_buffer_as_screen`] called: BP called with the front buffer as the screen.
+pub(super) fn draw_on_front_buffer(c: &mut Ctx, draw: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(BP, draw);
+    c.call(0xc097, ret)
+}
+
 /// A sprite drawing routine that keeps BX and DX (C2FD, C305): pushes
 /// them around the call of the one that does not.
 fn keep_bx_dx(m: &mut Machine, start: u16, entry: u16, draw: u16) -> Result<(), Bail> {
@@ -108,9 +116,18 @@ pub fn draw_sprite(m: &mut Machine, start: u16) -> Result<(), Bail> {
     keep_bx_dx(m, start, 0xc2fd, code::DRAW_SPRITE_CLOBBERING_BX_DX)
 }
 
+
 /// `draw_sprite_clipped` (C305).
 pub fn draw_sprite_clipped(m: &mut Machine, start: u16) -> Result<(), Bail> {
     keep_bx_dx(m, start, 0xc305, code::DRAW_SPRITE_CLIPPED_CLOBBERING)
+}
+
+/// [`draw_sprite_clipped`] called: sprite AX at (DX, BX), clipped.
+pub(super) fn draw_sprite_clipped_at(c: &mut Ctx, sprite: u16, x: u16, y: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, sprite);
+    c.set_reg(DX, x);
+    c.set_reg(BX, y);
+    c.call(0xc305, ret)
 }
 
 /// A framebuffer copy through the driver: `push ds; mov es, [to];
@@ -231,8 +248,7 @@ pub fn hnm_read_header_size(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xcd8f)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_reg(CX, 2);
-    if !hnm::video_bytes_read(&mut c, 0xcd95)? {
+    if !hnm::video_bytes_read(&mut c, 2, 0xcd95)? {
         c.run(0xcd95, 2)?;
         return c.ret();
     }
@@ -275,8 +291,7 @@ pub fn font_draw_phrase_or_command_string(m: &mut Machine, start: u16) -> Result
     let si = c.reg(SI);
     c.push(si);
     let ax = c.reg(AX);
-    c.set_reg(SI, ax);
-    c.call(code::GET_PHRASE_OR_COMMAND_STRING_SI, 0xd1a1)?;
+    text::string_ptr(&mut c, ax, 0xd1a1)?;
     c.run(0xd1a1, 1)?;
     c.call(code::FONT_DRAW_STRING, 0xd1a4)?;
     c.run(0xd1a4, 2)?;
@@ -312,6 +327,13 @@ pub fn draw_ui_elements_list_at_ds_si(m: &mut Machine, start: u16) -> Result<(),
     }
 }
 
+/// [`draw_ui_elements_list_at_ds_si`] called: the icon sprites loaded, then the CX UI elements at SI drawn.
+pub(super) fn draw_ui_elements(c: &mut Ctx, list: u16, count: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, list);
+    c.set_reg(CX, count);
+    c.call(0xd1f2, ret)
+}
+
 /// `ui_head_animate_down` (181E): steps the talking head's animation back
 /// to 0, one step (`sub_17be`) every 8 ticks. Exit: CF clear (its callers
 /// read CF alone); AX = 8 if it moved.
@@ -330,8 +352,7 @@ pub fn ui_head_animate_down(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.update_situation(|t| t.head_animation_step = step);
         c.call(entry::REDRAW_HEAD_PANEL, 0x182c)?;
         c.run(0x182c, 2)?;
-        c.set_reg(AX, 8);
-        c.call(code::WAIT_A_BIT, 0x1832)?;
+        waits::wait_ticks(&mut c, 8, 0x1832)?;
         c.run(0x1832, 1)?; // jmp short 181Eh
     }
 }
@@ -511,6 +532,12 @@ pub fn draw_rect_outline_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> 
     })
 }
 
+/// [`draw_rect_outline_at_si`] called: the outline of the rect at SI.
+pub(super) fn outline_rect(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, rect);
+    c.call(0xc551, ret)
+}
+
 /// `loc_0c2f2`: opens resource AL and draws its sprite 0 at (0, 0).
 pub fn open_resource_and_draw_sprite_0(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc2f2)?;
@@ -535,6 +562,12 @@ pub fn open_resource_and_draw_sprite_0(m: &mut Machine, start: u16) -> Result<()
     let bx = c.pop();
     c.set_reg(BX, bx);
     c.ret()
+}
+
+/// [`open_resource_and_draw_sprite_0`] called: resource AL opened, its sprite 0 drawn at (0, 0).
+pub(super) fn draw_resource_sprite_0(c: &mut Ctx, resource: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::AL, resource);
+    c.call(0xc2f2, ret)
 }
 
 /// `loc_01834`: driver function 25 on the front buffer, SI = CD9Eh,
@@ -689,8 +722,7 @@ pub fn draw_last_ring_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if f & 0x80 != 0 {
         return c.ret();
     }
-    c.set_reg(SI, 0x148a);
-    c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x4a27)?;
+    mouse::hide_mouse_over(&mut c, 0x148a, 0x4a27)?;
     let p = c.word(g::MAP_POINTS_NEXT);
     let wrap = p == POINTS_RING;
     let at = (if wrap { POINTS_RING_END } else { p }).wrapping_sub(4);
@@ -750,8 +782,7 @@ pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(cs);
         let es = c.pop();
         c.set_sreg(ES, es);
-        c.set_reg(SI, 0xbe);
-        c.call(code::LOAD_RESOURCE_TO, 0x4297)?;
+        files::open_resource_into(&mut c, 0xbe, 0x4297)?;
         c.run(0x4297, 6)?;
         c.set_reg(SI, 0x15f);
         c.set_reg(DI, 0xaa66);
@@ -775,8 +806,7 @@ pub fn load_intro_script(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = pure::add(W, p, q);
     c.set_reg(SI, si);
     c.set_word(g::CS_SCRIPT_PTR, si);
-    c.set_reg(AX, 0x39);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x42cc)?;
+    resources::open_resource(&mut c, 0x39, 0x42cc)?;
     c.interp(0x42cc, 0x42d0)?;
     c.run(0x42d0, 1)?;
     c.ret()
@@ -800,6 +830,12 @@ pub fn fill_and_outline(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let s = c.pop();
     c.set_reg(SI, s);
     draw_rect_outline_at_si(c.m, 0xc551)
+}
+
+/// [`fill_and_outline`] called: the panel fill, then the rect SI outlined.
+pub(super) fn fill_and_outline_rect(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, rect);
+    c.call(0x7b1b, ret)
 }
 
 /// `loc_07b0f`: [46D8h] cleared, `loc_0c0e8` with SI = DI (SI kept, DI

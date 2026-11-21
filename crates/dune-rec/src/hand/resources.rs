@@ -1,6 +1,7 @@
 //! Resources in memory: opening one as the current sprite sheet, and the
 //! condition evaluator over the CONDIT script.
 
+use super::files;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g};
@@ -11,8 +12,6 @@ use pc::{
 };
 
 mod code {
-    pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
-    pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     pub const APPLY_SPRITE_SHEET_PALETTE: u16 = 0xc1aa;
     pub const READ_CONDIT_OPERAND: u16 = 0xa30b;
     pub const EVALUATE_OPERATOR: u16 = 0xa334;
@@ -92,8 +91,7 @@ pub(super) fn open(c: &mut Ctx) -> Result<(), Bail> {
             c.push(v);
         }
         c.push(s);
-        c.set_reg(SI, ax);
-        c.call(code::LOAD_RESOURCE_TO, 0xc180)?;
+        files::open_resource_into(c, ax, 0xc180)?;
         let di = c.reg(DI);
         let first = c.word_in(ES, di);
         let small = first <= 2;
@@ -138,6 +136,12 @@ pub(super) fn open(c: &mut Ctx) -> Result<(), Bail> {
 pub fn open_resource_by_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc13e)?;
     open(&mut Ctx::new(m))
+}
+
+/// [`open_resource_by_index`] called: resource AX opened.
+pub(super) fn open_resource(c: &mut Ctx, resource: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, resource);
+    c.call(0xc13e, ret)
 }
 
 /// `open_onmap_resource` (C13B): the on-map resource (25h, or what the
@@ -261,8 +265,7 @@ pub fn preload_resources_63_to_68(m: &mut Machine, start: u16) -> Result<(), Bai
     loop {
         c.push(n);
         let r = pure::add(W, n, 0x61);
-        c.set_reg(AX, r);
-        c.call(code::OPEN_RESOURCE_BY_INDEX, 0xce64)?;
+        open_resource(&mut c, r, 0xce64)?;
         let next = n + 1;
         c.run(0xce64, 4 + if next < 8 { 3 } else { 1 })?;
         c.pop();

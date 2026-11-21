@@ -3,6 +3,8 @@
 //! shadow check can't see them; `--rec on` runs them, checked by whole-run
 //! state hashes (`STATE_HASH=1`, against plain emulation).
 
+use super::tails;
+use super::gfx;
 use super::ui;
 use super::waits;
 use super::sound;
@@ -52,8 +54,7 @@ pub fn start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_clock(|k| k.time = 2);
     c.call(entry::DRAW_HEAD_PANEL_AFTER_LANGUAGE_CHECK, 0x0027)?;
     c.run(0x0027, 2)?;
-    c.set_reg8(r8::CL, 0xff);
-    c.call(entry::CREATE_SAVE_CL, 0x002c)?;
+    tails::save_to_slot(&mut c, 0xff, 0x002c)?;
     c.run(0x002c, 1)?;
     c.call(entry::BLINK_AND_TOGGLE_MAP_SCREEN, 0x002f)?;
     c.run(0x002f, 2)?;
@@ -117,8 +118,7 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(entry::INTRO_SCRIPT_LOAD_WORD, 0x05b2)?;
             c.run(0x05b2, 2)?;
             let bp = c.reg(AX);
-            c.set_reg(BP, bp);
-            c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x05b7)?;
+            gfx::draw_on_front_buffer(&mut c, bp, 0x05b7)?;
             c.run(0x05b7, 2)?;
             let v = c.dialogue_text().flags;
             let v = pure::and(B, v as u16, 0x7f);

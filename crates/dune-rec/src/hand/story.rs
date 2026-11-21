@@ -1,5 +1,16 @@
 //! Story progress, the intro script, and one-line flag setters.
 
+use super::waits;
+use super::video;
+use super::text;
+use super::tasks;
+use super::tails;
+use super::screen;
+use super::resources;
+use super::mouse;
+use super::frame;
+use super::files;
+use super::audio;
 use super::time;
 use super::math;
 use super::globe;
@@ -27,7 +38,6 @@ mod code {
     pub const PHASE_HANDLERS: u16 = 0x11e7;
     /// The last phase with a handler.
     pub const LAST_HANDLED_PHASE: u8 = 0x6c;
-    pub const INCREASE_CHARISMA_BY_AL: u16 = 0x6f78;
     pub const GET_INGAME_DAY_Q: u16 = 0x1ac5;
     pub const LOCATION_COORDS: u16 = 0x40ae;
     /// BP's routine for the record at DI.
@@ -35,11 +45,8 @@ mod code {
     pub const SAVE_REGS: u16 = 0xe270;
     pub const RESTORE_REGS: u16 = 0xe283;
     pub const SET_GAME_PHASE: u16 = 0x121f;
-    pub const REMOVE_FRAME_TASK: u16 = 0xda5f;
     pub const GET_MAP_POSITION: u16 = 0x407e;
     pub const DIALOGUE_STEP_AB84: u16 = 0x96b5;
-    pub const FOR_EACH_TROOP_3127: u16 = 0x6603;
-    pub const ADD_FRAME_TASK: u16 = 0xda25;
 }
 
 /// A bare `ret`: stubs left in the program.
@@ -143,6 +150,12 @@ pub fn set_game_phase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`set_game_phase`] called: the game phase raised to AL (never lowered).
+pub(super) fn raise_phase(c: &mut Ctx, phase: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::AL, phase);
+    c.call(0x121f, ret)
+}
+
 /// `on_phase_04`: [122Ah] -= 1, `sub_105b` with SI = 1021h, then [0FE8h] = 9.
 pub fn on_phase_04(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1011)?;
@@ -171,8 +184,7 @@ pub fn on_phase_50(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bits = c.progress().event_flags;
     let bits = pure::or(B, bits as u16, 0x40) as u8;
     c.update_progress(|t| t.event_flags = bits);
-    c.set_reg8(super::r8::AL, 0x28);
-    c.call(code::INCREASE_CHARISMA_BY_AL, 0x1185)?;
+    raise_charisma(&mut c, 0x28, 0x1185)?;
     c.run(0x1185, 3)?; // jmp 101Bh; mov; ret
     set_0fe8(&mut c)
 }
@@ -270,6 +282,12 @@ pub fn increase_charisma_by_al(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let si = c.pop();
     c.set_reg(SI, si);
     c.ret()
+}
+
+/// [`increase_charisma_by_al`] called: charisma up by AL (at most C8h), motivation with it.
+pub(super) fn raise_charisma(c: &mut Ctx, points: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::AL, points);
+    c.call(0x6f78, ret)
 }
 
 /// `loc_04ab8`: the flight started ([4727h] FFh).
@@ -534,8 +552,7 @@ pub fn phase_64_for_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(code::SAVE_REGS, 0x1ed1)?;
     c.run(0x1ed1, 2)?;
-    c.set_reg8(r8::AL, 0x64);
-    c.call(code::SET_GAME_PHASE, 0x1ed6)?;
+    raise_phase(&mut c, 0x64, 0x1ed6)?;
     c.run(0x1ed6, 1)?;
     c.call(code::RESTORE_REGS, 0x1ed9)?;
     c.run(0x1ed9, 1)?;
@@ -595,8 +612,7 @@ pub fn measure_place_forces(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for at in [0x94, 0x96, 0x5c, 0x5e] {
         c.set_word(at, 0);
     }
-    c.set_reg(BP, 0x3406);
-    c.call(entry::FOR_EACH_TROOP, 0x33d2)?;
+    troops::run_for_each_troop(&mut c, 0x3406, 0x33d2)?;
     c.run(0x33d2, 1)?;
     c.call(entry::STRIKE_ODDS, 0x33d5)?;
     c.run(0x33d5, 2)?;
@@ -651,8 +667,7 @@ pub fn handle_flag_23(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::CLOSE_DIALOGUE_TEXT, 0x36dd)?;
     c.run(0x36dd, 3)?;
     c.update_conversation(|t| t.scene_count = 0);
-    c.set_reg(BP, 0x3520);
-    c.call(entry::FOR_RECORDS_HERE_BP, 0x36e8)?;
+    run_for_records_here(&mut c, 0x3520, 0x36e8)?;
     c.run(0x36e8, 2)?;
     c.update_progress(|t| t.talk_reason = 0);
     c.ret()
@@ -756,8 +771,7 @@ pub fn stop_typing_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_typed_message(|t| t.next[0] = 0);
     c.call(code::SAVE_REGS, 0x46ab)?;
     c.run(0x46ab, 2)?;
-    c.set_reg(SI, 0x46b5);
-    c.call(code::REMOVE_FRAME_TASK, 0x46b1)?;
+    tasks::remove_task(&mut c, 0x46b5, 0x46b1)?;
     c.run(0x46b1, 1)?;
     c.call(code::RESTORE_REGS, 0x46b4)?;
     c.run(0x46b4, 1)?;
@@ -813,8 +827,7 @@ pub fn advance_flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = pure::inc(W, v);
     c.update_flight(|t| t.steps = v);
     if tick {
-        c.set_reg(CX, 1);
-        c.call(entry::RUN_CLOCK_TICKS, 0x4b4d)?;
+        time::run_clock(&mut c, 1, 0x4b4d)?;
         c.run(0x4b4d, 1)?;
     }
     c.call(code::GET_MAP_POSITION, 0x4b50)?;
@@ -1249,9 +1262,7 @@ pub fn close_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::GFX_COPY_FRAMEBUFFER_TO_SCREEN, 0x28f5)?;
     c.run(0x28f5, 4)?;
     c.update_conversation(|t| t.scene_flags = 0xff);
-    c.set_reg8(r8::AL, 8);
-    c.set_reg(BP, 0x2dd3);
-    c.call(entry::TRANSITION_AL, 0x2902)?;
+    screen::transition_drawn(&mut c, 0x2dd3, 8, 0x2902)?;
     c.run(0x2902, 2)?;
     c.update_conversation(|t| t.caller = 0);
     c.call(entry::COMM_FADE_OUT_GLOW, 0x290a)?;
@@ -1290,8 +1301,7 @@ pub fn speak_event_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::START_TEXT_VOICE_TALKING, 0x2b24)?;
     c.run(0x2b24, 2)?;
     let di = c.pop();
-    c.set_reg(DI, di);
-    c.call(entry::DESCRIBE_PLACE, 0x2b28)?;
+    talk_about_location(&mut c, di, 0x2b28)?;
     c.run(0x2b28, 2)?;
     c.set_flag(pc::cpu::CF, true);
     c.ret()
@@ -1461,8 +1471,7 @@ pub fn reset_visitor_positions(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.set_reg(DI, di);
     let dx = c.player().x;
     c.set_reg(DX, dx);
-    c.set_reg(BP, 0x316e);
-    c.call(code::FOR_EACH_TROOP_3127, 0x3157)?;
+    troops::run_for_each_troop(&mut c, 0x316e, 0x3157)?;
     let di = c.reg(DI);
     let kind = c.byte(di.wrapping_add(8));
     c.run(0x3157, if kind != 0x21 { 3 } else { 6 })?;
@@ -1510,11 +1519,9 @@ fn setup_3093(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx) -> R
     c.push(ds);
     let es = c.pop();
     c.set_sreg(pc::cpu::ES, es);
-    c.set_reg(BP, 0x30b9);
-    c.call(entry::FOR_RECORDS_HERE_BP, 0x30af)?;
+    run_for_records_here(c, 0x30b9, 0x30af)?;
     c.run(0x30af, 2)?;
-    c.set_reg(BP, 0x3120);
-    c.call(entry::FOR_RECORDS_HERE_BP, 0x30b5)?;
+    run_for_records_here(c, 0x3120, 0x30b5)?;
     c.run(0x30b5, 3)?;
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
@@ -1665,8 +1672,7 @@ pub fn count_place_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x34b3, 3)?;
     let di = c.pop();
     c.set_reg(DI, di);
-    c.set_reg(BP, 0x34d0);
-    c.call(entry::FOR_TROOPS_AT_LOCATION, 0x34ba)?;
+    troops::run_for_location_troops(&mut c, 0x34d0, 0x34ba)?;
     c.run(0x34ba, 8)?;
     for (a, b, to) in [
         (g::TOPIC_PLACE_OUR_TROOPS, g::TOPIC_PLACE_OUR_INBOUND, g::TOPIC_PLACE_OUR_TOTAL),
@@ -1814,6 +1820,12 @@ pub fn for_records_here_bp(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for_records_here(&mut Ctx::new(m), start, 0, |_| {})
 }
 
+/// [`for_records_here_bp`] called: BP's routine for each record here.
+pub(super) fn run_for_records_here(c: &mut Ctx, routine: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(BP, routine);
+    c.call(0x36ee, ret)
+}
+
 /// `loc_040c3`: [`for_records_here`] with `move_following_character`.
 pub fn move_party_here(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x40c3)?;
@@ -1932,8 +1944,7 @@ pub fn start_message_57(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(code::SAVE_REGS, 0x4662)?;
     c.run(0x4662, 2)?;
-    c.set_reg(SI, 0x57);
-    c.call(entry::GET_PHRASE_OR_COMMAND_STRING_SI, 0x4668)?;
+    text::string_ptr(&mut c, 0x57, 0x4668)?;
     let f = c.byte(g::GAME_FRAME);
     c.run(0x4668, 7 + if f != 0 { 2 } else { 0 } + 5)?;
     let es = c.sreg(pc::cpu::ES);
@@ -1951,9 +1962,7 @@ pub fn start_message_57(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     c.update_typed_message(|t| t.pen[1] = ax);
     c.update_typed_message(|t| t.colour = cx);
-    c.set_reg(SI, 0x46b5);
-    c.set_reg(BP, 0x18);
-    c.call(code::ADD_FRAME_TASK, 0x4697)?;
+    tasks::add_task(&mut c, 0x46b5, 0x18, 0x4697)?;
     c.run(0x4697, 1)?;
     c.call(code::RESTORE_REGS, 0x469a)?;
     c.run(0x469a, 1)?;
@@ -1990,8 +1999,7 @@ pub fn show_speaker_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.update_conversation(|t| t.line_state = 1);
             let ax = c.reg(AX);
             c.push(ax);
-            c.set_reg8(r8::AL, 0x34);
-            c.call(entry::OPEN_RESOURCE_AND_DRAW_SPRITE_0, 0x36b3)?;
+            gfx::draw_resource_sprite_0(&mut c, 0x34, 0x36b3)?;
             c.run(0x36b3, 1)?;
             c.call(entry::UPDATE_SCREEN_PALETTE, 0x36b6)?;
             c.run(0x36b6, 1)?;
@@ -2089,8 +2097,7 @@ pub fn leave_hotspot_mode(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::MAP_MARKERS, 0);
     c.call(entry::CLEAR_SOME_MOUSE_RECT, 0x4429)?;
     c.run(0x4429, 2)?;
-    c.set_reg(SI, 0x44ab);
-    c.call(code::REMOVE_FRAME_TASK, 0x442f)?;
+    tasks::remove_task(&mut c, 0x44ab, 0x442f)?;
     let mut at = 0x442f;
     for t in [0x469b, 0x5ba0, 0x43e3, 0xc0f4] {
         c.run(at, 1)?;
@@ -2137,17 +2144,14 @@ pub fn message_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let p = c.typed_message().next[0];
         let p = pure::inc(W, p);
         c.update_typed_message(|t| t.next[0] = p);
-        c.set_reg(SI, 0x14a4);
-        c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x46ca)?;
+        mouse::hide_mouse_over(&mut c, 0x14a4, 0x46ca)?;
         c.run(0x46ca, 2)?;
         let fb = c.screen_buffers().active;
         c.push(fb);
         c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x46d1)?;
         c.run(0x46d1, 3)?;
         let [x, y] = c.typed_message().pen;
-        c.set_reg(DX, x);
-        c.set_reg(BX, y);
-        c.call(entry::FONT_SET_DRAW_POSITION, 0x46dc)?;
+        video::set_draw_position(&mut c, x, y, 0x46dc)?;
         c.run(0x46dc, 3)?;
         let colour = c.typed_message().colour;
         c.set_reg(CX, colour);
@@ -2392,9 +2396,7 @@ pub fn sky_flash(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x0d61, 4)?;
         c.set_byte(g::FRAME_TASKS_ACTIVE, 0x20);
         loop {
-            c.set_reg(BP, 0x391d);
-            c.set_reg(AX, 3);
-            c.call(entry::WAIT_PROCESSING_FRAME_TASKS_INTERRUPTABLE, 0x0d6f)?;
+            frame::draw_then_wait(&mut c, 0x391d, 3, 0x0d6f)?;
             let k = c.byte(g::FRAME_TASKS_ACTIVE);
             if k >= 0x10 {
                 c.run(0x0d6f, 5)?;
@@ -2411,9 +2413,7 @@ pub fn sky_flash(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x0d79, 3)?;
     loop {
-        c.set_reg(BP, 0x391d);
-        c.set_reg(AX, 3);
-        c.call(entry::WAIT_PROCESSING_FRAME_TASKS_INTERRUPTABLE, 0x0d82)?;
+        frame::draw_then_wait(&mut c, 0x391d, 3, 0x0d82)?;
         let k = c.byte(g::FRAME_TASKS_ACTIVE);
         if k != 0 {
             c.run(0x0d82, 5)?;
@@ -2508,8 +2508,7 @@ pub fn phase_30_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, ph);
     let al = pure::sub(B, ph as u16, 0x2d);
     c.set_reg8(r8::AL, al as u8);
-    c.set_reg(DI, di);
-    c.call(entry::DESCRIBE_PLACE, 0x6c62)?;
+    talk_about_location(&mut c, di, 0x6c62)?;
     let k = c.place_forces().counts[6];
     if k == 0 {
         c.run(0x6c62, 3)?;
@@ -2695,8 +2694,7 @@ fn add_message_in(c: &mut Ctx) -> Result<(), Bail> {
         c.cmp(B, room as u16, 8);
     }
     if call {
-        c.set_reg(AX, 0x201);
-        c.call(entry::NOTE_PAIR_0, 0x272b)?;
+        add_event(c, 0x201, 0x272b)?;
         c.run(0x272b, 1)?;
     }
     c.call(entry::RESTORE_REGS, 0x272e)?;
@@ -2722,8 +2720,7 @@ pub fn on_phase_30(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1103)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_reg(AX, 4);
-    c.call(entry::NOTE_PAIR_0, 0x1109)?;
+    add_event(&mut c, 4, 0x1109)?;
     c.run(0x1109, 2)?;
     c.set_reg(AX, 0x1409);
     add_message_in(&mut c)
@@ -2880,8 +2877,7 @@ pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::START_TEXT_VOICE_TALKING, 0x2b24)?;
     c.run(0x2b24, 2)?;
     let d = c.pop();
-    c.set_reg(DI, d);
-    c.call(entry::DESCRIBE_PLACE, 0x2b28)?;
+    talk_about_location(&mut c, d, 0x2b28)?;
     c.run(0x2b28, 2)?;
     c.ret_cf(true)
 }
@@ -3025,8 +3021,7 @@ pub fn record_age_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if full {
         c.push(ax);
         c.push(si);
-        c.set_reg(SI, ax);
-        c.call(entry::GET_PHRASE_OR_COMMAND_STRING_SI, 0x32fe)?;
+        text::string_ptr(&mut c, ax, 0x32fe)?;
         c.run(0x32fe, 1)?;
         c.call(entry::FIND_LAST_NUMERIC_DIGIT, 0x3301)?;
         c.run(0x3301, 4)?;
@@ -3271,6 +3266,12 @@ pub fn note_pair_0(m: &mut Machine, start: u16) -> Result<(), Bail> {
     add_pending_event(c.m, 0x29f0)
 }
 
+/// [`note_pair_0`] called: the pending event pair AX added, with DI 0.
+pub(super) fn add_event(c: &mut Ctx, event: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, event);
+    c.call(0x29ee, ret)
+}
+
 /// `sub_1166`: [`g::ITEMS_OFFERED`] counted, record FD8h's byte 10h 2 (word 12h
 /// 180h), then pair 105h ([`note_pair_0`]).
 pub fn event_105(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -3463,6 +3464,12 @@ pub fn describe_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let s = c.pop();
     c.set_reg(SI, s);
     c.ret()
+}
+
+/// [`describe_place`] called: the location DI becomes the one talked about.
+pub(super) fn talk_about_location(c: &mut Ctx, location: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(DI, location);
+    c.call(0x331e, ret)
 }
 
 /// `ui_comm`: the sietch to call: of the sietches from 100h (below 20h,
@@ -3827,8 +3834,7 @@ pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, ax);
         }
         c.set_reg(CX, ax);
-        c.set_reg(BX, 7);
-        let random = math::random_masked(&mut c, 0x0c6c)?;
+        let random = math::random_masked(&mut c, 7, 0x0c6c)?;
         let hi = (random as u8) >= 4;
         c.run(0x0c6c, 3 + hi as u32 + 1)?;
         let si = c.reg(SI);
@@ -4125,8 +4131,7 @@ pub fn next_demand(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = pure::add(W, ax, 0x64);
     c.set_reg(AX, a);
     c.set_reg(CX, s);
-    c.set_reg(BX, 0x3f);
-    let random = math::random_masked(&mut c, 0x20ef)?;
+    let random = math::random_masked(&mut c, 0x3f, 0x20ef)?;
     let r = random.wrapping_add(0xe0);
     let q = r as u32 * s as u32;
     let (dxq, axq) = ((q >> 16) as u16, q as u16);
@@ -4585,8 +4590,7 @@ pub fn map_pick_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let (cx, di) = (c.reg(CX), c.reg(DI));
         c.push(cx);
         c.push(di);
-        c.set_reg(AX, 0x14);
-        c.call(entry::WAIT_PROCESSING_FRAME_TASKS, 0x4549)?;
+        files::wait_ticks_with_tasks(&mut c, 0x14, 0x4549)?;
         c.run(0x4549, 3)?;
         let di = c.reg(DI);
         c.push(di);
@@ -4595,8 +4599,7 @@ pub fn map_pick_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x454f, 3)?;
         let d = c.pop();
         c.set_reg(DI, d);
-        c.set_reg(AX, 0x0a);
-        c.call(entry::WAIT_PROCESSING_FRAME_TASKS, 0x4556)?;
+        files::wait_ticks_with_tasks(&mut c, 0x0a, 0x4556)?;
         c.run(0x4556, 1)?;
         c.call(entry::REDRAW_MESSAGE_LINE, 0x4559)?;
         c.run(0x4559, 3)?;
@@ -5040,8 +5043,7 @@ fn new_demand(c: &mut Ctx, ax: u16, day: u16, f: u8) -> Result<(), Bail> {
     let cx = c.add(W, ax, 0x64);
     c.set_reg(AX, cx);
     c.set_reg(CX, cx);
-    c.set_reg(BX, 0x3f);
-    let random = math::random_masked(c, 0x20ef)?;
+    let random = math::random_masked(c, 0x3f, 0x20ef)?;
     let r = random.wrapping_add(0xe0);
     let p = r as u32 * cx as u32;
     let (pdx, pax) = ((p >> 16) as u16, p as u16);
@@ -5372,8 +5374,7 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x361b, 3)?;
         let ax = c.reg(AX);
         c.push(ax);
-        c.set_reg(AX, 0x4b);
-        c.call(entry::WAIT_A_BIT, 0x3622)?;
+        waits::wait_ticks(&mut c, 0x4b, 0x3622)?;
         c.run(0x3622, 3)?;
         let a = c.pop();
         c.set_reg(AX, a);
@@ -5407,11 +5408,7 @@ pub fn scene_start(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x3644, 1)?;
     c.call(entry::SCENE_24, 0x3647)?;
     c.run(0x3647, 5)?;
-    c.set_reg(CX, 0x200c);
-    c.set_reg(DX, 0x66);
-    c.set_reg(BX, 0x4e);
-    c.set_reg(AX, 0xbf);
-    c.call(entry::FONT_DRAW_STRING_WITH_COLOR_AT_POS, 0x3656)?;
+    text::draw_string_at(&mut c, 0xbf, 0x66, 0x4e, 0x200c, 0x3656)?;
     for (at, to) in [(0x3656u16, 0xc0f4u16), (0x3659, 0xc4dd), (0x365c, 0x4aca)] {
         c.run(at, 1)?;
         c.call(to, at + 3)?;
@@ -5559,8 +5556,7 @@ fn travel_step(c: &mut Ctx) -> Result<(), Bail> {
     let x = c.inc(W, x);
     c.cmp(B, x & 0xff, 0x0a);
     let x = if big { 0x0a } else { x & 0xff };
-    c.set_reg(AX, x << 8);
-    c.call(entry::WAIT_A_BIT, 0x3750)?;
+    waits::wait_ticks(c, x << 8, 0x3750)?;
     let s = c.byte(g::WALK_STEPS);
     c.run(0x3750, 3)?;
     c.cmp(B, s as u16, 0x37);
@@ -5569,23 +5565,18 @@ fn travel_step(c: &mut Ctx) -> Result<(), Bail> {
     }
     c.call(entry::PLAY_WORMSUIT_VIDEO, 0x375a)?;
     c.run(0x375a, 2)?;
-    c.set_reg(CX, 5);
-    c.call(entry::RUN_CLOCK_TICKS, 0x3760)?;
+    time::run_clock(c, 5, 0x3760)?;
     c.run(0x3760, 3)?;
-    c.set_reg(BP, 0xc0ad);
-    c.set_reg8(r8::AL, 0x34);
-    c.call(entry::TRANSITION_AL, 0x3768)?;
+    screen::transition_drawn(c, 0xc0ad, 0x34, 0x3768)?;
     c.run(0x3768, 1)?;
     c.call(entry::DRAW_HEAD_PANEL, 0x376b)?;
     c.run(0x376b, 2)?;
-    c.set_reg(BP, 0x1a0f);
-    c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x3771)?;
+    gfx::draw_on_front_buffer(c, 0x1a0f, 0x3771)?;
     c.run(0x3771, 4)?;
     let si = c.word(g::LAST_PLACE);
     c.set_reg(SI, si);
     c.update_conversation(|t| t.scene_flags = 0xff);
-    c.set_reg(BP, 0x401f);
-    c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x3780)?;
+    gfx::draw_on_front_buffer(c, 0x401f, 0x3780)?;
     let dx = c.player().x;
     let bx = c.player().y;
     let dh = (dx >> 8) as u8;
@@ -5624,8 +5615,7 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
     match start {
         0x2db1 => {
             c.run(0x2db1, 2)?;
-            c.set_reg(BP, 0xd717);
-            c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x2db7)?;
+            gfx::draw_on_front_buffer(&mut c, 0xd717, 0x2db7)?;
             c.run(0x2db7, 1)?;
             c.call(entry::SET_MAP_CLICK_HANDLER, 0x2dba)?;
             c.run(0x2dba, 2)?;
@@ -5642,8 +5632,7 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(g::TRANSITION_ACTIVE, 0);
         c.update_conversation(|t| t.line_state = 0);
         c.update_conversation(|t| t.first_speaker = 0);
-        c.set_reg(BP, 0x2eb2);
-        c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x2dd3)?;
+        gfx::draw_on_front_buffer(&mut c, 0x2eb2, 0x2dd3)?;
     }
     let k = c.progress().harkonnen_place;
     if k != 0 {
@@ -5706,9 +5695,7 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
     swap(&mut c);
     c.set_reg(AX, x);
     if x != y {
-        c.set_reg8(r8::AL, 0x10);
-        c.set_reg(BP, 0x0f66);
-        c.call(entry::TRANSITION_AL, 0x2e47)?;
+        screen::transition_drawn(&mut c, 0x0f66, 0x10, 0x2e47)?;
         c.run(0x2e47, 1)?;
         c.call(entry::MUSIC_STEP_IF_ENABLED, 0x2e4a)?;
         c.run(0x2e4a, 1)?;
@@ -5834,8 +5821,7 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
         pick(&mut c);
         c.call(entry::SAVE_REGS, 0x3f7c)?;
         c.run(0x3f7c, 2)?;
-        c.set_reg8(r8::CL, 2);
-        c.call(entry::CREATE_SAVE_CL, 0x3f81)?;
+        tails::save_to_slot(&mut c, 2, 0x3f81)?;
         c.run(0x3f81, 1)?;
         c.call(entry::RESTORE_REGS, 0x3f84)?;
     } else {
@@ -5856,8 +5842,7 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.update_progress(|t| t.first_time_inside = 0xff);
         c.call(entry::SAVE_REGS, 0x3fa2)?;
         c.run(0x3fa2, 2)?;
-        c.set_reg8(r8::CL, 3);
-        c.call(entry::CREATE_SAVE_CL, 0x3fa7)?;
+        tails::save_to_slot(&mut c, 3, 0x3fa7)?;
         c.run(0x3fa7, 1)?;
         c.call(entry::RESTORE_REGS, 0x3faa)?;
     }
@@ -6136,16 +6121,13 @@ fn enemy_watch(c: &mut Ctx) -> Result<(), Bail> {
     if bh > al {
         return c.ret();
     }
-    c.set_reg8(r8::AL, 5);
-    c.call(entry::AUDIO_START_VOC, 0x4d48)?;
+    audio::start_voc(c, 5, 0x4d48)?;
     c.run(0x4d48, 2)?;
     c.xor(B, 0, 0);
     c.set_reg8(r8::AH, 0);
     c.call(entry::SCROLL_SCENE_31, 0x4d4d)?;
     c.run(0x4d4d, 3)?;
-    c.set_reg(SI, 0x4bb9);
-    c.set_reg(BP, 0x10);
-    c.call(entry::ADD_FRAME_TASK, 0x4d56)?;
+    tasks::add_task(c, 0x4bb9, 0x10, 0x4d56)?;
     c.run(0x4d56, 1)?;
     c.ret()
 }
@@ -6250,9 +6232,7 @@ fn figures_3a24(c: &mut Ctx) -> Result<(), Bail> {
         if !go {
             return c.ret();
         }
-        c.set_reg(SI, 0xc0b6);
-        c.set_reg(BP, 0x0c);
-        c.call(entry::ADD_FRAME_TASK, 0x3a94)?;
+        tasks::add_task(c, 0xc0b6, 0x0c, 0x3a94)?;
         c.run(0x3a94, 1)?;
         return c.ret();
     }
@@ -6290,8 +6270,7 @@ fn figures_3a24(c: &mut Ctx) -> Result<(), Bail> {
         c.pop();
         return super::ui::set_sky_palette(c.m, 0x388d);
     }
-    c.set_reg(AX, 0x33);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x3a57)?;
+    resources::open_resource(c, 0x33, 0x3a57)?;
     c.run(0x3a57, 1)?;
     let (dx, bx) = records::orni_position(c, 0x3a5a)?;
     c.run(0x3a5a, 6)?;
@@ -6456,8 +6435,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     c.call(entry::REFRESH_MAP_OVERLAYS, 0x1b85)?;
     c.run(0x1b85, 2)?;
     let di = c.pop();
-    c.set_reg(DI, di);
-    c.call(entry::DESCRIBE_PLACE, 0x1b89)?;
+    talk_about_location(c, di, 0x1b89)?;
     c.run(0x1b89, 2)?;
     let v = c.pop();
     c.set_word(g::PHRASE_ARG_SKILLS, v);
@@ -6515,8 +6493,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x0fa7, 1)?;
         c.call(entry::CALL_RESTORE_CURSOR, 0x0faa)?;
         c.run(0x0faa, 2)?;
-        c.set_reg8(r8::AL, 0x2a);
-        c.call(entry::REDRAW_ROOM_BY_TRANSITION, 0x0faf)?;
+        tails::redraw_room(c, 0x2a, 0x0faf)?;
         c.run(0x0faf, 1)?;
         return super::screens::draw_gauges(c.m, 0xd763);
     }
@@ -6865,13 +6842,11 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x2c5d, 1)?;
     c.call(entry::STOP_CLOCK, 0x2c60)?;
     c.run(0x2c60, 2)?;
-    c.set_reg(AX, 0x0bb8);
-    c.call(entry::WAIT_INTERRUPTABLE, 0x2c66)?;
+    waits::wait_or_input(c, 0x0bb8, 0x2c66)?;
     c.run(0x2c66, 1)?;
     c.call(entry::RELEASE_CLOCK, 0x2c69)?;
     c.run(0x2c69, 2)?;
-    c.set_reg(SI, 0x2cc7);
-    c.call(entry::REMOVE_FRAME_TASK, 0x2c6f)?;
+    tasks::remove_task(c, 0x2cc7, 0x2c6f)?;
     c.run(0x2c6f, 1)?;
     c.call(entry::RESET_DIALOGUE, 0x2c72)?;
     c.run(0x2c72, 8)?;
@@ -6882,8 +6857,7 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
     c.update_situation(|t| t.event_kind = 0xff);
     c.update_situation(|t| t.head_animation_step = 0x0a);
     c.set_word(g::NEXT_PHRASE, 0);
-    c.set_reg8(r8::AL, 6);
-    c.call(entry::REDRAW_ROOM_BY_TRANSITION, 0x2c8f)?;
+    tails::redraw_room(c, 6, 0x2c8f)?;
     c.run(0x2c8f, 1)?;
     super::gfx::copy_active_framebuffer_to_framebuffer_2(c.m, 0xc412)
 }
@@ -7094,8 +7068,8 @@ pub fn draw_sal(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::CL, 4);
     c.set_reg(AX, scene >> 4);
     if sheet {
-        c.set_reg(AX, (scene >> 4) + 0x13);
-        c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x3b70)?;
+        let resource = (scene >> 4) + 0x13;
+        resources::open_resource(&mut c, resource, 0x3b70)?;
     }
     c.run(0x3b70, 7)?;
     let scene = c.pop();

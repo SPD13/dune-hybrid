@@ -255,6 +255,12 @@ pub fn restore_mouse_if_rect_intersects(m: &mut Machine, start: u16) -> Result<(
     hide(&mut c)
 }
 
+/// [`restore_mouse_if_rect_intersects`] called: the cursor hidden if it meets the rect at SI.
+pub(super) fn hide_mouse_over(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, rect);
+    c.call(0xdb74, ret)
+}
+
 /// `redraw_mouse` (DC20): the cursor image for the mouse position; shows
 /// the cursor (count to 0), redrawn where the position or image changed.
 /// Registers kept.

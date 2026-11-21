@@ -1,6 +1,11 @@
 //! Voice files (streamed in 8 KB parts into two buffers) and music
 //! loading.
 
+use super::waits;
+use super::tasks;
+use super::resources;
+use super::mouse;
+use super::audio;
 use super::sound;
 use super::panels;
 use super::math;
@@ -20,7 +25,6 @@ mod code {
     pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     pub const ALLOC_CHECK: u16 = 0xf11c;
     pub const HSQ_DECOMP_SKIP_HEADER: u16 = 0xf403;
-    pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
     pub const HEX_DIGIT: u16 = 0xa8b1;
 }
 
@@ -317,8 +321,7 @@ pub fn load_music(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ds = c.pop();
     c.set_sreg(DS, ds);
     let sheet = c.pop();
-    c.set_reg(AX, sheet);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0xaead)?;
+    resources::open_resource(&mut c, sheet, 0xaead)?;
     c.run(0xaead, 2)?;
     let ax = c.pop();
     c.set_reg(AX, ax);
@@ -524,8 +527,7 @@ pub fn shuffle_music_playlist(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0x12);
     loop {
         c.run(0xacc5, 2)?;
-        c.set_reg(BX, 8);
-        c.call(entry::RAND_BELOW, 0xaccb)?;
+        math::random_upto(&mut c, 8, 0xaccb)?;
         c.run(0xaccb, 5)?;
         let a = c.reg(AX);
         c.set_reg(SI, a);
@@ -605,8 +607,7 @@ pub fn voice_2_and_transition(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(entry::PCM_STOP_VOC, 0xb02f)?;
     c.run(0xb02f, 2)?;
-    c.set_reg8(r8::AL, 2);
-    c.call(entry::AUDIO_START_VOC, 0xb034)?;
+    audio::start_voc(&mut c, 2, 0xb034)?;
     c.run(0xb034, 2)?;
     c.set_reg8(r8::AL, 0x0e);
     super::screen::transition_al(c.m, 0xc108)
@@ -665,8 +666,7 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0x2792);
     if cinematic == 0 {
         c.push(bx);
-        c.set_reg(BX, 1);
-        let rand_masked_zero = math::rand_masked_zero(&mut c, 0xc89a)?;
+        let rand_masked_zero = math::rand_masked_zero(&mut c, 1, 0xc89a)?;
         c.run(0xc89a, 3 + (!rand_masked_zero) as u32)?;
         let b = c.pop();
         c.set_reg(BX, b);
@@ -685,8 +685,7 @@ pub fn scene_sound_sequence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if al & 0x80 != 0 {
             c.run(0xc8a3, 6)?;
             c.lods(B, DS);
-            c.set_reg(AX, 0x12c);
-            c.call(entry::WAIT_A_BIT, 0xc8b0)?;
+            waits::wait_ticks(&mut c, 0x12c, 0xc8b0)?;
             c.run(0xc8b0, 1)?;
             continue;
         }
@@ -807,9 +806,7 @@ fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
         c.update_voice_buffer(0, |b| b.data[0] = v);
         c.call(entry::REFILL_VOICE_BUFFER, 0xab7d)?;
         c.run(0xab7d, 3)?;
-        c.set_reg(SI, 0xab92);
-        c.set_reg(BP, 1);
-        c.call(entry::ADD_FRAME_TASK, 0xab86)?;
+        tasks::add_task(c, 0xab92, 1, 0xab86)?;
         c.run(0xab86, 1)?;
         c.set_reg(SI, 0x3811);
         c.interp(0xab89, 0xab8d)?;
@@ -1354,9 +1351,7 @@ fn next_phrase_a789(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xa75c, 1)?;
     c.call(entry::SETUP_LIP_SYNC_DATA_FROM_CURRENT, 0xa75f)?;
     c.run(0xa75f, 3)?;
-    c.set_reg(BP, 0);
-    c.set_reg(SI, 0xa7c2);
-    c.call(entry::ADD_FRAME_TASK, 0xa768)?;
+    tasks::add_task(c, 0xa7c2, 0, 0xa768)?;
     c.run(0xa768, 2)?;
     c.set_byte(g::VOC_PCM_PLAYING, 1);
     c.set_reg(SI, 0x3811);
@@ -1381,8 +1376,7 @@ fn next_phrase_a789(c: &mut Ctx) -> Result<(), Bail> {
 /// `loc_0a9a1`) and the music volume restored (`loc_0aded`).
 fn stop_a7a5(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xa7a5, 2)?;
-    c.set_reg(SI, 0xa7c2);
-    c.call(entry::REMOVE_FRAME_TASK, 0xa7ab)?;
+    tasks::remove_task(c, 0xa7c2, 0xa7ab)?;
     c.run(0xa7ab, 2)?;
     c.set_word(g::LIPSYNC_PTR, 0);
     c.call(entry::CURSOR_SPRITE_9F, 0xa7b4)?;
@@ -1642,8 +1636,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x9e48, 1)?;
         c.call(entry::BLIT_DIALOGUE_FRAME, 0x9e4b)?;
         c.run(0x9e4b, 2)?;
-        c.set_reg(SI, 0xd834);
-        c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x9e51)?;
+        mouse::hide_mouse_over(c, 0xd834, 0x9e51)?;
         c.run(0x9e51, 1)?;
         c.call(entry::DRAW_HEAD_IF_NEEDED_AND_UPDATE_SCREEN_RECT_AT_SI, 0x9e54)?;
         c.run(0x9e54, 1)?;
@@ -1651,8 +1644,7 @@ fn lip_frame_9de3(c: &mut Ctx) -> Result<(), Bail> {
     }
     c.run(0x9e40, 4)?;
     c.cmp(W, n, 2);
-    c.set_reg(SI, 0xd834);
-    c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x9e5d)?;
+    mouse::hide_mouse_over(c, 0xd834, 0x9e5d)?;
     c.run(0x9e5d, 2)?;
     let v = c.screen_buffers().active;
     c.push(v);
@@ -1697,8 +1689,7 @@ fn lip_sprite_9e75(c: &mut Ctx) -> Result<(), Bail> {
     let si = c.add(W, si, ax);
     c.set_reg(SI, si);
     c.push(si);
-    c.set_reg(SI, 0x47d4);
-    c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x9e99)?;
+    mouse::hide_mouse_over(c, 0x47d4, 0x9e99)?;
     let sp = c.reg(SP);
     let s0 = c.word_in(SS, sp);
     let seg = c.word_in(SS, 0xdbb2);

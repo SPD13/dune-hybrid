@@ -1,6 +1,7 @@
 //! The frame: running the frame tasks, waiting while checking for input,
 //! stepping the HNM video, palette chunks, and small helpers.
 
+use super::gfx;
 use super::input;
 use super::hnm;
 use super::pure;
@@ -25,7 +26,6 @@ mod code {
     pub const HNM_SET_TIMER: u16 = 0xca59;
     pub const PCM_PLAY_NEXT: u16 = 0xa9f4;
     pub const GFX_CLEAR_ACTIVE_FRAMEBUFFER: u16 = 0xc0ad;
-    pub const DRAW_UI_ELEMENTS_LIST: u16 = 0xd1f2;
     pub const SUB_D397: u16 = 0xd397;
     pub const SUB_B039: u16 = 0xb039;
 }
@@ -268,6 +268,13 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
             return c.ret();
         }
     }
+}
+
+/// [`wait_processing_frame_tasks_interruptable`] called: BP called, then AX ticks from before it waited, running the frame tasks.
+pub(super) fn draw_then_wait(c: &mut Ctx, draw: u16, ticks: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(BP, draw);
+    c.set_reg(AX, ticks);
+    c.call(0xe353, ret)
 }
 
 /// `hnm_wait_for_frame` (CAD4): CF clear when the next frame is due: with
@@ -601,9 +608,7 @@ pub fn redraw_frieze_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(code::GFX_CLEAR_ACTIVE_FRAMEBUFFER, 0xb242)?;
     c.run(0xb242, 3)?;
-    c.set_reg(CX, 0x12);
-    c.set_reg(SI, g::FRIEZE_ELEMENTS);
-    c.call(code::DRAW_UI_ELEMENTS_LIST, 0xb24b)?;
+    gfx::draw_ui_elements(&mut c, g::FRIEZE_ELEMENTS, 0x12, 0xb24b)?;
     c.run(0xb24b, 1)?;
     c.call(code::SUB_D397, 0xb24e)?;
     c.run(0xb24e, 1)?;

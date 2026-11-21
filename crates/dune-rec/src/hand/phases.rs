@@ -1,6 +1,7 @@
 //! Game-phase handlers (called by `set_game_phase` through its table) and
 //! the discovery of locations they trigger.
 
+use super::story;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -13,8 +14,6 @@ use pc::{
 mod code {
     pub const SAVE_REGS: u16 = 0xe270;
     pub const RESTORE_REGS: u16 = 0xe283;
-    pub const SET_GAME_PHASE: u16 = 0x121f;
-    pub const INCREASE_CHARISMA_BY_AL: u16 = 0x6f78;
     pub const SUB_1771: u16 = 0x1771;
 }
 
@@ -64,8 +63,7 @@ fn discover(c: &mut Ctx) -> Result<(), Bail> {
     c.count(10);
     c.call(code::SAVE_REGS, 0x427c)?;
     c.run(0x427c, 2)?;
-    c.set_reg8(r8::AL, 0x10);
-    c.call(code::SET_GAME_PHASE, 0x4281)?;
+    story::raise_phase(c, 0x10, 0x4281)?;
     c.run(0x4281, 1)?;
     c.call(code::RESTORE_REGS, 0x4284)?;
     c.run(0x4284, 1)?;
@@ -139,8 +137,7 @@ pub fn on_phase_2c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_character(1, |t| t.x = t.x & 0xff00 | 0x0a);
     c.update_character(1, |t| t.y = 0x0180);
     c.set_word(g::WORD_1201, 0x0109);
-    c.set_reg8(r8::AL, 0x14);
-    c.call(code::INCREASE_CHARISMA_BY_AL, 0x10ec)?;
+    story::raise_charisma(&mut c, 0x14, 0x10ec)?;
     c.run(0x10ec, 3)?;
     let bits = c.progress().event_flags;
     let bits = pure::or(B, bits as u16, 0x10) as u8;
@@ -156,8 +153,7 @@ pub fn on_phase_48(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1139)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_reg8(r8::AL, 0x0a);
-    c.call(code::INCREASE_CHARISMA_BY_AL, 0x113e)?;
+    story::raise_charisma(&mut c, 0x0a, 0x113e)?;
     c.run(0x113e, 2)?;
     c.set_reg(AX, 0x1313);
     c.call(code::SUB_1771, 0x1144)?;

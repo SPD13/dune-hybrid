@@ -208,6 +208,13 @@ pub fn font_set_draw_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`font_set_draw_position`] called: text goes on at (DX, BX).
+pub(super) fn set_draw_position(c: &mut Ctx, x: u16, y: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(DX, x);
+    c.set_reg(BX, y);
+    c.call(0xd04e, ret)
+}
+
 /// `font_get_draw_position` (D05F): (DX, BX) = where text goes on.
 pub fn font_get_draw_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd05f)?;
@@ -377,6 +384,13 @@ pub fn copy_rect_at_si_to_di(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 7)?;
     copy_rect(&mut c);
     c.ret()
+}
+
+/// [`copy_rect_at_si_to_di`] called: the rect at SI copied to DI.
+pub(super) fn copy_rect_to(c: &mut Ctx, from: u16, to: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, from);
+    c.set_reg(DI, to);
+    c.call(0x5b99, ret)
 }
 
 /// `copy_game_area_rect_to_unknown_rect` (5BA0): the game area's rectangle

@@ -1,6 +1,7 @@
 //! Saved games (their RLE, restoring the map's bits and the game's
 //! state), particles, numbers in strings, reading resources.
 
+use super::text;
 use super::files;
 use super::entry;
 use super::pure;
@@ -13,7 +14,6 @@ use pc::{
 
 mod code {
     pub const OPEN_ONMAP_RESOURCE: u16 = 0xc13b;
-    pub const PARTICLES_UPDATE_DIRTY_RECT: u16 = 0xc6ad;
     pub const CENTER_SPRITE_COORDINATES: u16 = 0xc202;
     pub const GET_SUBRESOURCE_POINTER: u16 = 0xc1f4;
     pub const GET_PHRASE_OR_COMMAND_STRING_SI: u16 = 0xcf70;
@@ -316,8 +316,7 @@ pub fn particles_remove_particle(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_byte(di + 0x0c, f);
     c.push(end);
     c.push(di);
-    c.set_reg(SI, di);
-    c.call(code::PARTICLES_UPDATE_DIRTY_RECT, 0xc5aa)?;
+    redraw_rect(&mut c, di, 0xc5aa)?;
     let sp = c.reg(SP);
     let (di, end) = (c.word_in(SS, sp), c.word_in(SS, sp + 2));
     let after = end.wrapping_sub(di.wrapping_add(PARTICLE_SIZE as u16));
@@ -729,8 +728,7 @@ fn save_slot_label(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)
     let ax = c.reg(AX);
     let ax = c.and(W, ax, 0x0fff);
     c.set_reg(AX, ax);
-    c.set_reg(SI, ax);
-    c.call(code::GET_PHRASE_OR_COMMAND_STRING_SI, 0xb2d9)?;
+    text::string_ptr(c, ax, 0xb2d9)?;
     c.run(0xb2d9, 1)?;
     c.call(code::FIND_LAST_NUMERIC_DIGIT, 0xb2dc)?;
     c.run(0xb2dc, 1)?;
@@ -746,8 +744,7 @@ fn save_slot_label(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx)
     c.run(0xb2f2, 3)?;
     let si = c.reg(SI);
     c.set_reg(DI, si.wrapping_add(3));
-    c.set_reg(SI, 0x117);
-    c.call(code::GET_PHRASE_OR_COMMAND_STRING_SI, 0xb2fb)?;
+    text::string_ptr(c, 0x117, 0xb2fb)?;
     c.run(0xb2fb, 7)?;
     let t = c.pop();
     let al = c.and(B, t & 0xff, 0x0f);
@@ -910,8 +907,7 @@ pub fn particles_move_particle(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let v = c.word(s.wrapping_add(k));
     c.set_reg(AX, v);
     c.set_word(d.wrapping_add(k), v);
-    c.set_reg(SI, d);
-    c.call(code::PARTICLES_UPDATE_DIRTY_RECT, 0xc6a9)?;
+    redraw_rect(&mut c, d, 0xc6a9)?;
     c.run(0xc6a9, 2)?;
     let sp = c.reg(SP);
     let sp = pure::add(W, sp, 8);
@@ -1402,6 +1398,12 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
     c.set_reg(SP, s);
     c.ret()?;
     ret_mouse_tail(&mut c)
+}
+
+/// [`particles_update_dirty_rect`] called: the rect at SI redrawn on screen.
+pub(super) fn redraw_rect(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, rect);
+    c.call(0xc6ad, ret)
 }
 
 /// After a `ret`: landed on DBECh (pushed when the mouse was hidden),

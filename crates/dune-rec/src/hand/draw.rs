@@ -109,6 +109,14 @@ pub fn draw_sprite_clobbering_bx_dx(m: &mut Machine, start: u16) -> Result<(), B
     ds_from_ss(&mut c)
 }
 
+/// [`draw_sprite_clobbering_bx_dx`] called: sprite AX of the loaded sheet at (DX, BX); BX, DX clobbered.
+pub(super) fn draw_sprite_clobbering(c: &mut Ctx, sprite: u16, x: u16, y: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, sprite);
+    c.set_reg(DX, x);
+    c.set_reg(BX, y);
+    c.call(0xc22f, ret)
+}
+
 /// `push ss; pop ds; ret`, counted here.
 fn ds_from_ss(c: &mut Ctx) -> Result<(), Bail> {
     let at = c.m.cpu.ip; // where `interp` came back
@@ -456,6 +464,13 @@ pub fn blit_repeated_x(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.pop();
     c.set_sreg(DS, v);
     c.ret()
+}
+
+/// [`blit_repeated_x`] called: sprite AX tiled over the rect at SI.
+pub(super) fn tile_sprite(c: &mut Ctx, sprite: u16, rect: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, sprite);
+    c.set_reg(SI, rect);
+    c.call(0xc370, ret)
 }
 
 /// `blit_repeated_x`'s loops (C3C7h / C3F4h): while the register `r`

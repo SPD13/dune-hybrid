@@ -106,7 +106,8 @@ pub fn hnm_read_bytes(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// [`hnm_read_bytes`] called: whether a video file was open to read from.
-pub(super) fn video_bytes_read(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+pub(super) fn video_bytes_read(c: &mut Ctx, count: u16, ret: u16) -> Result<bool, Bail> {
+    c.set_reg(CX, count);
     Ok(!c.call_cf(0xcdbf, ret)?)
 }
 

@@ -44,7 +44,8 @@ pub fn calc_sal_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// [`calc_sal_index`] called: AX plus the kind thresholds the location SI reaches (AX), and its kind (CL).
-pub(super) fn sal_index(c: &mut Ctx, ret: u16) -> Result<(u16, u8), Bail> {
+pub(super) fn sal_index(c: &mut Ctx, base: u16, ret: u16) -> Result<(u16, u8), Bail> {
+    c.set_reg(AX, base);
     c.call(0x5e4f, ret)?;
     Ok((c.reg(AX), c.reg(CX) as u8))
 }
@@ -360,6 +361,12 @@ pub fn note_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, y);
     c.set_word(g::PHRASE_ARG_PLACE + 2, y);
     c.ret()
+}
+
+/// [`note_point`] called: the name of the place DI noted for the phrases.
+pub(super) fn note_place(c: &mut Ctx, place: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(DI, place);
+    c.call(0x2e98, ret)
 }
 
 /// `loc_033ad`: when the record at SI has word 2 = BX, the bit of its

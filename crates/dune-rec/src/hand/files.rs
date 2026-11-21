@@ -15,7 +15,6 @@ mod code {
     pub const SEEK_DUNE_DAT_OFFSET_DXAX: u16 = 0xf2d6;
     pub const RES_LOCATE_IN_LOOKUP_TABLE: u16 = 0xf3a7;
     pub const STRCPY_TO_FILENAME_BUF: u16 = 0xf2fc;
-    pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     pub const ALLOC_MORE: u16 = 0xf13f;
     pub const SAVE_REGS: u16 = 0xe270;
     pub const RESTORE_REGS: u16 = 0xe283;
@@ -114,6 +113,12 @@ pub fn wait_processing_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Ba
     }
 }
 
+/// [`wait_processing_frame_tasks`] called: AX ticks, running the frame tasks after each.
+pub(super) fn wait_ticks_with_tasks(c: &mut Ctx, ticks: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, ticks);
+    c.call(0xe3a0, ret)
+}
+
 /// `load_driver_ax_with_vtable_at_si` (E57B): loads driver AX (resource
 /// AX + C8h) and fills the segments of its CX far pointers at SI (4 bytes
 /// apart) with its code segment, 10h below where it was loaded.
@@ -127,8 +132,7 @@ pub fn load_driver_ax_with_vtable_at_si(m: &mut Machine, start: u16) -> Result<(
     let ax = c.reg(AX);
     let resource = pure::add(W, ax, 0xc8);
     c.set_reg(AX, resource);
-    c.set_reg(SI, resource);
-    c.call(code::LOAD_RESOURCE_TO, 0xe585)?;
+    open_resource_into(&mut c, resource, 0xe585)?;
     c.run(0xe585, 4)?;
     let si = c.pop();
     c.set_reg(SI, si);
@@ -709,6 +713,12 @@ pub fn open_resource_by_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(entry::BUMP_ALLOCATE_BUMP_CX_BYTES)
 }
 
+/// [`open_resource_by_index`] called: resource SI read into ES:DI.
+pub(super) fn open_resource_into(c: &mut Ctx, resource: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, resource);
+    c.call(0xf0b9, ret)
+}
+
 /// `read_and_maybe_hsq` (F0D6): resource [0CE78h] into ES:DI: from
 /// extended memory when it is kept there (index below [0CE70h],
 /// `alloc_extended_memory`), else read from DUNE.DAT
@@ -1027,8 +1037,7 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.pop();
     c.set_sreg(ES, v);
     c.set_reg(DI, 0x4948);
-    c.set_reg(SI, 0xba);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, 0x00dc)?;
+    open_resource_into(&mut c, 0xba, 0x00dc)?;
     c.run(0x00dc, 2 + 0x18c * 4)?;
     c.set_reg(CX, 0x18c);
     let di = c.reg(DI);
@@ -1067,8 +1076,7 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, si + 8);
         c.set_reg(CX, 0x62 - k);
     }
-    c.set_reg(SI, 0xbf);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, 0x010c)?;
+    open_resource_into(&mut c, 0xbf, 0x010c)?;
     c.run(0x010c, 9)?;
     let di = c.reg(DI);
     c.set_reg(AX, di);
@@ -1087,8 +1095,7 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0123, 1)?;
     c.call(entry::ADJUST_SUB_RESOURCE_POINTERS, 0x0126)?;
     c.run(0x0126, 2)?;
-    c.set_reg(SI, 0xbc);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, 0x012c)?;
+    open_resource_into(&mut c, 0xbc, 0x012c)?;
     c.run(0x012c, 3)?;
     let (di, es) = (c.reg(DI), c.sreg(ES));
     c.set_word(g::CONDITIONS, di);

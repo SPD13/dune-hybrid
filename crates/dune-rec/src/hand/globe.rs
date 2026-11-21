@@ -1,6 +1,14 @@
 //! The globe view (its background, decorations sliding open and shut, the
 //! rotation table) and the frieze sides of the game screen.
 
+use super::tasks;
+use super::screens;
+use super::screen;
+use super::resources;
+use super::mouse;
+use super::gfx;
+use super::files;
+use super::draw;
 use super::math;
 use super::video;
 use super::records;
@@ -18,18 +26,13 @@ mod code {
     pub const MAP_CELL_AT: u16 = 0xb58b;
     pub const SET_FB1_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc07c;
     pub const SET_SCREEN_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc08e;
-    pub const GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN: u16 = 0xc097;
-    pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
-    pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
     pub const DRAW_SPRITE_CLIPPED: u16 = 0xc305;
     pub const DRAW_SPRITE_CLIPPED_CLOBBERING: u16 = 0xc30d;
     pub const SET_SOME_MOUSE_RECT: u16 = 0xdaaa;
-    pub const COPY_RECT_AT_SI_TO_DI: u16 = 0x5b99;
     pub const COPY_GAME_AREA_RECT_TO_CLIP_RECT: u16 = 0x5ba8;
     pub const COPY_GAME_RECT_FROM_FB2_TO_FB1: u16 = 0xc474;
     pub const COPY_GAME_AREA_TO_SCREEN_FB2_TO_FB1: u16 = 0xc43e;
     pub const SUB_C4DD: u16 = 0xc4dd;
-    pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     pub const SET_GLOBE_TILT_AND_ROTATION: u16 = 0xba75;
     pub const DRAW_GLOBE_SIDE_DECORATIONS: u16 = 0xb87e;
     pub const GLOBE_FILL_BLUE_BACKGROUND: u16 = 0xb84a;
@@ -54,20 +57,14 @@ const ROWS: u16 = 0x62;
 /// (5Bh, 14h), the mouse and clip rectangles, then the globe itself.
 fn globe_with_atmosphere(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xb85a, 2)?;
-    c.set_reg(AX, GLOBE_SHEET);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0xb860)?;
+    resources::open_resource(c, GLOBE_SHEET, 0xb860)?;
     c.run(0xb860, 4)?;
-    c.set_reg(DX, 0x5b);
-    c.set_reg(BX, 0x14);
-    c.set_reg(AX, 2);
-    c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0xb86c)?;
+    draw::draw_sprite_clobbering(c, 2, 0x5b, 0x14, 0xb86c)?;
     c.run(0xb86c, 2)?;
     c.set_reg(SI, GLOBE_MOUSE_RECT);
     c.call(code::SET_SOME_MOUSE_RECT, 0xb872)?;
     c.run(0xb872, 3)?;
-    c.set_reg(SI, g::GLOBE_CLIP_RECT);
-    c.set_reg(DI, g::DIRTY_RECT);
-    c.call(code::COPY_RECT_AT_SI_TO_DI, 0xb87b)?;
+    video::copy_rect_to(c, g::GLOBE_CLIP_RECT, g::DIRTY_RECT, 0xb87b)?;
     c.run(0xb87b, 1)?; // jmp B977h
     super::gfx::map_func_gfx(c.m, 0xb977)
 }
@@ -101,8 +98,7 @@ fn side_decorations(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xb87e, 1)?;
     c.call(code::COPY_GAME_AREA_RECT_TO_CLIP_RECT, 0xb881)?;
     c.run(0xb881, 2)?;
-    c.set_reg(AX, GLOBE_SHEET);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0xb887)?;
+    resources::open_resource(c, GLOBE_SHEET, 0xb887)?;
     c.run(0xb887, 4)?;
     let x = c.word(g::GLOBE_DECORATIONS_X);
     c.set_reg(DX, x);
@@ -143,16 +139,14 @@ pub fn setup_globe_draw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let es = c.pop();
     c.set_sreg(ES, es);
     c.set_reg(DI, g::SCRATCH_BUFFER);
-    c.set_reg(SI, 0x92);
-    c.call(code::LOAD_RESOURCE_TO, 0xb8b2)?;
+    files::open_resource_into(&mut c, 0x92, 0xb8b2)?;
     c.run(0xb8b2, 3)?;
     let (dx, bx) = (c.word(g::MAP_MARK), c.word(g::MAP_MARK_Y));
     c.set_reg(DX, dx);
     c.set_reg(BX, bx);
     c.call(code::SET_GLOBE_TILT_AND_ROTATION, 0xb8bd)?;
     c.run(0xb8bd, 2)?;
-    c.set_reg(AX, GLOBE_SHEET);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0xb8c3)?;
+    resources::open_resource(&mut c, GLOBE_SHEET, 0xb8c3)?;
     c.run(0xb8c3, 1)?; // jmp C0F4h
     super::gfx::update_screen_palette(c.m, 0xc0f4)
 }
@@ -166,8 +160,7 @@ pub fn globe_slide_decorations_open(m: &mut Machine, start: u16) -> Result<(), B
     c.run(start, 1)?;
     c.call(code::GLOBE_FILL_BLUE_BACKGROUND, 0xb8f6)?;
     c.run(0xb8f6, 2)?;
-    c.set_reg(BP, 0xbe1d);
-    c.call(code::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0xb8fc)?;
+    gfx::draw_on_front_buffer(&mut c, 0xbe1d, 0xb8fc)?;
     c.run(0xb8fc, 1)?;
     c.call(code::COPY_GAME_RECT_FROM_FB2_TO_FB1, 0xb8ff)?;
     loop {
@@ -223,8 +216,7 @@ pub fn remove_globe_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Bail>
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
     c.set_byte(g::GLOBE_DD03, 0);
-    c.set_reg(SI, GLOBE_TASK);
-    c.call(entry::REMOVE_FRAME_TASK, 0xb93b)?;
+    tasks::remove_task(&mut c, GLOBE_TASK, 0xb93b)?;
     remove_task_2(&mut c)
 }
 
@@ -532,7 +524,9 @@ pub fn map_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// [`map_to_screen`] called: the screen point of the map point (DX along, BX row) (DX, BX).
-pub(super) fn screen_point(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+pub(super) fn screen_point(c: &mut Ctx, along: u16, row: u16, ret: u16) -> Result<(u16, u16), Bail> {
+    c.set_reg(DX, along);
+    c.set_reg(BX, row);
     c.call(0xb647, ret)?;
     Ok((c.reg(DX), c.reg(BX)))
 }
@@ -817,8 +811,7 @@ fn globe_frame_from_b98e(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     let (bx, dx) = (c.reg(BX), c.reg(DX));
     c.push(bx);
     c.push(dx);
-    c.set_reg(SI, 0xd834);
-    c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0xb999)?;
+    mouse::hide_mouse_over(c, 0xd834, 0xb999)?;
     c.run(0xb999, 1)?;
     c.call(entry::UPDATE_SCREEN_AT_SPRITE_RECT_UPDATING_HEAD, 0xb99c)?;
     c.run(0xb99c, 5)?;
@@ -1232,15 +1225,12 @@ pub fn enter_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xb8cf, 5)?;
     let v = c.byte(g::GLOBE_DD03).wrapping_add(1);
     c.set_byte(g::GLOBE_DD03, v);
-    c.set_reg8(r8::AL, 0);
     c.set_reg(DX, 0xffff);
-    c.set_reg(BP, 0xb827);
-    c.call(entry::TRANSITION_AL, 0xb8de)?;
+    screen::transition_drawn(&mut c, 0xb827, 0, 0xb8de)?;
     c.run(0xb8de, 1)?;
     c.call(entry::MUSIC_STEP_IF_ENABLED, 0xb8e1)?;
     c.run(0xb8e1, 2)?;
-    c.set_reg(AX, 0x2562);
-    c.call(entry::SET_CLICK_HANDLER, 0xb8e7)?;
+    screens::set_click(&mut c, 0x2562, 0xb8e7)?;
     c.run(0xb8e7, 1)?;
     c.call(entry::UI_HEAD_ANIMATE_UP, 0xb8ea)?;
     c.run(0xb8ea, 3)?;
@@ -1263,8 +1253,7 @@ pub fn map2_resource_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail);
     }
     c.run(start, 2)?;
-    c.set_reg(AX, 0x3a);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x016f)?;
+    resources::open_resource(&mut c, 0x3a, 0x016f)?;
     if c.flag(pc::cpu::DF) {
         c.m.cpu.ip = 0x016f;
         return Err(Bail);
@@ -1554,8 +1543,7 @@ pub fn draw_globe_and_ui(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(to, at + 3)?;
     }
     c.run(0xb841, 2)?;
-    c.set_reg(SI, 0x1dc6);
-    c.call(entry::SET_BUTTONS_SI, 0xb847)?;
+    screens::set_buttons_from(&mut c, 0x1dc6, 0xb847)?;
     c.run(0xb847, 1)?;
     super::voice::pick_music(c.m, 0xad5e)
 }

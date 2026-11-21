@@ -52,6 +52,12 @@ pub fn draw_icons_list_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
+/// [`draw_icons_list_at_si`] called: the sprites listed at SI (sprite, x, y), up to FFFFh.
+pub(super) fn draw_icons(c: &mut Ctx, list: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, list);
+    c.call(0xc21b, ret)
+}
+
 /// From 3978: opens sheet AL, takes sub-resource BL as the palette.
 /// Exit: ES:SI = the sub-resource, DX = SI + 6 (its colours), AX = BL.
 fn open_palette(c: &mut Ctx) -> Result<(), Bail> {

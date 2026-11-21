@@ -2,6 +2,10 @@
 //! device's animations, the ornithopter, the settings sliders, talking
 //! heads without lip sync, lip sync start and stop.
 
+use super::tasks;
+use super::resources;
+use super::frame;
+use super::audio;
 use super::video;
 use super::math;
 use super::voice;
@@ -19,15 +23,12 @@ use pc::{
 
 mod code {
     pub const SET_SCREEN_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc08e;
-    pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
     pub const DRAW_ICONS_LIST_AT_SI: u16 = 0xc21b;
     pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
     pub const DRAW_SPRITE: u16 = 0xc2fd;
     pub const DRAW_SPRITE_CLIPPED: u16 = 0xc305;
-    pub const WAIT_INTERRUPTIBLE: u16 = 0xe353;
     pub const COMM_DRAW_GLOW: u16 = 0x275f;
     pub const COMM_DRAW_GLOW_INDEX: u16 = 0x27b6;
-    pub const AUDIO_START_VOC: u16 = 0xab15;
     pub const DRAW_MOON_AND_SUN: u16 = 0x1a9b;
     pub const FONT_SELECT_SMALL_FONT: u16 = 0xd075;
     pub const GET_INGAME_DAY: u16 = 0x1ad1;
@@ -39,10 +40,8 @@ mod code {
     pub const SUB_88F1: u16 = 0x88f1;
     pub const FORMAT_INTERPOLATED_STRING: u16 = 0x8944;
     pub const FONT_DRAW_STRING: u16 = 0xd1bb;
-    pub const SETTINGS_UI_DRAW_SLIDER: u16 = 0xa502;
     pub const SETTINGS_UI_ADD_GLOBAL_OFFSET: u16 = 0xa45c;
     pub const SUB_A465: u16 = 0xa465;
-    pub const REMOVE_FRAME_TASK: u16 = 0xda5f;
     pub const SUB_D61D: u16 = 0xd61d;
     pub const SET_VOC_PCM_IS_NOT_PLAYING: u16 = 0xabc6;
     pub const CLOSE_PCM_VOICE_FILE_HANDLE: u16 = 0xa9a1;
@@ -62,8 +61,7 @@ pub fn stop_scene_voice_and_particles(m: &mut Machine, start: u16) -> Result<(),
     c.call(code::PCM_CALL_AC30, 0x0b24)?;
     c.run(0x0b24, 3)?;
     c.m.cpu.write8(&mut c.m.hw, CS, 0xc13c, 0x25);
-    c.set_reg(SI, 0x0b45);
-    c.call(code::REMOVE_FRAME_TASK, 0x0b30)?;
+    tasks::remove_task(&mut c, 0x0b45, 0x0b30)?;
     let cinematic = c.byte(g::CINEMATIC);
     let map_ui = c.situation().map_interface;
     let skip = cinematic == 0 && map_ui & 0x80 != 0;
@@ -144,17 +142,13 @@ pub fn comm_fade_out_glow(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2773)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_reg(AX, 0x15);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x2779)?;
+    resources::open_resource(&mut c, 0x15, 0x2779)?;
     c.run(0x2779, 2)?;
-    c.set_reg8(r8::AL, 9);
-    c.call(code::AUDIO_START_VOC, 0x277e)?;
+    audio::start_voc(&mut c, 9, 0x277e)?;
     c.run(0x277e, 4)?;
     c.set_word(g::COMM_STEP, 4);
     loop {
-        c.set_reg(BP, code::COMM_DRAW_GLOW_INDEX);
-        c.set_reg(AX, 9);
-        c.call(code::WAIT_INTERRUPTIBLE, 0x278d)?;
+        frame::draw_then_wait(&mut c, code::COMM_DRAW_GLOW_INDEX, 9, 0x278d)?;
         let step = c.word(g::COMM_STEP);
         let more = step.wrapping_sub(1) & 0x8000 == 0;
         c.run(0x278d, if more { 2 + 3 } else { 3 })?;
@@ -178,8 +172,7 @@ fn flicker(c: &mut Ctx) -> Result<(), Bail> {
     loop {
         let x = c.reg(BX);
         c.push(x);
-        c.set_reg(BX, 0x0f);
-        let random = math::random_masked(c, 0x27d6)?;
+        let random = math::random_masked(c, 0x0f, 0x27d6)?;
         let (al, dl) = (random as u8, c.reg8(r8::DL));
         if al == dl {
             c.run(0x27d6, 3)?; // cmp; je; call again
@@ -228,7 +221,8 @@ fn flicker(c: &mut Ctx) -> Result<(), Bail> {
 /// The retry of the random sprite (27D3) until it differs from DL.
 fn continue_rand(c: &mut Ctx) -> Result<(), Bail> {
     loop {
-        let random = math::random_masked(c, 0x27d6)?;
+        let mask = c.reg(BX);
+        let random = math::random_masked(c, mask, 0x27d6)?;
         let (al, dl) = (random as u8, c.reg8(r8::DL));
         if al != dl {
             return Ok(());
@@ -356,6 +350,15 @@ pub fn font_draw_interpolated_string(m: &mut Machine, start: u16) -> Result<(), 
     c.call(code::RESTORE_REGS, 0x8887)?;
     c.run(0x8887, 1)?;
     c.ret()
+}
+
+/// [`font_draw_interpolated_string`] called: string AX with its fields filled in, at (DX, BX) in colour CX.
+pub(super) fn draw_interpolated_at(c: &mut Ctx, string: u16, x: u16, y: u16, colour: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, string);
+    c.set_reg(DX, x);
+    c.set_reg(BX, y);
+    c.set_reg(CX, colour);
+    c.call(0x8865, ret)
 }
 
 /// `setup_non_lip_sync_data_structure` (9BEE): from the list of frames at
@@ -492,8 +495,7 @@ pub fn settings_ui_draw_language_buttons(m: &mut Machine, start: u16) -> Result<
     entered(start, 0xa42c)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_reg(AX, 0x55);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0xa432)?;
+    resources::open_resource(&mut c, 0x55, 0xa432)?;
     lit_button(&mut c, 0xa432, 1, |c| {
         let language = c.byte(g::LANGUAGE);
         c.set_reg8(r8::AL, language);
@@ -746,8 +748,7 @@ pub fn settings_ui_draw_slider(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.run(0xa509, 3)?;
     let si = c.reg(SI);
     c.push(si);
-    c.set_reg(AX, 0x55);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0xa510)?;
+    resources::open_resource(&mut c, 0x55, 0xa510)?;
     c.run(0xa510, 3)?;
     let si = c.reg(SI);
     let x = c.word(si.wrapping_add(2));
@@ -782,6 +783,12 @@ pub fn settings_ui_draw_slider(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.ret()
 }
 
+/// [`settings_ui_draw_slider`] called: the slider at SI.
+pub(super) fn draw_slider(c: &mut Ctx, slider: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, slider);
+    c.call(0xa502, ret)
+}
+
 /// `settings_ui_draw_volume_sliders` (A4C6): the voice slider with PCM
 /// (marked undrawn unless setting bit 4), and the two music sliders when
 /// `sub_ae28` allows (both undrawn unless bit 400h).
@@ -792,8 +799,7 @@ pub fn settings_ui_draw_volume_sliders(m: &mut Machine, start: u16) -> Result<()
     let pcm_enabled = sound::pcm_enabled(&mut c, 0xa4c9)?;
     c.run(0xa4c9, if !pcm_enabled { 2 } else { 3 })?;
     if pcm_enabled {
-        c.set_reg(SI, g::SLIDER_VOICE);
-        c.call(code::SETTINGS_UI_DRAW_SLIDER, 0xa4d1)?;
+        draw_slider(&mut c, g::SLIDER_VOICE, 0xa4d1)?;
         let s = c.sound_state().settings;
         c.run(0xa4d1, if s & 4 != 0 { 3 } else { 4 })?;
         if s & 4 == 0 {
@@ -805,11 +811,9 @@ pub fn settings_ui_draw_volume_sliders(m: &mut Machine, start: u16) -> Result<()
         return c.ret();
     }
     c.run(0xa4e1, 3)?;
-    c.set_reg(SI, g::SLIDER_MUSIC);
-    c.call(code::SETTINGS_UI_DRAW_SLIDER, 0xa4e9)?;
+    draw_slider(&mut c, g::SLIDER_MUSIC, 0xa4e9)?;
     c.run(0xa4e9, 2)?;
-    c.set_reg(SI, g::SLIDER_MUSIC_2);
-    c.call(code::SETTINGS_UI_DRAW_SLIDER, 0xa4ef)?;
+    draw_slider(&mut c, g::SLIDER_MUSIC_2, 0xa4ef)?;
     let s = c.sound_state().settings;
     let on = s & 0x400 != 0;
     c.run(0xa4ef, if on { 3 } else { 5 })?;
@@ -851,8 +855,7 @@ pub fn lip_sync_stop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa7a5)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_reg(SI, code::LIP_SYNC_FRAME_TASK);
-    c.call(code::REMOVE_FRAME_TASK, 0xa7ab)?;
+    tasks::remove_task(&mut c, code::LIP_SYNC_FRAME_TASK, 0xa7ab)?;
     c.run(0xa7ab, 2)?;
     c.set_word(g::LIPSYNC_PTR, 0);
     c.call(code::SUB_D61D, 0xa7b4)?;
@@ -943,6 +946,12 @@ pub fn transition_front_buffer_to_screen(m: &mut Machine, start: u16) -> Result<
     let ds = c.pop();
     c.set_sreg(DS, ds);
     c.ret()
+}
+
+/// [`transition_front_buffer_to_screen`] called: transition AL from the front buffer to the screen.
+pub(super) fn transition_front_buffer(c: &mut Ctx, transition: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::AL, transition);
+    c.call(0xc0d5, ret)
 }
 
 /// `loc_0c85b`: the talking head's next zoom in 6000 (1770h) ticks from
@@ -1066,8 +1075,7 @@ pub fn redraw_date_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::GFX_COPY_RECT_TO_SCREEN, 0x1a2f)?;
     c.run(0x1a2f, 2)?;
     let ax = c.pop();
-    c.set_reg(AX, ax);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x1a33)?;
+    resources::open_resource(&mut c, ax, 0x1a33)?;
     c.run(0x1a33, 1)?;
     c.ret()
 }
@@ -1172,8 +1180,7 @@ pub fn settings_ui_draw(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(fb);
     c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xa400)?;
     c.run(0xa400, 2)?;
-    c.set_reg(AX, 0x55);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xa406)?;
+    resources::open_resource(&mut c, 0x55, 0xa406)?;
     c.run(0xa406, 4)?;
     c.set_reg(AX, 0);
     let (dx, bx) = (c.word(g::SETTINGS_UI_ORIGIN_X), c.word(g::SETTINGS_UI_ORIGIN_Y));

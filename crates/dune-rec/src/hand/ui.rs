@@ -2,6 +2,16 @@
 //! communication device, the sky, the sun and moon, location names, and
 //! smaller game-logic steps they trigger.
 
+use super::waits;
+use super::sprites;
+use super::screens;
+use super::screen;
+use super::resources;
+use super::panels;
+use super::gfx;
+use super::frame;
+use super::files;
+use super::draw;
 use super::video;
 use super::time;
 use super::records;
@@ -19,18 +29,11 @@ use pc::{
 
 mod code {
     pub const SET_SCREEN_AS_ACTIVE_FRAMEBUFFER: u16 = 0xc08e;
-    pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
-    pub const DRAW_ICONS_LIST_AT_SI: u16 = 0xc21b;
-    pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
     pub const DRAW_SPRITE: u16 = 0xc2fd;
     pub const GET_SUBRESOURCE_POINTER: u16 = 0xc1f4;
     pub const HEAD_STEP: u16 = 0x17be;
-    pub const WAIT_A_BIT: u16 = 0xe387;
-    pub const WAIT_INTERRUPTIBLE: u16 = 0xe353;
-    pub const WAIT_PROCESSING_FRAME_TASKS: u16 = 0xe3a0;
     pub const COMM_DRAW_FLICKER: u16 = 0x27c9;
     pub const COMM_DRAW_GLOW_INDEX: u16 = 0x27b6;
-    pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     pub const ADJUST_SUB_RESOURCE_POINTERS: u16 = 0x0098;
     pub const SKY_PALETTE_FOR_GAME_TIME: u16 = 0x395c;
     pub const OPEN_SKY_OR_SKYDN_PALETTE: u16 = 0x3971;
@@ -117,8 +120,7 @@ pub fn ui_head_animate_up(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.update_situation(|t| t.head_animation_step = step);
         c.call(code::HEAD_STEP, 0x17fb)?;
         c.run(0x17fb, 2)?;
-        c.set_reg(AX, 8);
-        c.call(code::WAIT_A_BIT, 0x1801)?;
+        waits::wait_ticks(&mut c, 8, 0x1801)?;
         c.run(0x1801, 1)?;
     }
 }
@@ -152,8 +154,7 @@ pub fn close_people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1a06, 3)?;
     let si = c.pop();
     c.set_reg(SI, si);
-    c.set_reg8(r8::AL, 0x12);
-    c.call(entry::TRANSITION_FRONT_BUFFER_TO_SCREEN, 0x1a0c)?;
+    panels::transition_front_buffer(&mut c, 0x12, 0x1a0c)?;
     c.run(0x1a0c, 4)?; // jmp D95Bh; mov ax; mov; ret
     set_click_handler(&mut c)
 }
@@ -262,8 +263,7 @@ pub fn note_shipment_event_if_due(m: &mut Machine, start: u16) -> Result<(), Bai
     if failed.is_some() {
         return c.ret();
     }
-    c.set_reg(AX, 0x030b);
-    c.call(entry::NOTE_PAIR_0, 0x1dfd)?;
+    story::add_event(&mut c, 0x030b, 0x1dfd)?;
     c.run(0x1dfd, 1)?;
     c.ret()
 }
@@ -318,10 +318,7 @@ fn glow(c: &mut Ctx) -> Result<(), Bail> {
     let ax = c.reg(AX);
     let ax = c.and(W, ax, 7);
     let sprite = c.add(B, ax, 0x0b);
-    c.set_reg(AX, sprite);
-    c.set_reg(BX, 0x56);
-    c.set_reg(DX, 0x64);
-    c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0x2770)?;
+    draw::draw_sprite_clobbering(c, sprite, 0x64, 0x56, 0x2770)?;
     c.run(0x2770, 1)?; // jmp C07Ch
     super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
 }
@@ -340,11 +337,9 @@ pub fn comm_draw_panels(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x2751)?;
     c.run(0x2751, 2)?;
-    c.set_reg(AX, 0x15);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x2757)?;
+    resources::open_resource(&mut c, 0x15, 0x2757)?;
     c.run(0x2757, 2)?;
-    c.set_reg(SI, 0x14c8);
-    c.call(code::DRAW_ICONS_LIST_AT_SI, 0x275d)?;
+    sprites::draw_icons(&mut c, 0x14c8, 0x275d)?;
     c.run(0x275d, 1)?;
     c.set_reg8(r8::AL, 1);
     glow(&mut c)
@@ -357,14 +352,11 @@ pub fn comm_fade_in_glow(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2795)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_reg(AX, 0x15);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x279b)?;
+    resources::open_resource(&mut c, 0x15, 0x279b)?;
     c.run(0x279b, 4)?;
     c.set_word(g::COMM_STEP, 0);
     loop {
-        c.set_reg(BP, code::COMM_DRAW_GLOW_INDEX);
-        c.set_reg(AX, 9);
-        c.call(code::WAIT_INTERRUPTIBLE, 0x27aa)?;
+        frame::draw_then_wait(&mut c, code::COMM_DRAW_GLOW_INDEX, 9, 0x27aa)?;
         let step = c.word(g::COMM_STEP).wrapping_add(1);
         let more = step < 0x0d;
         c.run(0x27aa, if more { 3 + 3 } else { 4 })?;
@@ -383,8 +375,7 @@ pub fn comm_animate_incoming_call(m: &mut Machine, start: u16) -> Result<(), Bai
     entered(start, 0x281c)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_reg(AX, 0x15);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x2822)?;
+    resources::open_resource(&mut c, 0x15, 0x2822)?;
     c.run(0x2822, 3)?;
     c.set_word(g::COMM_STEP, 0);
     loop {
@@ -392,8 +383,7 @@ pub fn comm_animate_incoming_call(m: &mut Machine, start: u16) -> Result<(), Bai
         c.push(cx);
         c.call(code::COMM_DRAW_FLICKER, 0x282c)?;
         c.run(0x282c, 2)?;
-        c.set_reg(AX, 9);
-        c.call(code::WAIT_PROCESSING_FRAME_TASKS, 0x2832)?;
+        files::wait_ticks_with_tasks(&mut c, 9, 0x2832)?;
         let sp = c.reg(SP);
         let left = c.word_in(SS, sp).wrapping_sub(1);
         c.run(0x2832, if left == 0 { 4 } else { 3 + 2 })?;
@@ -425,8 +415,7 @@ pub fn open_sal_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, si);
     let ax = c.reg(AX);
     let zero = pure::xor(W, ax, ax);
-    c.set_reg(AX, zero);
-    let (mut sal, _) = records::sal_index(&mut c, 0x2d83)?;
+    let (mut sal, _) = records::sal_index(&mut c, zero, 0x2d83)?;
     c.check(0x2d83, 20)?;
     let mut n = 2;
     if sal < 2 {
@@ -463,8 +452,7 @@ pub fn open_sal_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let es = c.pop();
     c.set_sreg(ES, es);
     c.set_reg(DI, g::SAL_BUFFER);
-    c.set_reg(SI, resource);
-    c.call(code::LOAD_RESOURCE_TO, 0x2dad)?;
+    files::open_resource_into(&mut c, resource, 0x2dad)?;
     c.run(0x2dad, 1)?;
     c.call(code::ADJUST_SUB_RESOURCE_POINTERS, 0x2db0)?;
     c.run(0x2db0, 1)?;
@@ -579,8 +567,7 @@ pub fn draw_sky(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(code::SET_SKY_PALETTE, 0x38b7)?;
     c.run(0x38b7, 2)?;
-    c.set_reg(AX, 0x28);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0x38bd)?;
+    resources::open_resource(&mut c, 0x28, 0x38bd)?;
     c.run(0x38bd, 4)?;
     for (r, v) in [(AX, 0), (BP, 0x14), (BX, 0)] {
         c.set_reg(r, v);
@@ -733,10 +720,8 @@ pub fn ui_transition_to_map_interface(m: &mut Machine, start: u16) -> Result<(),
     c.call(entry::OPEN_ONMAP_RESOURCE, 0x5a45)?;
     c.interp(0x5a45, 0x5a49)?;
     c.run(0x5a49, 4)?;
-    c.set_reg(BP, 0x5a56);
-    c.set_reg8(r8::AL, 2);
     c.set_reg(DX, 0);
-    c.call(entry::TRANSITION_AL, 0x5a53)?;
+    screen::transition_drawn(&mut c, 0x5a56, 2, 0x5a53)?;
     c.run(0x5a53, 1)?; // jmp AE04h
     music_step(&mut c)
 }
@@ -833,8 +818,7 @@ fn draw_counter_at(c: &mut Ctx) -> Result<(), Bail> {
     c.push(fb);
     c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xa4a3)?;
     c.run(0xa4a3, 2)?;
-    c.set_reg(AX, 0x55);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xa4a9)?;
+    resources::open_resource(c, 0x55, 0xa4a9)?;
     c.run(0xa4a9, 10)?;
     c.lods(B, DS);
     c.aam(10);
@@ -1092,8 +1076,7 @@ pub fn head_blink(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_situation(|t| t.head_animation_step = 9);
     c.call(entry::REDRAW_HEAD_PANEL, 0x1852)?;
     c.run(0x1852, 2)?;
-    c.set_reg(AX, 8);
-    c.call(entry::WAIT_A_BIT, 0x1858)?;
+    waits::wait_ticks(&mut c, 8, 0x1858)?;
     c.run(0x1858, 2)?;
     c.update_situation(|t| t.head_animation_step = 8);
     redraw_head_panel(c.m, 0x17be)
@@ -1127,8 +1110,7 @@ pub fn chankiss(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::COPY_GAME_AREA_TO_SCREEN_FB2_TO_FB1, 0x1462)?;
     c.run(0x1462, 3)?;
     c.set_reg(SI, 0x2298);
-    c.set_reg(AX, 0x27);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x146b)?;
+    resources::open_resource(&mut c, 0x27, 0x146b)?;
     c.run(0x146b, 1)?;
     c.call(entry::DRAW_ICONS_LIST_AT_SI, 0x146e)?;
     c.run(0x146e, 1)?;
@@ -1211,17 +1193,11 @@ fn head_and_shoulders_at(c: &mut Ctx) -> Result<(), Bail> {
     c.push(r);
     c.call(entry::LOAD_ICONES_SPRITES, 0x179e)?;
     c.run(0x179e, 4)?;
-    c.set_reg(DX, 0x7e);
-    c.set_reg(BX, 0x94);
-    c.set_reg(AX, 0x0f);
-    c.call(entry::DRAW_SPRITE_CLOBBERING_BX_DX, 0x17aa)?;
+    draw::draw_sprite_clobbering(c, 0x0f, 0x7e, 0x94, 0x17aa)?;
     c.run(0x17aa, 5)?;
     let h = c.situation().head_animation_step;
     let al = c.add(B, 0x10, h as u16);
-    c.set_reg(AX, al);
-    c.set_reg(DX, 0x96);
-    c.set_reg(BX, 0x89);
-    c.call(entry::DRAW_SPRITE_CLOBBERING_BX_DX, 0x17ba)?;
+    draw::draw_sprite_clobbering(c, al, 0x96, 0x89, 0x17ba)?;
     c.run(0x17ba, 2)?;
     let a = c.pop();
     c.set_reg(AX, a);
@@ -1239,8 +1215,7 @@ pub fn draw_head_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::GFX_CLEAR_ACTIVE_FRAMEBUFFER, 0x008c)?;
     c.run(0x008c, 3)?;
     c.set_reg(SI, 0x1ae4);
-    c.set_reg(BP, 0xd1ef);
-    c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x0095)?;
+    gfx::draw_on_front_buffer(&mut c, 0xd1ef, 0x0095)?;
     c.run(0x0095, 1)?;
     head_and_shoulders_at(&mut c)
 }
@@ -1258,8 +1233,7 @@ pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.byte(g::GAME_FRAME);
     if k == 0 {
         c.run(0x43a2, 4)?;
-        c.set_reg(AX, 0x24);
-        c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x43af)?;
+        resources::open_resource(&mut c, 0x24, 0x43af)?;
         c.run(0x43af, 1)?;
         c.call(entry::GFX_COPY_FRAMEBUFFER_TO_SCREEN, 0x43b2)?;
         c.run(0x43b2, 1)?;
@@ -1282,11 +1256,9 @@ pub fn scene_24(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(entry::DRAW_SKY, 0x43d6)?;
         c.run(0x43d6, 2)?;
     }
-    c.set_reg(AX, 0x24);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x43dc)?;
+    resources::open_resource(&mut c, 0x24, 0x43dc)?;
     c.run(0x43dc, 2)?;
-    c.set_reg(SI, 0x14b4);
-    c.call(entry::DRAW_ICONS_LIST_AT_SI, 0x43e2)?;
+    sprites::draw_icons(&mut c, 0x14b4, 0x43e2)?;
     c.run(0x43e2, 1)?;
     c.ret()
 }
@@ -1455,8 +1427,7 @@ pub fn scene_2a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(cx0);
     c.call(entry::COPY_GAME_AREA_TO_SCREEN_FB2_TO_FB1, 0x4825)?;
     c.run(0x4825, 2)?;
-    c.set_reg(AX, 0x2a);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x482b)?;
+    resources::open_resource(&mut c, 0x2a, 0x482b)?;
     for (at, to) in [(0x482bu16, 0xc0f4u16), (0x482e, 0xc07c), (0x4831, 0x3a95)] {
         c.run(at, 1)?;
         c.call(to, at + 3)?;
@@ -1546,8 +1517,7 @@ pub fn open_dialogue_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(entry::FRIEZE_SIDES_OPEN_BOOK, 0xaf29)?;
     c.run(0xaf29, 2)?;
-    c.set_reg(SI, 0x1e1a);
-    c.call(entry::SET_BUTTONS_SI, 0xaf2f)?;
+    screens::set_buttons_from(&mut c, 0x1e1a, 0xaf2f)?;
     c.run(0xaf2f, 1)?;
     c.call(entry::MARK_DIALOGUE_BUTTONS, 0xaf32)?;
     c.run(0xaf32, 5)?;
@@ -1574,8 +1544,7 @@ fn panel_with_head_at(c: &mut Ctx, at: u16) -> Result<(), Bail> {
     c.update_economy(|t| t.book = v as u8);
     c.call(entry::CLEAR_GAME_AREA, 0xaf4b)?;
     c.run(0xaf4b, 2)?;
-    c.set_reg8(r8::AL, 0x32);
-    c.call(entry::OPEN_RESOURCE_AND_DRAW_SPRITE_0, 0xaf50)?;
+    gfx::draw_resource_sprite_0(c, 0x32, 0xaf50)?;
     c.run(0xaf50, 2)?;
     c.set_byte(g::BOOK_VIDEO_BUTTON_FLAGS, 0);
     ui_draw_head_and_shoulders(c.m, 0x1797)
@@ -1602,8 +1571,7 @@ pub fn draw_character(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (dx, bx) = (c.reg(DX), c.reg(BX));
     c.set_word(di.wrapping_add(0x47f8), dx);
     c.set_word(di.wrapping_add(0x47fa), bx);
-    c.set_reg(AX, 0x26);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x3d4a)?;
+    resources::open_resource(&mut c, 0x26, 0x3d4a)?;
     let ax = c.word_in(SS, c.reg(SP));
     let al = ax as u8;
     c.run(0x3d4a, 5 + if al >= 0x0f { 3 } else { 0 })?;
@@ -1684,9 +1652,7 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let di = p.wrapping_add(0x1b48);
     c.set_reg(DI, di);
     let bx = c.word(di.wrapping_add(2)).wrapping_add(1);
-    c.set_reg(BX, bx);
-    c.set_reg(DX, 0x5d);
-    c.call(entry::FONT_SET_DRAW_POSITION, 0xd4b4)?;
+    video::set_draw_position(&mut c, 0x5d, bx, 0xd4b4)?;
     let text = ax & 0x3fff;
     let ah = (ax >> 8) as u8;
     let lit = ah & 0x40 == 0;

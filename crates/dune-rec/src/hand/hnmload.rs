@@ -1,6 +1,8 @@
 //! Opening HNM videos: the file, its palette, its first frame; the intro's
 //! video loaders; removing all frame tasks.
 
+use super::video;
+use super::tasks;
 use super::sound;
 use super::hnm;
 use super::gfx;
@@ -14,7 +16,6 @@ use pc::{
 };
 
 mod code {
-    pub const COPY_RECT_AT_SI_TO_DI: u16 = 0x5b99;
     pub const HNM_CLOSE_RESOURCE: u16 = 0xca01;
     pub const HNM_RESET_BUFFERS: u16 = 0xce1a;
     pub const HNM_RESET_FRAME_COUNTER: u16 = 0xce01;
@@ -93,8 +94,7 @@ pub fn hnm_open_and_load_palette(m: &mut Machine, start: u16) -> Result<(), Bail
         }
         let n = ax.wrapping_sub(2);
         c.set_reg(AX, n);
-        c.set_reg(CX, n);
-        let failed = !hnm::video_bytes_read(&mut c, 0xc988)?;
+        let failed = !hnm::video_bytes_read(&mut c, n, 0xc988)?;
         c.run(0xc988, 3)?;
         failed
     };
@@ -329,11 +329,9 @@ pub fn remove_all_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0920, 4)?;
     c.set_byte(g::SKY_VARIANT, 1);
     c.set_byte(g::FRAME_TASKS_ACTIVE, 0);
-    c.set_reg(SI, 0x070c);
-    c.call(entry::REMOVE_FRAME_TASK, 0x0930)?;
+    tasks::remove_task(&mut c, 0x070c, 0x0930)?;
     c.run(0x0930, 2)?;
-    c.set_reg(SI, 0x3916);
-    c.call(entry::REMOVE_FRAME_TASK, 0x0936)?;
+    tasks::remove_task(&mut c, 0x3916, 0x0936)?;
     c.run(0x0936, 1)?;
     c.call(entry::STOP_KEEP_FRAMEBUFFER_TASK, 0x0939)?;
     c.run(0x0939, 2)?;
@@ -362,9 +360,7 @@ pub fn hnm_open_noting_body(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !failed {
         if noted {
             let di = pure::sub(W, di, 8);
-            c.set_reg(DI, di);
-            c.set_reg(SI, g::HNM_BODY_OFFSET);
-            c.call(code::COPY_RECT_AT_SI_TO_DI, 0xcec8)?;
+            video::copy_rect_to(&mut c, g::HNM_BODY_OFFSET, di, 0xcec8)?;
             c.run(0xcec8, 1)?;
         }
     }
@@ -488,8 +484,7 @@ pub fn hnm_read_header(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let a = ax.wrapping_sub(2);
         c.set_reg(AX, a);
-        c.set_reg(CX, a);
-        c.call(entry::HNM_READ_BYTES, 0xc988)?;
+        hnm::video_bytes_read(&mut c, a, 0xc988)?;
     } else {
         c.run(0xc96e, 1)?;
     }

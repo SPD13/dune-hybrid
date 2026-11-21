@@ -4,6 +4,12 @@
 //! They run for seconds: they are checked with `REC_BUDGET` raised (see
 //! `docs/decompile.md`, section 3).
 
+use super::waits;
+use super::screen;
+use super::resources;
+use super::math;
+use super::frame;
+use super::audio;
 use super::records;
 use super::intro;
 use super::video;
@@ -74,8 +80,7 @@ pub fn play_night_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x491f, 1)?;
     c.call(entry::UPDATE_SCREEN_PALETTE, 0x4922)?;
     c.run(0x4922, 2)?;
-    c.set_reg8(r8::AL, 8);
-    c.call(entry::AUDIO_START_VOC, 0x4927)?;
+    audio::start_voc(&mut c, 8, 0x4927)?;
     c.run(0x4927, 1)?;
     c.call(entry::MUSIC_STEP_IF_ENABLED, 0x492a)?;
     loop {
@@ -125,9 +130,7 @@ pub fn cinematic_fade_loop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_byte(g::CINEMATIC, v as u8);
     loop {
         c.run(0x156a, 3)?;
-        c.set_reg(BP, 0x1556);
-        c.set_reg(AX, 0x10);
-        c.call(entry::WAIT_PROCESSING_FRAME_TASKS_INTERRUPTABLE, 0x1573)?;
+        frame::draw_then_wait(&mut c, 0x1556, 0x10, 0x1573)?;
         let n = c.byte(g::FRAME_TASKS_ACTIVE);
         let last = n == 1;
         c.run(0x1573, if last { 4 } else { 2 })?;
@@ -170,9 +173,7 @@ pub fn play_wormsuit_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x0e90, 2)?;
         }
         c.run(0x0e90, 4)?;
-        c.set_reg8(r8::AL, 0x3c);
-        c.set_reg(BP, 0x1797);
-        c.call(entry::TRANSITION_AL, 0x0e9a)?;
+        screen::transition_drawn(&mut c, 0x1797, 0x3c, 0x0e9a)?;
         c.run(0x0e9a, 2)?;
         let cx = c.pop().wrapping_sub(1);
         c.set_reg(CX, cx);
@@ -299,7 +300,8 @@ pub fn play_sal_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 6);
     let loc = c.word(g::PLACE);
     c.set_reg(SI, loc);
-    let (sal, _) = records::sal_index(&mut c, 0x4894)?;
+    let base = c.reg(AX);
+    let (sal, _) = records::sal_index(&mut c, base, 0x4894)?;
     let al = sal & 0xff;
     if al < 8 {
         c.run(0x4894, 4)?;
@@ -369,8 +371,7 @@ pub fn play_sal_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0x48fd)?;
     c.run(0x48fd, 3)?;
     c.set_byte(g::ORNI_SPEED, 0x1f);
-    c.set_reg8(r8::AL, 7);
-    c.call(entry::AUDIO_START_VOC, 0x4907)?;
+    audio::start_voc(&mut c, 7, 0x4907)?;
     c.run(0x4907, 2)?;
     c.set_reg8(r8::CL, 0xff);
     c.call(entry::STEP_ORNI_ROTOR, 0x490c)?;
@@ -476,8 +477,7 @@ pub fn ship_spice_to_emperor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, (rating & 0xff00) | bl as u16);
     let bl = pure::shr1(B, bl as u16, 1);
     let bx = pure::and(W, bl, 3);
-    c.set_reg(BX, bx);
-    c.call(entry::RAND_MASKED, 0x25cb)?;
+    math::random_masked(&mut c, bx, 0x25cb)?;
     c.run(0x25cb, 2)?;
     let ax = c.reg(AX);
     let v = c.word(g::SHIPMENT_DUE);
@@ -498,22 +498,16 @@ pub fn ship_spice_to_emperor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x25e3, 1)?;
     c.call(entry::GFX_COPY_FRAMEBUFFER_TO_SCREEN, 0x25e6)?;
     c.run(0x25e6, 2)?;
-    c.set_reg(AX, 0x2c);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x25ec)?;
+    resources::open_resource(&mut c, 0x2c, 0x25ec)?;
     c.run(0x25ec, 1)?;
     c.call(entry::UPDATE_SCREEN_PALETTE, 0x25ef)?;
     c.run(0x25ef, 3)?;
-    c.set_reg(BP, 0x2555);
-    c.set_reg8(r8::AL, 8);
-    c.call(entry::TRANSITION_AL, 0x25f7)?;
+    screen::transition_drawn(&mut c, 0x2555, 8, 0x25f7)?;
     c.run(0x25f7, 2)?;
-    c.set_reg(AX, 0x64);
-    c.call(entry::WAIT_INTERRUPTABLE, 0x25fd)?;
+    waits::wait_or_input(&mut c, 0x64, 0x25fd)?;
     c.run(0x25fd, 4)?;
     c.set_reg(CX, 0x18);
-    c.set_reg(BP, 0x0a44);
-    c.set_reg8(r8::AL, 6);
-    c.call(entry::TRANSITION_AL, 0x2608)?;
+    screen::transition_drawn(&mut c, 0x0a44, 6, 0x2608)?;
     c.run(0x2608, 1)?;
     c.set_reg(CX, 0x18);
     let mut cx = 0x18u16;
@@ -542,13 +536,11 @@ pub fn ship_spice_to_emperor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, es);
     c.interp(0x2629, 0x262d)?;
     c.run(0x262d, 2)?;
-    c.set_reg(AX, 0xc8);
-    c.call(entry::WAIT_INTERRUPTABLE, 0x2633)?;
+    waits::wait_or_input(&mut c, 0xc8, 0x2633)?;
     c.run(0x2633, 1)?;
     c.call(entry::WAIT_VOICE_DONE, 0x2636)?;
     c.run(0x2636, 2)?;
-    c.set_reg8(r8::AL, 1);
-    c.call(entry::AUDIO_START_VOC, 0x263b)?;
+    audio::start_voc(&mut c, 1, 0x263b)?;
     c.run(0x263b, 1)?;
     c.set_reg(CX, 1);
     let mut cx = 1u16;
@@ -560,9 +552,7 @@ pub fn ship_spice_to_emperor(m: &mut Machine, start: u16) -> Result<(), Bail> {
         loop {
             c.run(0x2642, 4)?;
             c.push(si);
-            c.set_reg(BP, 0x26ac);
-            c.set_reg(AX, 0x0c);
-            c.call(entry::WAIT_PROCESSING_FRAME_TASKS_INTERRUPTABLE, 0x264c)?;
+            frame::draw_then_wait(&mut c, 0x26ac, 0x0c, 0x264c)?;
             let last = si == 0x161e;
             c.run(0x264c, 3 + last as u32)?;
             si = c.pop();
@@ -595,9 +585,7 @@ pub fn ship_spice_to_emperor(m: &mut Machine, start: u16) -> Result<(), Bail> {
         cx = pure::inc(W, cx);
         c.push(cx);
         c.set_reg(CX, cx);
-        c.set_reg(BP, 0x0a44);
-        c.set_reg(AX, 0x0c);
-        c.call(entry::WAIT_PROCESSING_FRAME_TASKS_INTERRUPTABLE, 0x2671)?;
+        frame::draw_then_wait(&mut c, 0x0a44, 0x0c, 0x2671)?;
         c.run(0x2671, 3)?;
         cx = c.pop();
         c.set_reg(CX, cx);
@@ -607,23 +595,16 @@ pub fn ship_spice_to_emperor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x2677, 3)?;
     c.update_conversation(|t| t.caller = 1);
-    c.set_reg(BP, 0x2db1);
-    c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x2682)?;
+    gfx::draw_on_front_buffer(&mut c, 0x2db1, 0x2682)?;
     c.run(0x2682, 2)?;
-    c.set_reg(AX, 0x2c);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x2688)?;
+    resources::open_resource(&mut c, 0x2c, 0x2688)?;
     c.run(0x2688, 3)?;
-    c.set_reg8(r8::AL, 6);
-    c.set_reg(BP, 0x2555);
-    c.call(entry::TRANSITION_AL, 0x2690)?;
+    screen::transition_drawn(&mut c, 0x2555, 6, 0x2690)?;
     c.run(0x2690, 2)?;
-    c.set_reg(BP, 0x2db1);
-    c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x2696)?;
+    gfx::draw_on_front_buffer(&mut c, 0x2db1, 0x2696)?;
     c.run(0x2696, 4)?;
     c.update_conversation(|t| t.caller = 0);
-    c.set_reg(BP, 0x26a6);
-    c.set_reg8(r8::AL, 8);
-    c.call(entry::TRANSITION_AL, 0x26a3)?;
+    screen::transition_drawn(&mut c, 0x26a6, 8, 0x26a3)?;
     c.run(0x26a3, 1)?;
     c.jump(entry::COMM_FADE_OUT_GLOW)
 }

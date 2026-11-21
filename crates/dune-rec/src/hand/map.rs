@@ -1,6 +1,15 @@
 //! The map screen: its view rect ([`VIEW`]), the cursor's place on it,
 //! the mouse rect, marks and rects copied around.
 
+use super::text;
+use super::tasks;
+use super::screens;
+use super::screen;
+use super::saves;
+use super::resources;
+use super::globe;
+use super::gfx;
+use super::files;
 use super::math;
 use super::video;
 use super::story;
@@ -21,7 +30,6 @@ use pc::{
 mod code {
     pub const SAVE_REGS: u16 = 0xe270;
     pub const RESTORE_REGS: u16 = 0xe283;
-    pub const SET_CLICK_HANDLER: u16 = 0xd95e;
     pub const GET_MAP_POSITION: u16 = 0x407e;
     pub const PARTICLES_UPDATE_DIRTY_RECT: u16 = 0xc6ad;
 }
@@ -103,8 +111,7 @@ pub fn map_click_handler_and_rect(m: &mut Machine, start: u16) -> Result<(), Bai
     entered(start, 0x5ad3)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_reg(AX, 0x1a9e);
-    c.call(code::SET_CLICK_HANDLER, 0x5ad9)?;
+    screens::set_click(&mut c, 0x1a9e, 0x5ad9)?;
     c.run(0x5ad9, 2)?;
     c.set_reg(SI, VIEW);
     super::input::set_some_mouse_rect(c.m, 0xdaaa)
@@ -217,8 +224,7 @@ pub fn drop_map_sprite_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5bf6, 3)?;
     let old = c.word(g::SPRITE_LIST);
     c.set_word(g::SPRITE_LIST, 0);
-    c.set_reg(SI, old);
-    c.call(code::PARTICLES_UPDATE_DIRTY_RECT, 0x5bff)?;
+    saves::redraw_rect(&mut c, old, 0x5bff)?;
     c.run(0x5bff, 1)?;
     c.call(code::RESTORE_REGS, 0x5c02)?;
     c.run(0x5c02, 1)?;
@@ -348,7 +354,8 @@ pub fn find_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// [`find_marker`] called: whether a marker's word is DI (BP = its entry).
-pub(super) fn marker_found(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+pub(super) fn marker_found(c: &mut Ctx, location: u16, ret: u16) -> Result<bool, Bail> {
+    c.set_reg(DI, location);
     c.call_zf(0x5ed0, ret)
 }
 
@@ -454,6 +461,13 @@ pub fn add_point_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, di);
     c.set_word(di, 0x8000);
     c.ret()
+}
+
+/// [`add_point_entry`] called: an entry at DI for the map point (DX, BX) and its screen point.
+pub(super) fn add_point(c: &mut Ctx, along: u16, row: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(DX, along);
+    c.set_reg(BX, row);
+    c.call(0x81d7, ret)
 }
 
 /// `loc_082a0`: ZF set when the current UI elements are one of the two
@@ -667,9 +681,7 @@ pub fn open_zoomed_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_map_selection(|t| t.subject = 0);
     c.call(entry::SET_MARK_AT_MAP_POSITION, 0x4991)?;
     c.run(0x4991, 3)?;
-    c.set_reg(SI, 0x148a);
-    c.set_reg(DI, VIEW);
-    c.call(entry::COPY_RECT_AT_SI_TO_DI, 0x499a)?;
+    video::copy_rect_to(&mut c, 0x148a, VIEW, 0x499a)?;
     draw_zoomed_map(&mut c, 0x499a, 1, |c| c.set_word(g::MAP_VIEW_REDRAW, 0x49a0))
 }
 
@@ -945,8 +957,7 @@ pub fn drop_point_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, di);
     let old = c.word(di);
     c.set_word(di, 0);
-    c.set_reg(SI, old);
-    c.call(code::PARTICLES_UPDATE_DIRTY_RECT, 0x591c)?;
+    saves::redraw_rect(&mut c, old, 0x591c)?;
     c.run(0x591c, 1)?;
     c.call(entry::MOUSE_RECT_VIEW, 0x591f)?;
     c.run(0x591f, 1)?;
@@ -1036,8 +1047,7 @@ pub fn draw_map_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5bbd, 1)?;
     c.call(entry::FONT_SELECT_TALL_FONT, 0x5bc0)?;
     c.run(0x5bc0, 2)?;
-    c.set_reg(SI, 0xe2);
-    c.call(entry::GET_PHRASE_OR_COMMAND_STRING_SI, 0x5bc6)?;
+    text::string_ptr(&mut c, 0xe2, 0x5bc6)?;
     c.run(0x5bc6, 1)?;
     c.call(entry::FIND_LAST_NUMERIC_DIGIT, 0x5bc9)?;
     c.run(0x5bc9, 3)?;
@@ -1153,9 +1163,7 @@ pub fn record_outside_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 5)?;
     let si = c.reg(SI);
     let (x, y) = (c.word(si.wrapping_add(2)), c.word(si.wrapping_add(4)));
-    c.set_reg(DX, x);
-    c.set_reg(BX, y);
-    c.call(entry::MAP_TO_SCREEN, 0x62d9)?;
+    globe::screen_point(&mut c, x, y, 0x62d9)?;
     outside_view_tail(&mut c)
 }
 
@@ -1381,8 +1389,7 @@ pub fn redraw_map_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x82c4, 1)?;
     c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x82c7)?;
     c.run(0x82c7, 2)?;
-    c.set_reg(SI, 0x18e9);
-    c.call(entry::DRAW_RECT_OUTLINE_AT_SI, 0x82cd)?;
+    gfx::outline_rect(&mut c, 0x18e9, 0x82cd)?;
     c.run(0x82cd, 1)?;
     c.call(entry::SHOWN_TROOP, 0x82d0)?;
     c.run(0x82d0, 1)?;
@@ -1502,10 +1509,8 @@ pub fn open_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5a22, 1)?;
     c.call(entry::SET_MARK_AT_MAP_POSITION, 0x5a25)?;
     c.run(0x5a25, 4)?;
-    c.set_reg(BP, 0x5a56);
-    c.set_reg8(r8::AL, 0x34);
     c.set_reg(DX, 0xffff);
-    c.call(entry::TRANSITION_AL, 0x5a30)?;
+    screen::transition_drawn(&mut c, 0x5a56, 0x34, 0x5a30)?;
     let k = c.map_selection().map_screen;
     c.run(0x5a30, 3)?;
     if k == 0 {
@@ -1678,8 +1683,7 @@ pub fn pick_map_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0x828f, 4)?;
-    c.set_reg(AX, 0x32);
-    c.call(entry::WAIT_PROCESSING_FRAME_TASKS, 0x829e)?;
+    files::wait_ticks_with_tasks(&mut c, 0x32, 0x829e)?;
     c.run(0x829e, 2)?;
     c.set_flag(CF, false); // `clc`
     c.ret()
@@ -1705,9 +1709,7 @@ pub fn dialogue_frame_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x9bb4, if w == 0 { 6 } else { 4 })?;
     if w == 0 {
         c.push(si);
-        c.set_reg(SI, 0x1bf0);
-        c.set_reg(DI, 0xd834);
-        c.call(entry::COPY_RECT_AT_SI_TO_DI, 0x9bc5)?;
+        video::copy_rect_to(&mut c, 0x1bf0, 0xd834, 0x9bc5)?;
         c.run(0x9bc5, 2)?;
         let s = c.reg(SI);
         c.set_word(s, 0x80);
@@ -2000,11 +2002,9 @@ pub fn draw_skills_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(entry::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0x7d0f)?;
     c.run(0x7d0f, 2)?;
-    c.set_reg(SI, 0x1936);
-    c.call(entry::FILL_AND_OUTLINE, 0x7d15)?;
+    gfx::fill_and_outline_rect(&mut c, 0x1936, 0x7d15)?;
     c.run(0x7d15, 2)?;
-    c.set_reg(SI, 0x1940);
-    c.call(entry::FILL_AND_OUTLINE, 0x7d1b)?;
+    gfx::fill_and_outline_rect(&mut c, 0x1940, 0x7d1b)?;
     c.run(0x7d1b, 1)?;
     c.call(entry::DRAW_PLACE_SKILL_BARS, 0x7d1e)?;
     c.run(0x7d1e, 6 + 0x0e + 9)?; // the `rep` iterations too
@@ -2330,8 +2330,7 @@ pub fn location_balance(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0);
     c.set_reg(DX, 0);
     c.set_word(g::SPAN_CENTRE_X, 0);
-    c.set_reg(BP, 0x6155);
-    c.call(entry::FOR_EACH_TROOP, 0x6108)?;
+    troops::run_for_each_troop(&mut c, 0x6155, 0x6108)?;
     let (bx, cx, dx) = (c.reg(BX), c.reg(CX), c.reg(DX));
     let e = c.word(g::SPAN_CENTRE_X);
     let s1 = bx.wrapping_add(dx);
@@ -2479,8 +2478,7 @@ pub fn draw_scroll_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
     let r = c.word(g::SCROLL_SCENE_RESOURCE);
-    c.set_reg(AX, r);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x4be5)?;
+    resources::open_resource(&mut c, r, 0x4be5)?;
     c.run(0x4be5, 17)?;
     for (pos, step, out) in [(0x4878u16, 0x4874u16, 0x4870u16), (0x4876, 0x4872, 0x486e)] {
         let a = c.word(pos);
@@ -2565,8 +2563,7 @@ pub fn scene_39(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4aeb)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    c.set_reg(AX, 0x39);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x4af1)?;
+    resources::open_resource(&mut c, 0x39, 0x4af1)?;
     c.run(0x4af1, 1)?;
     c.call(entry::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0x4af4)?;
     c.run(0x4af4, 1)?;
@@ -2867,8 +2864,7 @@ pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let s = c.pop();
         c.set_reg(SI, s);
-        c.set_reg(BP, 0x7506);
-        c.call(entry::FOR_EACH_TROOP, 0x74f1)?;
+        troops::run_for_each_troop(&mut c, 0x7506, 0x74f1)?;
         c.run(0x74f1, 3)?;
         let di = c.reg(DI);
         c.push(di);
@@ -2876,8 +2872,7 @@ pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(entry::DRAW_LOCATION_CIRCLE, 0x74f8)?;
         return abandon_tail(&mut c);
     }
-    c.set_reg(BP, 0x7506);
-    c.call(entry::FOR_EACH_TROOP, 0x74f1)?;
+    troops::run_for_each_troop(&mut c, 0x7506, 0x74f1)?;
     c.run(0x74f1, 3)?;
     let di = c.reg(DI);
     c.push(di);
@@ -3115,8 +3110,7 @@ pub fn place_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_word(g::SITE_LAYER_2_OFFSET, a);
             let a = pure::sub(W, a, 2);
             c.set_word(g::SITE_LAYERS, a);
-            c.set_reg(AX, 0);
-            let (ax, kind) = records::sal_index(&mut c, 0x4e58)?;
+            let (ax, kind) = records::sal_index(&mut c, 0, 0x4e58)?;
             let s = c.byte(g::SITE_SPRITE_BY_SAL.wrapping_add(ax & 0xff));
             let big = s >= 0x13;
             let k = (kind.wrapping_sub(0x28)) & 0xfb;
@@ -3226,7 +3220,8 @@ pub fn nearest_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// [`nearest_shown_location`] called: the nearest shown location (DI, 0 for none) and its distance (AX, FFFFh for none).
-pub(super) fn nearest_shown(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+pub(super) fn nearest_shown(c: &mut Ctx, kind_limit: u8, ret: u16) -> Result<(u16, u16), Bail> {
+    c.set_reg8(r8::AL, kind_limit);
     c.call(0x5e6d, ret)?;
     Ok((c.reg(DI), c.reg(AX)))
 }
@@ -4096,8 +4091,7 @@ pub fn location_ahead(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x4226, 15)?;
             let offset = (v.wrapping_sub(0x20) as i8 as i16 as u16) << 5;
             c.set_word(g::SITE_OFFSET, offset);
-            c.set_reg(AX, 0);
-            c.call(entry::CALC_SAL_INDEX, 0x4247)?;
+            records::sal_index(&mut c, 0, 0x4247)?;
             c.run(0x4247, 8)?;
             c.set_reg(BX, 0x196d);
             let ax = c.reg(AX);
@@ -4226,8 +4220,7 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x57e8, 3)?;
     let es = c.sreg(ES);
     c.push(es);
-    c.set_reg(AX, 0x3a);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x57ef)?;
+    resources::open_resource(&mut c, 0x3a, 0x57ef)?;
     c.run(0x57ef, 6 + 0x100)?; // the `rep` iterations too
     let ds = c.sreg(DS);
     c.push(ds);
@@ -4308,8 +4301,7 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.push(bp);
             c.set_reg(BX, 0);
             c.set_reg(CX, 0);
-            c.set_reg(BP, 0x5728);
-            c.call(entry::FOR_TROOPS_AT_LOCATION, 0x5854)?;
+            troops::run_for_location_troops(&mut c, 0x5728, 0x5854)?;
             c.run(0x5854, 2)?;
             let b = c.pop();
             c.set_reg(BP, b);
@@ -4378,8 +4370,7 @@ fn toggle_map_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.run(0x1886, 4)?;
     c.set_word(g::BOOK_COUNTER_1_FLAGS, 0x80);
     c.set_word(g::BOOK_COUNTER_2_FLAGS, 0x80);
-    c.set_reg(BP, 0xd75a);
-    c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, 0x1898)?;
+    gfx::draw_on_front_buffer(c, 0xd75a, 0x1898)?;
     if c.byte(g::COMM_CALLER) != 0 {
         c.m.cpu.ip = 0x1898;
         return Err(Bail);
@@ -4464,8 +4455,7 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5c35, if inside_rect { 4 } else { 2 })?;
     if inside_rect {
         c.update_map_view(|t| t.mode = 0x40);
-        c.set_reg8(r8::AL, 0xff);
-        let (_, distance) = nearest_shown(&mut c, 0x5c41)?;
+        let (_, distance) = nearest_shown(&mut c, 0xff, 0x5c41)?;
         c.run(0x5c41, 3 + if distance < 9 { 0 } else { 1 })?;
         c.update_map_view(|t| t.mode = 0xc0);
         if distance >= 9 {
@@ -4537,11 +4527,9 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = pure::add(B, al as u16, 2);
     let di = c.reg(DI);
     c.set_byte(di.wrapping_add(0x0b), a as u8);
-    c.set_reg8(r8::AL, 4);
-    c.call(entry::INCREASE_CHARISMA_BY_AL, 0x745b)?;
+    story::raise_charisma(&mut c, 4, 0x745b)?;
     c.run(0x745b, 2)?;
-    c.set_reg8(r8::AL, 1);
-    c.call(entry::ADD_MOTIVATION_TO_ALL, 0x7460)?;
+    troops::raise_all_motivation(&mut c, 1, 0x7460)?;
     c.run(0x7460, 9)?;
     let di = c.reg(DI);
     let f = c.byte(di.wrapping_add(0x0a));
@@ -4556,11 +4544,9 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::REGIONS_TO_UNMARK, r);
     let x = c.pop();
     c.set_reg(CX, x);
-    c.set_reg(BP, 0x75af);
-    c.call(entry::FOR_EACH_TROOP, 0x7476)?;
+    troops::run_for_each_troop(&mut c, 0x75af, 0x7476)?;
     c.run(0x7476, 2)?;
-    c.set_reg(BP, 0x75ea);
-    c.call(entry::FOR_EACH_TROOP, 0x747c)?;
+    troops::run_for_each_troop(&mut c, 0x75ea, 0x747c)?;
     let seed = c.word(0);
     let z = seed & 3 == 0;
     c.run(0x747c, 3 + z as u32)?;
@@ -4572,8 +4558,7 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         c.run(0x7487, 3)?;
         c.set_reg(CX, 0);
-        c.set_reg(BP, 0x762a);
-        c.call(entry::FOR_EACH_TROOP, 0x748f)?;
+        troops::run_for_each_troop(&mut c, 0x762a, 0x748f)?;
         let (cx, dx) = (c.reg(CX), c.reg(DX));
         c.run(0x748f, 2 + if cx > dx { 0 } else { 3 })?;
         if cx <= dx {
@@ -4928,13 +4913,9 @@ pub fn enter_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5a63, 1)?;
     c.call(entry::REMOVE_GLOBE_FRAME_TASKS, 0x5a66)?;
     c.run(0x5a66, 3)?;
-    c.set_reg(SI, 0x6b34);
-    c.set_reg(BP, 0x0f);
-    c.call(entry::ADD_FRAME_TASK, 0x5a6f)?;
+    tasks::add_task(&mut c, 0x6b34, 0x0f, 0x5a6f)?;
     c.run(0x5a6f, 3)?;
-    c.set_reg(SI, 0x1482);
-    c.set_reg(DI, 0x46e3);
-    c.call(entry::COPY_RECT_AT_SI_TO_DI, 0x5a78)?;
+    video::copy_rect_to(&mut c, 0x1482, 0x46e3, 0x5a78)?;
     c.run(0x5a78, 1)?;
     c.call(entry::FRAME_VIEW, 0x5a7b)?;
     c.run(0x5a7b, 1)?;
@@ -4978,8 +4959,7 @@ fn map_view_redraw(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -
     c.set_word(g::PARTICLES, 0);
     c.call(entry::REFRESH_ALL_TROOPS, 0x5abf)?;
     c.run(0x5abf, 2)?;
-    c.set_reg(SI, 0x46e3);
-    c.call(entry::PARTICLES_UPDATE_DIRTY_RECT, 0x5ac5)?;
+    saves::redraw_rect(c, 0x46e3, 0x5ac5)?;
     c.run(0x5ac5, 1)?;
     c.call(entry::MAP_PANEL_BUTTONS, 0x5ac8)?;
     let ax = c.word_in(pc::cpu::SS, c.reg(pc::cpu::SP));
@@ -4994,8 +4974,7 @@ fn map_view_redraw(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ctx)) -
         c.call(entry::CENTER_MAP_AND_OPEN_PLACE_VIEW, 0x5ad3)?;
         c.run(0x5ad3, 2)?;
     }
-    c.set_reg(AX, 0x1a9e);
-    c.call(entry::SET_CLICK_HANDLER, 0x5ad9)?;
+    screens::set_click(c, 0x1a9e, 0x5ad9)?;
     c.run(0x5ad9, 4)?;
     c.set_reg(SI, 0x46e3);
     c.set_word(g::MOUSE_RECT, 0x46e3);
@@ -5354,8 +5333,7 @@ pub fn refresh_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::PARTICLES, 0);
     c.call(entry::REFRESH_ALL_TROOPS, 0x5dae)?;
     c.run(0x5dae, 2)?;
-    c.set_reg(SI, 0x46e3);
-    c.call(entry::PARTICLES_UPDATE_DIRTY_RECT, 0x5db4)?;
+    saves::redraw_rect(&mut c, 0x46e3, 0x5db4)?;
     let si = c.word_in(SS, c.reg(SP));
     c.run(0x5db4, 3 + if si != 0 { 1 } else { 1 })?;
     let si = c.pop();
@@ -5400,9 +5378,7 @@ pub fn route_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x8146, 3)?;
     let si = c.reg(SI);
     let (dx, bx) = (c.word(si.wrapping_add(6)), c.word(si.wrapping_add(8)));
-    c.set_reg(DX, dx);
-    c.set_reg(BX, bx);
-    c.call(entry::ADD_POINT_ENTRY, 0x814f)?;
+    add_point(&mut c, dx, bx, 0x814f)?;
     let si = c.reg(SI);
     c.run(0x814f, if si == 0x8e0 { 3 } else { 6 })?;
     if si == 0x8e0 {
@@ -5419,9 +5395,7 @@ pub fn route_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(at, 7)?;
             c.lods(W, DS);
             let (dx, bx) = (c.word(p.wrapping_add(2)), c.word(p.wrapping_add(4)));
-            c.set_reg(DX, dx);
-            c.set_reg(BX, bx);
-            c.call(entry::ADD_POINT_ENTRY, 0x8168)?;
+            add_point(&mut c, dx, bx, 0x8168)?;
             at = 0x8168;
             c.run(at, 1)?;
             at = 0x8158;
@@ -5429,9 +5403,7 @@ pub fn route_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         let p = c.word(si.wrapping_add(4));
         let (dx, bx) = (c.word(p.wrapping_add(2)), c.word(p.wrapping_add(4)));
-        c.set_reg(DX, dx);
-        c.set_reg(BX, bx);
-        c.call(entry::ADD_POINT_ENTRY, 0x8176)?;
+        add_point(&mut c, dx, bx, 0x8176)?;
     }
     c.run(0x8176, 1)?;
     let sp = c.reg(SP);
@@ -5550,8 +5522,7 @@ pub fn message_subject(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x4589, 4)?;
     c.set_reg(DI, 0);
-    c.set_reg8(r8::AL, 0xff);
-    let (_, distance) = nearest_shown(&mut c, 0x4593)?;
+    let (_, distance) = nearest_shown(&mut c, 0xff, 0x4593)?;
     if distance < 9 {
         c.run(0x4593, 2)?;
         return subject_tail(&mut c, 0);
@@ -5609,7 +5580,8 @@ pub fn marker_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5ee4)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    if !marker_found(&mut c, 0x5ee7)? {
+    let location = c.reg(DI);
+    if !marker_found(&mut c, location, 0x5ee7)? {
         c.run(0x5ee7, 2)?;
         return c.ret();
     }
@@ -5784,8 +5756,7 @@ pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
     c.run(0x547a, 3)?;
     let v = c.word(g::MAP_GFX_SEGMENT);
     c.push(v);
-    c.set_reg(AX, 0x3a);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x5484)?;
+    resources::open_resource(c, 0x3a, 0x5484)?;
     c.run(0x5484, 1)?;
     c.call(entry::UNMARK_PENDING_REGIONS, 0x5487)?;
     c.run(0x5487, 4)?;
@@ -5806,9 +5777,7 @@ pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
     c.run(0x54ad, 4)?;
     c.set_word(g::OUTLINE_PATTERN, 0x5555);
     let (dx, bx) = (c.word(g::OTHER_MARK), c.word(g::OTHER_MARK_Y));
-    c.set_reg(DX, dx);
-    c.set_reg(BX, bx);
-    c.call(entry::MAP_TO_SCREEN, 0x54be)?;
+    globe::screen_point(c, dx, bx, 0x54be)?;
     // The rect around the point, clamped to the box (counted first, its
     // registers and flags undone).
     let regs = c.m.cpu.regs;
@@ -5869,9 +5838,7 @@ pub(super) fn place_view_at(c: &mut Ctx, from_542f: bool) -> Result<(), Bail> {
     c.call(entry::SWAP_PROJECTION, 0x5564)?;
     c.run(0x5564, 4)?;
     c.update_map_view(|t| t.mode = 0xc0);
-    c.set_reg(SI, 0x1482);
-    c.set_reg(DI, 0x46e3);
-    c.call(entry::COPY_RECT_AT_SI_TO_DI, 0x5572)?;
+    video::copy_rect_to(c, 0x1482, 0x46e3, 0x5572)?;
     c.run(0x5572, 1)?;
     c.call(entry::COPY_VIEW_TO_BOTH_RECTS, 0x5575)?;
     mouse_rect_4710(c)
@@ -6407,8 +6374,7 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.jump(0x872c);
     }
     c.run(0x5cb2, 3)?;
-    c.set_reg8(r8::AL, 0x31);
-    let (nearest, distance) = nearest_shown(&mut c, 0x5cbc)?;
+    let (nearest, distance) = nearest_shown(&mut c, 0x31, 0x5cbc)?;
     let cur = c.map_selection().caption;
     if distance < 0x14 && nearest != cur {
         // Near and another place than the caption's: on at 5FB0h.
@@ -7227,8 +7193,7 @@ pub fn map_click_pick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::PLACE_VIEW_CLICK, 0x81fb)?;
     c.run(0x81fb, 3)?; // mov [46EBh]; mov al; call
     c.update_map_view(|t| t.mode = 0x40);
-    c.set_reg8(r8::AL, 0xff);
-    let (_, distance) = nearest_shown(&mut c, 0x8205)?;
+    let (_, distance) = nearest_shown(&mut c, 0xff, 0x8205)?;
     c.run(0x8205, 4)?; // mov [46EBh]; cmp; jnb; ret | call
     c.update_map_view(|t| t.mode = 0xc0);
     if distance >= 9 {

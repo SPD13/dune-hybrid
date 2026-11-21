@@ -88,6 +88,12 @@ pub fn wait_a_bit(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`wait_a_bit`] called: AX ticks of the timer.
+pub(super) fn wait_ticks(c: &mut Ctx, ticks: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, ticks);
+    c.call(0xe387, ret)
+}
+
 /// `wait_interruptable` (DDB0): AX ticks, or until a key or click
 /// (`loc_0dd63` gives CF; then CF set). Registers kept (`save_regs` /
 /// `restore_regs`), [0CEE8h] 0, the head drawn first unless [227Dh]
@@ -96,6 +102,12 @@ pub fn wait_a_bit(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn wait_interruptable(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xddb0)?;
     wait_at_ddb0(&mut Ctx::new(m))
+}
+
+/// [`wait_interruptable`] called: AX ticks, or until a key or click.
+pub(super) fn wait_or_input(c: &mut Ctx, ticks: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, ticks);
+    c.call(0xddb0, ret)
 }
 
 fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {

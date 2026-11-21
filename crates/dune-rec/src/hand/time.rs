@@ -123,6 +123,12 @@ pub fn run_clock_ticks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     clock_steps(&mut c, 0x0fd9)
 }
 
+/// [`run_clock_ticks`] called: the game clock run CX steps at once.
+pub(super) fn run_clock(c: &mut Ctx, steps: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(CX, steps);
+    c.call(0x0fd9, ret)
+}
+
 /// The leaders after `run_clock_ticks`' calls, where the interpreter can
 /// come back to Rust when a call gave up partway: the rest of the step
 /// and the steps after it.

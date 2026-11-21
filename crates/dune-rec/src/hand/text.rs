@@ -1,5 +1,6 @@
 //! Text: the phrase and command strings, the font, drawing strings.
 
+use super::resources;
 use super::video;
 use super::sound;
 use super::screens;
@@ -15,7 +16,6 @@ use pc::{
 mod code {
     pub const SAVE_REGS: u16 = 0xe270;
     pub const RESTORE_REGS: u16 = 0xe283;
-    pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
     pub const GET_SUBRESOURCE_POINTER: u16 = 0xc1f4;
     pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
     pub const FONT_SET_DRAW_POSITION: u16 = 0xd04e;
@@ -78,7 +78,8 @@ pub fn get_phrase_or_command_string_si(m: &mut Machine, start: u16) -> Result<()
 }
 
 /// [`get_phrase_or_command_string_si`] called: string SI, counted from 1 (SI; ES its segment).
-pub(super) fn string_ptr(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+pub(super) fn string_ptr(c: &mut Ctx, string: u16, ret: u16) -> Result<u16, Bail> {
+    c.set_reg(SI, string);
     c.call(0xcf70, ret)?;
     Ok(c.reg(SI))
 }
@@ -161,8 +162,7 @@ pub fn font_draw_glyph(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let glyph = pure::sub(B, ch as u16, 0x20);
     c.set_reg(AX, glyph);
     c.push(glyph);
-    c.set_reg(AX, FONT_SHEET);
-    c.call(code::OPEN_RESOURCE_BY_INDEX, 0xd179)?;
+    resources::open_resource(&mut c, FONT_SHEET, 0xd179)?;
     c.run(0xd179, 3)?;
     let glyph = c.pop();
     c.set_reg(AX, glyph);
@@ -244,6 +244,15 @@ pub fn font_draw_string_with_color_at_pos(m: &mut Machine, start: u16) -> Result
     c.set_word(g::TEXT_COLOUR, colour);
     c.call(code::FONT_SET_DRAW_POSITION, 0xd19b)?;
     super::gfx::font_draw_phrase_or_command_string(c.m, 0xd19b)
+}
+
+/// [`font_draw_string_with_color_at_pos`] called: string AX at (DX, BX) in colour CX.
+pub(super) fn draw_string_at(c: &mut Ctx, string: u16, x: u16, y: u16, colour: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, string);
+    c.set_reg(DX, x);
+    c.set_reg(BX, y);
+    c.set_reg(CX, colour);
+    c.call(0xd194, ret)
 }
 
 /// `font_draw_phrase_list` (D1A6): draws the strings listed at SI (string,
@@ -481,8 +490,7 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(es);
     let ax = c.reg(AX);
     c.push(ax);
-    c.set_reg(AX, 0x32);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xd112)?;
+    resources::open_resource(&mut c, 0x32, 0xd112)?;
     c.run(0xd112, 1)?;
     let (_, pen_y) = video::draw_position(&mut c, 0xd115)?;
     c.run(0xd115, 7 + if pen_y < 0x13 { 1 } else { 0 } + 1)?;

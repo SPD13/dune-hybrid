@@ -262,6 +262,13 @@ pub fn transition_al(m: &mut Machine, start: u16) -> Result<(), Bail> {
     transition(&mut Ctx::new(m))
 }
 
+/// [`transition_al`] called: BP drawn into the front buffer, then transition AL to the screen.
+pub(super) fn transition_drawn(c: &mut Ctx, draw: u16, transition: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg(BP, draw);
+    c.set_reg8(r8::AL, transition);
+    c.call(0xc108, ret)
+}
+
 /// Not in use yet: never called in the checking runs, so unverified.
 #[allow(dead_code)]
 /// `copy_pal_and_transition` (C102): copies palette 2 to palette 1 (driver
@@ -339,6 +346,7 @@ pub fn draw_sprite_clipped_clobbering(m: &mut Machine, start: u16) -> Result<(),
     c.set_sreg(DS, ds);
     c.ret()
 }
+
 
 /// `draw_sprite_list` (C32F): like `draw_icons_list_at_si`, clipped.
 pub fn draw_sprite_list(m: &mut Machine, start: u16) -> Result<(), Bail> {

@@ -1,6 +1,7 @@
 //! Voice (VOC through the PCM driver) and music (through the MIDI
 //! driver): starting, stopping, the drivers' timer hook.
 
+use super::tasks;
 use super::voice;
 use super::sound;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -16,7 +17,6 @@ mod code {
     pub const PCM_STOP_VOC: u16 = 0xac14;
     pub const OPEN_VOC_RESOURCE: u16 = 0xabe9;
     pub const CLOSE_PCM_VOICE_FILE_HANDLE: u16 = 0xa9a1;
-    pub const REMOVE_FRAME_TASK: u16 = 0xda5f;
     pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     /// CF set when sound is off (`sub_aec6`).
     pub const MIDI_FUNC_2_0: u16 = 0xaeb7;
@@ -125,8 +125,7 @@ pub fn pcm_stop_voc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let es = c.sreg(ES);
     c.push(es);
-    c.set_reg(SI, code::VOICE_TASK);
-    c.call(code::REMOVE_FRAME_TASK, 0xac21)?;
+    tasks::remove_task(&mut c, code::VOICE_TASK, 0xac21)?;
     c.run(0xac21, 1)?;
     c.call(code::CLOSE_PCM_VOICE_FILE_HANDLE, 0xac24)?;
     c.interp(0xac24, 0xac28)?;
@@ -185,6 +184,12 @@ pub fn audio_start_voc(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xab40, 1)?;
     c.call(code::RESTORE_REGS, 0xab43)?;
     audio_start_end(&mut c)
+}
+
+/// [`audio_start_voc`] called: VOC AL started, unless a voice plays or PCM is off.
+pub(super) fn start_voc(c: &mut Ctx, voc: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::AL, voc);
+    c.call(0xab15, ret)
 }
 
 /// `pop es; ret` (AB43).

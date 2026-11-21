@@ -307,6 +307,33 @@ closure runs when called, `format_interpolated_string`'s `shift` after DX
 has moved on): the scan stops at one, except the `c.update_x(|t| ..)`
 ones, which run on the spot.
 
+**Inputs as arguments (2026-11-21).** And for the registers a routine is
+handed: its named call (the results' one, or a new one returning `()`)
+takes them as arguments and sets them itself right before the call, so
+
+    c.set_reg(AX, 7);
+    c.set_reg(DX, 0x13);
+    c.set_reg(BX, 0x4a);
+    c.call(code::DRAW_SPRITE_CLOBBERING_BX_DX, 0x0879)?;
+
+becomes `draw::draw_sprite_clobbering(&mut c, 7, 0x13, 0x4a, 0x0879)?;`,
+and `troops::run_for_each_troop(&mut c, 0x6155, 0x6108)` names the BP
+routine handed to the troop loop. `tools/lift/name_args.py` holds the
+table (routine, registers, argument names, types) and takes each value
+from the run of `set_reg` lines right before the call: a plain name or
+number goes in as the argument, anything more is bound where it was set
+(`let rect = ...;`), so it is worked out at the same point. A fold is left
+out where a later `set_reg` of the run reads the register or the site sets
+it at another width. A plain `c.call` is named only where the site sets
+all the inputs this way; a named call from the results passes takes them
+everywhere, a value the site did not set read from the register right
+before (`let item = c.reg8(r8::CL);`, 5 such). Setting a register to the
+value it holds changes nothing, so the machine sees the same as before.
+The first pass: 57 routines (troop loops, drawing, text, transitions,
+waits, frame tasks, resources), 345 call sites. Inputs that callers set
+through a stretch run in place (most of SI the troop, DI the location)
+stay registers until those stretches are written out.
+
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust
 (no flag helpers where no caller reads the flags), `c.run(start, cost)`
@@ -1091,6 +1118,7 @@ places), [4722h] (a toggle of the map panel), [118Fh], [0DCE4h].
 | `tools/lift/name_results.py [--list] MODULE...` | Not a check: the named call returning a routine's CF/ZF answer as a `bool`, and its call sites rewritten to it (`--list`: the sites that read a result). |
 | `tools/lift/fix_warnings.py` | Not a check: remove the imports and `code::` constants a rewrite left unused. |
 | `tools/lift/name_regs.py [--list] MODULE...` | Not a check: the named call returning the registers a routine hands back as values, and its call sites rewritten to it (`--list`: the sites that read a register after a call). |
+| `tools/lift/name_args.py [--list] MODULE...` | Not a check: the named call taking the registers a routine is handed as arguments, and its call sites rewritten to pass the values their `set_reg` lines held (`--list MODULE`: its routines, their docs and the registers their callers set right before). |
 | `tools/lift/shadow.sh [ENTRIES] [SECS]` | The shadow check of every port (or ENTRIES) in the suite's seven games, with per-entry counts. |
 | `tools/lift/name_calls.py` | Not a check: regenerate `hand/entry.rs` (a constant per routine with a name: the port's, else the listing's label) and write `c.call(entry::NAME, ret)` / `c.jump(entry::NAME)` for the numbers (2106 sites; run again after adding or renaming ports). |
 | `--save FILE` + event `T:load:1` | Real play from any point of the game (the test saves, Day 1 to 23). |

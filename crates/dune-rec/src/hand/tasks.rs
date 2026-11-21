@@ -68,6 +68,13 @@ pub fn add_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`add_frame_task`] called: routine SI added to the frame tasks, every BP frames.
+pub(super) fn add_task(c: &mut Ctx, routine: u16, every: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, routine);
+    c.set_reg(BP, every);
+    c.call(0xda25, ret)
+}
+
 /// The search and removal of `remove_frame_task`, from DA5F.
 fn remove(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xda5f, 3)?; // mov di; mov cx, [di]; jcxz
@@ -162,6 +169,12 @@ pub fn remove_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     remove(&mut Ctx::new(m))
 }
 
+/// [`remove_frame_task`] called: routine SI removed from the frame tasks.
+pub(super) fn remove_task(c: &mut Ctx, routine: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, routine);
+    c.call(0xda5f, ret)
+}
+
 /// `remove_room_frame_task` (39E6): removes the room animation's task
 /// (C0B6h).
 pub fn remove_room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -190,9 +203,7 @@ pub fn add_room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_flag(CF, (high as u8) < 0x20);
     }
     if animated {
-        c.set_reg(SI, ROOM_ANIMATION_TASK);
-        c.set_reg(BP, 0x0c);
-        c.call(entry::ADD_FRAME_TASK, 0x3a94)?;
+        add_task(&mut c, ROOM_ANIMATION_TASK, 0x0c, 0x3a94)?;
         c.run(0x3a94, 1)?;
     }
     c.ret()

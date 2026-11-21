@@ -3,6 +3,13 @@
 //! starts with a byte: its kind in the low 4 bits (0Fh: none to leave),
 //! FFh at the end of the stack.
 
+use super::waits;
+use super::tasks;
+use super::sprites;
+use super::resources;
+use super::panels;
+use super::mouse;
+use super::gfx;
 use super::time;
 use super::records;
 use super::cursor;
@@ -183,7 +190,8 @@ pub fn item_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// [`item_place`] called: where item CL of the current list goes (AX, BX).
-pub(super) fn item_position(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+pub(super) fn item_position(c: &mut Ctx, item: u8, ret: u16) -> Result<(u16, u16), Bail> {
+    c.set_reg8(r8::CL, item);
     c.call(0xd454, ret)?;
     Ok((c.reg(AX), c.reg(BX)))
 }
@@ -289,9 +297,7 @@ pub fn draw_element_pressed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     c.push(si);
     c.push(di);
-    c.set_reg(SI, di);
-    c.set_reg(CX, 1);
-    c.call(code::DRAW_UI_ELEMENTS_LIST, 0xd671)?;
+    gfx::draw_ui_elements(&mut c, di, 1, 0xd671)?;
     c.run(0xd671, 4)?;
     let di = c.pop();
     c.set_reg(DI, di);
@@ -334,6 +340,12 @@ pub fn set_click_handler(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     c.set_word(g::MAP_CLICK_HANDLER, ax);
     c.ret()
+}
+
+/// [`set_click_handler`] called: the click handler AX.
+pub(super) fn set_click(c: &mut Ctx, handler: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(AX, handler);
+    c.call(0xd95e, ret)
 }
 
 /// `loc_0d0e3`: the index of AL in the 9 characters at CS:D0D1h: AL =
@@ -403,13 +415,10 @@ pub fn draw_1b48_and_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 4)?;
     let sheet = c.word(g::RESOURCE_ID);
     c.push(sheet);
-    c.set_reg(SI, 0x1b48);
-    c.set_reg(CX, 5);
-    c.call(code::DRAW_UI_ELEMENTS_LIST, 0xdf14)?;
+    gfx::draw_ui_elements(&mut c, 0x1b48, 5, 0xdf14)?;
     c.run(0xdf14, 2)?;
     let ax = c.pop();
-    c.set_reg(AX, ax);
-    c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xdf18)?;
+    resources::open_resource(&mut c, ax, 0xdf18)?;
     c.run(0xdf18, 1)?;
     c.call(entry::REDRAW_UI_SLOTS, 0xdf1b)?;
     c.run(0xdf1b, 1)?;
@@ -442,6 +451,12 @@ pub(super) fn set_buttons(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&m
 pub fn set_buttons_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd72b)?;
     set_buttons(&mut Ctx::new(m), start, 0, |_| {})
+}
+
+/// [`set_buttons_si`] called: the buttons from SI.
+pub(super) fn set_buttons_from(c: &mut Ctx, buttons: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(SI, buttons);
+    c.call(0xd72b, ret)
 }
 
 /// `loc_0d717`: the buttons for the screen: 1CCAh with hotspots (46EBh),
@@ -661,8 +676,7 @@ pub fn fade_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0xd29a, 3)?;
         let si = c.screen_buffers().second;
         c.set_reg(SI, si);
-        c.set_reg8(r8::AL, 0x18);
-        c.call(entry::TRANSITION_FRONT_BUFFER_TO_SCREEN, 0xd2a3)?;
+        panels::transition_front_buffer(&mut c, 0x18, 0xd2a3)?;
         c.run(0xd2a3, 1)?;
         let bx = c.pop();
         c.set_reg(BX, bx);
@@ -738,8 +752,7 @@ pub fn nudge_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xd265, 1)?;
     c.call(entry::UI_DRAW_DATE_AND_TIME_INDICATOR, 0xd268)?;
     c.run(0xd268, 2)?;
-    c.set_reg(AX, 0x0a);
-    c.call(entry::WAIT_A_BIT, 0xd26e)?;
+    waits::wait_ticks(&mut c, 0x0a, 0xd26e)?;
     c.run(0xd26e, 6)?;
     let si = c.pop();
     c.set_reg(SI, si);
@@ -925,8 +938,7 @@ pub fn blink_gauges(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(entry::DRAW_MOUSE, 0xd80c)?;
         c.run(0xd80c, 2)?;
         let a = c.pop();
-        c.set_reg(AX, a);
-        c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xd810)?;
+        resources::open_resource(&mut c, a, 0xd810)?;
         c.run(0xd810, 2)?;
     }
     let v = c.pop();
@@ -991,8 +1003,7 @@ pub fn open_box(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, ax);
         c.set_reg(DX, dx);
         c.set_reg(DI, 0x2448);
-        c.set_reg(SI, 0xdd06);
-        c.call(entry::DRAW_RECT_OUTLINE_AT_SI, 0xbcf9)?;
+        gfx::outline_rect(&mut c, 0xdd06, 0xbcf9)?;
         c.run(0xbcf9, 1)?;
         c.call(entry::TRANSITION_BORDERED_RECT, 0xbcfc)?;
         let cx = c.word_in(SS, c.reg(SP)).wrapping_sub(1);
@@ -1026,8 +1037,7 @@ pub fn blink_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x44b9, 1)?;
     c.call(entry::LOAD_ICONES_SPRITES, 0x44bc)?;
     c.run(0x44bc, 2)?;
-    c.set_reg(SI, 0x4749);
-    c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, 0x44c2)?;
+    mouse::hide_mouse_over(&mut c, 0x4749, 0x44c2)?;
     let si = c.reg(SI);
     let r = [c.word(si), c.word(si.wrapping_add(2)), c.word(si.wrapping_add(4)), c.word(si.wrapping_add(6))];
     let b = [c.word(g::DIRTY_RECT), c.word(g::DIRTY_RECT_TOP), c.word(g::DIRTY_RECT_RIGHT), c.word(g::DIRTY_RECT_BOTTOM)];
@@ -1221,8 +1231,7 @@ pub fn place_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 fn place_map_pointer_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x445d, 2)?;
-    c.set_reg(SI, 0x44ab);
-    c.call(entry::REMOVE_FRAME_TASK, 0x4463)?;
+    tasks::remove_task(c, 0x44ab, 0x4463)?;
     c.run(0x4463, 1)?;
     c.call(entry::GET_MAP_POSITION, 0x4466)?;
     c.run(0x4466, 1)?;
@@ -1259,9 +1268,7 @@ fn place_map_pointer_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_word(g::MAP_POINTER_BOX_TOP, bx);
     c.set_word(g::MAP_POINTER_BOX_RIGHT, bp);
     c.set_word(g::MAP_POINTER_BOX_BOTTOM, ax);
-    c.set_reg(SI, 0x44ab);
-    c.set_reg(BP, 0x12c);
-    c.call(entry::ADD_FRAME_TASK, 0x44a6)?;
+    tasks::add_task(c, 0x44ab, 0x12c, 0x44a6)?;
     c.run(0x44a6, 1)?;
     c.set_byte(g::MAP_POINTER_BLINKS, 0);
     blink_map_pointer(c.m, 0x44ab)
@@ -1281,11 +1288,9 @@ pub fn redraw_map_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let f = c.byte(g::GAME_FRAME);
     c.run(0x4386, if f != 0 { 4 } else { 3 })?;
     if f != 0 {
-        c.set_reg(AX, 0x24);
-        c.call(entry::OPEN_RESOURCE_BY_INDEX, 0x4393)?;
+        resources::open_resource(&mut c, 0x24, 0x4393)?;
         c.run(0x4393, 2)?;
-        c.set_reg(SI, 0x14c0);
-        c.call(entry::DRAW_ICONS_LIST_AT_SI, 0x4399)?;
+        sprites::draw_icons(&mut c, 0x14c0, 0x4399)?;
         c.run(0x4399, 1)?;
     }
     c.call(entry::UPDATE_SCREEN_AT_SPRITE_RECT_UPDATING_HEAD, 0x439c)?;
@@ -1354,8 +1359,7 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, 4)?;
     let di = c.word(g::PLACE);
-    c.set_reg(DI, di);
-    c.call(entry::NOTE_POINT, 0x2ed0)?;
+    records::note_place(&mut c, di, 0x2ed0)?;
     c.run(0x2ed0, 1)?;
     c.call(entry::BUILD_ACTION_LIST, 0x2ed3)?;
     let mode = c.travel().screen_kind;
@@ -1566,7 +1570,8 @@ pub fn press_panel_button(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 3)?;
     }
     c.set_reg(CX, n);
-    let (ax, bx) = item_position(&mut c, 0xd448)?;
+    let item = c.reg8(r8::CL);
+    let (ax, bx) = item_position(&mut c, item, 0xd448)?;
     if bx == 0 {
         c.run(0xd448, 3)?;
         return c.ret();

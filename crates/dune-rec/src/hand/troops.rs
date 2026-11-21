@@ -1,6 +1,8 @@
 //! Troops: 1Bh-byte records from [`g::TROOPS`], numbered from 1; and the
 //! per-location byte 19h, its bits spread over bytes and back.
 
+use super::story;
+use super::gfx;
 use super::globe;
 use super::time;
 use super::records;
@@ -21,7 +23,6 @@ mod code {
     pub const SAVE_REGS: u16 = 0xe270;
     pub const RESTORE_REGS: u16 = 0xe283;
     pub const PARTICLES_REMOVE_PARTICLE: u16 = 0xc58a;
-    pub const FOR_RECORD: u16 = 0x661d;
     pub const FOR_EACH_TROOP: u16 = 0x6603;
     pub const TROOP_PTR: u16 = 0x6906;
 }
@@ -138,7 +139,8 @@ pub fn spawn_troop_particle_if_visible(m: &mut Machine, start: u16) -> Result<()
 }
 
 /// [`spawn_troop_particle_if_visible`] called: whether troop AX was on screen (its particle then made).
-pub(super) fn troop_particle_spawned(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
+pub(super) fn troop_particle_spawned(c: &mut Ctx, troop: u8, ret: u16) -> Result<bool, Bail> {
+    c.set_reg8(r8::AL, troop);
     Ok(!c.call_cf(0x6757, ret)?)
 }
 
@@ -181,8 +183,7 @@ pub fn lose_all_harkonnen_troops(m: &mut Machine, start: u16) -> Result<(), Bail
     loop {
         c.run(at, cost)?;
         c.set_reg(CX, 0);
-        c.set_reg(BP, 0x764d);
-        c.call(code::FOR_EACH_TROOP, 0x6e0a)?;
+        run_for_each_troop(&mut c, 0x764d, 0x6e0a)?;
         if c.reg(CX) == 0 {
             c.run(0x6e0a, 3)?;
             return c.ret();
@@ -200,8 +201,7 @@ pub fn for_troop_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.save(&[DI]);
     let place = Troop(c.reg(SI)).location(&mut c);
     c.set_reg(DI, place);
-    c.set_reg(BP, 0x6ecb);
-    c.call(code::FOR_RECORD, 0x6ec9)?;
+    run_for_your_troops(&mut c, 0x6ecb, 0x6ec9)?;
     c.run(0x6ec9, 2)?;
     c.restore(&[DI]);
     c.ret()
@@ -217,6 +217,12 @@ pub fn add_motivation(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, if v <= 100 { 4 } else { 5 })?;
     troop.set_motivation(&mut c, v.min(100));
     c.ret()
+}
+
+/// [`add_motivation`] called: the troop SI's motivation up by AL (at most 100).
+pub(super) fn raise_motivation(c: &mut Ctx, points: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::AL, points);
+    c.call(0x6f48, ret)
 }
 
 /// From 7085 (`prefix` instructions before, done by `ops`): the troop SI
@@ -491,8 +497,7 @@ pub fn attack_clock_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.save(&[CX, SI]);
-    c.set_reg(BP, 0x1eb1);
-    c.call(code::FOR_EACH_TROOP, 0x1ee9)?;
+    run_for_each_troop(&mut c, 0x1eb1, 0x1ee9)?;
     c.run(0x1ee9, 2)?;
     c.set_reg(AX, 0x709);
     c.call(entry::ADD_PENDING_EVENT, 0x1eef)?;
@@ -648,8 +653,7 @@ pub fn estimate_field_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     let sum = c.reg(CX);
-    c.set_reg(BX, sum >> 4);
-    c.call(entry::RAND_BELOW, 0x1d09)?;
+    math::random_upto(&mut c, sum >> 4, 0x1d09)?;
     c.run(0x1d09, 3)?;
     let total = c.reg(CX).wrapping_add(c.reg(AX));
     c.set_reg(CX, total);
@@ -672,8 +676,7 @@ pub fn random_2_to_12(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     loop {
         c.run(start, 2)?;
-        c.set_reg(BX, 0x0a);
-        let random = math::random_upto(&mut c, 0x2200)?;
+        let random = math::random_upto(&mut c, 0x0a, 0x2200)?;
         let v = (random as u8).wrapping_add(2);
         let phase = c.progress().phase;
         // The instructions to the `ret` or the `jmp` back.
@@ -749,6 +752,12 @@ pub fn for_each_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     each_troop(&mut Ctx::new(m), start, 0, |_| {})
 }
 
+/// [`for_each_troop`] called: BP's routine for each troop.
+pub(super) fn run_for_each_troop(c: &mut Ctx, routine: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(BP, routine);
+    c.call(0x6603, ret)
+}
+
 /// `loc_05098`: [`each_troop`] with [`count_troop_sides`] (Harkonnen troops in CX,
 /// unstarted byte-3-6 troops in DX), CX = DX = 0 first.
 pub fn count_location_troop_sides(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -800,6 +809,12 @@ pub fn for_each_troop_below_80(m: &mut Machine, start: u16) -> Result<(), Bail> 
     }
 }
 
+/// [`for_each_troop_below_80`] called: BP's routine for each troop of yours (`troop_ptr` CF).
+pub(super) fn run_for_your_troops(c: &mut Ctx, routine: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(BP, routine);
+    c.call(0x661d, ret)
+}
+
 /// `loc_0668f`: the troop SI started, unless it is already or bit 80h of
 /// its word 10h is set: its byte 19h cleared, its time of change now (AX
 /// that time), and charisma 4 less (`lose_charisma`; DI kept).
@@ -825,8 +840,7 @@ pub fn start_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, now);
     troop.set_changed_at(&mut c, now);
     c.save(&[DI]);
-    c.set_reg8(r8::AL, 4);
-    c.call(entry::LOSE_CHARISMA, 0x66af)?;
+    drop_charisma(&mut c, 4, 0x66af)?;
     c.run(0x66af, 2)?;
     c.restore(&[DI]);
     c.ret()
@@ -1089,6 +1103,13 @@ pub fn add_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`add_skill`] called: the troop SI's skill BX up by AL (at most 5Fh).
+pub(super) fn raise_skill(c: &mut Ctx, skill: u16, points: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg(BX, skill);
+    c.set_reg8(r8::AL, points);
+    c.call(0x6edd, ret)
+}
+
 /// `loc_06f56`: every troop's motivation up by AL (at most 100; the byte
 /// wraps first), but those not yours or started (bits A0h of byte 3).
 pub fn add_motivation_to_all(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -1113,6 +1134,12 @@ pub fn add_motivation_to_all(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.restore(&[SI]);
     c.ret()
+}
+
+/// [`add_motivation_to_all`] called: every troop's motivation up by AL (at most 100), but those not yours or started.
+pub(super) fn raise_all_motivation(c: &mut Ctx, points: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::AL, points);
+    c.call(0x6f56, ret)
 }
 
 /// `loc_068d2`: [`each_troop`] with [`refresh_flagged_troop`], CX = 0 (CX the count).
@@ -1244,6 +1271,12 @@ pub fn lose_charisma(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
+/// [`lose_charisma`] called: charisma down by AL (at least 1), motivation with it.
+pub(super) fn drop_charisma(c: &mut Ctx, points: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::AL, points);
+    c.call(0x6fb0, ret)
+}
+
 /// From 6BB6 (CF from the caller): the troop SI's bit 10h of byte 3 made
 /// CF; when it changes, `loc_08461` (DI kept) and, when it was set,
 /// `stamp_record`. Flags come back as given.
@@ -1372,8 +1405,7 @@ pub fn mark_troop_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x697f, 5)?;
         let place = troop.location(&mut c);
-        c.set_reg(DI, place);
-        let accepted = map::marker_found(&mut c, 0x698d)?;
+        let accepted = map::marker_found(&mut c, place, 0x698d)?;
         c.run(0x698d, 2)?;
         if !accepted {
             return c.ret();
@@ -1549,15 +1581,13 @@ pub fn troop_location_dirty(m: &mut Machine, start: u16) -> Result<(), Bail> {
     };
     if !travelling {
         let place = troop.location(&mut c);
-        c.set_reg(DI, place);
-        if !map::marker_found(&mut c, 0x8479)? {
+        if !map::marker_found(&mut c, place, 0x8479)? {
             return none(&mut c, 0x8479);
         }
         c.run(0x8479, 3)?;
     }
     let id = Troop(c.reg(SI)).id(&mut c);
-    c.set_reg8(r8::AL, id);
-    if !troop_particle_spawned(&mut c, 0x8480)? {
+    if !troop_particle_spawned(&mut c, id, 0x8480)? {
         return none(&mut c, 0x8480);
     }
     c.run(0x8480, 4)?;
@@ -1713,8 +1743,7 @@ pub fn settle_arrived_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::CL, state);
         return c.ret();
     }
-    c.set_reg8(r8::CL, state & 0x0f);
-    c.call(entry::SET_TROOP_JOB, 0x83d6)?;
+    give_job(&mut c, state & 0x0f, 0x83d6)?;
     let place = Troop(c.reg(SI)).location(&mut c);
     c.run(0x83d6, 4)?;
     c.set_reg(DI, place);
@@ -1803,13 +1832,11 @@ pub fn troop_joins(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, joined);
     if enough {
         c.save(&[SI]);
-        c.set_reg8(r8::AL, 0x4c);
-        c.call(entry::SET_GAME_PHASE, 0x66ed)?;
+        story::raise_phase(&mut c, 0x4c, 0x66ed)?;
         c.run(0x66ed, 3)?;
         c.restore(&[SI]);
     }
-    c.set_reg8(r8::AL, 1);
-    c.call(entry::INCREASE_CHARISMA_BY_AL, 0x66f3)?;
+    story::raise_charisma(&mut c, 1, 0x66f3)?;
     c.run(0x66f3, 3)?;
     let troop = Troop(c.reg(SI));
     let s = troop.state(&mut c);
@@ -2133,8 +2160,7 @@ pub fn refresh_all_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, troop.offset());
         if !marked && travelling {
             let id = troop.id(&mut c);
-            c.set_reg8(r8::AL, id);
-            c.call(entry::SPAWN_TROOP_PARTICLE_IF_VISIBLE, 0x6754)?;
+            troop_particle_spawned(&mut c, id, 0x6754)?;
             c.run(0x6754, 1)?;
         }
         at = c.reg(SI);
@@ -2171,8 +2197,7 @@ pub fn merge_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let size = troop.size(&mut c);
     c.set_reg8(r8::CL, !size);
     c.set_reg(DX, troop.offset());
-    c.set_reg(BP, 0x6d5f);
-    c.call(entry::FOR_EACH_TROOP_BELOW_80, 0x6d3d)?;
+    run_for_your_troops(&mut c, 0x6d5f, 0x6d3d)?;
     let into = c.reg(BX);
     if into == 0 {
         c.run(0x6d3d, 3)?;
@@ -2476,6 +2501,12 @@ pub fn for_troops_at_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     unreachable!("the loop returns at the last troop")
 }
 
+/// [`for_troops_at_location`] called: BP's routine for each troop at the location DI or travelling to it.
+pub(super) fn run_for_location_troops(c: &mut Ctx, routine: u16, ret: u16) -> Result<(), Bail> {
+    c.set_reg(BP, routine);
+    c.call(0x6639, ret)
+}
+
 /// `loc_0858c`: the troop SI taken out of its location's chain (unless at
 /// travelling): the location's first troop or the troop before it
 /// then points past it; its next cleared. BP = SI; DI kept.
@@ -2673,9 +2704,7 @@ pub fn troop_screen_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if troop.state(&mut c) & troop_state::TRAVELLING != 0 {
         c.run(start, 7)?;
         let (x, y) = (troop.x(&mut c), troop.y(&mut c));
-        c.set_reg(DX, x);
-        c.set_reg(BX, y);
-        let (screen_x, screen_y) = globe::screen_point(&mut c, 0x68b8)?;
+        let (screen_x, screen_y) = globe::screen_point(&mut c, x, y, 0x68b8)?;
         let (sx, sy) = (screen_x as i16, screen_y as i16);
         // Which of its four tests fails first (each `cmp`, `jle`/`jge`).
         let failed = [sx <= -16, sy <= -16, sx >= 0x148, sy >= 0xa0].iter().position(|&f| f);
@@ -2751,8 +2780,7 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         } else {
             c.run(0x1e60, 9)?;
             c.set_reg(DX, 0);
-            c.set_reg(BP, 0x1ea1);
-            c.call(entry::FOR_EACH_TROOP_BELOW_80, 0x1e7a)?;
+            run_for_your_troops(&mut c, 0x1ea1, 0x1e7a)?;
             let (count, best) = (c.reg(DX), c.reg(CX));
             let more = count > best;
             c.run(0x1e7a, if more { 4 } else { 2 })?;
@@ -2781,8 +2809,7 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::ATTACK_TARGET, target);
     let n = c.situation().attacks_pending.wrapping_add(1);
     c.update_situation(|t| t.attacks_pending = n);
-    c.set_reg(BP, 0x1ea9);
-    c.call(entry::FOR_EACH_TROOP_BELOW_80, 0x1e9c)?;
+    run_for_your_troops(&mut c, 0x1ea9, 0x1e9c)?;
     c.run(0x1e9c, 2)?;
     c.set_reg8(r8::AL, 8);
     call_29f0_f(c.m, 0x71b2)
@@ -2848,15 +2875,13 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.set_reg(DX, 0);
-    c.set_reg(BP, 0x6e82);
-    c.call(entry::FOR_EACH_TROOP_BELOW_80, 0x6e6c)?;
+    run_for_your_troops(&mut c, 0x6e82, 0x6e6c)?;
     if c.reg8(r8::DL) != 3 {
         c.run(0x6e6c, 3)?;
         return c.ret();
     }
     c.run(0x6e6c, 4)?;
-    c.set_reg(BP, 0x6ea8);
-    c.call(entry::FOR_EACH_TROOP_BELOW_80, 0x6e77)?;
+    run_for_your_troops(&mut c, 0x6ea8, 0x6e77)?;
     c.run(0x6e77, 4)?;
     c.set_reg(AX, 0x302);
     c.save(&[SI, DI]);
@@ -3419,8 +3444,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::DESCRIBE_TROOP, 0x7c08)?;
     c.run(0x7c08, 2)?;
     let place = Troop(c.reg(SI)).location(&mut c);
-    c.set_reg(DI, place);
-    c.call(entry::NOTE_POINT, 0x7c0e)?;
+    records::note_place(&mut c, place, 0x7c0e)?;
     c.run(0x7c0e, 1)?;
     let distance = distance_to_map_position(&mut c, 0x7c11)?;
     if distance <= c.word(g::REACH) {
@@ -3835,8 +3859,7 @@ fn troop_panel_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x78f7, 3)?;
     let bottom = c.word(g::PHRASE_ARG_SUBJECT).wrapping_add(0x0c);
     c.set_word(g::PHRASE_ARG_SUBJECT, bottom);
-    c.set_reg(SI, PANEL);
-    c.call(entry::FILL_AND_OUTLINE, 0x7902)?;
+    gfx::fill_and_outline_rect(c, PANEL, 0x7902)?;
     c.run(0x7902, 1)?;
     c.call(entry::FONT_SELECT_SMALL_FONT, 0x7905)?;
     // The title: 3Ah, 3Bh for a troop moving (bit 40h of [30h]).
@@ -4197,8 +4220,7 @@ fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
     c.save(&[SI]);
     if !travelling {
         let place = troop.location(c);
-        c.set_reg(DI, place);
-        if !map::marker_found(c, 0x8479)? {
+        if !map::marker_found(c, place, 0x8479)? {
             c.run(0x8479, 3)?;
             return figure_gone_848b(c);
         }
@@ -4206,8 +4228,7 @@ fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
     }
     c.run(0x847b, 2)?;
     let id = Troop(c.reg(SI)).id(c);
-    c.set_reg8(r8::AL, id);
-    if !troop_particle_spawned(c, 0x8480)? {
+    if !troop_particle_spawned(c, id, 0x8480)? {
         c.run(0x8480, 3)?;
         return figure_gone_848b(c);
     }
@@ -4587,8 +4608,7 @@ pub fn raid_renew_harkonnen_troop(m: &mut Machine, start: u16) -> Result<(), Bai
 /// In `raid_renew_harkonnen_troop`: AX = `base` + a random number masked by `mask`
 /// (`loc_0e3b7` with BX the mask), the call returning to `back`.
 fn random_from(c: &mut Ctx, mask: u16, base: u16, back: u16) -> Result<u16, Bail> {
-    c.set_reg(BX, mask);
-    c.call(entry::RAND_MASKED, back)?;
+    math::random_masked(c, mask, back)?;
     c.run(back, 5)?;
     let v = c.reg(AX).wrapping_add(base);
     c.set_reg(AX, v);
@@ -4624,12 +4644,9 @@ pub fn raid_rally_own_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, if far { 11 } else { 10 })?;
     let w = troop.word_10(&mut c) | 0x400 | if far { 0x20 } else { 0 };
     troop.set_word_10(&mut c, w);
-    c.set_reg8(r8::AL, 4);
-    c.call(entry::ADD_MOTIVATION, 0x75d1)?;
+    raise_motivation(&mut c, 4, 0x75d1)?;
     c.run(0x75d1, 3)?;
-    c.set_reg(BX, 1);
-    c.set_reg8(r8::AL, 3);
-    c.call(entry::ADD_SKILL, 0x75d9)?;
+    raise_skill(&mut c, 1, 3, 0x75d9)?;
     c.run(0x75d9, 2)?;
     c.set_reg8(r8::CL, 4);
     c.jump(entry::GIVE_TROOP_JOB_UNLESS_SAME)
@@ -4701,6 +4718,12 @@ fn bump(c: &mut Ctx, at: u16) {
 pub fn set_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6ad4)?;
     set_job_at_6ad4(&mut Ctx::new(m))
+}
+
+/// [`set_troop_job`] called: the troop SI takes the job CL.
+pub(super) fn give_job(c: &mut Ctx, job: u8, ret: u16) -> Result<(), Bail> {
+    c.set_reg8(r8::CL, job);
+    c.call(0x6ad4, ret)
 }
 
 pub(super) fn set_job_at_6ad4(c: &mut Ctx) -> Result<(), Bail> {
@@ -4971,9 +4994,7 @@ pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
     troop.set_word_0e(&mut c, total);
     c.set_reg(AX, (total ^ old) & 0xff80);
     if crossed {
-        c.set_reg8(r8::AL, 1);
-        c.set_reg(BX, 0);
-        c.call(entry::ADD_SKILL, 0x7019)?;
+        raise_skill(&mut c, 0, 1, 0x7019)?;
     }
     // 7019h: counted in tenths.
     c.run(0x7019, 9)?;
@@ -5167,8 +5188,7 @@ pub fn job_9(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.jump(entry::SET_TROOP_ACTIVITY);
     }
     c.run(0x7711, 4)?;
-    c.set_reg8(r8::AL, 1);
-    c.call(entry::ADD_MOTIVATION, 0x771c)?;
+    raise_motivation(&mut c, 1, 0x771c)?;
     c.run(0x771c, 1)?;
     c.call(entry::TROOP_STRENGTH, 0x771f)?;
     let al = c.reg8(r8::AL);
@@ -5251,9 +5271,7 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !carry {
         return c.ret();
     }
-    c.set_reg(BX, 2);
-    c.set_reg8(r8::AL, 1);
-    c.call(entry::ADD_SKILL, 0x76e5)?;
+    raise_skill(&mut c, 2, 1, 0x76e5)?;
     let e = c.byte(di.wrapping_add(0x1b));
     if e < 0x0c {
         c.run(0x76e5, 2 + 2)?;
@@ -5346,9 +5364,7 @@ pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0x70f7, 4 + 3)?;
         c.set_reg(CX, elapsed);
-        c.set_reg(BX, 0);
-        c.set_reg8(r8::AL, 2);
-        c.call(entry::ADD_SKILL, 0x7117)?;
+        raise_skill(&mut c, 0, 2, 0x7117)?;
         let place_view = c.map_view().mode & 0x40 != 0;
         c.run(0x7117, 3 + place_view as u32)?;
         let a = c.byte(di.wrapping_add(0x0a));
