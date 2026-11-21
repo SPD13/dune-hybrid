@@ -230,6 +230,12 @@ pub fn rand(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`rand`] called: the next random word (AX).
+pub(super) fn random_word(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0xe3cc, ret)?;
+    Ok(c.reg(AX))
+}
+
 /// `rand_masked` (E3B7): a random word from the second generator, ANDed
 /// with BX; ZF set when it is 0 (its callers read ZF alone). DX kept.
 pub fn rand_masked(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -241,6 +247,12 @@ pub fn rand_masked(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let r = ax & bx;
     c.set_reg(AX, r);
     c.ret_zf(r == 0)
+}
+
+/// [`rand_masked`] called: a random word ANDed with BX (AX).
+pub(super) fn random_masked(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0xe3b7, ret)?;
+    Ok(c.reg(AX))
 }
 
 /// [`rand_masked`] called: whether the random word ANDed with BX is 0 (AX = it).
@@ -317,6 +329,12 @@ pub fn rand_below(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cx = c.pop();
     c.set_reg(CX, cx);
     c.ret()
+}
+
+/// [`rand_below`] called: a random number 0..=BX (AX).
+pub(super) fn random_upto(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0xe3df, ret)?;
+    Ok(c.reg(AX))
 }
 
 

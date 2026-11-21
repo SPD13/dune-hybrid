@@ -3,6 +3,8 @@
 //! starts with a byte: its kind in the low 4 bits (0Fh: none to leave),
 //! FFh at the end of the stack.
 
+use super::records;
+use super::cursor;
 use super::video;
 use super::map;
 use super::entry;
@@ -17,7 +19,6 @@ use pc::{
 mod code {
     pub const SAVE_REGS: u16 = 0xe270;
     pub const RESTORE_REGS: u16 = 0xe283;
-    pub const CURRENT_UI_ELEMENTS: u16 = 0xd41b;
     pub const CALL_RESTORE_CURSOR: u16 = 0xdbb2;
     pub const DRAW_MOUSE: u16 = 0xdbec;
     pub const HIGHLIGHT_HOVERED_TEXT_ACTION_ITEM: u16 = 0xd50f;
@@ -180,6 +181,12 @@ pub fn item_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`item_place`] called: where item CL of the current list goes (AX, BX).
+pub(super) fn item_position(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0xd454, ret)?;
+    Ok((c.reg(AX), c.reg(BX)))
+}
+
 /// From D621 (the stretch from `at`, `prefix` instructions before, done by
 /// `ops`): the cursor's sprite AX; when it changes on the cursor's own
 /// list, the cursor redrawn with the first item's place (`loc_0d454`,
@@ -189,8 +196,8 @@ fn set_cursor_sprite(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ct
     ops(c);
     c.call(code::SAVE_REGS, 0xd624)?;
     c.run(0xd624, 1)?;
-    c.call(code::CURRENT_UI_ELEMENTS, 0xd627)?;
-    let (ax, bp) = (c.reg(AX), c.reg(BP));
+    let ui_list = cursor::current_ui_list(c, 0xd627)?;
+    let (ax, bp) = (c.reg(AX), ui_list);
     let old = c.word(CURSOR_ELEMENT + 2);
     let same = old == ax;
     let ours = bp == CURSOR_ELEMENT;
@@ -1143,8 +1150,8 @@ pub fn panel_buttons_at(c: &mut Ctx, at: u16, pre: u32, ops: impl FnOnce(&mut Ct
     c.cmp(B, 0x80, 0x80);
     c.set_reg(DX, dx);
     c.cmp(B, dx >> 8, 0x21);
-    c.call(entry::LIST_ENTRY, 0x3035)?;
-    let si = c.reg(SI).wrapping_add(1);
+    let entry_ = records::list_entry_ptr(c, 0x3035)?;
+    let si = entry_.wrapping_add(1);
     let here = c.word(g::PLACE);
     let dl = c.reg8(r8::DL);
     let step = c.string_step(B);
@@ -1558,8 +1565,7 @@ pub fn press_panel_button(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 3)?;
     }
     c.set_reg(CX, n);
-    c.call(entry::ITEM_PLACE, 0xd448)?;
-    let (ax, bx) = (c.reg(AX), c.reg(BX));
+    let (ax, bx) = item_position(&mut c, 0xd448)?;
     if bx == 0 {
         c.run(0xd448, 3)?;
         return c.ret();

@@ -2,6 +2,8 @@
 //! communication device, the sky, the sun and moon, location names, and
 //! smaller game-logic steps they trigger.
 
+use super::records;
+use super::cursor;
 use super::voice;
 use super::story;
 use super::entry;
@@ -26,7 +28,6 @@ mod code {
     pub const WAIT_PROCESSING_FRAME_TASKS: u16 = 0xe3a0;
     pub const COMM_DRAW_FLICKER: u16 = 0x27c9;
     pub const COMM_DRAW_GLOW_INDEX: u16 = 0x27b6;
-    pub const CALC_SAL_INDEX: u16 = 0x5e4f;
     pub const LOAD_RESOURCE_TO: u16 = 0xf0b9;
     pub const ADJUST_SUB_RESOURCE_POINTERS: u16 = 0x0098;
     pub const SKY_PALETTE_FOR_GAME_TIME: u16 = 0x395c;
@@ -82,6 +83,12 @@ pub fn intro_script_load_word(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     c.set_word(g::SCENE_SEQUENCE_OFFSET, si);
     c.ret()
+}
+
+/// [`intro_script_load_word`] called: the intro script's next word (AX).
+pub(super) fn next_script_word(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x093f, ret)?;
+    Ok(c.reg(AX))
 }
 
 /// `ui_head_animate_up` (17E6): steps the talking head's animation up to
@@ -204,9 +211,8 @@ pub fn talking_head_zoom_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1ae7)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::CURRENT_UI_ELEMENTS, 0x1aea)?;
-    let bp = c.reg(BP);
-    if bp != 0x1f7e {
+    let ui_list = cursor::current_ui_list(&mut c, 0x1aea)?;
+    if ui_list != 0x1f7e {
         c.run(0x1aea, 3)?;
         return c.ret();
     }
@@ -418,10 +424,9 @@ pub fn open_sal_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     let zero = pure::xor(W, ax, ax);
     c.set_reg(AX, zero);
-    c.call(code::CALC_SAL_INDEX, 0x2d83)?;
+    let (mut sal, _) = records::sal_index(&mut c, 0x2d83)?;
     c.check(0x2d83, 20)?;
     let mut n = 2;
-    let mut sal = c.reg(AX);
     if sal < 2 {
         let bits = c.byte(g::SAL_FLAGS);
         n += 2;

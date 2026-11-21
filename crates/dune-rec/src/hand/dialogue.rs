@@ -2722,8 +2722,7 @@ pub fn next_dialogue_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9468)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::CURRENT_UI_ELEMENTS, 0x946b)?;
-    let ui = c.reg(BP);
+    let ui = cursor::current_ui_list(&mut c, 0x946b)?;
     if ui == 0x1ffe {
         c.run(0x946b, 3)?;
         c.set_flag(pc::cpu::CF, false); // its callers read CF alone
@@ -3319,8 +3318,7 @@ pub fn dialogue_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9215)?;
     let mut c = Ctx::new(m);
     c.run(0x9215, 1)?;
-    c.call(entry::CURRENT_UI_ELEMENTS, 0x9218)?;
-    let list = c.reg(BP);
+    let list = cursor::current_ui_list(&mut c, 0x9218)?;
     if list == 0x1f0e {
         let held = c.travel().screen_kind;
         c.run(0x9218, 5)?;

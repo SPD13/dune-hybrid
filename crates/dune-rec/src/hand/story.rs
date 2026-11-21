@@ -1,5 +1,9 @@
 //! Story progress, the intro script, and one-line flag setters.
 
+use super::time;
+use super::math;
+use super::globe;
+use super::cursor;
 use super::troops;
 use super::sound;
 use super::records;
@@ -1627,12 +1631,11 @@ pub fn troop_strength(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x348a)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::TROOP_MOTIVATION, 0x348d)?;
+    let motivation = troops::effective_motivation(&mut c, 0x348d)?;
     let troop = c.reg(SI);
-    let al = c.reg8(r8::AL);
     let [base, men] = [0x16u16, 0x1a].map(|k| c.byte(troop.wrapping_add(k)));
     // `add al, al` drops its carry; the second `add` saturates.
-    let (sum, carry) = al.wrapping_add(al).overflowing_add(base);
+    let (sum, carry) = motivation.wrapping_add(motivation).overflowing_add(base);
     let sum = if carry { 0xff } else { sum };
     let strength = ((sum as u16 * men as u16) >> 12) as u8;
     c.run(0x348d, 4 + carry as u32 + 6 + 4 + if strength == 0 { 4 } else { 1 })?;
@@ -2567,18 +2570,17 @@ pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(entry::GET_MAP_POSITION, 0x419e)?;
     c.run(0x419e, 1)?;
-    c.call(entry::MAP_BYTE_AT, 0x41a1)?;
-    let al = c.reg8(r8::AL);
-    let a = al & 0x30;
+    let cell = globe::globe_map_byte(&mut c, 0x41a1)?;
+    let a = cell & 0x30;
     if a < 0x30 {
         c.run(0x41a1, 3)?;
-        let a = pure::and(B, al as u16, 0x30);
+        let a = pure::and(B, cell as u16, 0x30);
         c.set_reg8(r8::AL, a as u8);
         return drop_it(&mut c, 0x41c5, 2);
     }
     let t = c.byte(g::DESERT_COUNTDOWN);
     c.run(0x41a1, 5 + (t == 0) as u32 + 2)?;
-    let a = pure::and(B, al as u16, 0x30);
+    let a = pure::and(B, cell as u16, 0x30);
     c.set_reg8(r8::AL, a as u8);
     if t == 0 {
         c.update_progress(|t| t.talk_reason = 4);
@@ -3822,12 +3824,11 @@ pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.set_reg(CX, ax);
         c.set_reg(BX, 7);
-        c.call(entry::RAND_MASKED, 0x0c6c)?;
-        let al = c.reg8(r8::AL);
-        let hi = al >= 4;
+        let random = math::random_masked(&mut c, 0x0c6c)?;
+        let hi = (random as u8) >= 4;
         c.run(0x0c6c, 3 + hi as u32 + 1)?;
         let si = c.reg(SI);
-        c.set_byte(si.wrapping_add(1), al);
+        c.set_byte(si.wrapping_add(1), random as u8);
         let mut cx = c.reg(CX);
         if hi {
             let ch = pure::or(B, cx >> 8, 0x40);
@@ -4085,8 +4086,7 @@ pub fn next_demand(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2090)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::GET_INGAME_DAY_Q, 0x2093)?;
-    let ax0 = c.reg(AX);
+    let ax0 = time::game_day(&mut c, 0x2093)?;
     let k = c.economy().demands;
     let be = c.economy().shipment_ratio;
     let pos = be & 0x80 == 0;
@@ -4122,8 +4122,8 @@ pub fn next_demand(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, a);
     c.set_reg(CX, s);
     c.set_reg(BX, 0x3f);
-    c.call(entry::RAND_MASKED, 0x20ef)?;
-    let r = c.reg(AX).wrapping_add(0xe0);
+    let random = math::random_masked(&mut c, 0x20ef)?;
+    let r = random.wrapping_add(0xe0);
     let q = r as u32 * s as u32;
     let (dxq, axq) = ((q >> 16) as u16, q as u16);
     let d = (dxq & 0xff) << 8 | axq >> 8;
@@ -4821,8 +4821,8 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break;
             }
             c.run(0x1fa1, 3)?;
-            c.call(entry::TROOP_PTR, 0x1fa8)?;
-            let si = c.reg(SI);
+            let troop_ = troops::troop_record(&mut c, 0x1fa8)?;
+            let si = troop_.0;
             let nx = c.byte(si.wrapping_add(1));
             let f = c.byte(si.wrapping_add(0x10));
             c.run(0x1fa8, if f & 0x80 != 0 { 9 } else { 3 })?;
@@ -4950,8 +4950,7 @@ pub fn spice_demand_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0x20a4, 3)?;
-    c.call(entry::GET_INGAME_DAY_Q, 0x20ae)?;
-    let ax = c.reg(AX);
+    let ax = time::game_day(&mut c, 0x20ae)?;
     let day = c.word(g::SHIPMENT_DUE);
     let d = ax.wrapping_sub(day);
     let pend = c.economy().endgame_stage;
@@ -5039,8 +5038,8 @@ fn new_demand(c: &mut Ctx, ax: u16, day: u16, f: u8) -> Result<(), Bail> {
     c.set_reg(AX, cx);
     c.set_reg(CX, cx);
     c.set_reg(BX, 0x3f);
-    c.call(entry::RAND_MASKED, 0x20ef)?;
-    let r = c.reg(AX).wrapping_add(0xe0);
+    let random = math::random_masked(c, 0x20ef)?;
+    let r = random.wrapping_add(0xe0);
     let p = r as u32 * cx as u32;
     let (pdx, pax) = ((p >> 16) as u16, p as u16);
     let be = c.economy().shipment_ratio;
@@ -5163,8 +5162,7 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(si.wrapping_add(4), w4);
     if neg4 {
         c.set_byte(si.wrapping_add(6), b6);
-        c.call(entry::RAND, if neg6 { 0x0b78 } else { 0x0b89 })?;
-        let r = c.reg(AX);
+        let r = math::random_word(&mut c, if neg6 { 0x0b78 } else { 0x0b89 })?;
         if neg6 {
             // A new wait.
             c.run(0x0b78, 6)?;
@@ -5810,8 +5808,8 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x3f31, 8)?;
     start_ops(&mut c);
-    c.call(entry::LIST_ENTRY, 0x3f6a)?;
-    let (bp, si) = (c.reg(BP), c.reg(SI));
+    let entry_ = records::list_entry_ptr(&mut c, 0x3f6a)?;
+    let (bp, si) = (c.reg(BP), entry_);
     let dl = c.byte_in(SS, bp.wrapping_add(si));
     let pick = |c: &mut Ctx| {
         c.set_reg8(r8::DL, dl);
@@ -5945,14 +5943,13 @@ fn step_3ff5(c: &mut Ctx) -> Result<(), Bail> {
     let x = c.reg8(r8::BL) as i8 as i16 as u16;
     c.set_reg(AX, x);
     c.set_reg(BX, x);
-    c.call(entry::MAP_BYTE_AT, 0x400a)?;
-    let al = c.reg8(r8::AL);
+    let cell = globe::globe_map_byte(c, 0x400a)?;
     let bx = c.reg(BX);
-    c.run(0x400a, if al & 0x40 == 0 { 3 } else { 4 })?;
+    c.run(0x400a, if cell & 0x40 == 0 { 3 } else { 4 })?;
     c.xor(B, bx >> 8, bx >> 8);
     c.set_reg(BX, bx & 0xff);
-    c.test(B, al as u16, 0x40);
-    if al & 0x40 == 0 {
+    c.test(B, cell as u16, 0x40);
+    if cell & 0x40 == 0 {
         return enter_room_at(c);
     }
     if !records::location_found(c, 0x4013)? {
@@ -6031,9 +6028,8 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, 0xffff);
         let dx = c.player().x;
         c.set_reg(DX, dx);
-        c.call(entry::LIST_ENTRY, 0x37d4)?;
+        let si = records::list_entry_ptr(&mut c, 0x37d4)?;
         let ah = c.reg8(r8::AH);
-        let si = c.reg(SI);
         let al = c.byte(si);
         let ax = (ah as u16) << 8 | al as u16;
         c.run(0x37d4, 4)?;
@@ -6659,8 +6655,8 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if a | b | d != 0 {
         return c.ret();
     }
-    c.call(entry::CURRENT_UI_ELEMENTS, 0x2b3a)?;
-    if c.reg(BP) != 0x1f0e {
+    let ui_list = cursor::current_ui_list(&mut c, 0x2b3a)?;
+    if ui_list != 0x1f0e {
         c.run(0x2b3a, 3)?;
         return c.ret();
     }

@@ -3,6 +3,7 @@
 //! shadow check can't see them; `--rec on` runs them, checked by whole-run
 //! state hashes (`STATE_HASH=1`, against plain emulation).
 
+use super::ui;
 use super::waits;
 use super::sound;
 use super::screens;
@@ -96,11 +97,10 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, 0x18);
             c.interp(0x0595, 0x0599)?;
             c.run(0x0599, 1)?;
-            c.call(entry::INTRO_SCRIPT_LOAD_WORD, 0x059c)?;
-            let ax = c.reg(AX);
-            c.run(0x059c, 3 + (ax == 0xffff) as u32)?;
-            c.set_reg(BX, ax);
-            let a1 = c.inc(W, ax);
+            let word = ui::next_script_word(&mut c, 0x059c)?;
+            c.run(0x059c, 3 + (word == 0xffff) as u32)?;
+            c.set_reg(BX, word);
+            let a1 = c.inc(W, word);
             c.set_reg(AX, a1);
             if a1 == 0 {
                 continue 'top;
@@ -134,9 +134,8 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 return intro_end(&mut c);
             }
             c.run(0x05c7, 2)?;
-            c.call(entry::INTRO_SCRIPT_LOAD_WORD, 0x05cc)?;
-            let ax = c.reg(AX);
-            let neg = ax & 0x8000 != 0;
+            let word = ui::next_script_word(&mut c, 0x05cc)?;
+            let neg = word & 0x8000 != 0;
             c.run(0x05cc, 2 + if neg { 0 } else { 2 })?;
             if !neg {
                 c.set_reg(BP, 0x0f66);
@@ -167,11 +166,10 @@ pub fn play_intro(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 return intro_end(&mut c);
             }
             c.run(0x05ef, 2)?;
-            c.call(entry::INTRO_SCRIPT_LOAD_WORD, 0x05f4)?;
-            let ax = c.reg(AX);
+            let word = ui::next_script_word(&mut c, 0x05f4)?;
             c.run(0x05f4, 2)?;
-            c.or(W, ax, ax);
-            if ax == 0 {
+            c.or(W, word, word);
+            if word == 0 {
                 continue;
             }
             c.run(0x05f8, 1)?;

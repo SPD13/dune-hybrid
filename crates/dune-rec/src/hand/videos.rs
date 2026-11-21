@@ -4,6 +4,7 @@
 //! They run for seconds: they are checked with `REC_BUDGET` raised (see
 //! `docs/decompile.md`, section 3).
 
+use super::records;
 use super::intro;
 use super::video;
 use super::gfx;
@@ -298,8 +299,8 @@ pub fn play_sal_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 6);
     let loc = c.word(g::PLACE);
     c.set_reg(SI, loc);
-    c.call(entry::CALC_SAL_INDEX, 0x4894)?;
-    let al = c.reg(AX) & 0xff;
+    let (sal, _) = records::sal_index(&mut c, 0x4894)?;
+    let al = sal & 0xff;
     if al < 8 {
         c.run(0x4894, 4)?;
         let bx = c.reg(AX);

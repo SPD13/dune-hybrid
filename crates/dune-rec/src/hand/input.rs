@@ -106,8 +106,8 @@ pub fn joystick_as_keys(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xdd10)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::READ_GAME_PORT, 0xdd13)?;
-    let (al, dx, bx) = (c.reg8(super::r8::AL), c.reg(DX), c.reg(BX));
+    let (joy_x, joy_y, buttons) = joystick(&mut c, 0xdd13)?;
+    let (al, dx, bx) = (buttons, joy_x, joy_y);
     let button = al & 0x30 != 0;
     let (x0, x1, y0, y1) = (c.word(g::JOYSTICK_LEFT), c.word(g::JOYSTICK_RIGHT), c.word(g::JOYSTICK_UP), c.word(g::JOYSTICK_DOWN));
     let axis = |v: u16, lo: u16, hi: u16| -> (u32, u16) {
@@ -342,6 +342,12 @@ pub fn read_game_port(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, !v);
     c.count(3);
     c.ret()
+}
+
+/// [`read_game_port`] called: the joystick: its X and Y counts (DX, BX) and its buttons (AL).
+pub(super) fn joystick(c: &mut Ctx, ret: u16) -> Result<(u16, u16, u8), Bail> {
+    c.call(0xdce0, ret)?;
+    Ok((c.reg(DX), c.reg(BX), c.reg(AX) as u8))
 }
 
 /// `initialize_joystick` (EA32): without calibration (the four words at

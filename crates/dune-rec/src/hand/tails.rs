@@ -3,6 +3,7 @@
 //! into the next one. The routine they go on to runs as its own port
 //! when it has one, else in the original from there.
 
+use super::records;
 use super::story;
 use super::troops;
 use super::dialogue;
@@ -1209,9 +1210,8 @@ pub fn dialogue_area_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.jump(0x2993);
     }
     c.run(0x941d, 3)?;
-    c.call(entry::CURRENT_UI_ELEMENTS, 0x942a)?;
-    let bp = c.reg(BP);
-    if bp == 0x20c2 {
+    let ui_list = cursor::current_ui_list(&mut c, 0x942a)?;
+    if ui_list == 0x20c2 {
         c.run(0x942a, 3)?;
         c.call(entry::LEAVE_SCREEN, 0x9433)?;
         c.run(0x9433, 1)?;
@@ -1357,9 +1357,8 @@ pub fn ui_draw_palace_plan(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x18ee)?;
     let mut c = Ctx::new(m);
     c.run(0x18ee, 1)?;
-    c.call(entry::CURRENT_UI_ELEMENTS, 0x18f1)?;
-    let bp = c.reg(BP);
-    if bp == 0x2012 {
+    let ui_list = cursor::current_ui_list(&mut c, 0x18f1)?;
+    if ui_list == 0x2012 {
         c.run(0x18f1, 3)?;
         return c.jump(entry::LEAVE_AND_FADE);
     }
@@ -1424,10 +1423,9 @@ pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, di);
     c.call(entry::NOTE_POINT, 0x7c0e)?;
     c.run(0x7c0e, 1)?;
-    c.call(entry::TROOP_MAP_DISTANCE, 0x7c11)?;
-    let ax = c.reg(AX);
+    let distance = troops::distance_to_map_position(&mut c, 0x7c11)?;
     let shown = c.word(g::REACH);
-    if ax <= shown {
+    if distance <= shown {
         c.run(0x7c11, 2 + 1)?;
     } else {
         let d = c.word(g::TROOP_MARKER_PARTICLE);
@@ -1549,8 +1547,7 @@ pub fn set_room_light_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.word(g::LAST_PLACE);
     c.set_reg(SI, si);
     c.set_reg(AX, 0x1972);
-    c.call(entry::CALC_SAL_INDEX, 0x381e)?;
-    let ax = c.reg(AX);
+    let (sal, _) = records::sal_index(&mut c, 0x381e)?;
     let (dx, w6) = (c.player().x, c.player().y);
     let si = c.reg(SI);
     let p2 = c.word(si.wrapping_add(2));
@@ -1559,15 +1556,15 @@ pub fn set_room_light_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let lit_path = al6 == 0x80 || dx == p2;
     if lit_path {
         let a = if al6 == 0x80 { 0u8 } else { ah6 };
-        let lim = c.byte(ax.wrapping_add(5));
+        let lim = c.byte(sal.wrapping_add(5));
         let in_range = a < lim;
         let n = 6 + if al6 == 0x80 { 0 } else { 2 + 1 } + 2;
         if in_range {
-            let b0 = c.byte(ax);
+            let b0 = c.byte(sal);
             let v = a.wrapping_add(b0);
             let mix = v == 0x7f;
             c.run(0x381e, n + 3 + if mix { 4 } else { 0 } + 1)?;
-            c.set_reg(BX, ax);
+            c.set_reg(BX, sal);
             c.set_reg(DX, dx);
             c.set_reg(AX, w6);
             c.set_reg8(r8::AL, 0);
@@ -1588,7 +1585,7 @@ pub fn set_room_light_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.jump(entry::OPEN_RESOURCE_AND_DRAW_SPRITE_0);
         }
         c.run(0x381e, n)?;
-        c.set_reg(BX, ax);
+        c.set_reg(BX, sal);
         c.set_reg(DX, dx);
         c.set_reg(AX, w6);
         c.set_reg8(r8::AL, 0);
@@ -1597,7 +1594,7 @@ pub fn set_room_light_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     } else {
         c.run(0x381e, 6 + 2)?;
-        c.set_reg(BX, ax);
+        c.set_reg(BX, sal);
         c.set_reg(DX, dx);
         c.set_reg(AX, w6);
         c.set_reg8(r8::AL, 0);
@@ -2067,8 +2064,8 @@ pub fn open_selection_orders_screen(m: &mut Machine, start: u16) -> Result<(), B
     entered(start, 0x780a)?;
     let mut c = Ctx::new(m);
     c.run(0x780a, 1)?;
-    c.call(entry::TROOP_MAP_DISTANCE, 0x780d)?;
-    let (ax, si) = (c.reg(AX), c.reg(SI));
+    let distance = troops::distance_to_map_position(&mut c, 0x780d)?;
+    let (ax, si) = (distance, c.reg(SI));
     let shown = c.word(g::REACH);
     let k = c.byte(si.wrapping_add(3));
     let past = ax > shown;
@@ -2297,8 +2294,8 @@ pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6a89)?;
     let mut c = Ctx::new(m);
     c.run(0x6a89, 1)?;
-    c.call(entry::SHOWN_TROOP, 0x6a8c)?;
-    let si = c.reg(SI);
+    let troop = troops::shown_troop_record(&mut c, 0x6a8c)?;
+    let si = troop.0;
     let k = c.byte(si.wrapping_add(3));
     let cl = c.reg8(r8::CL);
     let same = k & 0xf == cl;
@@ -2330,10 +2327,9 @@ pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cx = c.pop();
     c.set_reg(CX, cx);
     if scripted_action_allowed {
-        c.call(entry::TROOP_ACTIVITY, 0x6abb)?;
-        let al = c.reg8(r8::AL);
-        c.run(0x6abb, 2 + if al == 0 { 1 } else { 3 })?;
-        if al != 0 {
+        let activity = troops::activity(&mut c, 0x6abb)?;
+        c.run(0x6abb, 2 + if (activity as u8) == 0 { 1 } else { 3 })?;
+        if (activity as u8) != 0 {
             let si = c.reg(SI);
             let v = c.byte(si.wrapping_add(0x19));
             let v = pure::and(B, v as u16, 0x7f);

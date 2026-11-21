@@ -43,6 +43,12 @@ pub fn calc_sal_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`calc_sal_index`] called: AX plus the kind thresholds the location SI reaches (AX), and its kind (CL).
+pub(super) fn sal_index(c: &mut Ctx, ret: u16) -> Result<(u16, u8), Bail> {
+    c.call(0x5e4f, ret)?;
+    Ok((c.reg(AX), c.reg(CX) as u8))
+}
+
 /// `get_location_type_string_offset` (6231): AX = the string index for the
 /// kind of the location at DI: 0 below 20h, 1 for 20h, 2 for 21h..27h, 3 for
 /// 28h..2Fh, and 1 again from 30h on.
@@ -152,6 +158,12 @@ pub fn get_map_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, y as u8 as i8 as u16);
     }
     c.ret()
+}
+
+/// [`get_map_position`] called: the map position (DX, BX).
+pub(super) fn map_position(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0x407e, ret)?;
+    Ok((c.reg(DX), c.reg(BX)))
 }
 
 /// `sub_40c9` (BP of `loc_040c3`, for each character SI, from 0FD8h): moved to (DX, BX)
@@ -311,6 +323,12 @@ pub fn list_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = pure::add(W, list, ax);
     c.set_reg(SI, si);
     c.ret()
+}
+
+/// [`list_entry`] called: entry DL of the list DH (SI).
+pub(super) fn list_entry_ptr(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x3efe, ret)?;
+    Ok(c.reg(SI))
 }
 
 /// `loc_02e98`: the name of the place at DI (its byte 0, its byte 1 +

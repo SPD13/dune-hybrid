@@ -1,6 +1,7 @@
 //! The map screen: its view rect ([`VIEW`]), the cursor's place on it,
 //! the mouse rect, marks and rects copied around.
 
+use super::video;
 use super::story;
 use super::troops;
 use super::records;
@@ -455,10 +456,9 @@ pub fn map_list_without_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x82a0)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::CURRENT_UI_ELEMENTS, 0x82a3)?;
-    let bp = c.reg(BP);
-    let first = bp == 0x212e;
-    let ours = first || bp == 0x2136;
+    let ui_list = cursor::current_ui_list(&mut c, 0x82a3)?;
+    let first = ui_list == 0x212e;
+    let ours = first || ui_list == 0x2136;
     c.run(0x82a3, if first { 2 } else { 3 } + 1 + if ours { 3 } else { 0 } + 1)?;
     let k = c.map_view().mode;
     if ours {
@@ -1231,6 +1231,12 @@ pub fn location_map_kind(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`location_map_kind`] called: how the location at DI shows on the map (AX).
+pub(super) fn map_kind_of(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x6252, ret)?;
+    Ok(c.reg(AX))
+}
+
 /// `loc_0634d`: for (DX, BX) in the view (`loc_062d6`), `loc_0636a` and
 /// `loc_0639a` from it (the map row both ways); CF clear then, set when
 /// outside. BX, DX kept.
@@ -1609,8 +1615,8 @@ pub fn pick_map_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8256)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::SHOWN_TROOP, 0x8259)?;
-    let (list, location) = (c.reg(SI), c.reg(DI));
+    let troop = troops::shown_troop_record(&mut c, 0x8259)?;
+    let (list, location) = (troop.0, c.reg(DI));
     if list != 0x8e0 {
         c.run(0x8259, 4)?;
         c.set_flag(CF, false); // `clc`
@@ -1939,14 +1945,13 @@ pub fn draw_location_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     c.call(entry::DRAW_LOCATION_NAME, 0x603f)?;
     c.run(0x603f, 1)?;
-    c.call(entry::LOCATION_MAP_KIND, 0x6042)?;
-    let al = c.reg8(r8::AL);
-    if al == 2 {
+    let map_kind = map_kind_of(&mut c, 0x6042)?;
+    if (map_kind as u8) == 2 {
         c.run(0x6042, 3)?;
         return super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c);
     }
     let f = c.progress().event_flags;
-    let pre = f & 0x20 != 0 && al == 0;
+    let pre = f & 0x20 != 0 && (map_kind as u8) == 0;
     let n = 2 + 2 + if f & 0x20 != 0 { 2 } else { 0 } + if pre { 2 } else { 0 } + if pre { 0 } else { 1 };
     c.run(0x6042, n)?;
     if pre {
@@ -2888,8 +2893,8 @@ pub fn sprite_row(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for v in [bx, di, ax, dx] {
         c.push(v);
     }
-    c.call(entry::GET_SUBRESOURCE_POINTER, 0x6187)?;
-    let (bp0, dx1, si) = (c.reg(BP), c.reg(DX), c.reg(SI));
+    let sub_ = video::subresource(&mut c, 0x6187)?;
+    let (bp0, dx1, si) = (c.reg(BP), c.reg(DX), sub_);
     let span = bp0.wrapping_sub(dx1);
     let w = (c.word_in(ES, si) & 0xfff).wrapping_add(2);
     let q = span / cx;
@@ -3089,19 +3094,17 @@ pub fn place_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let a = pure::sub(W, a, 2);
             c.set_word(g::SITE_LAYERS, a);
             c.set_reg(AX, 0);
-            c.call(entry::CALC_SAL_INDEX, 0x4e58)?;
-            let ax = c.reg(AX);
-            let cl = c.reg8(r8::CL);
+            let (ax, kind) = records::sal_index(&mut c, 0x4e58)?;
             let s = c.byte(g::SITE_SPRITE_BY_SAL.wrapping_add(ax & 0xff));
             let big = s >= 0x13;
-            let k = (cl.wrapping_sub(0x28)) & 0xfb;
+            let k = (kind.wrapping_sub(0x28)) & 0xfb;
             let v = s.wrapping_add(k);
             let cap = big && v >= 0x17;
             c.run(0x4e58, 4 + if big { 5 + cap as u32 } else { 0 } + 3)?;
             c.set_reg(BX, 0x196d);
             let mut al = s;
             if big {
-                let x = pure::sub(B, cl as u16, 0x28);
+                let x = pure::sub(B, kind as u16, 0x28);
                 let x = pure::and(B, x, 0xfb);
                 c.set_reg8(r8::CL, x as u8);
                 let v = pure::add(B, s as u16, x);
@@ -3198,6 +3201,12 @@ pub fn nearest_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let s = c.pop();
     c.set_reg(SI, s);
     c.ret()
+}
+
+/// [`nearest_shown_location`] called: the nearest shown location (DI, 0 for none) and its distance (AX, FFFFh for none).
+pub(super) fn nearest_shown(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0x5e6d, ret)?;
+    Ok((c.reg(DI), c.reg(AX)))
 }
 
 /// `loc_05605`: the map header's area (the rect 4710h less its frame:
@@ -3451,8 +3460,8 @@ pub fn sprite_column(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for v in [bx, di, ax, dx] {
         c.push(v);
     }
-    c.call(entry::GET_SUBRESOURCE_POINTER, 0x61e0)?;
-    let (bp0, bx1, si) = (c.reg(BP), c.reg(BX), c.reg(SI));
+    let sub_ = video::subresource(&mut c, 0x61e0)?;
+    let (bp0, bx1, si) = (c.reg(BP), c.reg(BX), sub_);
     let span = bp0.wrapping_sub(bx1);
     let h = (c.word_in(ES, si.wrapping_add(2)) & 0xff).wrapping_add(2);
     let q = span / cx;
@@ -3932,9 +3941,8 @@ pub fn drop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 5)?;
     c.update_map_selection(|t| t.caption = 0);
     c.set_reg(AX, old);
-    c.call(entry::CURRENT_UI_ELEMENTS, 0x5f86)?;
-    let bp = c.reg(BP);
-    let b = c.byte_in(SS, bp);
+    let ui_list = cursor::current_ui_list(&mut c, 0x5f86)?;
+    let b = c.byte_in(SS, ui_list);
     let a = c.reg(AX);
     if b != 0xff {
         c.run(0x5f86, 4 + 1)?;
@@ -4103,8 +4111,8 @@ pub fn troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x62f2)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::SHOWN_TROOP, 0x62f5)?;
-    let si = c.reg(SI);
+    let troop = troops::shown_troop_record(&mut c, 0x62f5)?;
+    let si = troop.0;
     let b3 = c.byte(si.wrapping_add(3));
     if b3 & 0x40 != 0 {
         c.run(0x62f5, 5)?;
@@ -4437,11 +4445,10 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if inside_rect {
         c.update_map_view(|t| t.mode = 0x40);
         c.set_reg8(r8::AL, 0xff);
-        c.call(entry::NEAREST_SHOWN_LOCATION, 0x5c41)?;
-        let ax = c.reg(AX);
-        c.run(0x5c41, 3 + if ax < 9 { 0 } else { 1 })?;
+        let (_, distance) = nearest_shown(&mut c, 0x5c41)?;
+        c.run(0x5c41, 3 + if distance < 9 { 0 } else { 1 })?;
         c.update_map_view(|t| t.mode = 0xc0);
-        if ax >= 9 {
+        if distance >= 9 {
             c.set_reg(DI, 0);
         }
     } else {
@@ -5526,8 +5533,8 @@ pub fn message_subject(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x4589, 4)?;
     c.set_reg(DI, 0);
     c.set_reg8(r8::AL, 0xff);
-    c.call(entry::NEAREST_SHOWN_LOCATION, 0x4593)?;
-    if c.reg(AX) < 9 {
+    let (_, distance) = nearest_shown(&mut c, 0x4593)?;
+    if distance < 9 {
         c.run(0x4593, 2)?;
         return subject_tail(&mut c, 0);
     }
@@ -5590,8 +5597,7 @@ pub fn marker_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x5ee7, 3)?;
     c.set_reg(SI, 0x1668);
-    c.call(entry::LOCATION_MAP_KIND, 0x5eef)?;
-    let ax = c.reg(AX);
+    let ax = map_kind_of(&mut c, 0x5eef)?;
     let (di, cur) = (c.reg(DI), c.map_selection().caption);
     let al = (ax as u8).wrapping_add(1);
     let kind = c.map_selection().caption_kind;
@@ -6384,16 +6390,14 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x5cb2, 3)?;
     c.set_reg8(r8::AL, 0x31);
-    c.call(entry::NEAREST_SHOWN_LOCATION, 0x5cbc)?;
-    let ax = c.reg(AX);
-    let di = c.reg(DI);
+    let (nearest, distance) = nearest_shown(&mut c, 0x5cbc)?;
     let cur = c.map_selection().caption;
-    if ax < 0x14 && di != cur {
+    if distance < 0x14 && nearest != cur {
         // Near and another place than the caption's: on at 5FB0h.
         c.run(0x5cbc, 5)?; // cmp; jnb; cmp; je; jmp
         return c.jump(0x5fb0);
     }
-    c.run(0x5cbc, if ax < 0x14 { 5 } else { 3 })?;
+    c.run(0x5cbc, if distance < 0x14 { 5 } else { 3 })?;
     c.call(entry::DROP_CAPTION, 0x5ccd)?;
     c.run(0x5ccd, 1)?;
     c.call(entry::REDRAW_DIRTY_PANEL, 0x5cd0)?;
@@ -7206,11 +7210,10 @@ pub fn map_click_pick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x81fb, 3)?; // mov [46EBh]; mov al; call
     c.update_map_view(|t| t.mode = 0x40);
     c.set_reg8(r8::AL, 0xff);
-    c.call(entry::NEAREST_SHOWN_LOCATION, 0x8205)?;
-    let ax = c.reg(AX);
+    let (_, distance) = nearest_shown(&mut c, 0x8205)?;
     c.run(0x8205, 4)?; // mov [46EBh]; cmp; jnb; ret | call
     c.update_map_view(|t| t.mode = 0xc0);
-    if ax >= 9 {
+    if distance >= 9 {
         return c.ret();
     }
     if !picks_done(&mut c, 0x8212)? {
@@ -7220,9 +7223,8 @@ pub fn map_click_pick(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x8212, 2)?; // jb; call
     c.call(entry::REDRAW_MAP_MARKS, 0x8217)?;
     c.run(0x8217, 1)?;
-    c.call(entry::SHOWN_TROOP, 0x821a)?;
-    let si = c.reg(SI);
-    if si == 0x08e0 {
+    let troop = troops::shown_troop_record(&mut c, 0x821a)?;
+    if troop.0 == 0x08e0 {
         let place = c.word(g::PICKED_LOCATIONS);
         // cmp; jnz; push si; mov si; mov di; push ds; pop es; movsw x3;
         // pop si; mov di; or; jz

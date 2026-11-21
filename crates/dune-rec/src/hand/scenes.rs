@@ -3,6 +3,7 @@
 //! task, the IRUL videos (with subtitles), the font glyph routines, the
 //! pause key.
 
+use super::cursor;
 use super::video;
 use super::gfx;
 use super::entry;
@@ -39,7 +40,6 @@ mod code {
     pub const RESTORE_MOUSE_IF_RECT_INTERSECTS: u16 = 0xdb74;
     pub const FONT_SET_DRAW_POSITION: u16 = 0xd04e;
     pub const FONT_DRAW_GLYPH_SMALL: u16 = 0xd12f;
-    pub const SUB_D41B: u16 = 0xd41b;
     pub const SUB_C0D5: u16 = 0xc0d5;
     pub const OPEN_RESOURCE_BY_INDEX: u16 = 0xc13e;
     pub const IRUL_SUBTITLE: u16 = 0xcf4b;
@@ -353,16 +353,15 @@ pub fn room_frame_task(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc0b6)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(code::SUB_D41B, 0xc0b9)?;
-    let bp = c.reg(BP);
-    if bp == 0x2012 {
+    let ui_list = cursor::current_ui_list(&mut c, 0xc0b9)?;
+    if ui_list == 0x2012 {
         c.run(0xc0b9, 3)?;
-        c.cmp(W, bp, 0x2012);
+        c.cmp(W, ui_list, 0x2012);
         return c.ret();
     }
-    if bp == 0x201a {
+    if ui_list == 0x201a {
         c.run(0xc0b9, 5)?;
-        c.cmp(W, bp, 0x201a);
+        c.cmp(W, ui_list, 0x201a);
         return c.ret();
     }
     c.run(0xc0b9, 6)?;

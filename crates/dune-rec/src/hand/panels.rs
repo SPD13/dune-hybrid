@@ -2,6 +2,7 @@
 //! device's animations, the ornithopter, the settings sliders, talking
 //! heads without lip sync, lip sync start and stop.
 
+use super::math;
 use super::voice;
 use super::sound;
 use super::cursor;
@@ -22,7 +23,6 @@ mod code {
     pub const DRAW_SPRITE_CLOBBERING_BX_DX: u16 = 0xc22f;
     pub const DRAW_SPRITE: u16 = 0xc2fd;
     pub const DRAW_SPRITE_CLIPPED: u16 = 0xc305;
-    pub const RAND_MASKED: u16 = 0xe3b7;
     pub const WAIT_INTERRUPTIBLE: u16 = 0xe353;
     pub const COMM_DRAW_GLOW: u16 = 0x275f;
     pub const COMM_DRAW_GLOW_INDEX: u16 = 0x27b6;
@@ -178,8 +178,8 @@ fn flicker(c: &mut Ctx) -> Result<(), Bail> {
         let x = c.reg(BX);
         c.push(x);
         c.set_reg(BX, 0x0f);
-        c.call(code::RAND_MASKED, 0x27d6)?;
-        let (al, dl) = (c.reg8(r8::AL), c.reg8(r8::DL));
+        let random = math::random_masked(c, 0x27d6)?;
+        let (al, dl) = (random as u8, c.reg8(r8::DL));
         if al == dl {
             c.run(0x27d6, 3)?; // cmp; je; call again
             c.cmp(B, al as u16, dl as u16);
@@ -227,8 +227,8 @@ fn flicker(c: &mut Ctx) -> Result<(), Bail> {
 /// The retry of the random sprite (27D3) until it differs from DL.
 fn continue_rand(c: &mut Ctx) -> Result<(), Bail> {
     loop {
-        c.call(code::RAND_MASKED, 0x27d6)?;
-        let (al, dl) = (c.reg8(r8::AL), c.reg8(r8::DL));
+        let random = math::random_masked(c, 0x27d6)?;
+        let (al, dl) = (random as u8, c.reg8(r8::DL));
         if al != dl {
             return Ok(());
         }

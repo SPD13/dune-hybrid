@@ -1,6 +1,9 @@
 //! Troops: 1Bh-byte records from [`g::TROOPS`], numbered from 1; and the
 //! per-location byte 19h, its bits spread over bytes and back.
 
+use super::time;
+use super::records;
+use super::math;
 use super::map;
 use super::cursor;
 use super::entry;
@@ -34,6 +37,12 @@ pub fn troop_ptr(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`troop_ptr`] called: troop AL's record (SI).
+pub(super) fn troop_record(c: &mut Ctx, ret: u16) -> Result<Troop, Bail> {
+    c.call(0x6906, ret)?;
+    Ok(Troop(c.reg(SI)))
+}
+
 /// [`troop_ptr`] called: whether troop AL is yours (byte 3 below 80h; SI = it).
 pub(super) fn troop_is_yours(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
     c.call_cf(0x6906, ret)
@@ -62,6 +71,12 @@ pub fn troop_activity(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let job = troop.job(&mut c);
     c.set_reg(AX, (job >> 2) as u16);
     c.ret()
+}
+
+/// [`troop_activity`] called: the troop SI's activity: its job / 4 (AX).
+pub(super) fn activity(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x693b, ret)?;
+    Ok(c.reg(AX))
 }
 
 /// `loc_066b1`: the troop SI taken out of its location's chain
@@ -651,8 +666,8 @@ pub fn random_2_to_12(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         c.run(start, 2)?;
         c.set_reg(BX, 0x0a);
-        c.call(entry::RAND_BELOW, 0x2200)?;
-        let v = c.reg8(r8::AL).wrapping_add(2);
+        let random = math::random_upto(&mut c, 0x2200)?;
+        let v = (random as u8).wrapping_add(2);
         let phase = c.progress().phase;
         // The instructions to the `ret` or the `jmp` back.
         let (cost, again) = if phase >= 0x54 {
@@ -819,6 +834,12 @@ pub fn shown_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let id = troop.id(&mut c);
     c.set_reg(AX, index & 0xff00 | id as u16);
     c.ret()
+}
+
+/// [`shown_troop`] called: the record of the troop shown (SI).
+pub(super) fn shown_troop_record(c: &mut Ctx, ret: u16) -> Result<Troop, Bail> {
+    c.call(0x68eb, ret)?;
+    Ok(Troop(c.reg(SI)))
 }
 
 
@@ -1147,6 +1168,12 @@ pub fn troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg(AX, (ah as u16) << 8 | v as u16);
     c.ret()
+}
+
+/// [`troop_motivation`] called: the troop SI's effective motivation (AL).
+pub(super) fn effective_motivation(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
+    c.call(0x6efd, ret)?;
+    Ok(c.reg(AX) as u8)
 }
 
 /// `loc_06fb0`: charisma down by AL, to at least 1. For each step of 4 it
@@ -1671,9 +1698,8 @@ pub fn settle_arrived_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if place != here {
         return c.ret();
     }
-    c.call(entry::CURRENT_UI_ELEMENTS, 0x83e2)?;
-    let bp = c.reg(BP);
-    if bp != 0x1f0e {
+    let ui_list = cursor::current_ui_list(&mut c, 0x83e2)?;
+    if ui_list != 0x1f0e {
         c.run(0x83e2, 3)?;
         return c.ret();
     }
@@ -1796,8 +1822,8 @@ pub fn troop_skills_decay(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if time & 0x3f != 0 {
         return c.ret();
     }
-    c.call(entry::TROOP_ACTIVITY, 0x6d87)?;
-    let (troop, activity) = (Troop(c.reg(SI)), c.reg8(r8::AL));
+    let activity_ = activity(&mut c, 0x6d87)?;
+    let (troop, activity) = (Troop(c.reg(SI)), activity_ as u8);
     let decays = 0xc000u16.rotate_left(activity as u32 & 0x0f) & troop.word_12(&mut c);
     let mut cost = 5;
     let mut lowered = Vec::new();
@@ -1876,8 +1902,7 @@ fn skill_needs_at(c: &mut Ctx) -> Result<(), Bail> {
             return c.ret();
         }
         c.run(0x7f3a, 3)?;
-        c.call(entry::TROOP_PTR, 0x7f41)?;
-        let troop = Troop(c.reg(SI));
+        let troop = troop_record(c, 0x7f41)?;
         let walk = BitWalk::of(troop.byte_19(c));
         let mut cost = 4 + walk.cost + 2;
         let mut lowered = Vec::new();
@@ -1927,8 +1952,7 @@ pub fn reset_location_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
             break;
         }
         c.run(0x85e0, 3)?;
-        c.call(entry::TROOP_PTR, 0x85e7)?;
-        let other = Troop(c.reg(SI));
+        let other = troop_record(&mut c, 0x85e7)?;
         id = other.next(&mut c);
         let apart = other.byte_10(&mut c) & 0x80 != 0;
         let started = other.state(&mut c) & troop_state::STARTED != 0;
@@ -1959,6 +1983,12 @@ pub fn troop_map_distance(m: &mut Machine, start: u16) -> Result<(), Bail> {
     map_distance(m, start, 6)
 }
 
+/// [`troop_map_distance`] called: the troop SI's distance to the map position (AX).
+pub(super) fn distance_to_map_position(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x7c63, ret)?;
+    Ok(c.reg(AX))
+}
+
 /// `loc_07c8f`: [`troop_map_distance`] for the record SI with its place
 /// in words 2 and 4.
 pub fn record_map_distance(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -1975,8 +2005,7 @@ fn map_distance(m: &mut Machine, start: u16, off: u16) -> Result<(), Bail> {
     let back = start.wrapping_add(4);
     c.run(start, 2)?;
     c.save(&[SI]);
-    c.call(entry::GET_MAP_POSITION, back)?;
-    let (x, y) = (c.reg(DX), c.reg(BX));
+    let (x, y) = records::map_position(&mut c, back)?;
     let record = c.word_in(SS, c.reg(SP));
     let abs = |v: u16| if v & 0x8000 != 0 { v.wrapping_neg() } else { v };
     let row = y.wrapping_shl(1);
@@ -2286,9 +2315,8 @@ pub fn troop_rate(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x708a)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::TROOP_MOTIVATION, 0x708d)?;
+    let motivation = effective_motivation(&mut c, 0x708d)?;
     let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
-    let motivation = c.reg8(r8::AL);
     let base = motivation.wrapping_add(troop.skill(&mut c, 0) & 0xf0);
     let mut product = base as u16 * troop.size(&mut c) as u16;
     let quartered = troop.byte_19(&mut c) & 0x80 == 0;
@@ -2454,8 +2482,7 @@ pub fn unlink_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, first);
     // Along the chain (`troop_ptr` of AL) to the troop before it.
     loop {
-        c.call(entry::TROOP_PTR, 0x85a7)?;
-        let before = Troop(c.reg(SI));
+        let before = troop_record(&mut c, 0x85a7)?;
         let next = before.next(&mut c);
         if next == 0 {
             c.run(0x85a7, 4)?;
@@ -2660,8 +2687,8 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1e43)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::GET_INGAME_DAY_Q, 0x1e46)?;
-    let cost = if c.reg(AX) < c.word(g::ATTACK_DAY) {
+    let day = time::game_day(&mut c, 0x1e46)?;
+    let cost = if day < c.word(g::ATTACK_DAY) {
         3
     } else if c.progress().phase != 0x5c {
         5
@@ -2748,9 +2775,9 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let taken = Location(c.reg(DI)).byte_0a(&mut c) & 8 != 0;
     c.run(start, 5)?;
     if taken {
-        c.call(entry::GET_INGAME_DAY_Q, 0x6e31)?;
+        let day_ = time::game_day(&mut c, 0x6e31)?;
         let place = Location(c.reg(DI));
-        let since = c.reg8(r8::AL).wrapping_sub(place.byte_0b(&mut c));
+        let since = (day_ as u8).wrapping_sub(place.byte_0b(&mut c));
         c.set_reg8(r8::AL, since);
         if since >= 0xfe {
             c.run(0x6e31, 4)?;
@@ -2768,8 +2795,8 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(entry::GROW_LOCATION, 0x6e4e)?;
     c.run(0x6e4e, 1)?;
-    c.call(entry::GET_INGAME_DAY_Q, 0x6e51)?;
-    let days = c.reg8(r8::AL).wrapping_sub(Troop(c.reg(SI)).day(&mut c));
+    let day_ = time::game_day(&mut c, 0x6e51)?;
+    let days = (day_ as u8).wrapping_sub(Troop(c.reg(SI)).day(&mut c));
     c.set_reg8(r8::AL, days);
     c.run(0x6e51, if days > 8 { 5 } else { 3 })?;
     if days > 8 {
@@ -2865,9 +2892,9 @@ pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(entry::MAYBE_MARK_TROOP, 0x7168)?;
     c.run(0x7168, 1)?;
-    c.call(entry::RAND, 0x716b)?;
+    let random = math::random_word(&mut c, 0x716b)?;
     let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
-    let roll = c.reg8(r8::AH);
+    let roll = (random >> 8) as u8;
     let k = place.byte_00(&mut c);
     let chance = c.byte(g::CHANCES.wrapping_add(k as u16));
     if chance < roll {
@@ -2930,9 +2957,8 @@ pub fn troop_yield(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x342d)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::TROOP_MOTIVATION, 0x3430)?;
+    let motivation = effective_motivation(&mut c, 0x3430)?;
     let troop = Troop(c.reg(SI));
-    let motivation = c.reg8(r8::AL);
     let size = troop.size(&mut c);
     let bits = troop.byte_19(&mut c);
     let (sum, over) = motivation.wrapping_add(motivation).overflowing_add(troop.skill(&mut c, 1));
@@ -3124,8 +3150,7 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, 0);
     // Along the chain (`troop_ptr` of AL), each troop's slot marked FFh.
     let last = loop {
-        c.call(entry::TROOP_PTR, 0x8559)?;
-        let other = Troop(c.reg(SI));
+        let other = troop_record(&mut c, 0x8559)?;
         let slot = other.slot(&mut c);
         let next = other.next(&mut c);
         c.run(0x8559, if next == 0 { 10 } else { 6 })?;
@@ -3348,8 +3373,8 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, place);
     c.call(entry::NOTE_POINT, 0x7c0e)?;
     c.run(0x7c0e, 1)?;
-    c.call(entry::TROOP_MAP_DISTANCE, 0x7c11)?;
-    if c.reg(AX) <= c.word(g::REACH) {
+    let distance = distance_to_map_position(&mut c, 0x7c11)?;
+    if distance <= c.word(g::REACH) {
         c.run(0x7c11, 3)?;
     } else {
         let marked = c.word(g::TROOP_MARKER_PARTICLE);
@@ -3685,8 +3710,8 @@ pub fn troop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 2)?;
     let place = Troop(c.reg(SI)).location(&mut c);
     c.set_reg(DI, place);
-    c.call(entry::TROOP_MAP_DISTANCE, 0x78c2)?;
-    let (distance, reach) = (c.reg(AX), c.word(g::REACH));
+    let distance_ = distance_to_map_position(&mut c, 0x78c2)?;
+    let (distance, reach) = (distance_, c.word(g::REACH));
     c.run(0x78c2, 3)?;
     if distance >= reach {
         return c.ret();
@@ -5035,8 +5060,8 @@ fn job_5_start(c: &mut Ctx, troop: Troop, elapsed: u16, skill: u8) -> Result<(),
         return c.ret();
     }
     c.run(0x72f7, 3 + 6)?;
-    c.call(entry::RAND, 0x730c)?;
-    let r = (c.reg8(r8::AL) & 0x3f) as u16;
+    let random = math::random_word(c, 0x730c)?;
+    let r = ((random as u8) & 0x3f) as u16;
     c.set_reg8(r8::AL, r as u8);
     c.cmp(B, r, skill as u16);
     if r < skill as u16 {
@@ -5413,9 +5438,8 @@ pub fn job_4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let cx = (ax as u8).saturating_sub(s1) as u16 * 2;
     c.set_reg(AX, cx);
     c.set_reg(CX, cx);
-    c.call(entry::TROOP_MOTIVATION, 0x722b)?;
+    let al = effective_motivation(&mut c, 0x722b)?;
     // 722Bh: plus the motivation (at least 1Eh); the base by byte 19h.
-    let al = c.reg8(r8::AL);
     let m = al.max(0x1e) as u16;
     let bl = troop.byte_19(&mut c);
     let (base, chain) = if bl & 0x0c != 0 {

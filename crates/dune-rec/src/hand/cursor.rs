@@ -7,6 +7,7 @@
 //! best point (x, y). DX, BX are the cursor. A candidate is scored with DX,
 //! BX as they are and AX, SI its point; a lower score wins.
 
+use super::screens;
 use super::entry;
 use super::globals as g;
 use super::pure;
@@ -18,14 +19,12 @@ use pc::{
 };
 
 mod code {
-    pub const ACCELERATED_STEP: u16 = 0xe243;
     pub const HOTSPOTS_EIGHT_POINTS: u16 = 0xe11c;
     pub const HOTSPOTS_MARKERS: u16 = 0xe0db;
     pub const HOTSPOTS_PARTICLES: u16 = 0xe0a2;
     pub const HOTSPOTS_POINTS: u16 = 0xe068;
     pub const KB_CLEAR_SCANCODE: u16 = 0xde4e;
     pub const MOVE_CURSOR_BY: u16 = 0xdaaf;
-    pub const CURRENT_UI_ELEMENTS: u16 = 0xd41b;
     pub const RECT_HOTSPOT: u16 = 0xe159;
 }
 
@@ -85,6 +84,12 @@ pub fn current_ui_elements(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`current_ui_elements`] called: the current list of UI elements (BP).
+pub(super) fn current_ui_list(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0xd41b, ret)?;
+    Ok(c.reg(BP))
+}
+
 /// `loc_0d6fe`: CF set when the point DX, BX is strictly inside the rect at
 /// DI (left, top, right, bottom).
 pub fn point_in_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -138,8 +143,7 @@ pub fn hotspots_points(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 2)?;
     let bp = c.reg(BP);
     c.push(bp);
-    c.call(code::CURRENT_UI_ELEMENTS, 0xe06c)?;
-    let list = c.reg(BP);
+    let list = current_ui_list(&mut c, 0xe06c)?;
     let ours = list == UI_ELEMENTS_WITH_POINTS;
     c.run(0xe06c, 4)?;
     let bp = c.pop();
@@ -340,6 +344,12 @@ pub fn accelerated_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`accelerated_step`] called: the whole pixels of one axis of an accelerated step (AX, signed).
+pub(super) fn accelerated_pixels(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0xe243, ret)?;
+    Ok(c.reg(AX))
+}
+
 /// `loc_092c9`: CF set when (DX, BX) is in the rect 1C0Ch (with [1152h]
 /// not FFh) or 1C1Ah (with [1153h] not FFh), by [`point_in_rect`]; CX
 /// the byte.
@@ -509,12 +519,11 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
         c.set_reg8(r8::CL, cl);
         at = 0;
     } else {
-        c.call(entry::CURRENT_UI_ELEMENTS, 0xd526)?;
-        let bp = c.reg(BP);
+        let ui_list = current_ui_list(&mut c, 0xd526)?;
         let mode = c.travel().screen_kind;
-        if bp != 0x1f0e || mode != 0 {
-            c.run(0xd526, if bp != 0x1f0e { 2 } else { 4 })?;
-            if bp == 0x1f0e {
+        if ui_list != 0x1f0e || mode != 0 {
+            c.run(0xd526, if ui_list != 0x1f0e { 2 } else { 4 })?;
+            if ui_list == 0x1f0e {
             }
             at = 1;
         } else {
@@ -573,10 +582,9 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 c.set_reg(CX, 0);
                 loop {
                     c.run(0xd565, 1)?;
-                    c.call(entry::ITEM_PLACE, 0xd568)?;
-                    let ax = c.reg(AX);
+                    let (item_x, _) = screens::item_position(&mut c, 0xd568)?;
                     let bp = c.reg(BP);
-                    if ax == bp {
+                    if item_x == bp {
                         c.run(0xd568, 2)?;
                         at = 0;
                         break;
@@ -1219,20 +1227,18 @@ fn glide(c: &mut Ctx, dx: u16, bx: u16) -> Result<(), Bail> {
     c.set_reg(AX, (last as u16) << 8 | dl as u16);
     c.set_reg8(r8::CL, cl);
     c.set_reg(SI, g::GLIDE_FRACTIONS);
-    c.call(code::ACCELERATED_STEP, 0xe22e)?;
-    let ax = c.reg(AX);
+    let pixels = accelerated_pixels(c, 0xe22e)?;
     let speed = c.word(g::GLIDE_SPEED);
     c.run(0xe22e, 5)?;
-    c.set_reg(DX, ax);
-    c.set_word(g::GLIDE_SPEED, speed.wrapping_add(ax));
+    c.set_reg(DX, pixels);
+    c.set_word(g::GLIDE_SPEED, speed.wrapping_add(pixels));
     c.set_reg(SI, g::GLIDE_FRACTIONS + 1);
     c.set_reg8(r8::AL, bl);
-    c.call(code::ACCELERATED_STEP, 0xe23a)?;
-    let ax = c.reg(AX);
+    let pixels = accelerated_pixels(c, 0xe23a)?;
     let speed = c.word(g::GLIDE_SPEED + 2);
     c.run(0xe23a, 3)?;
-    c.set_reg(BX, ax);
-    c.set_word(g::GLIDE_SPEED + 2, speed.wrapping_add(ax));
+    c.set_reg(BX, pixels);
+    c.set_word(g::GLIDE_SPEED + 2, speed.wrapping_add(pixels));
     c.jump(code::MOVE_CURSOR_BY)
 }
 

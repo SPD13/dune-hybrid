@@ -31,6 +31,12 @@ pub fn get_ingame_day_q(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`get_ingame_day_q`] called: the day (game time / 16, from 0; AX).
+pub(super) fn game_day(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x1ac5, ret)?;
+    Ok(c.reg(AX))
+}
+
 /// `get_ingame_day_in_ax` (1AD1): AX = (game time + 3) / 16, the day as the
 /// game shows it (a day turns 3 slots early). Flags from the last `shr`.
 pub fn get_ingame_day(m: &mut Machine, start: u16) -> Result<(), Bail> {

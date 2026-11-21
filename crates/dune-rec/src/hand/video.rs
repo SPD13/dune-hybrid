@@ -97,6 +97,12 @@ pub fn get_subresource_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.ret()
 }
 
+/// [`get_subresource_pointer`] called: the offset of sub-resource AX of the sprite sheet (SI; ES its segment).
+pub(super) fn subresource(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0xc1f4, ret)?;
+    Ok(c.reg(SI))
+}
+
 /// `get_hnm_resource_flag_name_ptr_by_index_ax_to_bx` (C921): BX = the
 /// flag name of video AX. Flags from the second `add`.
 pub fn get_hnm_resource_flag_name_ptr(m: &mut Machine, start: u16) -> Result<(), Bail> {

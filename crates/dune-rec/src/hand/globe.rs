@@ -1,6 +1,8 @@
 //! The globe view (its background, decorations sliding open and shut, the
 //! rotation table) and the frieze sides of the game screen.
 
+use super::records;
+use super::cursor;
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -444,6 +446,12 @@ pub fn map_byte_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte_in(ES, di);
     c.set_reg8(r8::AL, v);
     c.ret()
+}
+
+/// [`map_byte_at`] called: the map byte at angle BX, distance DX (AL).
+pub(super) fn globe_map_byte(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
+    c.call(0xb532, ret)?;
+    Ok(c.reg(AX) as u8)
 }
 
 /// `loc_0b5c5`: `map_func` (B58B), then DX = 10000h x DX / BP (DX:0 / BP).
@@ -1371,8 +1379,7 @@ pub fn globe_or_map_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xbc1f)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    c.call(entry::CURRENT_UI_ELEMENTS, 0xbc22)?;
-    let bp = c.reg(BP);
+    let bp = cursor::current_ui_list(&mut c, 0xbc22)?;
     if bp != 0x204a && bp != 0x2062 {
         c.run(0xbc22, 5)?;
         return c.ret();
@@ -1568,16 +1575,15 @@ pub fn globe_cell_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if k != 0 {
         return c.ret();
     }
-    c.call(entry::GET_MAP_POSITION, 0xbafe)?;
-    let bx0 = c.reg(BX);
-    let bneg = (bx0 << 3) & 0x8000 != 0;
+    let (_, map_y) = records::map_position(&mut c, 0xbafe)?;
+    let bneg = (map_y << 3) & 0x8000 != 0;
     c.run(0xbafe, 7 + 2 * bneg as u32)?;
     // A frame of 0Ah bytes for the signs and the results.
     let sp = c.reg(SP).wrapping_sub(0x0a);
     c.set_reg(SP, sp);
     c.set_reg(BP, sp);
     c.set_word_in(SS, sp, 0);
-    let mut bx = bx0 << 3;
+    let mut bx = map_y << 3;
     if bneg {
         c.m.cpu.write8(&mut c.m.hw, SS, sp.wrapping_add(1), 0xff);
         bx = bx.wrapping_neg();
