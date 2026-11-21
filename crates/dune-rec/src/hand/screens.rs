@@ -3,6 +3,7 @@
 //! starts with a byte: its kind in the low 4 bits (0Fh: none to leave),
 //! FFh at the end of the stack.
 
+use super::time;
 use super::records;
 use super::cursor;
 use super::video;
@@ -1509,9 +1510,9 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.lods(W, DS);
         let phase = c.progress().phase;
         flagged(&mut c, v, phase < 0x4f);
-        c.call(entry::GET_INGAME_TIME_OF_DAY, 0x2fc9)?;
+        let slot = time::time_of_day_slot(&mut c, 0x2fc9)?;
         // By the time of day (`loc_01ae0`): 21E0h or, from 0Bh, 21E4h.
-        let hour = c.reg8(r8::AL);
+        let hour = slot as u8;
         c.run(0x2fc9, 3 + if hour >= 0x0b { 1 } else { 0 } + 3)?;
         copy(&mut c, if hour >= 0x0b { 0x21e4 } else { 0x21e0 }, 2);
         c.run(0x2fa3, 4)?;

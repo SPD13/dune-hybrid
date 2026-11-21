@@ -2,6 +2,8 @@
 //! communication device, the sky, the sun and moon, location names, and
 //! smaller game-logic steps they trigger.
 
+use super::video;
+use super::time;
 use super::records;
 use super::cursor;
 use super::voice;
@@ -933,11 +935,10 @@ pub fn sky_if_changed(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(start, 3)?;
-    c.call(entry::SKY_PALETTE_FOR_GAME_TIME, 0x38eb)?;
-    let bl = c.reg8(r8::BL);
+    let palette = time::sky_palette(&mut c, 0x38eb)?;
     let cur = c.byte(g::PALETTE_SUB);
-    c.run(0x38eb, if cur == bl { 3 } else { 2 })?;
-    if cur == bl {
+    c.run(0x38eb, if cur == palette { 3 } else { 2 })?;
+    if cur == palette {
         return c.ret();
     }
     start_sky_task(c.m, 0x38f1)
@@ -1720,10 +1721,10 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.call(entry::FONT_DRAW_STRING, 0xd4e9)?;
     }
     c.run(0xd4e9, 1)?;
-    c.call(entry::FONT_GET_DRAW_POSITION, 0xd4ec)?;
+    let (pen_x, _) = video::draw_position(&mut c, 0xd4ec)?;
     c.run(0xd4ec, 8)?;
     c.set_reg(SI, 0xdce9);
-    let (dx, bx) = (c.reg(DX), c.reg(BX));
+    let (dx, bx) = (pen_x, c.reg(BX));
     c.set_word(g::LABEL_RECT, dx);
     c.set_word(g::LABEL_RECT_TOP, bx);
     c.set_word(g::LABEL_RECT_RIGHT, 0xe3);

@@ -2029,8 +2029,7 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
         c.run(0x504f, 2)?;
-        c.call(entry::COUNT_LOCATION_TROOP_SIDES, 0x5054)?;
-        let (dx, cx) = (c.reg(DX), c.reg(CX));
+        let (cx, dx) = troops::troop_sides(&mut c, 0x5054)?;
         if dx == 0 {
             c.run(0x5054, if cx == 0 { 4 } else { 5 })?;
             if cx != 0 {
@@ -3536,8 +3535,8 @@ pub fn ui_comm(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
             c.push(di);
             c.set_reg(DI, bp);
-            c.call(entry::COUNT_LOCATION_TROOP_SIDES, 0x2069)?;
-            let (cx, dx, d2) = (c.reg(CX), c.reg(DX), c.reg(DI));
+            let (harkonnen, unstarted) = troops::troop_sides(&mut c, 0x2069)?;
+            let (cx, dx, d2) = (harkonnen, unstarted, c.reg(DI));
             let take = cx != 0 && dx == 0;
             c.run(0x2069, 3 + if cx == 0 { 0 } else { 2 } + if take { 3 } else { 0 })?;
             c.set_reg(BP, d2);
@@ -3713,9 +3712,8 @@ pub fn event_place_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'one;
             }
             c.run(0x1f23, 2)?;
-            c.call(entry::COUNT_LOCATION_TROOP_SIDES, 0x1f28)?;
-            let dx = c.reg(DX);
-            if dx != 0 {
+            let (_, unstarted) = troops::troop_sides(&mut c, 0x1f28)?;
+            if unstarted != 0 {
                 c.run(0x1f28, 2)?;
                 break 'one;
             }
@@ -6840,11 +6838,10 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
                 c.or(B, f as u16, f as u16);
             }
             if call {
-                c.call(entry::TROOP_PTR, 0x2c3d)?;
+                let troop = troops::troop_record(c, 0x2c3d)?;
                 c.run(0x2c3d, 2)?;
                 c.update_conversation(|t| t.talker = 0x0e);
-                let si = c.reg(SI);
-                c.set_word(g::CHARACTER_14_TROOP, si);
+                c.set_word(g::CHARACTER_14_TROOP, troop.0);
             }
         }
     }

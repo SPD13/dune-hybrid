@@ -219,6 +219,12 @@ pub fn font_get_draw_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`font_get_draw_position`] called: where text goes on (DX, BX).
+pub(super) fn draw_position(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0xd05f, ret)?;
+    Ok((c.reg(DX), c.reg(BX)))
+}
+
 /// Select a font: its glyph routine and width table.
 fn select_font(m: &mut Machine, start: u16, entry: u16, draw: u16, widths: u16) -> Result<(), Bail> {
     entered(start, entry)?;

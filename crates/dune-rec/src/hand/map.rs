@@ -1166,11 +1166,10 @@ pub fn location_to_show(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if location_skipped {
             false
         } else {
-            c.call(entry::COUNT_LOCATION_TROOP_SIDES, 0x628f)?;
-            let dx = c.reg(DX);
+            let (_, unstarted) = troops::troop_sides(&mut c, 0x628f)?;
             c.run(0x628f, 3)?;
-            c.or(W, dx, dx);
-            dx != 0
+            c.or(W, unstarted, unstarted);
+            unstarted != 0
         }
     };
     c.call(code::RESTORE_REGS, if show { 0x6296 } else { 0x629b })?;
@@ -1212,19 +1211,18 @@ pub fn location_map_kind(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x625a, 5)?;
     c.set_reg(AX, 2);
-    c.call(entry::GET_LOCATION_TYPE_STRING_OFFSET, 0x6269)?;
-    let ax = c.reg(AX);
-    let al = ax as u8;
-    let n = if ax == 0 { 3 } else if al == 3 { 6 } else if al != 2 { 8 } else { 9 };
+    let type_string = records::location_type_string(&mut c, 0x6269)?;
+    let al = type_string as u8;
+    let n = if type_string == 0 { 3 } else if al == 3 { 6 } else if al != 2 { 8 } else { 9 };
     c.run(0x6269, n)?;
-    if ax == 0 {
+    if type_string == 0 {
         return c.ret();
     }
     if al == 3 {
         c.set_reg(AX, 0);
         return c.ret();
     }
-    c.set_reg(AX, ax & 0xff00 | 2);
+    c.set_reg(AX, type_string & 0xff00 | 2);
     if al == 2 {
         c.set_reg(AX, 1);
     }
@@ -3769,8 +3767,7 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     let v = c.reg(r);
                     c.push(v);
                 }
-                c.call(entry::RECORD_MAP_DISTANCE, 0x5e21)?;
-                let d = c.reg(AX);
+                let d = troops::record_distance(&mut c, 0x5e21)?;
                 let lim = c.word(g::REACH);
                 let far = d > lim;
                 c.run(0x5e21, 6 + far as u32 + 3)?;
@@ -4563,10 +4560,9 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (si, di) = (c.reg(SI), c.reg(DI));
     c.push(si);
     c.push(di);
-    c.call(entry::ESTIMATE_FIELD_SPICE, 0x7498)?;
-    let dl = c.reg8(r8::DL);
-    c.run(0x7498, if dl > 1 { 2 + 3 } else { 7 })?;
-    if dl <= 1 {
+    let counted = troops::field_spice_counted(&mut c, 0x7498)?;
+    c.run(0x7498, if (counted as u8) > 1 { 2 + 3 } else { 7 })?;
+    if (counted as u8) <= 1 {
         c.update_economy(|t| t.endgame_stage = 1);
         for p in [0xff7u16, 0x1007] {
             let v = c.byte(p);

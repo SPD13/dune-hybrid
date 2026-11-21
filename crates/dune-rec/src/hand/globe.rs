@@ -1,6 +1,7 @@
 //! The globe view (its background, decorations sliding open and shut, the
 //! rotation table) and the frieze sides of the game screen.
 
+use super::video;
 use super::records;
 use super::cursor;
 use super::entry;
@@ -1155,9 +1156,8 @@ pub fn draw_globe_cursor_at_dx_bx(m: &mut Machine, start: u16) -> Result<(), Bai
     c.call(entry::LOAD_ICONES_SPRITES, 0xbc12)?;
     c.run(0xbc12, 2)?;
     c.set_reg(AX, 0x36);
-    c.call(entry::GET_SUBRESOURCE_POINTER, 0xbc18)?;
+    let si = video::subresource(&mut c, 0xbc18)?;
     c.run(0xbc18, 2)?;
-    let si = c.reg(SI);
     let h = c.byte_in(ES, si.wrapping_add(2));
     let bl = c.reg8(r8::BL);
     let v = pure::sub(B, bl as u16, h as u16);

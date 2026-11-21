@@ -295,7 +295,11 @@ is read before anything can change it: a write of it, another call, a
 helper handed the context, a loop, or a stretch run in place (`c.run`)
 whose instructions, on any path of its length in the generated code's
 listing, name the register or write it implicitly (`mul`, `lodsb`,
-`loop`, ...). The first pass: 22 routines, 74 call sites.
+`loop`, ...; `mov bp, ax` reads AX alone). The first pass: 22 routines,
+74 call sites; the second 13 more (`troops::troop_sides`, `linked_slot`,
+`time::sky_palette`, `video::draw_position`, ...), 24 sites with those
+the first pass's routines gained once a stretch's sources stopped counting
+as writes.
 
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust

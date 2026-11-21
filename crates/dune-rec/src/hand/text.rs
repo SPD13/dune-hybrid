@@ -1,5 +1,6 @@
 //! Text: the phrase and command strings, the font, drawing strings.
 
+use super::video;
 use super::sound;
 use super::screens;
 use super::entry;
@@ -74,6 +75,12 @@ pub fn get_phrase_or_command_string_si(m: &mut Machine, start: u16) -> Result<()
     let bx = c.pop();
     c.set_reg(BX, bx);
     c.ret()
+}
+
+/// [`get_phrase_or_command_string_si`] called: string SI, counted from 1 (SI; ES its segment).
+pub(super) fn string_ptr(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0xcf70, ret)?;
+    Ok(c.reg(SI))
 }
 
 /// `load_PHRASExx_HSQ` (D00F): loads the phrase file for the current part
@@ -405,6 +412,12 @@ pub fn word_width(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`word_width`] called: the width of the word at SI (CX).
+pub(super) fn word_width_px(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x8ed3, ret)?;
+    Ok(c.reg(CX))
+}
+
 /// `font_draw_glyph_func`: the glyph AL in the tall font
 /// (`font_select_tall_font`): a font glyph (`loc_0d0e3` CF) drawn by the
 /// driver (far [38D1h], 9 rows, colour [0DBE4h], its width from the table
@@ -465,15 +478,14 @@ pub fn font_draw_glyph_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x32);
     c.call(entry::OPEN_RESOURCE_BY_INDEX, 0xd112)?;
     c.run(0xd112, 1)?;
-    c.call(entry::FONT_GET_DRAW_POSITION, 0xd115)?;
-    let bx = c.reg(BX);
-    c.run(0xd115, 7 + if bx < 0x13 { 1 } else { 0 } + 1)?;
+    let (_, pen_y) = video::draw_position(&mut c, 0xd115)?;
+    c.run(0xd115, 7 + if pen_y < 0x13 { 1 } else { 0 } + 1)?;
     let ax = c.pop();
     c.set_reg8(r8::CL, (ax >> 8) as u8);
     let x = c.font_pen().at[0].wrapping_add(ax & 0xff);
     c.update_font_pen(|t| t.at[0] = x);
     c.set_reg(AX, ax >> 8);
-    c.set_reg(BX, bx.saturating_sub(0x13));
+    c.set_reg(BX, pen_y.saturating_sub(0x13));
     c.call(entry::DRAW_SPRITE_CLOBBERING_BX_DX, 0xd12a)?;
     c.run(0xd12a, 2)?;
     let es = c.pop();

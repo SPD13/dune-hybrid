@@ -20,6 +20,12 @@ pub fn get_ingame_time_of_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`get_ingame_time_of_day`] called: the time-of-day slot, 0..15 (AX).
+pub(super) fn time_of_day_slot(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x1ae0, ret)?;
+    Ok(c.reg(AX))
+}
+
 /// `get_ingame_day_q` (1AC5): AX = the game time / 16 (the day, counted
 /// from 0). Flags from the last of four `shr ax, 1`.
 pub fn get_ingame_day_q(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -70,6 +76,12 @@ pub fn sky_palette_for_game_time(m: &mut Machine, start: u16) -> Result<(), Bail
     c.set_reg(BX, g::SKY_PALETTE_BY_SLOT & 0xff00);
     c.set_reg8(r8::BL, id);
     c.ret()
+}
+
+/// [`sky_palette_for_game_time`] called: the sky palette for the game time (BL).
+pub(super) fn sky_palette(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
+    c.call(0x395c, ret)?;
+    Ok(c.reg(BX) as u8)
 }
 
 

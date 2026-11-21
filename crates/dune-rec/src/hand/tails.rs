@@ -3,6 +3,7 @@
 //! into the next one. The routine they go on to runs as its own port
 //! when it has one, else in the original from there.
 
+use super::math;
 use super::records;
 use super::story;
 use super::troops;
@@ -1729,9 +1730,8 @@ pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x1ca3, 1)?;
     c.call(entry::STATS_NUMBERS, 0x1ca6)?;
     c.run(0x1ca6, 1)?;
-    c.call(entry::RAND, 0x1ca9)?;
+    let mut bx = math::random_word(&mut c, 0x1ca9)?;
     c.run(0x1ca9, 2)?;
-    let mut bx = c.reg(AX);
     c.set_reg(BX, bx);
     let mut si = g::SMUGGLERS;
     c.set_reg(SI, si);
@@ -2271,12 +2271,11 @@ pub fn set_shown_troop_job_keeping_bits(m: &mut Machine, start: u16) -> Result<(
     c.run(0x6a35, 2)?;
     let ax = c.reg(AX);
     c.push(ax);
-    c.call(entry::SHOWN_TROOP, 0x6a39)?;
+    let troop = troops::shown_troop_record(&mut c, 0x6a39)?;
     c.run(0x6a39, 5)?;
     let v = c.pop();
     c.set_reg(AX, v);
-    let si = c.reg(SI);
-    let k = c.byte(si.wrapping_add(3));
+    let k = c.byte(troop.0.wrapping_add(3));
     let cl = pure::and(B, k as u16, 0xc);
     let cl = pure::or(B, cl, v & 0xff);
     c.set_reg8(r8::CL, cl as u8);

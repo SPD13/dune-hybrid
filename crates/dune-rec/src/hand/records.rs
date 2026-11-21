@@ -86,6 +86,12 @@ pub fn get_location_type_string_offset(m: &mut Machine, start: u16) -> Result<()
     c.ret()
 }
 
+/// [`get_location_type_string_offset`] called: the string index for the kind of the location at DI (AX).
+pub(super) fn location_type_string(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x6231, ret)?;
+    Ok(c.reg(AX))
+}
+
 /// `sub_01e0` (BP of the start-up loop at 01CBh, for each troop SI of the location DI):
 /// its location DI and position (DX, BX) at +4, +6, +8; byte 12h from the location's
 /// kind (low nibble of [DI]): bits 4..6 kept, bit 7 flipped once for each of 3, 5 and 9

@@ -2,6 +2,7 @@
 //! device's animations, the ornithopter, the settings sliders, talking
 //! heads without lip sync, lip sync start and stop.
 
+use super::video;
 use super::math;
 use super::voice;
 use super::sound;
@@ -1143,19 +1144,17 @@ pub fn scene_picture(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0d26, 3)?;
     let dl = c.reg8(r8::DL);
     c.set_reg(AX, dl as u16);
-    c.call(entry::GET_SUBRESOURCE_POINTER, 0x0d2d)?;
+    let sub = video::subresource(&mut c, 0x0d2d)?;
     c.run(0x0d2d, 1)?;
-    let si = c.reg(SI);
-    c.set_reg(DX, si.wrapping_add(6));
+    c.set_reg(DX, sub.wrapping_add(6));
     c.interp(0x0d30, 0x0d34)?;
     c.run(0x0d34, 1)?;
     c.call(entry::UPDATE_SCREEN_PALETTE, 0x0d37)?;
     c.run(0x0d37, 2)?;
     c.set_reg(AX, 0x35);
-    c.call(entry::GET_SUBRESOURCE_POINTER, 0x0d3d)?;
+    let sub = video::subresource(&mut c, 0x0d3d)?;
     c.run(0x0d3d, 1)?;
-    let si = c.reg(SI);
-    c.set_reg(DX, si.wrapping_add(6));
+    c.set_reg(DX, sub.wrapping_add(6));
     c.interp(0x0d40, 0x0d44)?;
     c.run(0x0d44, 1)?;
     c.ret()

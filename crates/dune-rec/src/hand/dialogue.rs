@@ -1,6 +1,7 @@
 //! Dialogue state: the talking character's mode bytes (47C2h, 47C4h,
 //! 47DCh...), the phrase pointers, and small steps of the conversation.
 
+use super::text;
 use super::resources;
 use super::story;
 use super::sound;
@@ -1516,8 +1517,7 @@ pub fn break_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0x8e28, 8)?;
         c.set_reg8(r8::AL, ch);
-        c.call(entry::WORD_WIDTH, 0x8e4e)?;
-        let word = c.reg(CX);
+        let word = text::word_width_px(&mut c, 0x8e4e)?;
         if word == 0 {
             c.run(0x8e4e, 2)?;
             continue;
@@ -2535,8 +2535,7 @@ pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if append != TEXT_BUFFER {
         c.run(0xa00f, 2)?;
         c.set_reg(SI, phrase);
-        c.call(entry::GET_PHRASE_OR_COMMAND_STRING_SI, 0xa014)?;
-        let at = c.reg(SI);
+        let at = text::string_ptr(&mut c, 0xa014)?;
         if c.byte_in(ES, at) >= 0x80 {
             // A code first: the buffer cut back one entry.
             c.run(0xa014, 7)?;

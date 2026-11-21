@@ -121,9 +121,9 @@ pub fn spawn_troop_particle_if_visible(m: &mut Machine, start: u16) -> Result<()
         return c.ret();
     }
     c.run(0x675d, 2)?;
-    c.call(entry::TROOP_SPRITE_LIST, 0x6762)?;
+    let sprites = sprite_list(&mut c, 0x6762)?;
     // `cmp bp,1`: CF for no list.
-    let none = c.reg(BP) < 1;
+    let none = sprites < 1;
     c.run(0x6762, if none { 3 } else { 4 })?;
     c.set_flag(CF, none);
     if none {
@@ -656,6 +656,12 @@ pub fn estimate_field_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`estimate_field_spice`] called: how many locations the estimate counted (DX).
+pub(super) fn field_spice_counted(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x1cda, ret)?;
+    Ok(c.reg(DX))
+}
+
 
 /// `loc_021fa`: AL = a random number from 2 (`loc_0e3df` below 10, + 2),
 /// drawn again while it is 3 before phase 54h, or 0Bh or 6 before phase
@@ -745,6 +751,12 @@ pub fn count_location_troop_sides(m: &mut Machine, start: u16) -> Result<(), Bai
         c.set_reg(CX, 0);
         c.set_reg(DX, 0);
     })
+}
+
+/// [`count_location_troop_sides`] called: the location DI's Harkonnen troops (CX) and unstarted byte-3-6 troops (DX).
+pub(super) fn troop_sides(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
+    c.call(0x5098, ret)?;
+    Ok((c.reg(CX), c.reg(DX)))
 }
 
 /// `loc_0661d`: as [`for_each_troop`], for the troops `troop_ptr` gives
@@ -1103,6 +1115,12 @@ pub fn refresh_flagged_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, 0);
         c.set_reg(BP, 0x68da);
     })
+}
+
+/// [`refresh_flagged_troops`] called: how many flagged troops were refreshed (CX).
+pub(super) fn flagged_troops_refreshed(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x68d2, ret)?;
+    Ok(c.reg(CX))
 }
 
 /// `loc_06efd`: AL = the troop SI's effective motivation, AH its job
@@ -1994,6 +2012,12 @@ pub(super) fn distance_to_map_position(c: &mut Ctx, ret: u16) -> Result<u16, Bai
 pub fn record_map_distance(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7c8f)?;
     map_distance(m, start, 2)
+}
+
+/// [`record_map_distance`] called: the distance of the record SI (place in words 2 and 4) to the map position (AX).
+pub(super) fn record_distance(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x7c8f, ret)?;
+    Ok(c.reg(AX))
 }
 
 /// The distance of `loc_07c63` / `loc_07c8f` (same code) for the place in
@@ -2998,6 +3022,12 @@ pub fn troop_yield(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
+/// [`troop_yield`] called: the troop SI's yield (AX).
+pub(super) fn troop_yield_value(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x342d, ret)?;
+    Ok(c.reg(AX))
+}
+
 /// `loc_06ac5`: the troop SI's byte 3 with its low two bits cleared as its
 /// new job ([`set_troop_job`], CL), unless that is its job already (no bits
 /// above the job and the low two clear). AL its job.
@@ -3183,6 +3213,12 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let troop = Troop(c.reg(SI));
     troop.set_slot(&mut c, slot as u8);
     c.ret()
+}
+
+/// [`link_troop`] called: the slot the troop SI was linked into (CL).
+pub(super) fn linked_slot(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
+    c.call(0x851f, ret)?;
+    Ok(c.reg(CX) as u8)
 }
 
 /// `loc_06c6f`: the troops' tick. [`g::TICK_LOCATION`] = the location of record
@@ -3522,6 +3558,12 @@ pub fn troop_sprite_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return troop_facing_sprite(c.m, 0x6827);
     }
     c.ret()
+}
+
+/// [`troop_sprite_list`] called: the sprite list for the troop SI (BP).
+pub(super) fn sprite_list(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
+    c.call(0x6770, ret)?;
+    Ok(c.reg(BP))
 }
 
 /// What `loc_06770` picks: BP the sprite list (words in the stack
@@ -4228,8 +4270,7 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.save(&[DI]);
         c.set_reg(DI, home.offset());
         if taken {
-            c.call(entry::COUNT_LOCATION_TROOP_SIDES, 0x84e5)?;
-            let (count, dx) = (c.reg(CX), c.reg(DX));
+            let (count, dx) = troop_sides(&mut c, 0x84e5)?;
             let last = count != 0 && dx.wrapping_sub(1) as i16 <= 0;
             c.run(0x84e5, if count == 0 { 1 } else if last { 5 } else { 3 })?;
             if count != 0 {
@@ -4290,9 +4331,8 @@ pub fn add_troop_strength(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if troop.state(&mut c) & troop_state::STARTED != 0 {
         return c.ret();
     }
-    c.call(entry::TROOP_YIELD, 0x340f)?;
+    let amount = troop_yield_value(&mut c, 0x340f)?;
     let troop = Troop(c.reg(SI));
-    let amount = c.reg(AX);
     let apart = troop.byte_10(&mut c) & 0x80 != 0;
     c.run(0x340f, if apart { 4 } else { 8 })?;
     let total = if apart { g::TOPIC_PLACE_HARKONNEN_STRENGTH } else { g::TOPIC_PLACE_OUR_STRENGTH };
@@ -4507,8 +4547,8 @@ pub fn raid_renew_harkonnen_troop(m: &mut Machine, start: u16) -> Result<(), Bai
     let troop = Troop(c.reg(SI));
     let b = troop.byte_10(&mut c);
     troop.set_byte_10(&mut c, b & !0x80);
-    c.call(entry::LINK_TROOP, 0x75fc)?;
-    let lost = c.reg8(r8::CL) >= 8;
+    let slot = linked_slot(&mut c, 0x75fc)?;
+    let lost = slot >= 8;
     c.run(0x75fc, 5)?;
     if lost {
         return troop_lost_7655(&mut c);
@@ -4997,17 +5037,16 @@ pub fn job_5(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.run(0x72cd, 5)?;
                 c.push(elapsed);
                 c.push(half);
-                c.call(entry::REFRESH_FLAGGED_TROOPS, 0x72d8)?;
-                let cx = c.reg(CX);
-                c.run(0x72d8, 3 + (cx != 0) as u32)?;
+                let refreshed = flagged_troops_refreshed(&mut c, 0x72d8)?;
+                c.run(0x72d8, 3 + (refreshed != 0) as u32)?;
                 let bp = c.pop();
                 c.set_reg(BP, bp);
                 let bx = c.pop();
                 c.set_reg(BX, bx);
-                if cx == 0 {
+                if refreshed == 0 {
                     counted = false;
                 } else {
-                    troop.set_rate(&mut c, cx);
+                    troop.set_rate(&mut c, refreshed);
                 }
             } else {
                 c.run(0x72cd, 2)?;
