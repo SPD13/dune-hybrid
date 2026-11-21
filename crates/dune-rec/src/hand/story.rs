@@ -154,7 +154,7 @@ pub fn set_game_phase(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`set_game_phase`] called: the game phase raised to AL (never lowered).
 pub(super) fn raise_phase(c: &mut Ctx, phase: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, phase);
-    c.call(0x121f, ret)
+    c.call(entry::SET_GAME_PHASE, ret)
 }
 
 /// `on_phase_04`: [122Ah] -= 1, `sub_105b` with SI = 1021h, then [0FE8h] = 9.
@@ -288,7 +288,7 @@ pub fn increase_charisma_by_al(m: &mut Machine, start: u16) -> Result<(), Bail> 
 /// [`increase_charisma_by_al`] called: charisma up by AL (at most C8h), motivation with it.
 pub(super) fn raise_charisma(c: &mut Ctx, points: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, points);
-    c.call(0x6f78, ret)
+    c.call(entry::INCREASE_CHARISMA_BY_AL, ret)
 }
 
 /// `loc_04ab8`: the flight started ([4727h] FFh).
@@ -613,7 +613,7 @@ pub fn measure_place_forces(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for at in [0x94, 0x96, 0x5c, 0x5e] {
         c.set_word(at, 0);
     }
-    troops::run_for_each_troop(&mut c, 0x3406, 0x33d2)?;
+    troops::run_for_each_troop(&mut c, entry::ADD_TROOP_STRENGTH, 0x33d2)?;
     c.run(0x33d2, 1)?;
     c.call(entry::STRIKE_ODDS, 0x33d5)?;
     c.run(0x33d5, 2)?;
@@ -668,7 +668,7 @@ pub fn handle_flag_23(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::CLOSE_DIALOGUE_TEXT, 0x36dd)?;
     c.run(0x36dd, 3)?;
     c.update_conversation(|t| t.scene_count = 0);
-    run_for_records_here(&mut c, 0x3520, 0x36e8)?;
+    run_for_records_here(&mut c, entry::SCENE_SENTENCE, 0x36e8)?;
     c.run(0x36e8, 2)?;
     c.update_progress(|t| t.talk_reason = 0);
     c.ret()
@@ -772,7 +772,7 @@ pub fn stop_typing_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_typed_message(|t| t.next[0] = 0);
     c.call(code::SAVE_REGS, 0x46ab)?;
     c.run(0x46ab, 2)?;
-    tasks::remove_task(&mut c, 0x46b5, 0x46b1)?;
+    tasks::remove_task(&mut c, entry::MESSAGE_TASK, 0x46b1)?;
     c.run(0x46b1, 1)?;
     c.call(code::RESTORE_REGS, 0x46b4)?;
     c.run(0x46b4, 1)?;
@@ -1469,7 +1469,7 @@ pub fn reset_visitor_positions(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.set_reg(DI, di);
     let dx = c.player().x;
     c.set_reg(DX, dx);
-    troops::run_for_each_troop(&mut c, 0x316e, 0x3157)?;
+    troops::run_for_each_troop(&mut c, entry::PLACE_TROOP_MARKER, 0x3157)?;
     let di = c.reg(DI);
     let kind = c.byte(di.wrapping_add(8));
     c.run(0x3157, if kind != 0x21 { 3 } else { 6 })?;
@@ -1517,9 +1517,9 @@ fn setup_3093(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx) -> R
     c.push(ds);
     let es = c.pop();
     c.set_sreg(pc::cpu::ES, es);
-    run_for_records_here(c, 0x30b9, 0x30af)?;
+    run_for_records_here(c, entry::ADD_SPEAKER, 0x30af)?;
     c.run(0x30af, 2)?;
-    run_for_records_here(c, 0x3120, 0x30b5)?;
+    run_for_records_here(c, entry::ADD_SPEAKER_40, 0x30b5)?;
     c.run(0x30b5, 3)?;
     c.xor(W, 0, 0);
     c.set_reg(AX, 0);
@@ -1670,7 +1670,7 @@ pub fn count_place_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x34b3, 3)?;
     let di = c.pop();
     c.set_reg(DI, di);
-    troops::run_for_location_troops(&mut c, 0x34d0, 0x34ba)?;
+    troops::run_for_location_troops(&mut c, entry::COUNT_TROOP_AT_PLACE, 0x34ba)?;
     c.run(0x34ba, 8)?;
     for (a, b, to) in [
         (g::TOPIC_PLACE_OUR_TROOPS, g::TOPIC_PLACE_OUR_INBOUND, g::TOPIC_PLACE_OUR_TOTAL),
@@ -1821,7 +1821,7 @@ pub fn for_records_here_bp(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`for_records_here_bp`] called: BP's routine for each record here.
 pub(super) fn run_for_records_here(c: &mut Ctx, routine: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(BP, routine);
-    c.call(0x36ee, ret)
+    c.call(entry::FOR_RECORDS_HERE_BP, ret)
 }
 
 /// `loc_040c3`: [`for_records_here`] with `move_following_character`.
@@ -1925,7 +1925,7 @@ pub fn place_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`place_phrase`] called: the phrase number of the place DI (AX).
 pub(super) fn place_phrase_number(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x456c, ret)?;
+    c.call(entry::PLACE_PHRASE, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -1960,7 +1960,7 @@ pub fn start_message_57(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     c.update_typed_message(|t| t.pen[1] = ax);
     c.update_typed_message(|t| t.colour = cx);
-    tasks::add_task(&mut c, 0x46b5, 0x18, 0x4697)?;
+    tasks::add_task(&mut c, entry::MESSAGE_TASK, 0x18, 0x4697)?;
     c.run(0x4697, 1)?;
     c.call(code::RESTORE_REGS, 0x469a)?;
     c.run(0x469a, 1)?;
@@ -2080,7 +2080,7 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`enter_location`] called: entering the location at DI.
 pub(super) fn enter_location_at(c: &mut Ctx, location: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(DI, location);
-    c.call(0x503c, ret)
+    c.call(entry::ENTER_LOCATION, ret)
 }
 
 /// `sub_4415`: leaving the map's hotspot mode (when [46EBh] was set): the
@@ -2101,7 +2101,7 @@ pub fn leave_hotspot_mode(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::MAP_MARKERS, 0);
     c.call(entry::CLEAR_SOME_MOUSE_RECT, 0x4429)?;
     c.run(0x4429, 2)?;
-    tasks::remove_task(&mut c, 0x44ab, 0x442f)?;
+    tasks::remove_task(&mut c, entry::BLINK_MAP_POINTER, 0x442f)?;
     let mut at = 0x442f;
     for t in [0x469b, 0x5ba0, 0x43e3, 0xc0f4] {
         c.run(at, 1)?;
@@ -2400,7 +2400,7 @@ pub fn sky_flash(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x0d61, 4)?;
         c.set_byte(g::FRAME_TASKS_ACTIVE, 0x20);
         loop {
-            frame::draw_then_wait(&mut c, 0x391d, 3, 0x0d6f)?;
+            frame::draw_then_wait(&mut c, entry::SKY_FADE_STEP, 3, 0x0d6f)?;
             let k = c.byte(g::FRAME_TASKS_ACTIVE);
             if k >= 0x10 {
                 c.run(0x0d6f, 5)?;
@@ -2417,7 +2417,7 @@ pub fn sky_flash(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x0d79, 3)?;
     loop {
-        frame::draw_then_wait(&mut c, 0x391d, 3, 0x0d82)?;
+        frame::draw_then_wait(&mut c, entry::SKY_FADE_STEP, 3, 0x0d82)?;
         let k = c.byte(g::FRAME_TASKS_ACTIVE);
         if k != 0 {
             c.run(0x0d82, 5)?;
@@ -3271,7 +3271,7 @@ pub fn note_pair_0(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`note_pair_0`] called: the pending event pair AX added, with DI 0.
 pub(super) fn add_event(c: &mut Ctx, event: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(AX, event);
-    c.call(0x29ee, ret)
+    c.call(entry::NOTE_PAIR_0, ret)
 }
 
 /// `sub_1166`: [`g::ITEMS_OFFERED`] counted, record FD8h's byte 10h 2 (word 12h
@@ -3471,7 +3471,7 @@ pub fn describe_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`describe_place`] called: the location DI becomes the one talked about.
 pub(super) fn talk_about_location(c: &mut Ctx, location: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(DI, location);
-    c.call(0x331e, ret)
+    c.call(entry::DESCRIBE_PLACE, ret)
 }
 
 /// `ui_comm`: the sietch to call: of the sietches from 100h (below 20h,
@@ -4055,7 +4055,7 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`describe_troop`] called: the troop SI described in the condition variables.
 pub(super) fn tell_about_troop(c: &mut Ctx, troop: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, troop);
-    c.call(0x31f6, ret)
+    c.call(entry::DESCRIBE_TROOP, ret)
 }
 
 /// `sub_1027`: bit 80h of [122Eh] cleared, then the panel's buttons
@@ -5575,11 +5575,11 @@ fn travel_step(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x375a, 2)?;
     time::run_clock(c, 5, 0x3760)?;
     c.run(0x3760, 3)?;
-    screen::transition_drawn(c, 0xc0ad, 0x34, 0x3768)?;
+    screen::transition_drawn(c, entry::GFX_CLEAR_ACTIVE_FRAMEBUFFER, 0x34, 0x3768)?;
     c.run(0x3768, 1)?;
     c.call(entry::DRAW_HEAD_PANEL, 0x376b)?;
     c.run(0x376b, 2)?;
-    gfx::draw_on_front_buffer(c, 0x1a0f, 0x3771)?;
+    gfx::draw_on_front_buffer(c, entry::REDRAW_DATE_PANEL, 0x3771)?;
     c.run(0x3771, 4)?;
     let si = c.word(g::LAST_PLACE);
     c.set_reg(SI, si);
@@ -5623,7 +5623,7 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
     match start {
         0x2db1 => {
             c.run(0x2db1, 2)?;
-            gfx::draw_on_front_buffer(&mut c, 0xd717, 0x2db7)?;
+            gfx::draw_on_front_buffer(&mut c, entry::SET_BUTTONS_FOR_SCREEN, 0x2db7)?;
             c.run(0x2db7, 1)?;
             c.call(entry::SET_MAP_CLICK_HANDLER, 0x2dba)?;
             c.run(0x2dba, 2)?;
@@ -5640,7 +5640,7 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_byte(g::TRANSITION_ACTIVE, 0);
         c.update_conversation(|t| t.line_state = 0);
         c.update_conversation(|t| t.first_speaker = 0);
-        gfx::draw_on_front_buffer(&mut c, 0x2eb2, 0x2dd3)?;
+        gfx::draw_on_front_buffer(&mut c, entry::PLACE_PANEL_BACK, 0x2dd3)?;
     }
     let k = c.progress().harkonnen_place;
     if k != 0 {
@@ -5703,7 +5703,7 @@ pub fn room_arrive(m: &mut Machine, start: u16) -> Result<(), Bail> {
     swap(&mut c);
     c.set_reg(AX, x);
     if x != y {
-        screen::transition_drawn(&mut c, 0x0f66, 0x10, 0x2e47)?;
+        screen::transition_drawn(&mut c, entry::NOTHING, 0x10, 0x2e47)?;
         c.run(0x2e47, 1)?;
         c.call(entry::MUSIC_STEP_IF_ENABLED, 0x2e4a)?;
         c.run(0x2e4a, 1)?;
@@ -6239,7 +6239,7 @@ fn figures_3a24(c: &mut Ctx) -> Result<(), Bail> {
         if !go {
             return c.ret();
         }
-        tasks::add_task(c, 0xc0b6, 0x0c, 0x3a94)?;
+        tasks::add_task(c, entry::ROOM_FRAME_TASK, 0x0c, 0x3a94)?;
         c.run(0x3a94, 1)?;
         return c.ret();
     }

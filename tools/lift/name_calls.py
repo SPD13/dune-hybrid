@@ -8,8 +8,10 @@ that has a name, `pub const LINK_TROOP: u16 = 0x851f;`, the name being
 the hand port's (upper-cased) or, for a routine without a port, the
 listing's label when it is more than an address (`loc_`/`sub_` labels
 are left out). Then rewrites, in every hand module, `c.call(0xADDR, ` and
-`c.jump(0xADDR)` (and `c.call_far`-free forms only) whose ADDR has such a
-constant to `c.call(entry::NAME, ` / `c.jump(entry::NAME)`, adding
+`c.jump(0xADDR)` (and `c.call_far`-free forms only), and a routine handed
+as an argument (`troops::run_for_each_troop(&mut c, 0xADDR, ..)`,
+`tasks::add_task`, `screen::transition_drawn`, ...), whose ADDR has such a
+constant to `c.call(entry::NAME, ` / `c.jump(entry::NAME)` / `entry::NAME`, adding
 `use super::entry;` where needed. The constants are the same numbers, so
 the ports do exactly what they did; the build is the check.
 
@@ -73,6 +75,10 @@ def main():
            '']
     rx_call = re.compile(r'\bc\.call\(0x([0-9a-f]+), ')
     rx_jump = re.compile(r'\bc\.jump\(0x([0-9a-f]+)\)')
+    # A routine handed to another as an argument (the named calls that set
+    # it in BP or SI: the troop loops, the frame tasks, the transitions).
+    rx_arg = re.compile(r'\b((?:\w+::)?(?:run_for_\w+|add_task|remove_task|transition_drawn|draw_on_front_buffer'
+                        r'|draw_then_wait|set_click))\(((?:&mut )?c, )0x([0-9a-f]+)\b')
     wanted = set()
     files = sorted(f for f in os.listdir(HAND) if f.endswith('.rs') and f not in ('entry.rs', 'mod.rs'))
     texts = {}
@@ -83,6 +89,9 @@ def main():
             for h in rx.findall(raw):
                 if int(h, 16) in names:
                     wanted.add(int(h, 16))
+        for _, _, h in rx_arg.findall(raw):
+            if int(h, 16) in names:
+                wanted.add(int(h, 16))
         # The names already written (an earlier run) stay.
         for n in re.findall(r'\bentry::([A-Z0-9_]+)', raw):
             assert n in used, f'{f}: entry::{n} is no longer a name (renamed port?)'
@@ -102,6 +111,11 @@ def main():
             return f'c.jump(entry::{names[a]})' if a in names else m.group(0)
         t, n1 = rx_call.subn(sub_call, raw)
         t, n2 = rx_jump.subn(sub_jump, t)
+
+        def sub_arg(m):
+            a = int(m.group(3), 16)
+            return f'{m.group(1)}({m.group(2)}entry::{names[a]}' if a in names else m.group(0)
+        t, n3 = rx_arg.subn(sub_arg, t)
         if t == raw:
             continue
         sites += t.count('entry::') - raw.count('entry::')

@@ -194,7 +194,7 @@ pub fn item_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`item_place`] called: where item CL of the current list goes (AX, BX).
 pub(super) fn item_position(c: &mut Ctx, item: u8, ret: u16) -> Result<(u16, u16), Bail> {
     c.set_reg8(r8::CL, item);
-    c.call(0xd454, ret)?;
+    c.call(entry::ITEM_PLACE, ret)?;
     Ok((c.reg(AX), c.reg(BX)))
 }
 
@@ -347,7 +347,7 @@ pub fn set_click_handler(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`set_click_handler`] called: the click handler AX.
 pub(super) fn set_click(c: &mut Ctx, handler: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(AX, handler);
-    c.call(0xd95e, ret)
+    c.call(entry::SET_CLICK_HANDLER, ret)
 }
 
 /// `loc_0d0e3`: the index of AL in the 9 characters at CS:D0D1h: AL =
@@ -458,7 +458,7 @@ pub fn set_buttons_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`set_buttons_si`] called: the buttons from SI.
 pub(super) fn set_buttons_from(c: &mut Ctx, buttons: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, buttons);
-    c.call(0xd72b, ret)
+    c.call(entry::SET_BUTTONS_SI, ret)
 }
 
 /// `loc_0d717`: the buttons for the screen: 1CCAh with hotspots (46EBh),
@@ -1232,7 +1232,7 @@ pub fn place_map_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 fn place_map_pointer_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x445d, 2)?;
-    tasks::remove_task(c, 0x44ab, 0x4463)?;
+    tasks::remove_task(c, entry::BLINK_MAP_POINTER, 0x4463)?;
     c.run(0x4463, 1)?;
     c.call(entry::GET_MAP_POSITION, 0x4466)?;
     c.run(0x4466, 1)?;
@@ -1269,7 +1269,7 @@ fn place_map_pointer_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_word(g::MAP_POINTER_BOX_TOP, bx);
     c.set_word(g::MAP_POINTER_BOX_RIGHT, bp);
     c.set_word(g::MAP_POINTER_BOX_BOTTOM, ax);
-    tasks::add_task(c, 0x44ab, 0x12c, 0x44a6)?;
+    tasks::add_task(c, entry::BLINK_MAP_POINTER, 0x12c, 0x44a6)?;
     c.run(0x44a6, 1)?;
     c.set_byte(g::MAP_POINTER_BLINKS, 0);
     blink_map_pointer(c.m, 0x44ab)

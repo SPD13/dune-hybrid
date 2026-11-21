@@ -52,7 +52,7 @@ pub fn place_box_origin(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`place_box_origin`] called: the point of the place box (DX, BX).
 pub(super) fn place_box_point(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
-    c.call(0x557b, ret)?;
+    c.call(entry::PLACE_BOX_ORIGIN, ret)?;
     Ok((c.reg(DX), c.reg(BX)))
 }
 
@@ -468,7 +468,7 @@ pub fn add_point_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub(super) fn add_point(c: &mut Ctx, along: u16, row: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(DX, along);
     c.set_reg(BX, row);
-    c.call(0x81d7, ret)
+    c.call(entry::ADD_POINT_ENTRY, ret)
 }
 
 /// `loc_082a0`: ZF set when the current UI elements are one of the two
@@ -731,7 +731,7 @@ pub fn direction_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`direction_step`] called: the step for the direction AL (DX, BX).
 pub(super) fn step_for_direction(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
-    c.call(0x5198, ret)?;
+    c.call(entry::DIRECTION_STEP, ret)?;
     Ok((c.reg(DX), c.reg(BX)))
 }
 
@@ -773,7 +773,7 @@ pub fn place_octant(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`place_octant`] called: the octant of the place at [BP] (SS) into [BP+2].
 pub(super) fn octant_of_place(c: &mut Ctx, place: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(BP, place);
-    c.call(0x5323, ret)
+    c.call(entry::PLACE_OCTANT, ret)
 }
 
 /// `loc_05344`: DI = the location nearest to (DX, BX) (not of bit 80h of
@@ -1132,7 +1132,7 @@ pub fn location_icon(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`location_icon`] called: the map icon of the location at SI (AX) and its kind (CL).
 pub(super) fn location_icon_of(c: &mut Ctx, ret: u16) -> Result<(u16, u8), Bail> {
-    c.call(0x5e42, ret)?;
+    c.call(entry::LOCATION_ICON, ret)?;
     Ok((c.reg(AX), c.reg(CX) as u8))
 }
 
@@ -1265,7 +1265,7 @@ pub fn location_map_kind(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`location_map_kind`] called: how the location at DI shows on the map (AX).
 pub(super) fn map_kind_of(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x6252, ret)?;
+    c.call(entry::LOCATION_MAP_KIND, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -1347,7 +1347,7 @@ pub fn count_10_bytes(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`count_10_bytes`] called: how many of the 6 bytes from ES:SI - 1 have bits 30h = 10h (DX).
 pub(super) fn bytes_with_10(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x642e, ret)?;
+    c.call(entry::COUNT_10_BYTES, ret)?;
     Ok(c.reg(DX))
 }
 
@@ -1517,7 +1517,7 @@ pub fn open_map_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::SET_MARK_AT_MAP_POSITION, 0x5a25)?;
     c.run(0x5a25, 4)?;
     c.set_reg(DX, 0xffff);
-    screen::transition_drawn(&mut c, 0x5a56, 0x34, 0x5a30)?;
+    screen::transition_drawn(&mut c, entry::ENTER_MAP_VIEW, 0x34, 0x5a30)?;
     let k = c.map_selection().map_screen;
     c.run(0x5a30, 3)?;
     if k == 0 {
@@ -2337,7 +2337,7 @@ pub fn location_balance(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0);
     c.set_reg(DX, 0);
     c.set_word(g::SPAN_CENTRE_X, 0);
-    troops::run_for_each_troop(&mut c, 0x6155, 0x6108)?;
+    troops::run_for_each_troop(&mut c, entry::ADD_TROOP_TO_BALANCE, 0x6108)?;
     let (bx, cx, dx) = (c.reg(BX), c.reg(CX), c.reg(DX));
     let e = c.word(g::SPAN_CENTRE_X);
     let s1 = bx.wrapping_add(dx);
@@ -2609,7 +2609,7 @@ pub fn draw_location_circle(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`draw_location_circle`] called: the circle of radius CX around the location DI.
 pub(super) fn draw_circle_of(c: &mut Ctx, radius: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(CX, radius);
-    c.call(0x6447, ret)
+    c.call(entry::DRAW_LOCATION_CIRCLE, ret)
 }
 
 fn circle_at(c: &mut Ctx, at: u16) -> Result<(), Bail> {
@@ -2877,14 +2877,14 @@ pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let s = c.pop();
         c.set_reg(SI, s);
-        troops::run_for_each_troop(&mut c, 0x7506, 0x74f1)?;
+        troops::run_for_each_troop(&mut c, entry::FLAG_HARKONNEN_OR_START_TROOP, 0x74f1)?;
         c.run(0x74f1, 3)?;
         let di = c.reg(DI);
         c.push(di);
         draw_circle_of(&mut c, 5, 0x74f8)?;
         return abandon_tail(&mut c);
     }
-    troops::run_for_each_troop(&mut c, 0x7506, 0x74f1)?;
+    troops::run_for_each_troop(&mut c, entry::FLAG_HARKONNEN_OR_START_TROOP, 0x74f1)?;
     c.run(0x74f1, 3)?;
     let di = c.reg(DI);
     c.push(di);
@@ -3233,7 +3233,7 @@ pub fn nearest_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`nearest_shown_location`] called: the nearest shown location (DI, 0 for none) and its distance (AX, FFFFh for none).
 pub(super) fn nearest_shown(c: &mut Ctx, kind_limit: u8, ret: u16) -> Result<(u16, u16), Bail> {
     c.set_reg8(r8::AL, kind_limit);
-    c.call(0x5e6d, ret)?;
+    c.call(entry::NEAREST_SHOWN_LOCATION, ret)?;
     Ok((c.reg(DI), c.reg(AX)))
 }
 
@@ -4312,7 +4312,7 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.push(bp);
             c.set_reg(BX, 0);
             c.set_reg(CX, 0);
-            troops::run_for_location_troops(&mut c, 0x5728, 0x5854)?;
+            troops::run_for_location_troops(&mut c, entry::COUNT_BY_JOB, 0x5854)?;
             c.run(0x5854, 2)?;
             let b = c.pop();
             c.set_reg(BP, b);
@@ -4381,7 +4381,7 @@ fn toggle_map_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     c.run(0x1886, 4)?;
     c.set_word(g::BOOK_COUNTER_1_FLAGS, 0x80);
     c.set_word(g::BOOK_COUNTER_2_FLAGS, 0x80);
-    gfx::draw_on_front_buffer(c, 0xd75a, 0x1898)?;
+    gfx::draw_on_front_buffer(c, entry::FRIEZE_SIDES_CLOSED_BOOK, 0x1898)?;
     if c.byte(g::COMM_CALLER) != 0 {
         c.m.cpu.ip = 0x1898;
         return Err(Bail);
@@ -4555,9 +4555,9 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::REGIONS_TO_UNMARK, r);
     let x = c.pop();
     c.set_reg(CX, x);
-    troops::run_for_each_troop(&mut c, 0x75af, 0x7476)?;
+    troops::run_for_each_troop(&mut c, entry::RAID_RALLY_OWN_TROOP, 0x7476)?;
     c.run(0x7476, 2)?;
-    troops::run_for_each_troop(&mut c, 0x75ea, 0x747c)?;
+    troops::run_for_each_troop(&mut c, entry::RAID_RENEW_HARKONNEN_TROOP, 0x747c)?;
     let seed = c.word(0);
     let z = seed & 3 == 0;
     c.run(0x747c, 3 + z as u32)?;
@@ -4569,7 +4569,7 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         c.run(0x7487, 3)?;
         c.set_reg(CX, 0);
-        troops::run_for_each_troop(&mut c, 0x762a, 0x748f)?;
+        troops::run_for_each_troop(&mut c, entry::RAID_GARRISON_HARKONNEN_TROOP, 0x748f)?;
         let (cx, dx) = (c.reg(CX), c.reg(DX));
         c.run(0x748f, 2 + if cx > dx { 0 } else { 3 })?;
         if cx <= dx {
@@ -4924,7 +4924,7 @@ pub fn enter_map_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x5a63, 1)?;
     c.call(entry::REMOVE_GLOBE_FRAME_TASKS, 0x5a66)?;
     c.run(0x5a66, 3)?;
-    tasks::add_task(&mut c, 0x6b34, 0x0f, 0x5a6f)?;
+    tasks::add_task(&mut c, entry::ANIMATE_MAP_SPRITES, 0x0f, 0x5a6f)?;
     c.run(0x5a6f, 3)?;
     video::copy_rect_to(&mut c, 0x1482, 0x46e3, 0x5a78)?;
     c.run(0x5a78, 1)?;

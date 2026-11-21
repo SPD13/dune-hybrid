@@ -805,7 +805,7 @@ fn play_voice_19_at(c: &mut Ctx) -> Result<(), Bail> {
         c.update_voice_buffer(0, |b| b.data[0] = v);
         c.call(entry::REFILL_VOICE_BUFFER, 0xab7d)?;
         c.run(0xab7d, 3)?;
-        tasks::add_task(c, 0xab92, 1, 0xab86)?;
+        tasks::add_task(c, entry::VOICE_STREAM_TASK, 1, 0xab86)?;
         c.run(0xab86, 1)?;
         c.set_reg(SI, 0x3811);
         c.interp(0xab89, 0xab8d)?;
@@ -1350,7 +1350,7 @@ fn next_phrase_a789(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xa75c, 1)?;
     c.call(entry::SETUP_LIP_SYNC_DATA_FROM_CURRENT, 0xa75f)?;
     c.run(0xa75f, 3)?;
-    tasks::add_task(c, 0xa7c2, 0, 0xa768)?;
+    tasks::add_task(c, entry::LIP_SYNC_FRAME_TASK, 0, 0xa768)?;
     c.run(0xa768, 2)?;
     c.set_byte(g::VOC_PCM_PLAYING, 1);
     c.set_reg(SI, 0x3811);
@@ -1375,7 +1375,7 @@ fn next_phrase_a789(c: &mut Ctx) -> Result<(), Bail> {
 /// `loc_0a9a1`) and the music volume restored (`loc_0aded`).
 fn stop_a7a5(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0xa7a5, 2)?;
-    tasks::remove_task(c, 0xa7c2, 0xa7ab)?;
+    tasks::remove_task(c, entry::LIP_SYNC_FRAME_TASK, 0xa7ab)?;
     c.run(0xa7ab, 2)?;
     c.set_word(g::LIPSYNC_PTR, 0);
     c.call(entry::CURSOR_SPRITE_9F, 0xa7b4)?;

@@ -3,6 +3,7 @@
 //! task, the IRUL videos (with subtitles), the font glyph routines, the
 //! pause key.
 
+use super::entry;
 use super::saves;
 use super::waits;
 use super::text;
@@ -104,7 +105,7 @@ pub fn play_chapter_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::MIDI_FUNC_2_0, 0xb1f5)?;
     c.run(0xb1f5, 4)?;
     c.set_byte(g::VOC_PCM_PLAYING, 1);
-    screen::transition_drawn(&mut c, 0xb236, 0x34, 0xb202)?;
+    screen::transition_drawn(&mut c, entry::LOAD_CHAPTER_VIDEO, 0x34, 0xb202)?;
     c.run(0xb202, 1)?;
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xb205)?;
     c.run(0xb205, 2)?;
@@ -135,7 +136,7 @@ pub fn play_chapter_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::SET_FB1_AS_ACTIVE_FRAMEBUFFER, 0xb224)?;
     c.interp(0xb224, 0xb228)?;
     c.run(0xb228, 3)?;
-    screen::transition_drawn(&mut c, 0xb23f, 0x34, 0xb230)?;
+    screen::transition_drawn(&mut c, entry::REDRAW_FRIEZE_SCREEN, 0x34, 0xb230)?;
     c.run(0xb230, 1)?;
     c.call(code::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0xb233)?;
     c.run(0xb233, 1)?; // jmp ABC6h

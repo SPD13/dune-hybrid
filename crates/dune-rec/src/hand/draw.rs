@@ -1,6 +1,7 @@
 //! Drawing sprites (plain and scaled), UI elements, the screen update
 //! with the talking head, and small string helpers.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -114,7 +115,7 @@ pub(super) fn draw_sprite_clobbering(c: &mut Ctx, sprite: u16, x: u16, y: u16, r
     c.set_reg(AX, sprite);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
-    c.call(0xc22f, ret)
+    c.call(entry::DRAW_SPRITE_CLOBBERING_BX_DX, ret)
 }
 
 /// `push ss; pop ds; ret`, counted here.
@@ -264,7 +265,7 @@ pub fn draw_head_if_needed_and_update_screen_rect_at_si(m: &mut Machine, start: 
 /// [`draw_head_if_needed_and_update_screen_rect_at_si`] called: the head drawn if needed, the screen rect at SI updated.
 pub(super) fn draw_head_and_update_rect(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, rect);
-    c.call(0xc4f0, ret)
+    c.call(entry::DRAW_HEAD_IF_NEEDED_AND_UPDATE_SCREEN_RECT_AT_SI, ret)
 }
 
 /// `update_screen_at_sprite_rect_updating_head` (C4ED): the clip
@@ -476,7 +477,7 @@ pub fn blit_repeated_x(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub(super) fn tile_sprite(c: &mut Ctx, sprite: u16, rect: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(AX, sprite);
     c.set_reg(SI, rect);
-    c.call(0xc370, ret)
+    c.call(entry::BLIT_REPEATED_X, ret)
 }
 
 /// `blit_repeated_x`'s loops (C3C7h / C3F4h): while the register `r`

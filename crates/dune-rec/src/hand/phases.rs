@@ -1,6 +1,7 @@
 //! Game-phase handlers (called by `set_game_phase` through its table) and
 //! the discovery of locations they trigger.
 
+use super::entry;
 use super::story;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -194,5 +195,5 @@ pub fn discover_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`discover_location`] called: the location DI discovered.
 pub(super) fn discover_at(c: &mut Ctx, location: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(DI, location);
-    c.call(0x425b, ret)
+    c.call(entry::DISCOVER_LOCATION, ret)
 }

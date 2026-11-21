@@ -141,7 +141,7 @@ pub fn open_resource_by_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`open_resource_by_index`] called: resource AX opened.
 pub(super) fn open_resource(c: &mut Ctx, resource: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(AX, resource);
-    c.call(0xc13e, ret)
+    c.call(entry::OPEN_RESOURCE_BY_INDEX, ret)
 }
 
 /// `open_onmap_resource` (C13B): the on-map resource (25h, or what the

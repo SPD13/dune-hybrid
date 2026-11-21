@@ -110,7 +110,7 @@ pub fn seek_dune_dat_offset_dxax(m: &mut Machine, start: u16) -> Result<(), Bail
 pub(super) fn seek_dune_dat(c: &mut Ctx, high: u16, low: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(DX, high);
     c.set_reg(AX, low);
-    c.call(0xf2d6, ret)
+    c.call(entry::SEEK_DUNE_DAT_OFFSET_DXAX, ret)
 }
 
 /// `parse_cmd_is_end_of_arg` (E56B): the next character of the command
@@ -156,7 +156,7 @@ pub(super) enum CmdChar {
 
 /// [`parse_cmd_is_end_of_arg`] called: what the next character is.
 pub(super) fn next_cmd_char(c: &mut Ctx, ret: u16) -> Result<CmdChar, Bail> {
-    c.call(0xe56b, ret)?;
+    c.call(entry::PARSE_CMD_IS_END_OF_ARG, ret)?;
     Ok(if c.flag(pc::cpu::CF) {
         CmdChar::End
     } else if c.flag(pc::cpu::ZF) {

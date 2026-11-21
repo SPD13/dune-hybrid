@@ -332,9 +332,14 @@ value it holds changes nothing, so the machine sees the same as before.
 The first pass: 57 routines (troop loops, drawing, text, transitions,
 waits, frame tasks, resources), 345 call sites. The second: 27 more
 (`files::load_driver`, `dialogue::speak_as`, `story::tell_about_troop`,
-`mouse::hide_mouse_at`, the rect copies, ...), 58 sites. Inputs that callers set
-through a stretch run in place (most of SI the troop, DI the location)
-stay registers until those stretches are written out.
+`mouse::hide_mouse_at`, the rect copies, ...), 58 sites. Inputs set further up
+(most of SI the troop, DI the location: set before a `c.run`)
+stay registers: a `set_reg` before a `c.run` has to stay
+there, as a bail at the `run` resumes the original with it set. The
+routines handed as arguments (BP's for the troop loops, the frame tasks,
+the transitions' drawing) are then named like the calls
+(`run_for_each_troop(&mut c, entry::ADD_TROOP_TO_BALANCE, ..)`;
+`name_calls.py`), 66 of 86: the rest have no port or label.
 
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust
@@ -1122,7 +1127,7 @@ places), [4722h] (a toggle of the map panel), [118Fh], [0DCE4h].
 | `tools/lift/name_regs.py [--list] MODULE...` | Not a check: the named call returning the registers a routine hands back as values, and its call sites rewritten to it (`--list`: the sites that read a register after a call). |
 | `tools/lift/name_args.py [--list] MODULE...` | Not a check: the named call taking the registers a routine is handed as arguments, and its call sites rewritten to pass the values their `set_reg` lines held (`--list MODULE`: its routines, their docs and the registers their callers set right before). |
 | `tools/lift/shadow.sh [ENTRIES] [SECS]` | The shadow check of every port (or ENTRIES) in the suite's seven games, with per-entry counts. |
-| `tools/lift/name_calls.py` | Not a check: regenerate `hand/entry.rs` (a constant per routine with a name: the port's, else the listing's label) and write `c.call(entry::NAME, ret)` / `c.jump(entry::NAME)` for the numbers (2106 sites; run again after adding or renaming ports). |
+| `tools/lift/name_calls.py` | Not a check: regenerate `hand/entry.rs` (a constant per routine with a name: the port's, else the listing's label) and write `c.call(entry::NAME, ret)` / `c.jump(entry::NAME)` for the numbers, and `entry::NAME` for a routine handed as an argument (`run_for_each_troop`, `add_task`, `transition_drawn`, ...) (2106 sites, then 191 more: 125 calls to ports added since, 66 routine arguments; run again after adding or renaming ports). |
 | `--save FILE` + event `T:load:1` | Real play from any point of the game (the test saves, Day 1 to 23). |
 | event `T:save:N` | The game's state as it serialises it (`DUNE37SN.SAV` in the output folder). |
 

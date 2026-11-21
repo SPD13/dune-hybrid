@@ -81,7 +81,7 @@ pub fn get_phrase_or_command_string_si(m: &mut Machine, start: u16) -> Result<()
 /// [`get_phrase_or_command_string_si`] called: string SI, counted from 1 (SI; ES its segment).
 pub(super) fn string_ptr(c: &mut Ctx, string: u16, ret: u16) -> Result<u16, Bail> {
     c.set_reg(SI, string);
-    c.call(0xcf70, ret)?;
+    c.call(entry::GET_PHRASE_OR_COMMAND_STRING_SI, ret)?;
     Ok(c.reg(SI))
 }
 
@@ -253,7 +253,7 @@ pub(super) fn draw_string_at(c: &mut Ctx, string: u16, x: u16, y: u16, colour: u
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     c.set_reg(CX, colour);
-    c.call(0xd194, ret)
+    c.call(entry::FONT_DRAW_STRING_WITH_COLOR_AT_POS, ret)
 }
 
 /// `font_draw_phrase_list` (D1A6): draws the strings listed at SI (string,
@@ -294,7 +294,7 @@ pub fn font_draw_phrase_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`font_draw_phrase_list`] called: the strings listed at SI (string, x, y, colour).
 pub(super) fn draw_phrases(c: &mut Ctx, list: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, list);
-    c.call(0xd1a6, ret)
+    c.call(entry::FONT_DRAW_PHRASE_LIST, ret)
 }
 
 /// `loc_088e1`: past a command byte (bit 7) at SI, or `loc_08b11` on the
@@ -345,7 +345,7 @@ pub fn decimal_digits(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`decimal_digits`] called: AX's thousands and hundreds (DX) and tens and units (AX), `aam`'d.
 pub(super) fn decimal_parts(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
-    c.call(0x8a23, ret)?;
+    c.call(entry::DECIMAL_DIGITS, ret)?;
     Ok((c.reg(DX), c.reg(AX)))
 }
 
@@ -435,7 +435,7 @@ pub fn word_width(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`word_width`] called: the width of the word at SI (CX).
 pub(super) fn word_width_px(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x8ed3, ret)?;
+    c.call(entry::WORD_WIDTH, ret)?;
     Ok(c.reg(CX))
 }
 

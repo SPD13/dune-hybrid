@@ -74,7 +74,7 @@ pub fn talk_as(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`talk_as`] called: the character AX talks.
 pub(super) fn speak_as(c: &mut Ctx, character: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(AX, character);
-    c.call(0x96d8, ret)
+    c.call(entry::TALK_AS, ret)
 }
 
 /// `loc_0970b`: the phrase AX (words from [`PHRASES`]) set up
@@ -127,7 +127,7 @@ pub fn add_two_heads_text_task(m: &mut Machine, start: u16) -> Result<(), Bail> 
     entered(start, 0x9945)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
-    tasks::add_task(&mut c, 0x99be, 0x10, 0x994e)?;
+    tasks::add_task(&mut c, entry::TWO_HEADS_TEXT_STEP, 0x10, 0x994e)?;
     c.run(0x994e, 1)?;
     c.ret()
 }
@@ -163,7 +163,7 @@ pub fn start_text_voice_talking(m: &mut Machine, start: u16) -> Result<(), Bail>
 /// [`start_text_voice_talking`] called: the text voice with the talking character AL.
 pub(super) fn talk_text_voice(c: &mut Ctx, talking: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, talking);
-    c.call(0x9ef1, ret)
+    c.call(entry::START_TEXT_VOICE_TALKING, ret)
 }
 
 /// `loc_09f1c`: the lip sync set up (`setup_lip_sync_data_from_current`),
@@ -478,7 +478,7 @@ pub fn skip_32_strings(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`skip_32_strings`] called: SI past 20h zero-ended strings (SI).
 pub(super) fn past_32_strings(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x996c, ret)?;
+    c.call(entry::SKIP_32_STRINGS, ret)?;
     Ok(c.reg(SI))
 }
 
@@ -629,7 +629,7 @@ pub fn start_speaker(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`start_speaker`] called: the speaker AL (CL) starts talking.
 pub(super) fn start_speaking(c: &mut Ctx, speaker: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(AX, speaker);
-    c.call(0x93df, ret)
+    c.call(entry::START_SPEAKER, ret)
 }
 
 
@@ -834,7 +834,7 @@ pub fn start_dialogue_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0x9943, 4)?;
-    tasks::add_task(&mut c, 0x99be, 0x10, 0x994e)?;
+    tasks::add_task(&mut c, entry::TWO_HEADS_TEXT_STEP, 0x10, 0x994e)?;
     c.run(0x994e, 1)?;
     c.ret()
 }
@@ -1679,7 +1679,7 @@ pub fn pick_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`pick_sentence`] called: the sentence picked for the speaker (AX; AH 0).
 pub(super) fn picked_sentence(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x9123, ret)?;
+    c.call(entry::PICK_SENTENCE, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -1697,7 +1697,7 @@ pub fn open_talking_head_resource(m: &mut Machine, start: u16) -> Result<(), Bai
 /// [`open_talking_head_resource`] called: resource AX + 2 opened.
 pub(super) fn open_head_resource(c: &mut Ctx, head: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(AX, head);
-    c.call(0x920f, ret)
+    c.call(entry::OPEN_TALKING_HEAD_RESOURCE, ret)
 }
 
 /// `loc_098b2`: unless [47C3h], the dialogue text closed: [4540h] 0, bits
@@ -2030,7 +2030,7 @@ pub fn start_text_voice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(entry::SETUP_LIP_SYNC_DATA_FROM_CURRENT, 0xa75f)?;
     c.run(0xa75f, 3)?;
-    tasks::add_task(&mut c, 0xa7c2, 0, 0xa768)?;
+    tasks::add_task(&mut c, entry::LIP_SYNC_FRAME_TASK, 0, 0xa768)?;
     c.run(0xa768, 2)?;
     c.set_byte(g::VOC_PCM_PLAYING, 1);
     c.set_reg(SI, 0x3811);
@@ -2308,7 +2308,7 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // The panel redrawn on the front buffer (`loc_098b2` through
         // `loc_0c097`; it reads the flags `loc_08c8a` left).
         c.run(0x97f5, 2)?;
-        gfx::draw_on_front_buffer(&mut c, 0x98b2, 0x97fb)?;
+        gfx::draw_on_front_buffer(&mut c, entry::CLOSE_DIALOGUE_TEXT, 0x97fb)?;
         c.run(0x97fb, 4)?;
         let buttons = c.travel().held;
         c.update_travel(|t| t.held = 0);
@@ -2415,7 +2415,7 @@ fn line_end_9858(c: &mut Ctx) -> Result<(), Bail> {
         c.run(0x9870, 6)?;
         c.set_reg8(r8::AL, stage);
         c.cmp(B, stage as u16, 0x10); // `loc_0c097` reads the flags
-        gfx::draw_on_front_buffer(c, 0x37b2, 0x989e)?;
+        gfx::draw_on_front_buffer(c, entry::DRAW_ROOM, 0x989e)?;
         c.run(0x989e, 1)?;
         c.call(entry::HANDLE_FLAG_23, 0x98a1)?;
         c.run(0x98a1, 2)?;
@@ -3621,7 +3621,7 @@ pub fn layout_text(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`layout_text`] called: the text SI laid out in its box.
 pub(super) fn lay_out_text(c: &mut Ctx, text: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, text);
-    c.call(0x8b11, ret)
+    c.call(entry::LAYOUT_TEXT, ret)
 }
 
 /// The text's lines as [`break_lines`] leaves them: a count, then 6

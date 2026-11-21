@@ -1,6 +1,7 @@
 //! The frame: running the frame tasks, waiting while checking for input,
 //! stepping the HNM video, palette chunks, and small helpers.
 
+use super::entry;
 use super::gfx;
 use super::input;
 use super::hnm;
@@ -274,7 +275,7 @@ pub fn wait_processing_frame_tasks_interruptable(m: &mut Machine, start: u16) ->
 pub(super) fn draw_then_wait(c: &mut Ctx, draw: u16, ticks: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(BP, draw);
     c.set_reg(AX, ticks);
-    c.call(0xe353, ret)
+    c.call(entry::WAIT_PROCESSING_FRAME_TASKS_INTERRUPTABLE, ret)
 }
 
 /// `hnm_wait_for_frame` (CAD4): CF clear when the next frame is due: with

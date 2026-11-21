@@ -46,7 +46,7 @@ pub fn calc_sal_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`calc_sal_index`] called: AX plus the kind thresholds the location SI reaches (AX), and its kind (CL).
 pub(super) fn sal_index(c: &mut Ctx, base: u16, ret: u16) -> Result<(u16, u8), Bail> {
     c.set_reg(AX, base);
-    c.call(0x5e4f, ret)?;
+    c.call(entry::CALC_SAL_INDEX, ret)?;
     Ok((c.reg(AX), c.reg(CX) as u8))
 }
 
@@ -89,7 +89,7 @@ pub fn get_location_type_string_offset(m: &mut Machine, start: u16) -> Result<()
 
 /// [`get_location_type_string_offset`] called: the string index for the kind of the location at DI (AX).
 pub(super) fn location_type_string(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x6231, ret)?;
+    c.call(entry::GET_LOCATION_TYPE_STRING_OFFSET, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -143,7 +143,7 @@ pub fn get_orni_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`get_orni_position`] called: the ornithopter's screen position (DX, BX).
 pub(super) fn orni_position(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
-    c.call(0x3a95, ret)?;
+    c.call(entry::GET_ORNI_POSITION, ret)?;
     Ok((c.reg(DX), c.reg(BX)))
 }
 
@@ -175,7 +175,7 @@ pub fn get_map_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`get_map_position`] called: the map position (DX, BX).
 pub(super) fn map_position(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
-    c.call(0x407e, ret)?;
+    c.call(entry::GET_MAP_POSITION, ret)?;
     Ok((c.reg(DX), c.reg(BX)))
 }
 
@@ -340,7 +340,7 @@ pub fn list_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`list_entry`] called: entry DL of the list DH (SI).
 pub(super) fn list_entry_ptr(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x3efe, ret)?;
+    c.call(entry::LIST_ENTRY, ret)?;
     Ok(c.reg(SI))
 }
 
@@ -366,7 +366,7 @@ pub fn note_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`note_point`] called: the name of the place DI noted for the phrases.
 pub(super) fn note_place(c: &mut Ctx, place: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(DI, place);
-    c.call(0x2e98, ret)
+    c.call(entry::NOTE_POINT, ret)
 }
 
 /// `loc_033ad`: when the record at SI has word 2 = BX, the bit of its

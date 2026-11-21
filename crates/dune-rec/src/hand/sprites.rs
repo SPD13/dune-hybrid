@@ -1,5 +1,6 @@
 //! Sprite sheets: lists of icons, palettes from sheets, the ornithopters.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -55,7 +56,7 @@ pub fn draw_icons_list_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`draw_icons_list_at_si`] called: the sprites listed at SI (sprite, x, y), up to FFFFh.
 pub(super) fn draw_icons(c: &mut Ctx, list: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, list);
-    c.call(0xc21b, ret)
+    c.call(entry::DRAW_ICONS_LIST_AT_SI, ret)
 }
 
 /// From 3978: opens sheet AL, takes sub-resource BL as the palette.
@@ -109,7 +110,7 @@ pub fn open_skyrs_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`open_skyrs_palette`] called: palette BL of SKYRS.
 pub(super) fn open_sky_palette(c: &mut Ctx, palette: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::BL, palette);
-    c.call(0x0820, ret)
+    c.call(entry::OPEN_SKYRS_PALETTE, ret)
 }
 
 /// The ornithopters: from 3A73, the next position (DX + 46h, BX + 0Ah);

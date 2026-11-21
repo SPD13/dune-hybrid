@@ -42,7 +42,7 @@ pub fn troop_ptr(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`troop_ptr`] called: troop AL's record (SI).
 pub(super) fn troop_record(c: &mut Ctx, ret: u16) -> Result<Troop, Bail> {
-    c.call(0x6906, ret)?;
+    c.call(entry::TROOP_PTR, ret)?;
     Ok(Troop(c.reg(SI)))
 }
 
@@ -78,7 +78,7 @@ pub fn troop_activity(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`troop_activity`] called: the troop SI's activity: its job / 4 (AX).
 pub(super) fn activity(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x693b, ret)?;
+    c.call(entry::TROOP_ACTIVITY, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -184,7 +184,7 @@ pub fn lose_all_harkonnen_troops(m: &mut Machine, start: u16) -> Result<(), Bail
     loop {
         c.run(at, cost)?;
         c.set_reg(CX, 0);
-        run_for_each_troop(&mut c, 0x764d, 0x6e0a)?;
+        run_for_each_troop(&mut c, entry::LOSE_HARKONNEN_TROOP, 0x6e0a)?;
         if c.reg(CX) == 0 {
             c.run(0x6e0a, 3)?;
             return c.ret();
@@ -202,7 +202,7 @@ pub fn for_troop_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.save(&[DI]);
     let place = Troop(c.reg(SI)).location(&mut c);
     c.set_reg(DI, place);
-    run_for_your_troops(&mut c, 0x6ecb, 0x6ec9)?;
+    run_for_your_troops(&mut c, entry::REDO_FLAGGED_TROOP_JOB, 0x6ec9)?;
     c.run(0x6ec9, 2)?;
     c.restore(&[DI]);
     c.ret()
@@ -223,7 +223,7 @@ pub fn add_motivation(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`add_motivation`] called: the troop SI's motivation up by AL (at most 100).
 pub(super) fn raise_motivation(c: &mut Ctx, points: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, points);
-    c.call(0x6f48, ret)
+    c.call(entry::ADD_MOTIVATION, ret)
 }
 
 /// From 7085 (`prefix` instructions before, done by `ops`): the troop SI
@@ -663,7 +663,7 @@ pub fn estimate_field_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`estimate_field_spice`] called: how many locations the estimate counted (DX).
 pub(super) fn field_spice_counted(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x1cda, ret)?;
+    c.call(entry::ESTIMATE_FIELD_SPICE, ret)?;
     Ok(c.reg(DX))
 }
 
@@ -703,7 +703,7 @@ pub fn random_2_to_12(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`random_2_to_12`] called: a random number from 2 to 12 (AL).
 pub(super) fn roll_2_to_12(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
-    c.call(0x21fa, ret)?;
+    c.call(entry::RANDOM_2_TO_12, ret)?;
     Ok(c.reg(AX) as u8)
 }
 
@@ -755,7 +755,7 @@ pub fn for_each_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`for_each_troop`] called: BP's routine for each troop.
 pub(super) fn run_for_each_troop(c: &mut Ctx, routine: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(BP, routine);
-    c.call(0x6603, ret)
+    c.call(entry::FOR_EACH_TROOP, ret)
 }
 
 /// `loc_05098`: [`each_troop`] with [`count_troop_sides`] (Harkonnen troops in CX,
@@ -771,7 +771,7 @@ pub fn count_location_troop_sides(m: &mut Machine, start: u16) -> Result<(), Bai
 
 /// [`count_location_troop_sides`] called: the location DI's Harkonnen troops (CX) and unstarted byte-3-6 troops (DX).
 pub(super) fn troop_sides(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
-    c.call(0x5098, ret)?;
+    c.call(entry::COUNT_LOCATION_TROOP_SIDES, ret)?;
     Ok((c.reg(CX), c.reg(DX)))
 }
 
@@ -812,7 +812,7 @@ pub fn for_each_troop_below_80(m: &mut Machine, start: u16) -> Result<(), Bail> 
 /// [`for_each_troop_below_80`] called: BP's routine for each troop of yours (`troop_ptr` CF).
 pub(super) fn run_for_your_troops(c: &mut Ctx, routine: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(BP, routine);
-    c.call(0x661d, ret)
+    c.call(entry::FOR_EACH_TROOP_BELOW_80, ret)
 }
 
 /// `loc_0668f`: the troop SI started, unless it is already or bit 80h of
@@ -871,7 +871,7 @@ pub fn shown_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`shown_troop`] called: the record of the troop shown (SI).
 pub(super) fn shown_troop_record(c: &mut Ctx, ret: u16) -> Result<Troop, Bail> {
-    c.call(0x68eb, ret)?;
+    c.call(entry::SHOWN_TROOP, ret)?;
     Ok(Troop(c.reg(SI)))
 }
 
@@ -1107,7 +1107,7 @@ pub fn add_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub(super) fn raise_skill(c: &mut Ctx, skill: u16, points: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg(BX, skill);
     c.set_reg8(r8::AL, points);
-    c.call(0x6edd, ret)
+    c.call(entry::ADD_SKILL, ret)
 }
 
 /// `loc_06f56`: every troop's motivation up by AL (at most 100; the byte
@@ -1139,7 +1139,7 @@ pub fn add_motivation_to_all(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`add_motivation_to_all`] called: every troop's motivation up by AL (at most 100), but those not yours or started.
 pub(super) fn raise_all_motivation(c: &mut Ctx, points: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, points);
-    c.call(0x6f56, ret)
+    c.call(entry::ADD_MOTIVATION_TO_ALL, ret)
 }
 
 /// `loc_068d2`: [`each_troop`] with [`refresh_flagged_troop`], CX = 0 (CX the count).
@@ -1153,7 +1153,7 @@ pub fn refresh_flagged_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`refresh_flagged_troops`] called: how many flagged troops were refreshed (CX).
 pub(super) fn flagged_troops_refreshed(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x68d2, ret)?;
+    c.call(entry::REFRESH_FLAGGED_TROOPS, ret)?;
     Ok(c.reg(CX))
 }
 
@@ -1224,7 +1224,7 @@ pub fn troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`troop_motivation`] called: the troop SI's effective motivation (AL).
 pub(super) fn effective_motivation(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
-    c.call(0x6efd, ret)?;
+    c.call(entry::TROOP_MOTIVATION, ret)?;
     Ok(c.reg(AX) as u8)
 }
 
@@ -1274,7 +1274,7 @@ pub fn lose_charisma(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`lose_charisma`] called: charisma down by AL (at least 1), motivation with it.
 pub(super) fn drop_charisma(c: &mut Ctx, points: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, points);
-    c.call(0x6fb0, ret)
+    c.call(entry::LOSE_CHARISMA, ret)
 }
 
 /// From 6BB6 (CF from the caller): the troop SI's bit 10h of byte 3 made
@@ -1916,7 +1916,7 @@ pub fn noted_location_skill_needs(m: &mut Machine, start: u16) -> Result<(), Bai
 /// [`noted_location_skill_needs`] called: the skill needs of the location DI into 46FEh.
 pub(super) fn note_skill_needs(c: &mut Ctx, location: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(DI, location);
-    c.call(0x7f27, ret)
+    c.call(entry::NOTED_LOCATION_SKILL_NEEDS, ret)
 }
 
 /// `loc_07f2a`: the 7 skill needs of the location DI (bytes 14h on)
@@ -2043,7 +2043,7 @@ pub fn troop_map_distance(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`troop_map_distance`] called: the troop SI's distance to the map position (AX).
 pub(super) fn distance_to_map_position(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x7c63, ret)?;
+    c.call(entry::TROOP_MAP_DISTANCE, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -2056,7 +2056,7 @@ pub fn record_map_distance(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`record_map_distance`] called: the distance of the record SI (place in words 2 and 4) to the map position (AX).
 pub(super) fn record_distance(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x7c8f, ret)?;
+    c.call(entry::RECORD_MAP_DISTANCE, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -2412,7 +2412,7 @@ pub fn troop_rate(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`troop_rate`] called: the troop SI's new production rate (AX).
 pub(super) fn production_rate(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x708a, ret)?;
+    c.call(entry::TROOP_RATE, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -2510,7 +2510,7 @@ pub fn for_troops_at_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`for_troops_at_location`] called: BP's routine for each troop at the location DI or travelling to it.
 pub(super) fn run_for_location_troops(c: &mut Ctx, routine: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(BP, routine);
-    c.call(0x6639, ret)
+    c.call(entry::FOR_TROOPS_AT_LOCATION, ret)
 }
 
 /// `loc_0858c`: the troop SI taken out of its location's chain (unless at
@@ -2880,13 +2880,13 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.set_reg(DX, 0);
-    run_for_your_troops(&mut c, 0x6e82, 0x6e6c)?;
+    run_for_your_troops(&mut c, entry::MARK_IDLE_TROOP_ELSEWHERE, 0x6e6c)?;
     if c.reg8(r8::DL) != 3 {
         c.run(0x6e6c, 3)?;
         return c.ret();
     }
     c.run(0x6e6c, 4)?;
-    run_for_your_troops(&mut c, 0x6ea8, 0x6e77)?;
+    run_for_your_troops(&mut c, entry::MARK_IDLE_TROOP, 0x6e77)?;
     c.run(0x6e77, 4)?;
     c.set_reg(AX, 0x302);
     c.save(&[SI, DI]);
@@ -3067,7 +3067,7 @@ pub fn troop_yield(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`troop_yield`] called: the troop SI's yield (AX).
 pub(super) fn troop_yield_value(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x342d, ret)?;
+    c.call(entry::TROOP_YIELD, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -3260,7 +3260,7 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`link_troop`] called: the slot the troop SI was linked into (CL).
 pub(super) fn linked_slot(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
-    c.call(0x851f, ret)?;
+    c.call(entry::LINK_TROOP, ret)?;
     Ok(c.reg(CX) as u8)
 }
 
@@ -3587,7 +3587,7 @@ pub fn troop_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`troop_step`] called: the troop's step: x (DX, the scale signed) and y (BX, ±1); both 0 when close.
 pub(super) fn troop_step_delta(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
-    c.call(0x8604, ret)?;
+    c.call(entry::TROOP_STEP, ret)?;
     Ok((c.reg(DX), c.reg(BX)))
 }
 
@@ -3610,7 +3610,7 @@ pub fn troop_sprite_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`troop_sprite_list`] called: the sprite list for the troop SI (BP).
 pub(super) fn sprite_list(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x6770, ret)?;
+    c.call(entry::TROOP_SPRITE_LIST, ret)?;
     Ok(c.reg(BP))
 }
 
@@ -4727,7 +4727,7 @@ pub fn set_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`set_troop_job`] called: the troop SI takes the job CL.
 pub(super) fn give_job(c: &mut Ctx, job: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::CL, job);
-    c.call(0x6ad4, ret)
+    c.call(entry::SET_TROOP_JOB, ret)
 }
 
 pub(super) fn set_job_at_6ad4(c: &mut Ctx) -> Result<(), Bail> {

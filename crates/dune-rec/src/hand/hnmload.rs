@@ -329,9 +329,9 @@ pub fn remove_all_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0920, 4)?;
     c.set_byte(g::SKY_VARIANT, 1);
     c.set_byte(g::FRAME_TASKS_ACTIVE, 0);
-    tasks::remove_task(&mut c, 0x070c, 0x0930)?;
+    tasks::remove_task(&mut c, entry::INTRO_HNM_FRAME_TASK, 0x0930)?;
     c.run(0x0930, 2)?;
-    tasks::remove_task(&mut c, 0x3916, 0x0936)?;
+    tasks::remove_task(&mut c, entry::SKY_FADE_TASK, 0x0936)?;
     c.run(0x0936, 1)?;
     c.call(entry::STOP_KEEP_FRAMEBUFFER_TASK, 0x0939)?;
     c.run(0x0939, 2)?;

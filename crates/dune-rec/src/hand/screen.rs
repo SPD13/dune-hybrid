@@ -4,6 +4,7 @@
 //! A rectangle is 4 words: left, top, right, bottom. Empty ones (right
 //! not after left, or bottom not after top) are skipped.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -147,7 +148,7 @@ pub fn gfx_copy_rect_fb1_to_fb2(m: &mut Machine, start: u16) -> Result<(), Bail>
 /// [`gfx_copy_rect_fb1_to_fb2`] called: the rect at SI from framebuffer 1 to 2.
 pub(super) fn copy_rect_to_fb2(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, rect);
-    c.call(0xc477, ret)
+    c.call(entry::GFX_COPY_RECT_FB1_TO_FB2, ret)
 }
 
 /// `copy_game_rect_from_fb2_to_fb1` (C474): despite the name, the game
@@ -195,7 +196,7 @@ pub fn gfx_copy_rect_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> 
 /// [`gfx_copy_rect_to_screen`] called: the rect at SI from the screen buffer to the front.
 pub(super) fn copy_rect_to_screen(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, rect);
-    c.call(0xc4aa, ret)
+    c.call(entry::GFX_COPY_RECT_TO_SCREEN, ret)
 }
 
 /// `particles_update_screen_rect` (C51E): the rectangle (DX, BX) to (BP,
@@ -278,7 +279,7 @@ pub fn transition_al(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub(super) fn transition_drawn(c: &mut Ctx, draw: u16, transition: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg(BP, draw);
     c.set_reg8(r8::AL, transition);
-    c.call(0xc108, ret)
+    c.call(entry::TRANSITION_AL, ret)
 }
 
 /// Not in use yet: never called in the checking runs, so unverified.

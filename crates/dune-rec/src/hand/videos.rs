@@ -173,7 +173,7 @@ pub fn play_wormsuit_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x0e90, 2)?;
         }
         c.run(0x0e90, 4)?;
-        screen::transition_drawn(&mut c, 0x1797, 0x3c, 0x0e9a)?;
+        screen::transition_drawn(&mut c, entry::UI_DRAW_HEAD_AND_SHOULDERS, 0x3c, 0x0e9a)?;
         c.run(0x0e9a, 2)?;
         let cx = c.pop().wrapping_sub(1);
         c.set_reg(CX, cx);
@@ -552,7 +552,7 @@ pub fn ship_spice_to_emperor(m: &mut Machine, start: u16) -> Result<(), Bail> {
         loop {
             c.run(0x2642, 4)?;
             c.push(si);
-            frame::draw_then_wait(&mut c, 0x26ac, 0x0c, 0x264c)?;
+            frame::draw_then_wait(&mut c, entry::DRAW_SCENE_PICTURE, 0x0c, 0x264c)?;
             let last = si == 0x161e;
             c.run(0x264c, 3 + last as u32)?;
             si = c.pop();
@@ -595,13 +595,13 @@ pub fn ship_spice_to_emperor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x2677, 3)?;
     c.update_conversation(|t| t.caller = 1);
-    gfx::draw_on_front_buffer(&mut c, 0x2db1, 0x2682)?;
+    gfx::draw_on_front_buffer(&mut c, entry::ROOM_ARRIVE, 0x2682)?;
     c.run(0x2682, 2)?;
     resources::open_resource(&mut c, 0x2c, 0x2688)?;
     c.run(0x2688, 3)?;
     screen::transition_drawn(&mut c, 0x2555, 6, 0x2690)?;
     c.run(0x2690, 2)?;
-    gfx::draw_on_front_buffer(&mut c, 0x2db1, 0x2696)?;
+    gfx::draw_on_front_buffer(&mut c, entry::ROOM_ARRIVE, 0x2696)?;
     c.run(0x2696, 4)?;
     c.update_conversation(|t| t.caller = 0);
     screen::transition_drawn(&mut c, 0x26a6, 8, 0x26a3)?;

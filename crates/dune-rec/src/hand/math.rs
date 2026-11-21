@@ -49,7 +49,7 @@ pub fn latitude_lookup(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`latitude_lookup`] called: row BX of the latitude table: its value (AX), twice its scale (BP).
 pub(super) fn latitude_row(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
-    c.call(0xb5a0, ret)?;
+    c.call(entry::LATITUDE_LOOKUP, ret)?;
     Ok((c.reg(AX), c.reg(BP)))
 }
 
@@ -238,7 +238,7 @@ pub fn rand(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`rand`] called: the next random word (AX).
 pub(super) fn random_word(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0xe3cc, ret)?;
+    c.call(entry::RAND, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -258,7 +258,7 @@ pub fn rand_masked(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`rand_masked`] called: a random word ANDed with BX (AX).
 pub(super) fn random_masked(c: &mut Ctx, mask: u16, ret: u16) -> Result<u16, Bail> {
     c.set_reg(BX, mask);
-    c.call(0xe3b7, ret)?;
+    c.call(entry::RAND_MASKED, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -342,7 +342,7 @@ pub fn rand_below(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`rand_below`] called: a random number 0..=BX (AX).
 pub(super) fn random_upto(c: &mut Ctx, max: u16, ret: u16) -> Result<u16, Bail> {
     c.set_reg(BX, max);
-    c.call(0xe3df, ret)?;
+    c.call(entry::RAND_BELOW, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -455,7 +455,7 @@ pub fn direction_256(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`direction_256`] called: the direction of (DX, BX) in 256ths of a turn (AL).
 pub(super) fn direction_of(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
-    c.call(0x514e, ret)?;
+    c.call(entry::DIRECTION_256, ret)?;
     Ok(c.reg(AX) as u8)
 }
 

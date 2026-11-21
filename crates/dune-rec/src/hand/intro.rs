@@ -677,7 +677,7 @@ pub fn play_intro2(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.call(entry::STOP_SKY_FADE, 0x0285)?;
             c.run(0x0285, 4)?;
             c.set_byte(g::SKY_PALETTE_SET, 0);
-            screen::transition_drawn(&mut c, 0xc0ad, 0x10, 0x0292)?;
+            screen::transition_drawn(&mut c, entry::GFX_CLEAR_ACTIVE_FRAMEBUFFER, 0x10, 0x0292)?;
         }
     }
     c.run(0x0292, 1)?;

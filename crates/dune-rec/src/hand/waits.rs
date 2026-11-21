@@ -91,7 +91,7 @@ pub fn wait_a_bit(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`wait_a_bit`] called: AX ticks of the timer.
 pub(super) fn wait_ticks(c: &mut Ctx, ticks: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(AX, ticks);
-    c.call(0xe387, ret)
+    c.call(entry::WAIT_A_BIT, ret)
 }
 
 /// `wait_interruptable` (DDB0): AX ticks, or until a key or click
@@ -107,7 +107,7 @@ pub fn wait_interruptable(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`wait_interruptable`] called: AX ticks, or until a key or click.
 pub(super) fn wait_or_input(c: &mut Ctx, ticks: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(AX, ticks);
-    c.call(0xddb0, ret)
+    c.call(entry::WAIT_INTERRUPTABLE, ret)
 }
 
 fn wait_at_ddb0(c: &mut Ctx) -> Result<(), Bail> {

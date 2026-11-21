@@ -4,6 +4,7 @@
 //! [`g::CURSOR_SHOWN`] counts: 0 while the cursor is drawn, negative while
 //! hidden (each hide one lower).
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -135,7 +136,7 @@ pub fn call_restore_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub(super) fn hide_mouse_at(c: &mut Ctx, x: u16, y: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(DX, x);
     c.set_reg(BX, y);
-    c.call(0xdbb2, ret)
+    c.call(entry::CALL_RESTORE_CURSOR, ret)
 }
 
 /// From DBEC: shows the cursor one level more; when that makes it 0, draws
@@ -265,7 +266,7 @@ pub fn restore_mouse_if_rect_intersects(m: &mut Machine, start: u16) -> Result<(
 /// [`restore_mouse_if_rect_intersects`] called: the cursor hidden if it meets the rect at SI.
 pub(super) fn hide_mouse_over(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, rect);
-    c.call(0xdb74, ret)
+    c.call(entry::RESTORE_MOUSE_IF_RECT_INTERSECTS, ret)
 }
 
 /// `redraw_mouse` (DC20): the cursor image for the mouse position; shows
@@ -385,7 +386,7 @@ pub fn get_mouse_cursor_image_addr(m: &mut Machine, start: u16) -> Result<(), Ba
 
 /// [`get_mouse_cursor_image_addr`] called: the cursor image for the mouse at (DX, BX) (BP).
 pub(super) fn cursor_image(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0xdc6a, ret)?;
+    c.call(entry::GET_MOUSE_CURSOR_IMAGE_ADDR, ret)?;
     Ok(c.reg(BP))
 }
 

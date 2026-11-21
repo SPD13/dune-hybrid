@@ -89,7 +89,7 @@ pub fn gfx_call_bp_with_front_buffer_as_screen(m: &mut Machine, start: u16) -> R
 /// [`gfx_call_bp_with_front_buffer_as_screen`] called: BP called with the front buffer as the screen.
 pub(super) fn draw_on_front_buffer(c: &mut Ctx, draw: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(BP, draw);
-    c.call(0xc097, ret)
+    c.call(entry::GFX_CALL_BP_WITH_FRONT_BUFFER_AS_SCREEN, ret)
 }
 
 /// A sprite drawing routine that keeps BX and DX (C2FD, C305): pushes
@@ -127,7 +127,7 @@ pub(super) fn draw_sprite_clipped_at(c: &mut Ctx, sprite: u16, x: u16, y: u16, r
     c.set_reg(AX, sprite);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
-    c.call(0xc305, ret)
+    c.call(entry::DRAW_SPRITE_CLIPPED, ret)
 }
 
 /// A framebuffer copy through the driver: `push ds; mov es, [to];
@@ -331,7 +331,7 @@ pub fn draw_ui_elements_list_at_ds_si(m: &mut Machine, start: u16) -> Result<(),
 pub(super) fn draw_ui_elements(c: &mut Ctx, list: u16, count: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, list);
     c.set_reg(CX, count);
-    c.call(0xd1f2, ret)
+    c.call(entry::DRAW_UI_ELEMENTS_LIST_AT_DS_SI, ret)
 }
 
 /// `ui_head_animate_down` (181E): steps the talking head's animation back
@@ -535,7 +535,7 @@ pub fn draw_rect_outline_at_si(m: &mut Machine, start: u16) -> Result<(), Bail> 
 /// [`draw_rect_outline_at_si`] called: the outline of the rect at SI.
 pub(super) fn outline_rect(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, rect);
-    c.call(0xc551, ret)
+    c.call(entry::DRAW_RECT_OUTLINE_AT_SI, ret)
 }
 
 /// `loc_0c2f2`: opens resource AL and draws its sprite 0 at (0, 0).
@@ -567,7 +567,7 @@ pub fn open_resource_and_draw_sprite_0(m: &mut Machine, start: u16) -> Result<()
 /// [`open_resource_and_draw_sprite_0`] called: resource AL opened, its sprite 0 drawn at (0, 0).
 pub(super) fn draw_resource_sprite_0(c: &mut Ctx, resource: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, resource);
-    c.call(0xc2f2, ret)
+    c.call(entry::OPEN_RESOURCE_AND_DRAW_SPRITE_0, ret)
 }
 
 /// `loc_01834`: driver function 25 on the front buffer, SI = CD9Eh,
@@ -835,7 +835,7 @@ pub fn fill_and_outline(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`fill_and_outline`] called: the panel fill, then the rect SI outlined.
 pub(super) fn fill_and_outline_rect(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, rect);
-    c.call(0x7b1b, ret)
+    c.call(entry::FILL_AND_OUTLINE, ret)
 }
 
 /// `loc_07b0f`: [46D8h] cleared, `loc_0c0e8` with SI = DI (SI kept, DI

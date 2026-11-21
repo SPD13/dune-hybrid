@@ -117,7 +117,7 @@ pub fn wait_processing_frame_tasks(m: &mut Machine, start: u16) -> Result<(), Ba
 /// [`wait_processing_frame_tasks`] called: AX ticks, running the frame tasks after each.
 pub(super) fn wait_ticks_with_tasks(c: &mut Ctx, ticks: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(AX, ticks);
-    c.call(0xe3a0, ret)
+    c.call(entry::WAIT_PROCESSING_FRAME_TASKS, ret)
 }
 
 /// `load_driver_ax_with_vtable_at_si` (E57B): loads driver AX (resource
@@ -161,7 +161,7 @@ pub(super) fn load_driver(c: &mut Ctx, driver: u16, vtable: u16, count: u16, ret
     c.set_reg(AX, driver);
     c.set_reg(SI, vtable);
     c.set_reg(CX, count);
-    c.call(0xe57b, ret)
+    c.call(entry::LOAD_DRIVER_AX_WITH_VTABLE_AT_SI, ret)
 }
 
 /// `read_dune_dat_toc` (E741): reads DUNE.DAT's table of contents (from
@@ -402,7 +402,7 @@ pub fn alloc_check_cx_pages_available(m: &mut Machine, start: u16) -> Result<(),
 /// [`alloc_check_cx_pages_available`] called: CX paragraphs made free above the allocator.
 pub(super) fn make_room(c: &mut Ctx, paragraphs: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(CX, paragraphs);
-    c.call(0xf11c, ret)
+    c.call(entry::ALLOC_CHECK_CX_PAGES_AVAILABLE, ret)
 }
 
 /// A memory driver call through a near pointer in the code segment, with
@@ -729,7 +729,7 @@ pub fn open_resource_by_index(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`open_resource_by_index`] called: resource SI read into ES:DI.
 pub(super) fn open_resource_into(c: &mut Ctx, resource: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, resource);
-    c.call(0xf0b9, ret)
+    c.call(entry::OPEN_RESOURCE_BY_INDEX_SI_INTO_ESDI, ret)
 }
 
 /// `read_and_maybe_hsq` (F0D6): resource [0CE78h] into ES:DI: from

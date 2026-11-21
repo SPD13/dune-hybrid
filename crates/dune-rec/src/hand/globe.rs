@@ -160,7 +160,7 @@ pub fn globe_slide_decorations_open(m: &mut Machine, start: u16) -> Result<(), B
     c.run(start, 1)?;
     c.call(code::GLOBE_FILL_BLUE_BACKGROUND, 0xb8f6)?;
     c.run(0xb8f6, 2)?;
-    gfx::draw_on_front_buffer(&mut c, 0xbe1d, 0xb8fc)?;
+    gfx::draw_on_front_buffer(&mut c, entry::RESULTS_DRAW_TEXT_AND_ICONS, 0xb8fc)?;
     c.run(0xb8fc, 1)?;
     c.call(code::COPY_GAME_RECT_FROM_FB2_TO_FB1, 0xb8ff)?;
     loop {
@@ -444,7 +444,7 @@ pub fn map_byte_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`map_byte_at`] called: the map byte at angle BX, distance DX (AL).
 pub(super) fn globe_map_byte(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
-    c.call(0xb532, ret)?;
+    c.call(entry::MAP_BYTE_AT, ret)?;
     Ok(c.reg(AX) as u8)
 }
 
@@ -527,7 +527,7 @@ pub fn map_to_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub(super) fn screen_point(c: &mut Ctx, along: u16, row: u16, ret: u16) -> Result<(u16, u16), Bail> {
     c.set_reg(DX, along);
     c.set_reg(BX, row);
-    c.call(0xb647, ret)?;
+    c.call(entry::MAP_TO_SCREEN, ret)?;
     Ok((c.reg(DX), c.reg(BX)))
 }
 
@@ -1226,7 +1226,7 @@ pub fn enter_globe(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.byte(g::GLOBE_DD03).wrapping_add(1);
     c.set_byte(g::GLOBE_DD03, v);
     c.set_reg(DX, 0xffff);
-    screen::transition_drawn(&mut c, 0xb827, 0, 0xb8de)?;
+    screen::transition_drawn(&mut c, entry::DRAW_GLOBE_AND_UI, 0, 0xb8de)?;
     c.run(0xb8de, 1)?;
     c.call(entry::MUSIC_STEP_IF_ENABLED, 0xb8e1)?;
     c.run(0xb8e1, 2)?;

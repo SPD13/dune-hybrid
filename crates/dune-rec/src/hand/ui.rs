@@ -92,7 +92,7 @@ pub fn intro_script_load_word(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`intro_script_load_word`] called: the intro script's next word (AX).
 pub(super) fn next_script_word(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x093f, ret)?;
+    c.call(entry::INTRO_SCRIPT_LOAD_WORD, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -721,7 +721,7 @@ pub fn ui_transition_to_map_interface(m: &mut Machine, start: u16) -> Result<(),
     c.interp(0x5a45, 0x5a49)?;
     c.run(0x5a49, 4)?;
     c.set_reg(DX, 0);
-    screen::transition_drawn(&mut c, 0x5a56, 2, 0x5a53)?;
+    screen::transition_drawn(&mut c, entry::ENTER_MAP_VIEW, 2, 0x5a53)?;
     c.run(0x5a53, 1)?; // jmp AE04h
     music_step(&mut c)
 }
@@ -805,7 +805,7 @@ pub fn decrease_troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail
 /// [`decrease_troop_motivation`] called: the troop at SI loses AL motivation.
 pub(super) fn lower_motivation(c: &mut Ctx, points: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, points);
-    c.call(0x6f93, ret)
+    c.call(entry::DECREASE_TROOP_MOTIVATION, ret)
 }
 
 /// `loc_0a49c`: the counter at SI on the back buffer (the front buffer
@@ -821,7 +821,7 @@ pub fn draw_counter(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`draw_counter`] called: the counter at SI on the back buffer.
 pub(super) fn draw_counter_of(c: &mut Ctx, counter: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, counter);
-    c.call(0xa49c, ret)
+    c.call(entry::DRAW_COUNTER, ret)
 }
 
 fn draw_counter_at(c: &mut Ctx) -> Result<(), Bail> {
@@ -1225,7 +1225,7 @@ pub fn draw_head_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::GFX_CLEAR_ACTIVE_FRAMEBUFFER, 0x008c)?;
     c.run(0x008c, 3)?;
     c.set_reg(SI, 0x1ae4);
-    gfx::draw_on_front_buffer(&mut c, 0xd1ef, 0x0095)?;
+    gfx::draw_on_front_buffer(&mut c, entry::DRAW_ALL_UI_ELEMENTS, 0x0095)?;
     c.run(0x0095, 1)?;
     head_and_shoulders_at(&mut c)
 }

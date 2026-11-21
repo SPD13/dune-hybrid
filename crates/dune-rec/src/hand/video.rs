@@ -1,5 +1,6 @@
 //! Video: framebuffers, fonts, HNM playback state, sprite resources, UI.
 
+use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g};
 use pc::{
@@ -99,7 +100,7 @@ pub fn get_subresource_pointer(m: &mut Machine, start: u16) -> Result<(), Bail> 
 
 /// [`get_subresource_pointer`] called: the offset of sub-resource AX of the sprite sheet (SI; ES its segment).
 pub(super) fn subresource(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0xc1f4, ret)?;
+    c.call(entry::GET_SUBRESOURCE_POINTER, ret)?;
     Ok(c.reg(SI))
 }
 
@@ -212,7 +213,7 @@ pub fn font_set_draw_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub(super) fn set_draw_position(c: &mut Ctx, x: u16, y: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(DX, x);
     c.set_reg(BX, y);
-    c.call(0xd04e, ret)
+    c.call(entry::FONT_SET_DRAW_POSITION, ret)
 }
 
 /// `font_get_draw_position` (D05F): (DX, BX) = where text goes on.
@@ -228,7 +229,7 @@ pub fn font_get_draw_position(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`font_get_draw_position`] called: where text goes on (DX, BX).
 pub(super) fn draw_position(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
-    c.call(0xd05f, ret)?;
+    c.call(entry::FONT_GET_DRAW_POSITION, ret)?;
     Ok((c.reg(DX), c.reg(BX)))
 }
 
@@ -342,7 +343,7 @@ pub fn strcpy_to_filename_buf(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`strcpy_to_filename_buf`] called: the string at DX copied to the filename buffer.
 pub(super) fn copy_file_name(c: &mut Ctx, name: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(DX, name);
-    c.call(0xf2fc, ret)
+    c.call(entry::STRCPY_TO_FILENAME_BUF, ret)
 }
 
 /// `swap_byte_arrays` (99B2): swaps CX words between SI and DI (DS).
@@ -396,7 +397,7 @@ pub fn copy_rect_at_si_to_di(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub(super) fn copy_rect_to(c: &mut Ctx, from: u16, to: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, from);
     c.set_reg(DI, to);
-    c.call(0x5b99, ret)
+    c.call(entry::COPY_RECT_AT_SI_TO_DI, ret)
 }
 
 /// `copy_game_area_rect_to_unknown_rect` (5BA0): the game area's rectangle

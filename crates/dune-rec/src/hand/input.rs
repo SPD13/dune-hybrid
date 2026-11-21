@@ -346,7 +346,7 @@ pub fn read_game_port(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`read_game_port`] called: the joystick: its X and Y counts (DX, BX) and its buttons (AL).
 pub(super) fn joystick(c: &mut Ctx, ret: u16) -> Result<(u16, u16, u8), Bail> {
-    c.call(0xdce0, ret)?;
+    c.call(entry::READ_GAME_PORT, ret)?;
     Ok((c.reg(DX), c.reg(BX), c.reg(AX) as u8))
 }
 

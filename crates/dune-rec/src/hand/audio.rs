@@ -1,6 +1,7 @@
 //! Voice (VOC through the PCM driver) and music (through the MIDI
 //! driver): starting, stopping, the drivers' timer hook.
 
+use super::entry;
 use super::tasks;
 use super::voice;
 use super::sound;
@@ -189,7 +190,7 @@ pub fn audio_start_voc(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`audio_start_voc`] called: VOC AL started, unless a voice plays or PCM is off.
 pub(super) fn start_voc(c: &mut Ctx, voc: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, voc);
-    c.call(0xab15, ret)
+    c.call(entry::AUDIO_START_VOC, ret)
 }
 
 /// `pop es; ret` (AB43).

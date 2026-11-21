@@ -62,7 +62,7 @@ pub fn stop_scene_voice_and_particles(m: &mut Machine, start: u16) -> Result<(),
     c.call(code::PCM_CALL_AC30, 0x0b24)?;
     c.run(0x0b24, 3)?;
     c.m.cpu.write8(&mut c.m.hw, CS, 0xc13c, 0x25);
-    tasks::remove_task(&mut c, 0x0b45, 0x0b30)?;
+    tasks::remove_task(&mut c, entry::SCENE_PARTICLES_STEP, 0x0b30)?;
     let cinematic = c.byte(g::CINEMATIC);
     let map_ui = c.situation().map_interface;
     let skip = cinematic == 0 && map_ui & 0x80 != 0;
@@ -356,7 +356,7 @@ pub(super) fn draw_interpolated_at(c: &mut Ctx, string: u16, x: u16, y: u16, col
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     c.set_reg(CX, colour);
-    c.call(0x8865, ret)
+    c.call(entry::FONT_DRAW_INTERPOLATED_STRING, ret)
 }
 
 /// `setup_non_lip_sync_data_structure` (9BEE): from the list of frames at
@@ -784,7 +784,7 @@ pub fn settings_ui_draw_slider(m: &mut Machine, start: u16) -> Result<(), Bail> 
 /// [`settings_ui_draw_slider`] called: the slider at SI.
 pub(super) fn draw_slider(c: &mut Ctx, slider: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, slider);
-    c.call(0xa502, ret)
+    c.call(entry::SETTINGS_UI_DRAW_SLIDER, ret)
 }
 
 /// `settings_ui_draw_volume_sliders` (A4C6): the voice slider with PCM
@@ -949,7 +949,7 @@ pub fn transition_front_buffer_to_screen(m: &mut Machine, start: u16) -> Result<
 /// [`transition_front_buffer_to_screen`] called: transition AL from the front buffer to the screen.
 pub(super) fn transition_front_buffer(c: &mut Ctx, transition: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::AL, transition);
-    c.call(0xc0d5, ret)
+    c.call(entry::TRANSITION_FRONT_BUFFER_TO_SCREEN, ret)
 }
 
 /// `loc_0c85b`: the talking head's next zoom in 6000 (1770h) ticks from
@@ -1050,7 +1050,7 @@ pub fn draw_marks(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`draw_marks`] called: up to 5 marks in a row from (DX, BX), for CL.
 pub(super) fn draw_mark_row(c: &mut Ctx, marks: u8, ret: u16) -> Result<(), Bail> {
     c.set_reg8(r8::CL, marks);
-    c.call(0x19df, ret)
+    c.call(entry::DRAW_MARKS, ret)
 }
 
 /// `loc_01a0f`: unless [1AFEh] is set, the date panel's frame (UI element

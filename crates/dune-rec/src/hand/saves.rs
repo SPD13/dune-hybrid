@@ -512,7 +512,7 @@ pub fn find_string_and_replace_digits(m: &mut Machine, start: u16) -> Result<(),
 pub(super) fn replace_digits(c: &mut Ctx, number: u16, string: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(AX, number);
     c.set_reg(SI, string);
-    c.call(0xe2db, ret)
+    c.call(entry::FIND_STRING_AND_REPLACE_DIGITS, ret)
 }
 
 /// `read_resource_to_esdi` (F244): the resource named at DX read to ES:DI
@@ -724,7 +724,7 @@ pub(super) fn draw_number_at_pos(c: &mut Ctx, number: u16, x: u16, y: u16, ret: 
     c.set_reg(AX, number);
     c.set_reg(DX, x);
     c.set_reg(BX, y);
-    c.call(0xe290, ret)
+    c.call(entry::DRAW_NUMBER_AT, ret)
 }
 
 /// From B2CD (the stretch from `at`, `prefix` instructions before, done by
@@ -1417,7 +1417,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
 /// [`particles_update_dirty_rect`] called: the rect at SI redrawn on screen.
 pub(super) fn redraw_rect(c: &mut Ctx, rect: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(SI, rect);
-    c.call(0xc6ad, ret)
+    c.call(entry::PARTICLES_UPDATE_DIRTY_RECT, ret)
 }
 
 /// After a `ret`: landed on DBECh (pushed when the mouse was hidden),

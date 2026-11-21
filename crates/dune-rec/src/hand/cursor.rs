@@ -86,7 +86,7 @@ pub fn current_ui_elements(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`current_ui_elements`] called: the current list of UI elements (BP).
 pub(super) fn current_ui_list(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0xd41b, ret)?;
+    c.call(entry::CURRENT_UI_ELEMENTS, ret)?;
     Ok(c.reg(BP))
 }
 
@@ -123,7 +123,7 @@ pub fn rect_hotspot(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`rect_hotspot`] called: the hotspot of the rect at DI: the middle across (AX), a quarter above the bottom (SI).
 pub(super) fn rect_hotspot_point(c: &mut Ctx, ret: u16) -> Result<(u16, u16), Bail> {
-    c.call(0xe159, ret)?;
+    c.call(entry::RECT_HOTSPOT, ret)?;
     Ok((c.reg(AX), c.reg(SI)))
 }
 
@@ -351,7 +351,7 @@ pub fn accelerated_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`accelerated_step`] called: the whole pixels of one axis of an accelerated step (AX, signed).
 pub(super) fn accelerated_pixels(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0xe243, ret)?;
+    c.call(entry::ACCELERATED_STEP, ret)?;
     Ok(c.reg(AX))
 }
 

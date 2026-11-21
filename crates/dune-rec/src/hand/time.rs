@@ -22,7 +22,7 @@ pub fn get_ingame_time_of_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`get_ingame_time_of_day`] called: the time-of-day slot, 0..15 (AX).
 pub(super) fn time_of_day_slot(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x1ae0, ret)?;
+    c.call(entry::GET_INGAME_TIME_OF_DAY, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -39,7 +39,7 @@ pub fn get_ingame_day_q(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// [`get_ingame_day_q`] called: the day (game time / 16, from 0; AX).
 pub(super) fn game_day(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
-    c.call(0x1ac5, ret)?;
+    c.call(entry::GET_INGAME_DAY_Q, ret)?;
     Ok(c.reg(AX))
 }
 
@@ -80,7 +80,7 @@ pub fn sky_palette_for_game_time(m: &mut Machine, start: u16) -> Result<(), Bail
 
 /// [`sky_palette_for_game_time`] called: the sky palette for the game time (BL).
 pub(super) fn sky_palette(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
-    c.call(0x395c, ret)?;
+    c.call(entry::SKY_PALETTE_FOR_GAME_TIME, ret)?;
     Ok(c.reg(BX) as u8)
 }
 
@@ -126,7 +126,7 @@ pub fn run_clock_ticks(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`run_clock_ticks`] called: the game clock run CX steps at once.
 pub(super) fn run_clock(c: &mut Ctx, steps: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(CX, steps);
-    c.call(0x0fd9, ret)
+    c.call(entry::RUN_CLOCK_TICKS, ret)
 }
 
 /// The leaders after `run_clock_ticks`' calls, where the interpreter can
