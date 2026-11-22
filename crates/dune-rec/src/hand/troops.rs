@@ -12,7 +12,7 @@ use super::map;
 use super::cursor;
 use super::entry;
 use super::pure;
-use super::game::{self, Location, Troop, troop_state};
+use super::game::{self, Location, Troop, location_flag, troop_state};
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -1058,7 +1058,7 @@ pub fn grow_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         3
     } else if stage >= 0x0c {
         5
-    } else if place.byte_0a(&mut c) & 1 != 0 {
+    } else if place.flags(&mut c) & location_flag::STARTED != 0 {
         7
     } else {
         10
@@ -1322,7 +1322,7 @@ pub fn troop_bit_10_by_location(m: &mut Machine, start: u16) -> Result<(), Bail>
     entered(start, 0x6b8a)?;
     let mut c = Ctx::new(m);
     c.run(start, 5)?;
-    let a = Location(c.reg(DI)).byte_0a(&mut c);
+    let a = Location(c.reg(DI)).flags(&mut c);
     let ah = pure::and(B, a as u16, 0x41);
     c.set_reg8(r8::AH, ah as u8);
     c.cmp(B, ah, 1);
@@ -1346,7 +1346,7 @@ pub fn troop_bit_10_by_state(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let w10 = c.word(si.wrapping_add(0x10));
     let w12 = c.word(si.wrapping_add(0x12));
     let b12 = c.byte(di.wrapping_add(0x12));
-    let a = c.byte(di.wrapping_add(0x0a));
+    let a = Location(di).flags(&mut c);
     let x = (a ^ 0x40) & 0x41;
     let n = if w10 & 0x200 != 0 {
         3
@@ -1609,8 +1609,8 @@ pub fn clear_location_4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
     let place = Location(c.reg(DI));
-    let b = place.byte_0a(&mut c);
-    place.set_byte_0a(&mut c, b & !4);
+    let b = place.flags(&mut c);
+    place.set_flags(&mut c, b & !location_flag::BIT_4);
     c.set_reg(BP, 0x7289);
     c.set_reg(CX, 0);
     for_each_troop_below_80(c.m, 0x661d)
@@ -1798,8 +1798,8 @@ pub fn maybe_mark_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let w = troop.word_10(&mut c);
     troop.set_word_10(&mut c, w | 0x8000);
     let place = Location(c.reg(DI));
-    let b = place.byte_0a(&mut c);
-    place.set_byte_0a(&mut c, b | 4);
+    let b = place.flags(&mut c);
+    place.set_flags(&mut c, b | location_flag::BIT_4);
     c.set_reg8(r8::AL, 3);
     call_29f0_f(c.m, 0x71b2)
 }
@@ -2267,12 +2267,12 @@ pub fn troop_bit_10_by_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (si, di) = (c.reg(SI), c.reg(DI));
     let w12 = c.word(si.wrapping_add(0x12));
     let b1b = c.byte(di.wrapping_add(0x1b));
-    let b0a = c.byte(di.wrapping_add(0x0a));
+    let b0a = Location(di).flags(&mut c);
     let n = if w12 & 0x30 != 0 {
         3
     } else if b1b < 1 {
         5
-    } else if b0a & 0x20 == 0 {
+    } else if b0a & location_flag::COUNTING == 0 {
         8
     } else {
         12
@@ -2609,7 +2609,7 @@ pub fn troop_orders_menu(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let phase = c.progress().phase;
     let w10 = troop.word_10(&mut c);
     let place = Location(troop.location(&mut c));
-    let taken = place.byte_0a(&mut c) & 8 != 0;
+    let taken = place.flags(&mut c) & location_flag::RAIDED != 0;
     let kind = place.kind(&mut c);
     // The instructions to the test it stops at.
     let mut cost = 15 + (job != 1) as u32 + (phase >= 5) as u32;
@@ -2719,7 +2719,7 @@ pub fn troop_screen_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let slot = troop.slot(&mut c);
     let place = Location(troop.location(&mut c));
-    let other_side = place.byte_0a(&mut c) & 2 != 0;
+    let other_side = place.flags(&mut c) & location_flag::HARKONNEN != 0;
     let frame = c.reg(BP);
     let (px, py) = (c.word_in(SS, frame.wrapping_add(2)), c.word_in(SS, frame.wrapping_add(4)));
     let flagged = py >= 0x8000;
@@ -2779,7 +2779,7 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         if place.kind(&mut c) >= 0x28 {
             c.run(0x1e60, 2)?;
-        } else if place.byte_0a(&mut c) & 0x80 != 0 {
+        } else if place.flags(&mut c) & location_flag::UNDISCOVERED != 0 {
             c.run(0x1e60, 4)?;
         } else if place.offset() == PLACE_2C0 {
             c.run(0x1e60, 6)?;
@@ -2842,7 +2842,7 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 3)?;
         return c.ret();
     }
-    let taken = Location(c.reg(DI)).byte_0a(&mut c) & 8 != 0;
+    let taken = Location(c.reg(DI)).flags(&mut c) & location_flag::RAIDED != 0;
     c.run(start, 5)?;
     if taken {
         let day_ = time::game_day(&mut c, 0x6e31)?;
@@ -2854,8 +2854,8 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
             return c.ret();
         }
         c.run(0x6e31, 7)?;
-        let b = place.byte_0a(&mut c);
-        place.set_byte_0a(&mut c, b & !8);
+        let b = place.flags(&mut c);
+        place.set_flags(&mut c, b & !location_flag::RAIDED);
         let b = place.kind(&mut c);
         place.set_kind(&mut c, b & 7);
         bump(&mut c, g::SIETCHES_HELD);
@@ -3121,7 +3121,7 @@ pub fn nearest_needing_location(m: &mut Machine, start: u16) -> Result<(), Bail>
             return c.ret();
         }
         let kind = place.kind(&mut c);
-        if place.byte_0a(&mut c) & 0x80 != 0 {
+        if place.flags(&mut c) & location_flag::UNDISCOVERED != 0 {
             c.run(0x7fa5, 4)?;
         } else if kind >= 0x28 {
             c.run(0x7fa5, 6)?;
@@ -4063,7 +4063,7 @@ fn steps_8313(c: &mut Ctx) -> Result<(), Bail> {
 /// `loc_08357`: the troop SI arrived at its place (+4): the followed
 /// troop's ([11D3h], troop 8E0h) note shifted (`loc_08347`); its
 /// position the place's; then by its order (+3 low nibble): where the
-/// place is not secret (bit 2 of +0Ah) or found (`loc_05d36`, CF) the
+/// place is held by the Harkonnens (bit 2 of +0Ah) or found (`loc_05d36`, CF) the
 /// troop updated (`loc_083bc`); spice harvesting (5) shows a newly
 /// found place (bit 7, `note_shown_location`), others meeting the
 /// place's own troop (+9) go on at `loc_07429` (not ported: the
@@ -4094,8 +4094,8 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
     let order = troop.state(c);
     let place = Location(troop.location(c));
     let (x, y) = (place.x(c), place.y(c));
-    let secret = place.byte_0a(c) & 2 == 0;
-    c.run(0x8368, if secret { 10 } else { 9 })?;
+    let not_harkonnen = place.flags(c) & location_flag::HARKONNEN == 0;
+    c.run(0x8368, if not_harkonnen { 10 } else { 9 })?;
     let job = order & 0x0f;
     c.set_reg8(r8::AL, job);
     c.set_reg(DI, place.offset());
@@ -4103,7 +4103,7 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(BX, y);
     troop.set_position(c, x, y);
     let mut found = true;
-    if secret {
+    if not_harkonnen {
         let location_skipped = map::location_skipped(c, 0x8385)?;
         found = !location_skipped;
         c.run(0x8385, 1)?;
@@ -4117,12 +4117,12 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
         let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
         if job == 5 {
             // Harvesting: a place newly found is shown.
-            let flags = place.byte_0a(c);
-            let new = flags & 0x80 != 0;
+            let flags = place.flags(c);
+            let new = flags & location_flag::UNDISCOVERED != 0;
             c.run(0x838b, if new { 7 } else { 5 })?;
             c.restore(&[AX]);
             if new {
-                place.set_byte_0a(c, flags & 0x7f);
+                place.set_flags(c, flags & !location_flag::UNDISCOVERED);
                 return super::map::note_shown_location(c.m, 0x5d44);
             }
             return tell_troops_83fd(c);
@@ -4309,11 +4309,11 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.restore(&[DI]);
     if harvester {
         let home = Location(troop.location(&mut c));
-        let taken = home.byte_0a(&mut c) & 2 != 0;
-        c.run(0x84d8, if taken { 5 } else { 4 })?;
+        let harkonnen = home.flags(&mut c) & location_flag::HARKONNEN != 0;
+        c.run(0x84d8, if harkonnen { 5 } else { 4 })?;
         c.save(&[DI]);
         c.set_reg(DI, home.offset());
-        if taken {
+        if harkonnen {
             let (count, dx) = troop_sides(&mut c, 0x84e5)?;
             let last = count != 0 && dx.wrapping_sub(1) as i16 <= 0;
             c.run(0x84e5, if count == 0 { 1 } else if last { 5 } else { 3 })?;
@@ -4329,8 +4329,8 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let target = Location(c.word_in(SS, c.reg(SP)));
         let kind = target.kind(&mut c);
-        let flags = target.byte_0a(&mut c);
-        let stays = kind < 0x28 && flags & 2 != 0;
+        let flags = target.flags(&mut c);
+        let stays = kind < 0x28 && flags & location_flag::HARKONNEN != 0;
         c.run(0x84ef, if kind >= 0x28 { 3 } else if stays { 6 } else { 7 })?;
         c.restore(&[DI]);
         if stays {
@@ -5186,8 +5186,8 @@ pub fn job_9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7711)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
-    let a = Location(di).byte_0a(&mut c);
-    if a & 0x20 != 0 {
+    let a = Location(di).flags(&mut c);
+    if a & location_flag::COUNTING != 0 {
         c.run(0x7711, 3)?;
         return c.jump(entry::SET_TROOP_ACTIVITY);
     }
@@ -5204,8 +5204,8 @@ pub fn job_9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !carry {
         return c.ret();
     }
-    let a = Location(di).byte_0a(&mut c);
-    Location(di).set_byte_0a(&mut c, a | 0x20);
+    let a = Location(di).flags(&mut c);
+    Location(di).set_flags(&mut c, a | location_flag::COUNTING);
     let b = Location(di).kind(&mut c);
     let b = pure::or(B, b as u16, 8) as u8; // the flags the tail gets
     Location(di).set_kind(&mut c, b);
@@ -5238,13 +5238,13 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let di = c.reg(DI);
-    let a = c.byte(di.wrapping_add(0x0a));
-    if a & 1 == 0 {
+    let a = Location(di).flags(&mut c);
+    if a & location_flag::STARTED == 0 {
         c.run(0x769c, 1 + 4 + 9)?;
         c.set_byte(g::TROOPS_TICK_RECHECK, 0xff);
         let w = troop.word_10(&mut c);
         troop.set_word_10(&mut c, w | 0x100);
-        c.set_byte(di.wrapping_add(0x0a), a | 1);
+        Location(di).set_flags(&mut c, a | location_flag::STARTED);
         c.set_byte(di.wrapping_add(0x12), 0);
         let (dx, bx) = (c.word(di.wrapping_add(2)), c.word(di.wrapping_add(4)));
         c.set_reg(DX, dx);
@@ -5317,14 +5317,14 @@ pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
     let di = c.reg(DI);
-    let a = c.byte(di.wrapping_add(0x0a));
-    if a & 2 != 0 {
+    let a = Location(di).flags(&mut c);
+    if a & location_flag::HARKONNEN != 0 {
         c.run(0x70cc, 4)?;
         c.set_reg8(r8::AL, a);
         return c.ret();
     }
-    c.run(0x70cc, if a & 0x40 == 0 { 6 } else { 5 })?;
-    if a & 0x40 == 0 {
+    c.run(0x70cc, if a & location_flag::PROSPECTED == 0 { 6 } else { 5 })?;
+    if a & location_flag::PROSPECTED == 0 {
         c.set_reg8(r8::AL, a);
         if troop_bit_10_set_by_location(&mut c, 0x70da)? {
             c.run(0x70da, 2)?;
@@ -5371,8 +5371,8 @@ pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
         raise_skill(&mut c, 0, 2, 0x7117)?;
         let place_view = c.map_view().mode & 0x40 != 0;
         c.run(0x7117, 3 + place_view as u32)?;
-        let a = c.byte(di.wrapping_add(0x0a));
-        c.set_byte(di.wrapping_add(0x0a), a | 0x40);
+        let a = Location(di).flags(&mut c);
+        Location(di).set_flags(&mut c, a | location_flag::PROSPECTED);
         if place_view {
             let k = c.map_view().changes.wrapping_add(1);
             c.update_map_view(|t| t.changes = k);
@@ -5437,8 +5437,8 @@ pub fn job_4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::TROOP_DAY_UPDATE, 0x71f2)?;
     let troop = Troop(c.reg(SI));
     let di = c.reg(DI);
-    let a = Location(di).byte_0a(&mut c);
-    if a & 4 != 0 {
+    let a = Location(di).flags(&mut c);
+    if a & location_flag::BIT_4 != 0 {
         // 725Fh: word 0Eh's count.
         let w = troop.word_0e(&mut c);
         let on = w >> 8 == 0xff;

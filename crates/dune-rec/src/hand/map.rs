@@ -21,7 +21,7 @@ use super::cursor;
 use super::entry;
 use super::globals as g;
 use super::pure;
-use super::game::Location;
+use super::game::{Location, location_flag};
 use super::{B, Ctx, W, entered, r8};
 use pc::{
     Machine,
@@ -313,11 +313,11 @@ pub fn location_kind_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
     let kind = Location(di).kind(&mut c);
-    let f = Location(di).byte_0a(&mut c);
-    let n = if kind < 0x28 { 3 } else if f & 8 == 0 { 5 } else { 6 };
+    let f = Location(di).flags(&mut c);
+    let n = if kind < 0x28 { 3 } else if f & location_flag::RAIDED == 0 { 5 } else { 6 };
     c.run(start, n)?;
     // Its callers read CF alone.
-    c.ret_cf(kind < 0x28 || f & 8 != 0)
+    c.ret_cf(kind < 0x28 || f & location_flag::RAIDED != 0)
 }
 
 /// [`location_kind_check`] called: whether the location loops skip the location at DI: of a kind below 28h, or with bit 8 of byte 0Ah.
@@ -794,7 +794,7 @@ pub fn nearest_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
             break;
         }
         n += 2;
-        if c.byte(si.wrapping_add(0x0a)) & 0x80 == 0 {
+        if Location(si).flags(&mut c) & location_flag::UNDISCOVERED == 0 {
             let dxd = c.word(si.wrapping_add(2)).wrapping_sub(dx);
             n += 3 + (dxd & 0x8000 != 0) as u32;
             let dyd = c.word(si.wrapping_add(4)).wrapping_sub(bx);
@@ -827,8 +827,8 @@ pub fn nearest_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if w == 0xffff {
             break;
         }
-        let f = c.byte(si.wrapping_add(0x0a));
-        if f & 0x80 == 0 {
+        let f = Location(si).flags(&mut c);
+        if f & location_flag::UNDISCOVERED == 0 {
             let x = c.word(si.wrapping_add(2));
             let mut cx = pure::sub(W, x, dx);
             if cx & 0x8000 != 0 {
@@ -1083,14 +1083,14 @@ pub fn count_shown_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x5d50)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
-    let f = c.byte(di.wrapping_add(0x0a));
+    let f = Location(di).flags(&mut c);
     let k = c.map_view().mode;
     let si = c.reg(SI);
-    let n = if f & 0x80 != 0 { 7 } else if k == 0 { 9 } else { 8 };
+    let n = if f & location_flag::UNDISCOVERED != 0 { 7 } else if k == 0 { 9 } else { 8 };
     c.run(start, n)?;
     c.push(si);
     c.push(di);
-    if f & 0x80 == 0 {
+    if f & location_flag::UNDISCOVERED == 0 {
         if k != 0 {
             c.set_reg(SI, di);
             let out = record_off_view(&mut c, 0x5d64)?;
@@ -1189,8 +1189,8 @@ pub fn location_to_show(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(code::SAVE_REGS, 0x6281)?;
     let di = c.reg(DI);
-    let f = Location(di).byte_0a(&mut c);
-    let show = if f & 2 != 0 {
+    let f = Location(di).flags(&mut c);
+    let show = if f & location_flag::HARKONNEN != 0 {
         c.run(0x6281, 3)?;
         c.test(B, f as u16, 2);
         true
@@ -1233,13 +1233,13 @@ pub fn location_map_kind(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x6255, 2)?;
     let location_skipped = location_skipped(&mut c, 0x625a)?;
     let di = c.reg(DI);
-    let f = Location(di).byte_0a(&mut c);
+    let f = Location(di).flags(&mut c);
     if !location_skipped {
         c.run(0x625a, 3)?;
         c.set_reg(AX, 2);
         return c.ret();
     }
-    if f & 0x10 == 0 {
+    if f & location_flag::VISITED == 0 {
         c.run(0x625a, 5)?;
         c.set_reg(AX, 2);
         return c.ret();
@@ -1659,8 +1659,8 @@ pub fn pick_map_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let kind = c.byte(location.wrapping_add(8));
-    let flags = c.byte(location.wrapping_add(0x0a));
-    if kind >= 0x20 && flags & 8 == 0 {
+    let flags = Location(location).flags(&mut c);
+    if kind >= 0x20 && flags & location_flag::RAIDED == 0 {
         // Not one to pick.
         c.run(0x8259, 9)?;
         c.set_reg8(r8::AL, kind);
@@ -2430,12 +2430,12 @@ pub fn caption_count_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::FONT_DRAW_STRING_WITH_COLOR_AT_POS, 0x6071)?;
     let di = c.reg(DI);
     let al = c.byte(di.wrapping_add(0x1b));
-    let f = Location(di).byte_0a(&mut c);
+    let f = Location(di).flags(&mut c);
     c.run(0x6071, 5)?;
     c.set_reg8(r8::AL, al);
     c.set_reg(SI, 0x75);
     c.set_reg(BP, 0x6d);
-    if f & 0x20 == 0 {
+    if f & location_flag::COUNTING == 0 {
         c.run(0x609d, 5)?;
         c.set_reg(AX, 0x6d);
         let bx = c.reg(BX);
@@ -2831,23 +2831,23 @@ pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let here = c.word(g::PLACE);
     if di == here {
         c.run(start, 5)?;
-        let v = c.byte(di.wrapping_add(0x0a));
+        let v = Location(di).flags(&mut c);
         let v = pure::and(B, v as u16, 0xfd);
-        c.set_byte(di.wrapping_add(0x0a), v as u8);
+        Location(di).set_flags(&mut c, v as u8);
         c.set_byte(g::COMM_CALLER, 6);
         return c.ret();
     }
     let al = c.byte(di.wrapping_add(8));
     c.run(start, if al >= 0x28 { 6 + 2 } else { 12 })?;
     if al >= 0x28 {
-        let v = c.byte(di.wrapping_add(0x0a));
+        let v = Location(di).flags(&mut c);
         let v = pure::and(B, v as u16, 0xfd);
-        c.set_byte(di.wrapping_add(0x0a), v as u8);
+        Location(di).set_flags(&mut c, v as u8);
         c.set_reg8(r8::AL, al);
     } else {
-        let v = c.byte(di.wrapping_add(0x0a));
+        let v = Location(di).flags(&mut c);
         let v = pure::and(B, v as u16, 0xfd);
-        c.set_byte(di.wrapping_add(0x0a), v as u8);
+        Location(di).set_flags(&mut c, v as u8);
         let a = pure::and(B, al as u16, 7);
         let a = pure::add(B, a, 0x28);
         c.set_reg8(r8::AL, a as u8);
@@ -2897,9 +2897,9 @@ fn abandon_tail(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x74f8, 3)?;
     let di = c.pop();
     c.set_reg(DI, di);
-    let v = c.byte(di.wrapping_add(0x0a));
+    let v = Location(di).flags(c);
     let v = c.and(B, v as u16, 0xf6);
-    c.set_byte(di.wrapping_add(0x0a), v as u8);
+    Location(di).set_flags(c, v as u8);
     note_shown_at(c)
 }
 
@@ -3771,9 +3771,9 @@ pub fn list_shown_locations(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_word(di, 0);
             return c.ret();
         }
-        let f = c.byte(si.wrapping_add(0x0a));
+        let f = Location(si).flags(&mut c);
         'one: {
-            if f & 0x80 != 0 {
+            if f & location_flag::UNDISCOVERED != 0 {
                 c.run(0x5df4, 4)?;
                 break 'one;
             }
@@ -3888,10 +3888,10 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'one;
             }
             let si = c.reg(SI);
-            let f = c.byte(si.wrapping_add(0x0a));
+            let f = Location(si).flags(&mut c);
             let ph = c.progress().phase;
             let due = c.byte(si.wrapping_add(0x0b));
-            if f & 0x80 == 0 {
+            if f & location_flag::UNDISCOVERED == 0 {
                 c.run(0x4123, 3)?;
                 tail(&mut c)?;
                 break 'one;
@@ -4075,8 +4075,8 @@ pub fn location_ahead(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'f false;
             }
             let si = c.reg(SI);
-            let f = c.byte(si.wrapping_add(0x0a));
-            if f & 0x80 != 0 {
+            let f = Location(si).flags(&mut c);
+            if f & location_flag::UNDISCOVERED != 0 {
                 let ph = c.progress().phase;
                 let due = c.byte(si.wrapping_add(0x0b));
                 if ph < due {
@@ -4249,10 +4249,10 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let mut n = 2 + 3;
         let mut p = 0x100u16;
         loop {
-            let f = c.byte(p.wrapping_add(0x0a));
+            let f = Location(p).flags(&mut c);
             n += 3;
-            if f & 0x80 == 0 {
-                n += 6 + alt as u32 + 2 + if f & 0x40 != 0 { 6 } else { 0 } + 1;
+            if f & location_flag::UNDISCOVERED == 0 {
+                n += 6 + alt as u32 + 2 + if f & location_flag::PROSPECTED != 0 { 6 } else { 0 } + 1;
             }
             p = p.wrapping_add(0x1c);
             n += 3;
@@ -4266,9 +4266,9 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let mut region = 0u16;
         let mut place = 0x100u16;
         loop {
-            let flags = Location(place).byte_0a(&mut c);
+            let flags = Location(place).flags(&mut c);
             c.set_reg8(r8::AL, flags);
-            if flags & 0x80 == 0 {
+            if flags & location_flag::UNDISCOVERED == 0 {
                 region = Location(place).region(&mut c) as u16;
                 // `pushf` / `popf` around the colour: the word stays
                 // below SP.
@@ -4276,7 +4276,7 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let kept = c.m.cpu.flags();
                 c.push(kept);
                 c.pop();
-                let colour = if flags & 0x40 != 0 {
+                let colour = if flags & location_flag::PROSPECTED != 0 {
                     (Location(place).spice(&mut c) >> 4).wrapping_add(0x50)
                 } else if alt {
                     0x78
@@ -4303,9 +4303,9 @@ pub fn region_colours(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0x100);
     let mut di = 0x100u16;
     loop {
-        let f = c.byte(di.wrapping_add(0x0a));
-        c.run(0x5842, if f & 0x80 != 0 { 3 } else { 8 })?;
-        if f & 0x80 != 0 {
+        let f = Location(di).flags(&mut c);
+        c.run(0x5842, if f & location_flag::UNDISCOVERED != 0 { 3 } else { 8 })?;
+        if f & location_flag::UNDISCOVERED != 0 {
             c.set_reg8(r8::AL, f);
         } else {
             c.set_reg8(r8::AL, f);
@@ -4544,9 +4544,9 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     troops::raise_all_motivation(&mut c, 1, 0x7460)?;
     c.run(0x7460, 9)?;
     let di = c.reg(DI);
-    let f = c.byte(di.wrapping_add(0x0a));
+    let f = Location(di).flags(&mut c);
     let f = pure::or(B, f as u16, 8);
-    c.set_byte(di.wrapping_add(0x0a), f as u8);
+    Location(di).set_flags(&mut c, f as u8);
     let cx = c.reg(CX);
     c.push(cx);
     let cl = c.byte(di);
@@ -4621,10 +4621,10 @@ pub fn grow_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0x100);
     let mut di = 0x100u16;
     loop {
-        let al = c.byte(di.wrapping_add(0x0a));
+        let al = Location(di).flags(&mut c);
         let bl = c.byte(di.wrapping_add(0x1b));
         'one: {
-            if al & 0x20 == 0 {
+            if al & location_flag::COUNTING == 0 {
                 c.run(0x63fe, 3)?;
                 c.set_reg8(r8::AL, al);
                 break 'one;
@@ -6745,12 +6745,12 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let take_y = cl < al;
         let d = if take_y { ya } else { cl as u16 };
         let k8 = c.byte(si.wrapping_add(8));
-        let f = c.byte(si.wrapping_add(0x0a));
+        let f = Location(si).flags(&mut c);
         let phase = c.progress().phase;
         let due = c.byte(si.wrapping_add(0x0b));
         let (bp, skip, nsel) = if k8 >= 0x28 {
-            if f & 0x80 != 0 { (g::NEAREST_HIGH_UNMAPPED, false, 5u32) } else { (g::NEAREST_HIGH_MAPPED, false, 7) }
-        } else if f & 0x80 == 0 {
+            if f & location_flag::UNDISCOVERED != 0 { (g::NEAREST_HIGH_UNMAPPED, false, 5u32) } else { (g::NEAREST_HIGH_MAPPED, false, 7) }
+        } else if f & location_flag::UNDISCOVERED == 0 {
             (g::NEAREST_LOW_MAPPED, false, 5)
         } else if phase < due {
             (g::NEAREST_LOW_MAPPED, true, 8)
@@ -6783,12 +6783,12 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         if k8 >= 0x28 {
             c.set_reg(BP, g::NEAREST_HIGH_UNMAPPED);
-            if f & 0x80 == 0 {
+            if f & location_flag::UNDISCOVERED == 0 {
                 c.set_reg(BP, g::NEAREST_HIGH_MAPPED);
             }
         } else {
             c.set_reg(BP, g::NEAREST_LOW_MAPPED);
-            if f & 0x80 != 0 {
+            if f & location_flag::UNDISCOVERED != 0 {
                 c.set_reg8(r8::AL, phase);
                 if !skip {
                     c.set_reg(BP, g::NEAREST_LOW_UNMAPPED);
@@ -7070,9 +7070,9 @@ pub fn move_trail_span(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.cmp(W, di, 0x138);
         } else {
             c.run(0x6580, 5)?;
-            let v = c.byte(di.wrapping_add(0x0a));
+            let v = Location(di).flags(&mut c);
             let v = pure::and(B, v as u16, 0x7f);
-            c.set_byte(di.wrapping_add(0x0a), v as u8);
+            Location(di).set_flags(&mut c, v as u8);
             c.call(entry::LOCATION_RAIDED, 0x658f)?;
             c.run(0x658f, 2)?;
         }

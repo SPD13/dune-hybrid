@@ -33,6 +33,42 @@ pub mod troop_state {
     pub const NOT_A_TROOP: u8 = 0x80;
 }
 
+/// Bits of a location's byte 0Ah ([`Location::flags`]).
+pub mod location_flag {
+    /// Set by job 8 the first time it works the location (its spice
+    /// cleared, its move started); `grow_location` no longer grows it.
+    pub const STARTED: u8 = 0x01;
+    /// Held by the Harkonnens: `harkonnen_take` sets it, `abandon_location`
+    /// clears it (the player there: [`super::g::HARKONNEN_PLACE`]).
+    /// Entering shows their picture (`enter_location`), job 1 does not
+    /// work there, the map shows it (`location_to_show`), and its troops
+    /// get other sprites (`sprite_list_of`) and sides (`troop_screen_place`).
+    pub const HARKONNEN: u8 = 0x02;
+    /// Set by `maybe_mark_troop`; job 4 counts down while it is set, then
+    /// clears it (`clear_location_4`).
+    pub const BIT_4: u8 = 0x04;
+    /// Raided (`location_raided`): its orders menu and `pick_map_location`
+    /// treat it as taken, until `troop_day_update` frees it once the day
+    /// in byte 0Bh has passed.
+    pub const RAIDED: u8 = 0x08;
+    /// Visited: set when the player steps into it, for a kind of 20h or
+    /// more (`step_3ff5`). Others' troops there get the sprite list 181Fh
+    /// (`sprite_list_of`); the map shows it by its type string
+    /// (`location_map_kind`).
+    pub const VISITED: u8 = 0x10;
+    /// Its byte 1Bh counts (set by job 9 when it overflows): it grows
+    /// (`grow_spice`) and shows in the map caption (`caption_count_line`).
+    pub const COUNTING: u8 = 0x20;
+    /// Prospected: set when job 1 finishes there; the map colours its
+    /// region by its spice (`region_colours`).
+    pub const PROSPECTED: u8 = 0x40;
+    /// Not found yet: off the map and skipped by the searches over the
+    /// locations (`nearest_location`, `pick_attack_location`, ...);
+    /// cleared when a troop arrives harvesting (`troop_arrived_at`) or by
+    /// a talk with person 0Ch (`reward_talk_by_talker`).
+    pub const UNDISCOVERED: u8 = 0x80;
+}
+
 impl Troop {
     pub const SIZE: u16 = 0x1b;
 
@@ -433,16 +469,11 @@ impl Location {
         self.byte(c, 0x10)
     }
 
-    /// Byte 0Ah: bits. 80h: not on the map yet (`region_colours` skips
-    /// it; a talk with person 0Ch clears it for the place at [11CEh]);
-    /// 40h: the map colours its region by its spice; 8: taken, freed by
-    /// `troop_day_update`; 4: cleared by `clear_location_4`; 2: held by the
-    /// Harkonnens (`sub_1dd7` sets it; the player there: [`g::HARKONNEN_PLACE`]),
-    /// tested for its troops' sprites and facing.
-    pub fn byte_0a(self, c: &mut Ctx) -> u8 {
+    /// Byte 0Ah: its [`location_flag`] bits.
+    pub fn flags(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x0a)
     }
-    pub fn set_byte_0a(self, c: &mut Ctx, v: u8) {
+    pub fn set_flags(self, c: &mut Ctx, v: u8) {
         self.set_byte(c, 0x0a, v)
     }
 

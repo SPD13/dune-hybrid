@@ -1,6 +1,7 @@
 //! Dialogue state: the talking character's mode bytes (47C2h, 47C4h,
 //! 47DCh...), the phrase pointers, and small steps of the conversation.
 
+use super::game::location_flag;
 use super::screen;
 use super::draw;
 use super::video;
@@ -4508,8 +4509,8 @@ pub fn reward_talk_by_talker(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let place = c.word(g::TOPIC_PLACE_RECORD);
                 c.set_reg(DI, place);
                 let place = game::Location(place);
-                let b = place.byte_0a(&mut c);
-                place.set_byte_0a(&mut c, b & 0x7f);
+                let b = place.flags(&mut c);
+                place.set_flags(&mut c, b & !location_flag::UNDISCOVERED);
             }
             if talker == 0x0d {
                 return c.jump(0x2388);

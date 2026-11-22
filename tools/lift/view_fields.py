@@ -22,10 +22,10 @@ VIEWS = {
         ('set_word', 0x10): 'set_word_10', ('set_word', 0x12): 'set_word_12',
     }),
     'location': ('Location', re.compile(r'\blocation (?:at |record )?(DI|SI|BX|BP)\b'), {
-        ('byte', 8): 'kind', ('byte', 0x0a): 'byte_0a', ('byte', 0x0b): 'byte_0b', ('byte', 0x12): 'spice',
+        ('byte', 8): 'kind', ('byte', 0x0a): 'flags', ('byte', 0x0b): 'byte_0b', ('byte', 0x12): 'spice',
         ('byte', 0x10): 'region', ('byte', 9): 'first_troop', ('byte', 0x19): 'byte_19', ('byte', 0x1a): 'byte_1a',
         ('byte', 0x11): 'harvest_per_spice', ('byte', 0x13): 'harvest_left', ('word', 2): 'x', ('word', 4): 'y',
-        ('set_byte', 8): 'set_kind', ('set_byte', 0x0a): 'set_byte_0a', ('set_byte', 0x0b): 'set_byte_0b',
+        ('set_byte', 8): 'set_kind', ('set_byte', 0x0a): 'set_flags', ('set_byte', 0x0b): 'set_byte_0b',
         ('set_byte', 0x12): 'set_spice', ('set_byte', 9): 'set_first_troop', ('set_byte', 0x19): 'set_byte_19',
         ('set_byte', 0x13): 'set_harvest_left',
     }),

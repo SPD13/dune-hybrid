@@ -22,7 +22,7 @@ use super::records;
 use super::map;
 use super::gfx;
 use super::entry;
-use super::game::Location;
+use super::game::{Location, location_flag};
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -2031,11 +2031,11 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x503c)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
-    let f = c.byte(di.wrapping_add(0x0a));
-    c.run(start, if f & 2 != 0 { 4 } else { 5 })?;
+    let f = Location(di).flags(&mut c);
+    c.run(start, if f & location_flag::HARKONNEN != 0 { 4 } else { 5 })?;
     c.update_situation(|t| t.battle_balance = 0);
     c.update_progress(|t| t.harkonnen_place = 0);
-    if f & 2 == 0 {
+    if f & location_flag::HARKONNEN == 0 {
         if map::location_skipped(&mut c, 0x504f)? {
             c.run(0x504f, 2)?;
             return c.ret();
@@ -3491,7 +3491,7 @@ pub fn ui_comm(m: &mut Machine, start: u16) -> Result<(), Bail> {
     loop {
         let bx = c.reg(BX);
         let b8 = c.byte(di.wrapping_add(8));
-        let f = c.byte(di.wrapping_add(0x0a));
+        let f = Location(di).flags(&mut c);
         let x = c.word(di.wrapping_add(4));
         'one: {
             // A sietch (below 20h, not 82h) west of BX.
@@ -3499,7 +3499,7 @@ pub fn ui_comm(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.run(0x2023, 2)?;
                 break 'one;
             }
-            if f & 0x82 != 0 {
+            if f & (location_flag::UNDISCOVERED | location_flag::HARKONNEN) != 0 {
                 c.run(0x2023, 4)?;
                 break 'one;
             }
@@ -4272,14 +4272,14 @@ pub fn update_people(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'one;
             }
             let cur = c.progress().place_index;
-            let lf = Location::number(bh).byte_0a(&mut c);
+            let lf = Location::number(bh).flags(&mut c);
             let mut n = n0 + 2 + 2;
             let stage = if dh >= 0x21 {
                 0
             } else if bh == cur {
                 n += 2;
                 1
-            } else if lf & 2 != 0 {
+            } else if lf & location_flag::HARKONNEN != 0 {
                 n += 2 + 6;
                 2
             } else if bh != 1 {
@@ -4879,9 +4879,9 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x1fcb, 2)?;
     let di = c.reg(DI);
-    let f = c.byte(di.wrapping_add(0x0a));
+    let f = Location(di).flags(&mut c);
     let f = pure::or(B, f as u16, 2);
-    c.set_byte(di.wrapping_add(0x0a), f as u8);
+    Location(di).set_flags(&mut c, f as u8);
     c.call(entry::ALERT_LOCATION_TROOPS, 0x1fd2)?;
     c.run(0x1fd2, 1)?;
     c.call(entry::LOCATION_COORDS, 0x1fd5)?;
@@ -5836,14 +5836,14 @@ pub fn room_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
         pick(&mut c);
     }
     let si = c.word(g::PLACE);
-    let t = c.byte(si.wrapping_add(0x0a));
-    c.run(0x3f84, if t & 0x10 != 0 { 3 } else { 8 })?;
-    if t & 0x10 != 0 {
+    let t = Location(si).flags(&mut c);
+    c.run(0x3f84, if t & location_flag::VISITED != 0 { 3 } else { 8 })?;
+    if t & location_flag::VISITED != 0 {
         c.set_reg(SI, si);
     } else {
         c.set_reg(SI, si);
         // A first visit: noted, and counted when DH is below 20h.
-        c.set_byte(si.wrapping_add(0x0a), t | 0x10);
+        Location(si).set_flags(&mut c, t | location_flag::VISITED);
         let dh = c.reg8(r8::DH);
         let k = c.progress().sietches_entered.wrapping_add((dh < 0x20) as u8);
         c.update_progress(|t| t.sietches_entered = k);
@@ -5982,9 +5982,9 @@ fn step_3ff5(c: &mut Ctx) -> Result<(), Bail> {
     c.update_progress(|t| t.place_index = bh);
     c.cmp(B, dh as u16, 0x20);
     if dh >= 0x20 {
-        let v = c.byte(si.wrapping_add(0x0a));
+        let v = Location(si).flags(c);
         let v = c.or(B, v as u16, 0x10);
-        c.set_byte(si.wrapping_add(0x0a), v as u8);
+        Location(si).set_flags(c, v as u8);
     }
     c.call(entry::UPDATE_PEOPLE, 0x4057)?;
     enter_room_at(c)
