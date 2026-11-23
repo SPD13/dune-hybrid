@@ -41,14 +41,14 @@ pub struct TopicTroop {
     pub job_skill: u8,
     /// [`g::TOPIC_TROOP_SKILLS`] (38h).
     pub skills: [u8; 3],
-    /// [`g::TOPIC_TROOP_NEEDS`] (3Bh).
-    pub needs: u8,
+    /// [`g::TOPIC_TROOP_EQUIPMENT`] (3Bh).
+    pub equipment: u8,
     /// [`g::TOPIC_TROOP_SIZE`] (3Ch).
     pub size: u8,
-    /// [`g::TOPIC_TROOP_NEEDS_GAINED`] (3Dh).
-    pub needs_gained: u8,
-    /// [`g::TOPIC_TROOP_NEEDS_LOST`] (3Eh).
-    pub needs_lost: u8,
+    /// [`g::TOPIC_TROOP_EQUIPMENT_GAINED`] (3Dh).
+    pub equipment_gained: u8,
+    /// [`g::TOPIC_TROOP_EQUIPMENT_LOST`] (3Eh).
+    pub equipment_lost: u8,
     /// [`g::TOPIC_TROOP_GAINED_HERE`] (3Fh).
     pub gained_here: u8,
     /// [`g::TOPIC_TROOP_DAYS`] (40h).
@@ -97,10 +97,10 @@ impl Single for TopicTroop {
             motivation: b[at(g::TOPIC_TROOP_MOTIVATION)],
             job_skill: b[at(g::TOPIC_TROOP_JOB_SKILL)],
             skills: std::array::from_fn(|k| b[at(g::TOPIC_TROOP_SKILLS) + k]),
-            needs: b[at(g::TOPIC_TROOP_NEEDS)],
+            equipment: b[at(g::TOPIC_TROOP_EQUIPMENT)],
             size: b[at(g::TOPIC_TROOP_SIZE)],
-            needs_gained: b[at(g::TOPIC_TROOP_NEEDS_GAINED)],
-            needs_lost: b[at(g::TOPIC_TROOP_NEEDS_LOST)],
+            equipment_gained: b[at(g::TOPIC_TROOP_EQUIPMENT_GAINED)],
+            equipment_lost: b[at(g::TOPIC_TROOP_EQUIPMENT_LOST)],
             gained_here: b[at(g::TOPIC_TROOP_GAINED_HERE)],
             days: b[at(g::TOPIC_TROOP_DAYS)],
             age_days: b[at(g::TOPIC_TROOP_AGE_DAYS)],
@@ -125,10 +125,10 @@ impl Single for TopicTroop {
         b[at(g::TOPIC_TROOP_MOTIVATION)] = self.motivation;
         b[at(g::TOPIC_TROOP_JOB_SKILL)] = self.job_skill;
         b[at(g::TOPIC_TROOP_SKILLS)..at(g::TOPIC_TROOP_SKILLS) + 3].copy_from_slice(&self.skills);
-        b[at(g::TOPIC_TROOP_NEEDS)] = self.needs;
+        b[at(g::TOPIC_TROOP_EQUIPMENT)] = self.equipment;
         b[at(g::TOPIC_TROOP_SIZE)] = self.size;
-        b[at(g::TOPIC_TROOP_NEEDS_GAINED)] = self.needs_gained;
-        b[at(g::TOPIC_TROOP_NEEDS_LOST)] = self.needs_lost;
+        b[at(g::TOPIC_TROOP_EQUIPMENT_GAINED)] = self.equipment_gained;
+        b[at(g::TOPIC_TROOP_EQUIPMENT_LOST)] = self.equipment_lost;
         b[at(g::TOPIC_TROOP_GAINED_HERE)] = self.gained_here;
         b[at(g::TOPIC_TROOP_DAYS)] = self.days;
         b[at(g::TOPIC_TROOP_AGE_DAYS)] = self.age_days;
@@ -152,10 +152,10 @@ const _: () = assert!(g::TOPIC_TROOP_WORD_12 == 0x34);
 const _: () = assert!(g::TOPIC_TROOP_MOTIVATION == 0x36);
 const _: () = assert!(g::TOPIC_TROOP_JOB_SKILL == 0x37);
 const _: () = assert!(g::TOPIC_TROOP_SKILLS == 0x38);
-const _: () = assert!(g::TOPIC_TROOP_NEEDS == 0x3b);
+const _: () = assert!(g::TOPIC_TROOP_EQUIPMENT == 0x3b);
 const _: () = assert!(g::TOPIC_TROOP_SIZE == 0x3c);
-const _: () = assert!(g::TOPIC_TROOP_NEEDS_GAINED == 0x3d);
-const _: () = assert!(g::TOPIC_TROOP_NEEDS_LOST == 0x3e);
+const _: () = assert!(g::TOPIC_TROOP_EQUIPMENT_GAINED == 0x3d);
+const _: () = assert!(g::TOPIC_TROOP_EQUIPMENT_LOST == 0x3e);
 const _: () = assert!(g::TOPIC_TROOP_GAINED_HERE == 0x3f);
 const _: () = assert!(g::TOPIC_TROOP_DAYS == 0x40);
 const _: () = assert!(g::TOPIC_TROOP_AGE_DAYS == 0x41);

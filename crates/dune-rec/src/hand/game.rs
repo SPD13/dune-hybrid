@@ -286,8 +286,8 @@ impl Troop {
     pub fn destination(self, c: &mut Ctx) -> u16 {
         self.word(c, 0x0c)
     }
-    /// Word 0Eh while moving: the skill it carries there (the need's
-    /// index, and its bit in the high byte).
+    /// Word 0Eh while moving: the equipment kind it moves for (the
+    /// kind, and its bit in the high byte; the kind + E8h names it).
     pub fn carried(self, c: &mut Ctx) -> u16 {
         self.word(c, 0x0e)
     }
@@ -303,11 +303,13 @@ impl Troop {
         self.set_byte(c, 0x1a, v)
     }
 
-    /// Byte 19h: bits, one per need of its location it covers.
-    pub fn byte_19(self, c: &mut Ctx) -> u8 {
+    /// Byte 19h: the equipment it holds, bit 7 - k for kind k (as
+    /// [`Location::equipment`]; spread one per byte by
+    /// `spread_troop_equipment`).
+    pub fn equipment(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x19)
     }
-    pub fn set_byte_19(self, c: &mut Ctx, v: u8) {
+    pub fn set_equipment(self, c: &mut Ctx, v: u8) {
         self.set_byte(c, 0x19, v)
     }
 }
@@ -618,9 +620,8 @@ impl Location {
         self.set_byte(c, 0x13, v)
     }
 
-    /// Byte 19h: eight bits, not known yet (spread one per byte by
-    /// `spread_location_bits`, 7EFBh), also summed as a number over the
-    /// locations (`add_location_sum`, 765Eh).
+    /// Byte 19h: its equipment of kind 5 ([`Location::equipment`] 5),
+    /// also summed over the locations (`add_location_sum`, 765Eh).
     pub fn byte_19(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x19)
     }
@@ -681,11 +682,15 @@ impl Location {
         self.set_byte(c, 0x0a, v)
     }
 
-    /// Bytes 14h + `k` (`k` 0 to 6): its skill needs (`skill_needs`).
-    pub fn need(self, c: &mut Ctx, k: u16) -> u8 {
+    /// Bytes 14h + `k` (`k` 0 to 6): how many of equipment kind `k` it
+    /// holds, its troops' included (the kinds a smuggler sells are the
+    /// first five, `smugglers::KINDS`: a purchase adds one here,
+    /// `buy_from_smuggler_on_credit`); less what its troops hold, the
+    /// spare (`spare_equipment`).
+    pub fn equipment(self, c: &mut Ctx, k: u16) -> u8 {
         self.byte(c, 0x14 + k)
     }
-    pub fn set_need(self, c: &mut Ctx, k: u16, v: u8) {
+    pub fn set_equipment(self, c: &mut Ctx, k: u16, v: u8) {
         self.set_byte(c, 0x14 + k, v)
     }
 

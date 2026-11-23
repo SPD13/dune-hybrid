@@ -150,7 +150,7 @@ ARGS = {
     0x8b11: ('lay_out_text', [('SI', 'text', 'u16')], 'the text SI laid out in its box.'),
     0xa49c: ('draw_counter_of', [('SI', 'counter', 'u16')], 'the counter at SI on the back buffer.'),
     0x6f93: ('lower_motivation', [('AL', 'points', 'u8')], 'the troop at SI loses AL motivation.'),
-    0x7f27: ('note_skill_needs', [('DI', 'location', 'u16')], 'the skill needs of the location DI into 46FEh.'),
+    0x7f27: ('note_spare_equipment', [('DI', 'location', 'u16')], 'the skill needs of the location DI into 46FEh.'),
     0x1e24: (None, [('DI', 'location', 'u16')], None),
     0xd1a6: ('draw_phrases', [('SI', 'list', 'u16')], 'the strings listed at SI (string, x, y, colour).'),
     0x31f6: ('tell_about_troop', [('SI', 'troop', 'u16')], 'the troop SI described in the condition variables.'),

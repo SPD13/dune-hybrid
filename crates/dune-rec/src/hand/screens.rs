@@ -1401,7 +1401,7 @@ pub fn place_panel_back(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (the buttons, `loc_02ffb`, follow). At a place ([6] 80h): its first action 220Ch;
 /// in a palace (place 1) the talk entries 2218h.. and 2214h (off from
 /// phase 4Fh) in a dialogue, else 21DCh (off without [46FFh], after
-/// `noted_location_skill_needs`); at a sietch (BH 1) with troops [0C8h] in the
+/// `noted_spare_equipment`); at a sietch (BH 1) with troops [0C8h] in the
 /// eighth place the troop entries (21E8h: [1248h] the phrase 27h / 26h /
 /// 28h with [47A9h], off when [0C9h] is 0; the next off when [0C9h]
 /// reaches [0C8h]), in the ninth 21F0h; then 21F4h. Elsewhere outside the
@@ -1458,13 +1458,13 @@ pub fn build_action_list(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 let di = c.reg(DI);
                 c.push(di);
                 let p = c.word(g::PLACE);
-                troops::note_skill_needs(&mut c, p, 0x2f45)?;
+                troops::note_spare_equipment(&mut c, p, 0x2f45)?;
                 c.run(0x2f45, 9)?;
                 let d = c.pop();
                 c.set_reg(DI, d);
                 c.set_reg(SI, 0x21dc);
                 let v = c.lods(W, DS);
-                let skills = c.byte(g::LOCATION_SKILL_NEED_1);
+                let skills = c.byte(g::LOCATION_SPARE_EQUIPMENT_1);
                 flagged(&mut c, v, skills < 1);
             }
         } else {

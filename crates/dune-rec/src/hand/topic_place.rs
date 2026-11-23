@@ -1,8 +1,8 @@
 //! The place talked about, as Rust state (Stage B of `docs/readable-port-plan.md`).
 //!
 //! `describe_place` (331Eh) copies a location's record here for the
-//! condition scripts, with the needs its troops leave unmet and their
-//! bits; its troops are counted in `hand/place_forces.rs`.
+//! condition scripts, with its equipment and the kinds its troops leave
+//! spare; its troops are counted in `hand/place_forces.rs`.
 //!
 //! Part of the story state (DS:0..FFh, the variables the condition
 //! scripts test by their offset): a table of one record
@@ -30,12 +30,12 @@ pub struct TopicPlace {
     pub status: u8,
     /// [`g::TOPIC_PLACE_SPICE`] (52h).
     pub spice: u8,
-    /// [`g::TOPIC_PLACE_UNMET_NEEDS`] (53h).
-    pub unmet_needs: u8,
+    /// [`g::TOPIC_PLACE_SPARE_KINDS`] (53h).
+    pub spare_kinds: u8,
     /// [`g::TOPIC_PLACE_BYTE_1B`] (54h).
     pub byte_1b: u8,
-    /// [`g::TOPIC_PLACE_NEEDS`] (55h).
-    pub needs: [u8; 7],
+    /// [`g::TOPIC_PLACE_EQUIPMENT`] (55h).
+    pub equipment: [u8; 7],
     /// [`g::TOPIC_PLACE_TROOP_BITS_10`] (5Ch).
     pub troop_bits_10: u16,
     /// [`g::TOPIC_PLACE_TROOP_BITS_12`] (5Eh).
@@ -65,9 +65,9 @@ impl Single for TopicPlace {
             chance: b[at(g::TOPIC_PLACE_CHANCE)],
             status: b[at(g::TOPIC_PLACE_STATUS)],
             spice: b[at(g::TOPIC_PLACE_SPICE)],
-            unmet_needs: b[at(g::TOPIC_PLACE_UNMET_NEEDS)],
+            spare_kinds: b[at(g::TOPIC_PLACE_SPARE_KINDS)],
             byte_1b: b[at(g::TOPIC_PLACE_BYTE_1B)],
-            needs: std::array::from_fn(|k| b[at(g::TOPIC_PLACE_NEEDS) + k]),
+            equipment: std::array::from_fn(|k| b[at(g::TOPIC_PLACE_EQUIPMENT) + k]),
             troop_bits_10: word(b, at(g::TOPIC_PLACE_TROOP_BITS_10)),
             troop_bits_12: word(b, at(g::TOPIC_PLACE_TROOP_BITS_12)),
         }
@@ -80,9 +80,9 @@ impl Single for TopicPlace {
         b[at(g::TOPIC_PLACE_CHANCE)] = self.chance;
         b[at(g::TOPIC_PLACE_STATUS)] = self.status;
         b[at(g::TOPIC_PLACE_SPICE)] = self.spice;
-        b[at(g::TOPIC_PLACE_UNMET_NEEDS)] = self.unmet_needs;
+        b[at(g::TOPIC_PLACE_SPARE_KINDS)] = self.spare_kinds;
         b[at(g::TOPIC_PLACE_BYTE_1B)] = self.byte_1b;
-        b[at(g::TOPIC_PLACE_NEEDS)..at(g::TOPIC_PLACE_NEEDS) + 7].copy_from_slice(&self.needs);
+        b[at(g::TOPIC_PLACE_EQUIPMENT)..at(g::TOPIC_PLACE_EQUIPMENT) + 7].copy_from_slice(&self.equipment);
         set_word(&mut b, at(g::TOPIC_PLACE_TROOP_BITS_10), self.troop_bits_10);
         set_word(&mut b, at(g::TOPIC_PLACE_TROOP_BITS_12), self.troop_bits_12);
         b
@@ -94,9 +94,9 @@ const _: () = assert!(g::TOPIC_PLACE_NAME == 0x4e);
 const _: () = assert!(g::TOPIC_PLACE_CHANCE == 0x50);
 const _: () = assert!(g::TOPIC_PLACE_STATUS == 0x51);
 const _: () = assert!(g::TOPIC_PLACE_SPICE == 0x52);
-const _: () = assert!(g::TOPIC_PLACE_UNMET_NEEDS == 0x53);
+const _: () = assert!(g::TOPIC_PLACE_SPARE_KINDS == 0x53);
 const _: () = assert!(g::TOPIC_PLACE_BYTE_1B == 0x54);
-const _: () = assert!(g::TOPIC_PLACE_NEEDS == 0x55);
+const _: () = assert!(g::TOPIC_PLACE_EQUIPMENT == 0x55);
 const _: () = assert!(g::TOPIC_PLACE_TROOP_BITS_10 == 0x5c);
 const _: () = assert!(g::TOPIC_PLACE_TROOP_BITS_12 == 0x5e);
 const _: () = assert!(AT == 0x4d && (AT + 0x13) as usize >= 0x60);

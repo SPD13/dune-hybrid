@@ -2000,11 +2000,11 @@ pub fn draw_location_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
 }
 
-/// `loc_07d0c`: the skills panel on the back buffer: the rects 1936h and
-/// 1940h (`loc_07b1b`), `loc_07e1e`, the needs 4C60h saved to 4C7Ch, the
+/// `loc_07d0c`: the equipment panel on the back buffer: the rects 1936h and
+/// 1940h (`loc_07b1b`), `loc_07e1e`, the bars' x ranges 4C60h saved to 4C7Ch, the
 /// bars (`loc_07e3d` from 46FEh), the label 6Fh (`loc_0d194`),
 /// `fade_panel` (registers kept); front buffer active.
-pub fn draw_skills_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_equipment_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7d0c)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -2014,7 +2014,7 @@ pub fn draw_skills_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7d15, 2)?;
     gfx::fill_and_outline_rect(&mut c, 0x1940, 0x7d1b)?;
     c.run(0x7d1b, 1)?;
-    c.call(entry::DRAW_PLACE_SKILL_BARS, 0x7d1e)?;
+    c.call(entry::DRAW_PLACE_EQUIPMENT_BARS, 0x7d1e)?;
     c.run(0x7d1e, 6 + 0x0e + 9)?; // the `rep` iterations too
     let ds = c.sreg(DS);
     c.push(ds);
@@ -2024,23 +2024,23 @@ pub fn draw_skills_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0x4c7c);
     c.set_reg(CX, 0x0e);
     c.rep_counted(0xa5);
-    let bx = c.word(g::SKILL_BARS_BOX_Y0);
+    let bx = c.word(g::EQUIPMENT_BARS_BOX_Y0);
     let bx = pure::add(W, bx, 4);
     c.set_reg(BX, bx);
-    let dx = c.word(g::SKILL_BARS_BOX);
+    let dx = c.word(g::EQUIPMENT_BARS_BOX);
     let dx = pure::add(W, dx, 0x50);
     c.set_reg(DX, dx);
-    c.set_reg(SI, g::LOCATION_SKILL_NEEDS);
-    let bp = c.word(g::SKILL_BARS_BOX_Y1);
+    c.set_reg(SI, g::LOCATION_SPARE_EQUIPMENT);
+    let bp = c.word(g::EQUIPMENT_BARS_BOX_Y1);
     c.set_reg(BP, bp);
-    let cx = c.word(g::SKILL_BARS_BOX_COLOURS);
+    let cx = c.word(g::EQUIPMENT_BARS_BOX_COLOURS);
     c.set_reg(CX, cx);
     c.set_word(g::TEXT_COLOUR, cx);
-    c.call(entry::SKILL_BARS, 0x7d4b)?;
+    c.call(entry::EQUIPMENT_BARS, 0x7d4b)?;
     c.run(0x7d4b, 5)?;
-    let cx = c.word(g::SKILL_BARS_BOX_COLOURS);
+    let cx = c.word(g::EQUIPMENT_BARS_BOX_COLOURS);
     c.set_reg(CX, cx);
-    let dx = c.word(g::SKILL_BARS_BOX);
+    let dx = c.word(g::EQUIPMENT_BARS_BOX);
     let dx = pure::add(W, dx, 8);
     c.set_reg(DX, dx);
     c.set_reg(AX, 0x6f);
@@ -3157,7 +3157,7 @@ pub fn place_scene(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, 0);
         return c.ret();
     }
-    let k = c.byte(g::LOCATION_SKILL_NEED_1);
+    let k = c.byte(g::LOCATION_SPARE_EQUIPMENT_1);
     c.run(0x4e78, 7 + if k == 0 { 1 } else { 2 })?;
     c.set_reg(AX, v);
     let w = c.word(g::PLACE_TROOP_COUNT);
@@ -3587,9 +3587,9 @@ pub fn map_click_and_resource(m: &mut Machine, start: u16) -> Result<(), Bail> {
     super::resources::open_onmap_resource(c.m, 0xc13b)
 }
 
-/// `loc_07e1e`: [`skill_bars`] for the needs at 4705h in the panel
+/// `loc_07e1e`: [`equipment_bars`] for the troop's equipment at 4705h in the panel
 /// 18E9h (from (x + 80h, y + 2Dh) to its bottom), tall font, colour F0h.
-pub fn draw_place_skill_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn draw_place_equipment_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7e1e)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -3604,19 +3604,19 @@ pub fn draw_place_skill_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let bp = c.word(g::PLACE_PANEL_Y1);
     c.set_reg(BP, bp);
     c.set_word(g::TEXT_COLOUR, 0xf0);
-    skill_bars_at(&mut c)
+    equipment_bars_at(&mut c)
 }
 
-/// `loc_07e3d`: the 7 skill needs at SI drawn as bars of the sprites at
+/// `loc_07e3d`: the 7 equipment counts at SI drawn as bars of the sprites at
 /// 192Fh (`sprite_column` from (DX, BX) to BP), their columns' x
-/// ranges at 4C60h; when none is needed, the phrase 69h instead. DI kept.
-pub fn skill_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// ranges at 4C60h; when there is none, the phrase 69h instead. DI kept.
+pub fn equipment_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7e3d)?;
     let mut c = Ctx::new(m);
-    skill_bars_at(&mut c)
+    equipment_bars_at(&mut c)
 }
 
-fn skill_bars_at(c: &mut Ctx) -> Result<(), Bail> {
+fn equipment_bars_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x7e3d, 1)?;
     c.call(entry::OPEN_ONMAP_RESOURCE, 0x7e40)?;
     c.run(0x7e40, 7 + 0x0e + 4)?; // the `rep` iterations too
@@ -5647,7 +5647,7 @@ pub fn marker_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_060ac`: the location's panel line at (DX = [1668h] + 4, BX + 0Ch)
 /// in colour 9Ah: a location to show (`location_to_show`) its string 6Eh
-/// and the skill bars of its record (DI + 14h, [166Eh]); else the string
+/// and the equipment bars of its record (DI + 14h, [166Eh]); else the string
 /// 4Ch and the balance gauge sprite (8Eh + (balance + 0Fh) / 32).
 pub fn location_panel_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x60ac)?;
@@ -5673,7 +5673,7 @@ pub fn location_panel_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(SI, di.wrapping_add(0x14));
         let bp = c.word(g::CAPTION_FRAME_Y1);
         c.set_reg(BP, bp);
-        return skill_bars(c.m, 0x7e3d);
+        return equipment_bars(c.m, 0x7e3d);
     }
     c.run(0x60c1, 3)?;
     c.set_reg(AX, 0x4c);
@@ -6009,7 +6009,7 @@ pub fn zoom_legend(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0878c`: the map panel's buttons (UI list 20F2h, on the stack
 /// segment): [47BAh] 0; its action button 40A7h, or A7h (enabled unless
 /// [46FFh]) when the troop [8] is a plain one (below 20h, or [0Bh] below
-/// 3, after `skill_needs` for the place [114Eh]); bit 40h of +0Bh and
+/// 3, after `spare_equipment` for the place [114Eh]); bit 40h of +0Bh and
 /// +12h 0 before phase 5, else cleared and 67h; the second button 62h
 /// (enabled without [3CBEh]) from [1176h] 2, else 4093h, disabled for a
 /// place with a troop +9 whose `loc_06906` sets CF; then installed
@@ -6028,8 +6028,8 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let di = c.reg(DI);
         c.push(di);
         let p = c.word(g::PLACE);
-        troops::note_skill_needs(&mut c, p, 0x87b2)?;
-        let k = c.byte(g::LOCATION_SKILL_NEED_1);
+        troops::note_spare_equipment(&mut c, p, 0x87b2)?;
+        let k = c.byte(g::LOCATION_SPARE_EQUIPMENT_1);
         c.run(0x87b2, 4 + if k == 0 { 1 } else { 0 })?;
         let d = c.pop();
         c.set_reg(DI, d);
@@ -6373,7 +6373,7 @@ pub fn map_view_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.set_reg(DI, 0);
     }
-    let f = c.map_selection().skills_panel;
+    let f = c.map_selection().equipment_panel;
     if f != 0 {
         c.run(0x5ca5, 3)?;
         return super::screens::leave_and_fade(c.m, 0xd2e2);

@@ -7,7 +7,7 @@
 //! in the generic record tables (`hand/record_table.rs`, the memory kept
 //! as the checked mirror); [`MapSelection`] is its typed view. The bytes
 //! after it (46FEh-470Fh) are scratch of the troop panel's computations
-//! (a location's needs and spread bits, the nearest location), not part
+//! (a location's spare equipment and a troop's spread, the nearest location), not part
 //! of it.
 
 use super::record_table::{self, Single, Which};
@@ -25,11 +25,11 @@ pub struct MapSelection {
     /// [46F3h]: set while the map screen is toggled in over a place's
     /// panel (its title 52h then, else 53h); cleared when it is left.
     pub map_screen: u8,
-    /// [46F4h]: the troop panel up: 0 none, 1 an order panel (the skills
-    /// spread over a location's needs).
+    /// [46F4h]: the troop panel up: 0 none, 1 an order panel (the
+    /// troop's equipment and its location's spare).
     pub panel: u8,
-    /// [46F5h]: with [`Self::panel`], clicks go to the skills panel.
-    pub skills_panel: u8,
+    /// [46F5h]: with [`Self::panel`], clicks go to the equipment panel.
+    pub equipment_panel: u8,
     /// [46F6h]: the animated map sprites' frame (every fourth step all of
     /// them move).
     pub sprite_frame: u8,
@@ -54,7 +54,7 @@ impl Single for MapSelection {
             shown: w(2),
             map_screen: b[4],
             panel: b[5],
-            skills_panel: b[6],
+            equipment_panel: b[6],
             sprite_frame: b[7],
             caption_kind: b[8],
             caption: w(9),
@@ -76,7 +76,7 @@ impl Single for MapSelection {
         w(0x0d, self.subject);
         b[4] = self.map_screen;
         b[5] = self.panel;
-        b[6] = self.skills_panel;
+        b[6] = self.equipment_panel;
         b[7] = self.sprite_frame;
         b[8] = self.caption_kind;
         b

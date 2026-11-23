@@ -1492,7 +1492,7 @@ pub fn scene_2a(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::DRAW_ORNI, 0x4860)?;
     c.run(0x4860, 1)?;
     c.call(entry::GET_ORNI_POSITION, 0x4863)?;
-    let ov = c.byte(g::LOCATION_SKILL_NEED_1);
+    let ov = c.byte(g::LOCATION_SPARE_EQUIPMENT_1);
     c.run(0x4863, 3 + if ov != 0 { 4 } else { 1 })?;
     c.set_reg(CX, ov as u16);
     if ov != 0 {

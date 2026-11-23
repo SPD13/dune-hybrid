@@ -584,8 +584,8 @@ pub const MUSIC_LOADED: u16 = 0xdbca;
 // --- The globe, the frieze ------------------------------------------------------
 
 /// [4C60h]: the scratch buffer many screens load into or build in (5960h
-/// words cleared at 900Bh): the globe's map (resource 92h), the skill
-/// needs on the map (`skill_needs`), polygons (`SAL_polygon`), the text
+/// words cleared at 900Bh): the globe's map (resource 92h), a
+/// location's spare equipment (`spare_equipment`), polygons (`SAL_polygon`), the text
 /// box's background, ... Was taken for the globe's map alone.
 pub const SCRATCH_BUFFER: u16 = 0x4c60;
 /// The globe's rotation (0..18Eh, the row table after it).
@@ -845,16 +845,16 @@ pub const TOPIC_TROOP_MOTIVATION: u16 = 0x36;
 pub const TOPIC_TROOP_JOB_SKILL: u16 = 0x37;
 /// Its three skills (bytes 16h..18h). (3 bytes)
 pub const TOPIC_TROOP_SKILLS: u16 = 0x38;
-/// The needs it covers (byte 19h).
-pub const TOPIC_TROOP_NEEDS: u16 = 0x3b;
+/// The equipment it holds (byte 19h).
+pub const TOPIC_TROOP_EQUIPMENT: u16 = 0x3b;
 /// Its size (byte 1Ah).
 pub const TOPIC_TROOP_SIZE: u16 = 0x3c;
-/// Its byte 19h before a change of skills (77FCh, 7CFAh); then the
-/// bits gained (7D90h).
-pub const TOPIC_TROOP_NEEDS_GAINED: u16 = 0x3d;
+/// Its byte 19h before a change of its equipment (77FCh, 7CFAh); then
+/// the bits gained (7D90h).
+pub const TOPIC_TROOP_EQUIPMENT_GAINED: u16 = 0x3d;
 /// The bits lost in that change (7D96h).
-pub const TOPIC_TROOP_NEEDS_LOST: u16 = 0x3e;
-/// 40h if need bit 40h was gained at [`LAST_PLACE`] (7DACh), else 0.
+pub const TOPIC_TROOP_EQUIPMENT_LOST: u16 = 0x3e;
+/// 40h if equipment bit 40h was gained at [`LAST_PLACE`] (7DACh), else 0.
 pub const TOPIC_TROOP_GAINED_HERE: u16 = 0x3f;
 /// The days since its byte 14h (it joined or got its job).
 pub const TOPIC_TROOP_DAYS: u16 = 0x40;
@@ -884,13 +884,13 @@ pub const TOPIC_PLACE_CHANCE: u16 = 0x50;
 pub const TOPIC_PLACE_STATUS: u16 = 0x51;
 /// Its spice (byte 12h).
 pub const TOPIC_PLACE_SPICE: u16 = 0x52;
-/// Bit 7 - k: need k not met by the troops' skills (from 46FEh,
-/// 3363h).
-pub const TOPIC_PLACE_UNMET_NEEDS: u16 = 0x53;
+/// Bit 7 - k: some of equipment kind k spare, not held by its troops
+/// (from 46FEh, 3363h).
+pub const TOPIC_PLACE_SPARE_KINDS: u16 = 0x53;
 /// Its byte 1Bh.
 pub const TOPIC_PLACE_BYTE_1B: u16 = 0x54;
-/// Its seven needs (bytes 14h..1Ah). (7 bytes)
-pub const TOPIC_PLACE_NEEDS: u16 = 0x55;
+/// Its equipment, seven kinds (bytes 14h..1Ah). (7 bytes)
+pub const TOPIC_PLACE_EQUIPMENT: u16 = 0x55;
 /// The words 10h of its troops (not the Harkonnens') ORed together.
 pub const TOPIC_PLACE_TROOP_BITS_10: u16 = 0x5c;
 /// Their words 12h ORed together.
@@ -1064,7 +1064,7 @@ pub const CAPTION_FRAME: u16 = 0x1668;
 pub const CAPTION_FRAME_Y0: u16 = 0x166a;
 /// [166Ch]: [`CAPTION_FRAME`]'s x1, the right end of the count line (BP for `loc_0617a`).
 pub const CAPTION_FRAME_X1: u16 = 0x166c;
-/// [166Eh]: [`CAPTION_FRAME`]'s y1, the bottom for the skill bars (`location_panel_line`).
+/// [166Eh]: [`CAPTION_FRAME`]'s y1, the bottom for the equipment bars (`location_panel_line`).
 pub const CAPTION_FRAME_Y1: u16 = 0x166e;
 /// [1671h]: [`CAPTION_FRAME`]'s fill colour (byte 9; 10h).
 pub const CAPTION_FRAME_FILL: u16 = 0x1671;
@@ -1074,7 +1074,7 @@ pub const PLACE_PANEL: u16 = 0x18e9;
 pub const PLACE_PANEL_Y0: u16 = 0x18eb;
 /// [18EDh]: [`PLACE_PANEL`]'s x1.
 pub const PLACE_PANEL_X1: u16 = 0x18ed;
-/// [18EFh]: [`PLACE_PANEL`]'s y1 (y0 + 43h), the bottom for its skill bars.
+/// [18EFh]: [`PLACE_PANEL`]'s y1 (y0 + 43h), the bottom for its equipment bars.
 pub const PLACE_PANEL_Y1: u16 = 0x18ef;
 /// [18F2h]: [`PLACE_PANEL`]'s fill colour (byte 9; FBh). Also the colour of the dialogue frame drawn around the text box (8FE3h).
 pub const PLACE_PANEL_FILL: u16 = 0x18f2;
@@ -1086,9 +1086,9 @@ pub const PLACE_PICTURE_BOX_Y0: u16 = 0x18f5;
 pub const PLACE_PICTURE_BOX_X1: u16 = 0x18f7;
 /// [18F9h]: [`PLACE_PICTURE_BOX`]'s y1.
 pub const PLACE_PICTURE_BOX_Y1: u16 = 0x18f9;
-/// [192Fh]: the sprite for each of the 7 skills' bars, a byte per skill (`skill_bars`).
+/// [192Fh]: the sprite for each of the 7 skills' bars, a byte per skill (`equipment_bars`).
 pub const SKILL_BAR_SPRITES: u16 = 0x192f;
-/// [1936h]: the skills panel's first box (0Ah bytes: rect, outline, fill), placed from [`PLACE_PANEL`] by `place_panel_rects` and drawn by `draw_skills_panel`.
+/// [1936h]: the equipment panel's first box (0Ah bytes: rect, outline, fill), placed from [`PLACE_PANEL`] by `place_panel_rects` and drawn by `draw_equipment_panel`.
 pub const SKILLS_BOX: u16 = 0x1936;
 /// [1938h]: [`SKILLS_BOX`]'s y0.
 pub const SKILLS_BOX_Y0: u16 = 0x1938;
@@ -1096,14 +1096,14 @@ pub const SKILLS_BOX_Y0: u16 = 0x1938;
 pub const SKILLS_BOX_X1: u16 = 0x193a;
 /// [193Ch]: [`SKILLS_BOX`]'s y1.
 pub const SKILLS_BOX_Y1: u16 = 0x193c;
-/// [1940h]: the skills panel's second box (0Ah bytes: rect, then the colours at +8), where the bars from 46FEh and the label 6Fh go. [0DBE2h] points to it while the panel is up.
-pub const SKILL_BARS_BOX: u16 = 0x1940;
-/// [1942h]: [`SKILL_BARS_BOX`]'s y0.
-pub const SKILL_BARS_BOX_Y0: u16 = 0x1942;
-/// [1946h]: [`SKILL_BARS_BOX`]'s y1, the bars' bottom.
-pub const SKILL_BARS_BOX_Y1: u16 = 0x1946;
-/// [1948h]: [`SKILL_BARS_BOX`]'s colour word (+8: outline 19h, fill 1Eh), also the text colour of its bars and label.
-pub const SKILL_BARS_BOX_COLOURS: u16 = 0x1948;
+/// [1940h]: the equipment panel's second box (0Ah bytes: rect, then the colours at +8), where the bars from 46FEh and the label 6Fh go. [0DBE2h] points to it while the panel is up.
+pub const EQUIPMENT_BARS_BOX: u16 = 0x1940;
+/// [1942h]: [`EQUIPMENT_BARS_BOX`]'s y0.
+pub const EQUIPMENT_BARS_BOX_Y0: u16 = 0x1942;
+/// [1946h]: [`EQUIPMENT_BARS_BOX`]'s y1, the bars' bottom.
+pub const EQUIPMENT_BARS_BOX_Y1: u16 = 0x1946;
+/// [1948h]: [`EQUIPMENT_BARS_BOX`]'s colour word (+8: outline 19h, fill 1Eh), also the text colour of its bars and label.
+pub const EQUIPMENT_BARS_BOX_COLOURS: u16 = 0x1948;
 /// [1954h]: the number of the troop the panel shows (0: none; troops.rs `SHOWN_TROOP`). Its high byte is [`CAPTIONED_TROOP`].
 pub const SHOWN_TROOP: u16 = 0x1954;
 /// [1955h]: the number of the troop whose caption/panel was last placed (`troop_caption`; 3 for troop 8E0h at 5B1Eh). Read with [`SHOWN_TROOP`] as a word (86DDh).
@@ -1260,10 +1260,10 @@ pub const DAY_CHANGED: u16 = 0x46de;
 pub const SKY_PALETTE_SHOWN: u16 = 0x46e0;
 /// [46EDh]: MapView field `redraw` (hand/map_view.rs): the routine that draws the view (49A0h, 4377h, ...).
 pub const MAP_VIEW_REDRAW: u16 = 0x46ed;
-/// [46FEh]: a location's 7 skill needs (its bytes 14h..1Ah) less what its troops' skills meet (`noted_location_skill_needs`, `skill_needs`); troop-panel scratch.
-pub const LOCATION_SKILL_NEEDS: u16 = 0x46fe;
-/// [46FFh]: LOCATION_SKILL_NEEDS[1] (the location's byte 15h unmet): while non-zero the room shows its figures (3A39h) and the action 21DCh is enabled; it replaces PLACE_TROOP_COUNT's low byte at 4E83h.
-pub const LOCATION_SKILL_NEED_1: u16 = 0x46ff;
+/// [46FEh]: a location's spare equipment: its 7 kinds (its bytes 14h..1Ah) less what its troops hold (`noted_spare_equipment`, `spare_equipment`); troop-panel scratch.
+pub const LOCATION_SPARE_EQUIPMENT: u16 = 0x46fe;
+/// [46FFh]: LOCATION_SPARE_EQUIPMENT[1] (the location's spare of kind 1): while non-zero the room shows its figures (3A39h) and the action 21DCh is enabled; it replaces PLACE_TROOP_COUNT's low byte at 4E83h.
+pub const LOCATION_SPARE_EQUIPMENT_1: u16 = 0x46ff;
 /// [4710h]: the place view's inner box, a rect (left, top, right, bottom; used as the mouse rect at [0DBE0h]): left and top from the map point [11C1h]/[11C3h] (5406h), or 5Ch and the panel's y for the place panel (7A15h);
 pub const PLACE_BOX: u16 = 0x4710;
 /// [4712h]: its top,

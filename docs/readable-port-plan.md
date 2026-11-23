@@ -359,6 +359,35 @@ ports that set and test them, go into `game.rs`:
 that was wrong is fixed where the ports disagreed: in `troop_arrived_at`
 the local `secret` was the Harkonnen bit, not secret.
 
+**Equipment, not skill needs (2026-11-23).** A location's bytes 14h..1Ah
+were named its "skill needs". `buy_from_smuggler_on_credit` shows what
+they are: buying item `i` from a smuggler adds one to the location's
+byte 14h + `i`. So they count the location's equipment, one byte per
+kind, the smuggler's five kinds first. A troop's byte 19h is the
+equipment it holds, bit 7 - k for kind k. A moving troop's word 0Eh low
+byte + E8h is an item phrase. The place panel draws the seven counts as
+columns of sprites. The names follow:
+- `Location::equipment`
+- `Troop::equipment`
+- `spare_equipment` (was `skill_needs`): the location's equipment less
+  what its troops hold
+- `add_troop_equipment` / `remove_troop_equipment` (were
+  `count_location_bits` / `lower_by_bits`)
+- `spread_troop_equipment` / `pack_troop_equipment` (were
+  `spread_location_bits` / `pack_location_bits`: their SI is a troop)
+- `equipment_bars`
+- `nearest_location_with_spare`
+- `troop_take_equipment`
+- the `TOPIC_*_EQUIPMENT` condition variables
+- the equipment panel (was the skills panel)
+
+Which kind is which beyond the smugglers' order is still open. One
+example: kind 1 is kept back at the home location, and a room shows its
+figures while kind 1 is spare.
+
+The views gained `SceneSpawner` (the scene's counters at 4856h) and
+`smugglers::SmugglerAt` (with `smuggler_flag::MET`, `TALK_ENDED`).
+
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust
 (no flag helpers where no caller reads the flags), `c.run(start, cost)`
@@ -418,7 +447,7 @@ Things that bit:
   as it is.
 - **`rep` counts per iteration.** The emulator counts each iteration of a
   `rep` string instruction as an instruction. A port that does the copy
-  itself adds them to its `run` (`skill_needs`: 8 + 7). `c.rep` counts
+  itself adds them to its `run` (`spare_equipment`: 8 + 7). `c.rep` counts
   them itself, but the `run` before it doesn't cover them, so an
   interrupt due inside the iterations would be taken after the port's
   stretch, a few instructions late. `c.rep_counted` is the `rep` whose
@@ -842,7 +871,7 @@ are counted apart.
 
 The map's selection (`hand/map_selection.rs`, 0Fh bytes at 46EFh: the
 troop selected, the record shown, the map screen toggled in, the troop
-panel and its skills panel, the animated sprites' frame, the caption's
+panel and its equipment panel, the animated sprites' frame, the caption's
 kind and location, the panel to draw, the place under the cursor) is a
 fifth (`Ctx::map_selection` / `update_map_selection`; `map selection:`
 in the output). The bytes after it (46FEh-470Fh) are scratch of the
@@ -1247,7 +1276,7 @@ the records' layouts) and the ports. What came out of it:
 
 - The 0Ah-byte boxes are a rect, an outline colour and a fill colour
   (byte 9): `CAPTION_FRAME` 1668h, `PLACE_PANEL` 18E9h,
-  `PLACE_PICTURE_BOX` 18F3h, `SKILLS_BOX` 1936h, `SKILL_BARS_BOX` 1940h,
+  `PLACE_PICTURE_BOX` 18F3h, `SKILLS_BOX` 1936h, `EQUIPMENT_BARS_BOX` 1940h,
   `COMM_FRAME` 2254h.
 - 13C4h is a word table of the rooms' lists (5 bytes an entry: the
   label's phrase and four button codes, bit 80h of a code = off): the
@@ -1284,7 +1313,7 @@ The last doubts, settled from all their uses in the listing:
 - [4C60h] is `SCRATCH_BUFFER` (was `GLOBE_MAP`): many screens load into
   or build in it (the globe's map, resource 92h; the skill needs on the
   map; polygons; the text box's background; 900Bh clears 5960h words).
-  troops.rs keeps `SKILL_NEEDS` as an alias of it.
+  troops.rs keeps `SPARE_EQUIPMENT_COPY` as an alias of it.
 - [1B8Eh] is `PANEL_BUTTONS` (the panel's 6 UI elements, was screens.rs's
   `BUTTONS`); [1B9Ch] is `ARROW_CURSOR_BUTTONS` (was
   `UI_ELEMENTS_BY_CURSOR`): buttons 1 to 4, one per arrow cursor image.

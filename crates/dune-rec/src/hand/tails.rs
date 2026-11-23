@@ -1436,11 +1436,11 @@ pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let v = c.map_selection().panel;
         let v = pure::inc(B, v as u16);
         c.update_map_selection(|t| t.panel = v as u8);
-        c.call(entry::SPREAD_LOCATION_BITS, 0x7c4e)?;
+        c.call(entry::SPREAD_TROOP_EQUIPMENT, 0x7c4e)?;
         c.run(0x7c4e, 2)?;
         let si = c.reg(SI);
         c.push(si);
-        c.call(entry::DRAW_PLACE_SKILL_BARS, 0x7c52)?;
+        c.call(entry::DRAW_PLACE_EQUIPMENT_BARS, 0x7c52)?;
         c.run(0x7c52, 2)?;
         let v = c.pop();
         c.set_reg(SI, v);
@@ -2304,9 +2304,9 @@ pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x6abb, 2 + if (activity as u8) == 0 { 1 } else { 3 })?;
         if (activity as u8) != 0 {
             let si = c.reg(SI);
-            let v = Troop(si).byte_19(&mut c);
+            let v = Troop(si).equipment(&mut c);
             let v = pure::and(B, v as u16, 0x7f);
-            Troop(si).set_byte_19(&mut c, v as u8);
+            Troop(si).set_equipment(&mut c, v as u8);
         }
         return c.jump(entry::LEAVE_AND_FADE);
     }

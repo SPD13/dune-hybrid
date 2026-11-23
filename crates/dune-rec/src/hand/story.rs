@@ -867,7 +867,7 @@ pub fn note_place_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::PLACE_TROOP_COUNT, cx);
     let es = c.sreg(pc::cpu::ES);
     c.push(es);
-    c.call(entry::NOTED_LOCATION_SKILL_NEEDS, 0x4e01)?;
+    c.call(entry::NOTED_SPARE_EQUIPMENT, 0x4e01)?;
     c.run(0x4e01, 3)?;
     let es = c.pop();
     c.set_sreg(pc::cpu::ES, es);
@@ -3400,9 +3400,10 @@ pub fn start_phase_15(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0331e`: the location DI becomes the one talked about ([11CEh]):
-/// its fields copied to the condition variables (4Dh..54h, its 7 needs
-/// to 55h, the name's region by 1141h), `loc_033be`, `loc_034a5`, the
-/// needs with troops' skills (`noted_location_skill_needs`) as a bit set in [53h],
+/// its fields copied to the condition variables (4Dh..54h, its
+/// equipment to 55h, the name's region by 1141h), `loc_033be`,
+/// `loc_034a5`, the kinds with some spare (`noted_spare_equipment`) as a
+/// bit set in [53h],
 /// `loc_03385`, `loc_05274`. SI, DI kept.
 pub fn describe_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x331e)?;
@@ -3435,7 +3436,7 @@ pub fn describe_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(pc::cpu::ES, es);
     c.push(di);
     c.set_reg(SI, di.wrapping_add(0x14));
-    c.set_reg(DI, g::TOPIC_PLACE_NEEDS);
+    c.set_reg(DI, g::TOPIC_PLACE_EQUIPMENT);
     c.set_reg(CX, 7);
     c.rep_counted(0xa4);
     c.run(0x3359, 2)?;
@@ -3445,9 +3446,9 @@ pub fn describe_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x335d, 1)?;
     c.call(entry::COUNT_PLACE_TROOPS, 0x3360)?;
     c.run(0x3360, 1)?;
-    c.call(entry::NOTED_LOCATION_SKILL_NEEDS, 0x3363)?;
-    // The needs the troops' skills meet (`cmp [di], 1; rcl al, 1`: a bit
-    // per need of 0, inverted), as bits 1-7 of [53h].
+    c.call(entry::NOTED_SPARE_EQUIPMENT, 0x3363)?;
+    // The kinds with some spare (`cmp [di], 1; rcl al, 1`: a bit per
+    // kind of 0, inverted), as bits 1-7 of [53h].
     c.run(0x3363, 3 + 28 + 6)?;
     let mut bits = 0xffu8;
     for i in 0..7u16 {
@@ -3457,7 +3458,7 @@ pub fn describe_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, 0x46fe + 7);
     c.set_reg(CX, 1);
     c.set_reg8(r8::AL, met);
-    c.update_topic_place(|t| t.unmet_needs = met);
+    c.update_topic_place(|t| t.spare_kinds = met);
     let d = c.pop();
     c.set_reg(DI, d);
     c.call(entry::CHARACTERS_AT_PLACE, 0x3380)?;
@@ -4033,8 +4034,8 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     let s = c.byte_in(SS, ax.wrapping_add(si).wrapping_add(0x16));
     c.update_topic_troop(|t| t.job_skill = s);
-    let b = Troop(si).byte_19(&mut c);
-    c.update_topic_troop(|t| t.needs = b);
+    let b = Troop(si).equipment(&mut c);
+    c.update_topic_troop(|t| t.equipment = b);
     let z = Troop(si).size(&mut c);
     c.update_topic_troop(|t| t.size = z);
     c.set_reg(AX, ax & 0xff00 | z as u16);
@@ -6252,7 +6253,7 @@ fn figures_3a24(c: &mut Ctx) -> Result<(), Bail> {
         c.cmp(B, k as u16, 0xff);
         return c.ret();
     }
-    let cl = c.byte(g::LOCATION_SKILL_NEED_1);
+    let cl = c.byte(g::LOCATION_SPARE_EQUIPMENT_1);
     if cl == 0 {
         c.run(0x3a24, 10)?;
         c.cmp(B, lit as u16, 0);

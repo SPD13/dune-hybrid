@@ -298,18 +298,18 @@ pub fn add_location_sum(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// The bits of a location's byte 19h, one per byte (bit 7 first).
-const SPREAD_BITS: u16 = 0x4705;
-const SPREAD_BITS_END: u16 = 0x470c;
+const SPREAD_EQUIPMENT: u16 = 0x4705;
+const SPREAD_EQUIPMENT_END: u16 = 0x470c;
 
 /// `loc_07efb`: bits 7 to 1 of the record SI's byte 19h, one per byte at
-/// [`SPREAD_BITS`] (ES = DS; AX as its last rotate left it). DI kept.
-pub fn spread_location_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// [`SPREAD_EQUIPMENT`] (ES = DS; AX as its last rotate left it). DI kept.
+pub fn spread_troop_equipment(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7efb)?;
     let mut c = Ctx::new(m);
     if c.flag(DF) {
         return Err(Bail);
     }
-    let n = SPREAD_BITS_END - SPREAD_BITS;
+    let n = SPREAD_EQUIPMENT_END - SPREAD_EQUIPMENT;
     c.run(start, 5 + 5 * n as u32 + 2)?;
     c.save(&[DI]);
     let ds = c.sreg(DS);
@@ -318,24 +318,24 @@ pub fn spread_location_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_sreg(ES, es);
     let bits = c.byte(c.reg(SI).wrapping_add(0x19));
     for i in 0..n {
-        c.set_byte(SPREAD_BITS + i, bits >> (7 - i) & 1);
+        c.set_byte(SPREAD_EQUIPMENT + i, bits >> (7 - i) & 1);
     }
     c.set_reg(AX, ((bits << n) as u16) << 8 | (bits >> (8 - n) & 1) as u16);
     c.restore(&[DI]);
     c.ret()
 }
 
-/// `loc_07f11`: [`SPREAD_BITS`] packed back into the record SI's byte 19h
+/// `loc_07f11`: [`SPREAD_EQUIPMENT`] packed back into the record SI's byte 19h
 /// (bits 7 to 1; bit 0 from what the rotates leave). SI kept.
-pub fn pack_location_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn pack_troop_equipment(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7f11)?;
     let mut c = Ctx::new(m);
-    let n = (SPREAD_BITS_END - SPREAD_BITS) as u32;
+    let n = (SPREAD_EQUIPMENT_END - SPREAD_EQUIPMENT) as u32;
     c.run(start, 4 + 4 * n + 4)?;
     c.save(&[SI]);
     // lodsb backwards, each byte's bit 0 rotated into the top of AX.
     let mut ax = 0u16;
-    for at in (SPREAD_BITS..SPREAD_BITS_END).rev() {
+    for at in (SPREAD_EQUIPMENT..SPREAD_EQUIPMENT_END).rev() {
         ax = (ax & 0xff00 | c.byte(at) as u16).rotate_right(1);
     }
     c.set_reg(AX, ax);
@@ -346,10 +346,10 @@ pub fn pack_location_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_07f5f`: for each set bit of the record SI's byte 19h (bit 7
-/// first), one more in the matching need of the location DI. DI kept, AL
+/// `loc_07f5f`: the troop SI's equipment (byte 19h, bit 7 first) added
+/// to the location DI's: one more of each kind it holds. DI kept, AL
 /// 0.
-pub fn count_location_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn add_troop_equipment(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7f5f)?;
     let mut c = Ctx::new(m);
     let bits = c.byte(c.reg(SI).wrapping_add(0x19));
@@ -358,8 +358,8 @@ pub fn count_location_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 5 + walk.cost + walk.set.len() as u32 + 2)?;
     c.save(&[DI]);
     for &k in &walk.set {
-        let v = place.need(&mut c, k).wrapping_add(1);
-        place.set_need(&mut c, k, v);
+        let v = place.equipment(&mut c, k).wrapping_add(1);
+        place.set_equipment(&mut c, k, v);
     }
     // The flags of its last `shl al,1` (0 in, no carry: the walk's end).
     c.set_reg8(r8::AL, 0);
@@ -836,7 +836,7 @@ pub fn start_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(start, 11)?;
     troop.set_state(&mut c, state | troop_state::STARTED);
-    troop.set_byte_19(&mut c, 0);
+    troop.set_equipment(&mut c, 0);
     let now = game::game_time(&mut c);
     c.set_reg(AX, now);
     troop.set_changed_at(&mut c, now);
@@ -1500,19 +1500,19 @@ pub(super) fn range_found(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
     c.call_cf(0x7ee2, ret)
 }
 
-/// `loc_07f75`: for each bit of the troop SI's byte 19h, from the top,
-/// the need of the location DI it stands for one lower (not below 0).
+/// `loc_07f75`: the troop SI's equipment (byte 19h, from the top) taken
+/// from the location DI's: one less of each kind it holds (not below 0).
 /// DI kept, AL 0.
-pub fn lower_by_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn remove_troop_equipment(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7f75)?;
     let mut c = Ctx::new(m);
-    let bits = Troop(c.reg(SI)).byte_19(&mut c);
+    let bits = Troop(c.reg(SI)).equipment(&mut c);
     let place = Location(c.reg(DI));
     let walk = BitWalk::of(bits);
     let mut cost = 5 + walk.cost + 2;
     let mut lowered = Vec::new();
     for &k in &walk.set {
-        let v = place.need(&mut c, k);
+        let v = place.equipment(&mut c, k);
         cost += 2 + (v == 0) as u32;
         if v != 0 {
             lowered.push((k, v - 1));
@@ -1521,20 +1521,20 @@ pub fn lower_by_bits(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, cost)?;
     c.save(&[DI]);
     for (k, v) in lowered {
-        place.set_need(&mut c, k, v);
+        place.set_equipment(&mut c, k, v);
     }
     c.set_reg8(r8::AL, 0);
     c.restore(&[DI]);
     c.ret()
 }
 
-/// The walk `lower_by_bits`, `count_location_bits` and `skill_needs` make
-/// over a byte of bits, one byte of needs per bit from the top, while set
+/// The walk `remove_troop_equipment`, `add_troop_equipment` and `spare_equipment` make
+/// over a byte of bits, one byte of equipment per bit from the top, while set
 /// bits are left (`shl al,1; jb; jnz` per step).
 struct BitWalk {
-    /// The needs (0 for bit 7) whose bit is set.
+    /// The kinds (0 for bit 7) whose bit is set.
     set: Vec<u16>,
-    /// The needs stepped over.
+    /// The kinds stepped over.
     steps: u16,
     /// Its instructions, but those for the set bits.
     cost: u32,
@@ -1639,12 +1639,12 @@ pub fn alert_location_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for_each_troop_below_80(c.m, 0x661d)
 }
 
-/// `loc_077d7`: the troop shown (`shown_troop`) takes the skill BX at its
-/// location: the needs worked out (`noted_location_skill_needs`; BX, SI kept), and
-/// when the need for BX is at least 1 (2 for skill 1 at the location
-/// [`g::LAST_PLACE`]): [`g::TOPIC_TROOP_NEEDS_GAINED`] = its byte 19h, which gets bit 80h >>
-/// BX; CF clear. Else CF set. AL that least need, or the bit.
-pub fn troop_take_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_077d7`: the troop shown (`shown_troop`) takes equipment of kind
+/// BX at its location: the spare worked out (`noted_spare_equipment`; BX,
+/// SI kept), and when the spare of BX is at least 1 (2 for kind 1 at the location
+/// [`g::LAST_PLACE`]): [`g::TOPIC_TROOP_EQUIPMENT_GAINED`] = its byte 19h, which gets bit 80h >>
+/// BX; CF clear. Else CF set. AL that least spare, or the bit.
+pub fn troop_take_equipment(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x77d7)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -1653,25 +1653,25 @@ pub fn troop_take_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let place = Troop(c.reg(SI)).location(&mut c);
     c.set_reg(DI, place);
     c.save(&[BX, SI]);
-    c.call(entry::NOTED_LOCATION_SKILL_NEEDS, 0x77e2)?;
+    c.call(entry::NOTED_SPARE_EQUIPMENT, 0x77e2)?;
     c.restore(&[BX, SI]);
-    let (troop, skill, place) = (Troop(c.reg(SI)), c.reg(BX), c.reg(DI));
-    let two = skill == 1 && place == c.word(g::LAST_PLACE);
+    let (troop, kind, place) = (Troop(c.reg(SI)), c.reg(BX), c.reg(DI));
+    let two = kind == 1 && place == c.word(g::LAST_PLACE);
     let least = 1 + two as u8;
-    let ok = c.byte(g::LOCATION_SKILL_NEEDS.wrapping_add(skill)) >= least;
-    c.run(0x77e2, 8 + if skill == 1 { 2 + two as u32 } else { 0 } + if ok { 7 } else { 0 })?;
+    let ok = c.byte(g::LOCATION_SPARE_EQUIPMENT.wrapping_add(kind)) >= least;
+    c.run(0x77e2, 8 + if kind == 1 { 2 + two as u32 } else { 0 } + if ok { 7 } else { 0 })?;
     c.set_reg8(r8::AL, least);
     if !ok {
         c.set_flag(CF, true);
         return c.ret();
     }
-    let bits = troop.byte_19(&mut c);
-    c.update_topic_troop(|t| t.needs_gained = bits);
-    c.set_reg8(r8::CL, skill as u8);
-    let shift = skill & 0x1f;
+    let bits = troop.equipment(&mut c);
+    c.update_topic_troop(|t| t.equipment_gained = bits);
+    c.set_reg8(r8::CL, kind as u8);
+    let shift = kind & 0x1f;
     let bit = if shift < 8 { 0x80u8 >> shift } else { 0 };
     c.set_reg8(r8::AL, bit);
-    troop.set_byte_19(&mut c, bits | bit);
+    troop.set_equipment(&mut c, bits | bit);
     c.set_flag(CF, false);
     c.ret()
 }
@@ -1721,7 +1721,7 @@ pub fn drop_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_083bc`: the troop SI relinked (`link_troop`), no longer at its
-/// travelling, `reset_location_troop`, `count_location_bits`; for a
+/// travelling, `reset_location_troop`, `add_troop_equipment`; for a
 /// troop of yours, its job set again (`set_troop_job`), and when it is at
 /// the location the player is at with the hotspot 1F0Eh up (`loc_0d41b`,
 /// BP) and [0Bh] 1 (2 with [2Bh] 0), [473Bh] gets bit 1. CL its byte 3.
@@ -1736,7 +1736,7 @@ pub fn settle_arrived_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     troop.set_state(&mut c, s & !troop_state::TRAVELLING);
     c.call(entry::RESET_LOCATION_TROOP, 0x83c6)?;
     c.run(0x83c6, 1)?;
-    c.call(entry::COUNT_LOCATION_BITS, 0x83c9)?;
+    c.call(entry::ADD_TROOP_EQUIPMENT, 0x83c9)?;
     let state = Troop(c.reg(SI)).state(&mut c);
     let yours = state & troop_state::NOT_A_TROOP == 0;
     c.run(0x83c9, if yours { 5 } else { 4 })?;
@@ -1905,31 +1905,31 @@ pub fn troop_skills_decay(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_07f27`: [`skill_needs`] into 46FEh.
-pub fn noted_location_skill_needs(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_07f27`: [`spare_equipment`] into 46FEh.
+pub fn noted_spare_equipment(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7f27)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     c.set_reg(BX, 0x46fe);
-    skill_needs_at(&mut c)
+    spare_equipment_at(&mut c)
 }
 
-/// [`noted_location_skill_needs`] called: the skill needs of the location DI into 46FEh.
-pub(super) fn note_skill_needs(c: &mut Ctx, location: u16, ret: u16) -> Result<(), Bail> {
+/// [`noted_spare_equipment`] called: the spare equipment of the location DI into 46FEh.
+pub(super) fn note_spare_equipment(c: &mut Ctx, location: u16, ret: u16) -> Result<(), Bail> {
     c.set_reg(DI, location);
-    c.call(entry::NOTED_LOCATION_SKILL_NEEDS, ret)
+    c.call(entry::NOTED_SPARE_EQUIPMENT, ret)
 }
 
-/// `loc_07f2a`: the 7 skill needs of the location DI (bytes 14h on)
-/// copied to BX, then lowered by each of its troops' skills (byte 19h,
-/// one bit per need). DI kept, ES = DS.
-pub fn skill_needs(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_07f2a`: the spare equipment of the location DI: its 7 kinds
+/// (bytes 14h on) copied to BX, then lowered by what each of its troops
+/// holds (byte 19h, one bit per kind). DI kept, ES = DS.
+pub fn spare_equipment(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7f2a)?;
     let mut c = Ctx::new(m);
-    skill_needs_at(&mut c)
+    spare_equipment_at(&mut c)
 }
 
-fn skill_needs_at(c: &mut Ctx) -> Result<(), Bail> {
+fn spare_equipment_at(c: &mut Ctx) -> Result<(), Bail> {
     if c.flag(DF) {
         return Err(Bail);
     }
@@ -1942,9 +1942,9 @@ fn skill_needs_at(c: &mut Ctx) -> Result<(), Bail> {
     c.push(ds);
     let es = c.pop();
     c.set_sreg(ES, es);
-    // rep movsb of the 7 needs.
+    // rep movsb of the 7 kinds.
     for k in 0..7 {
-        let v = place.need(c, k);
+        let v = place.equipment(c, k);
         c.set_byte(out + k, v);
     }
     c.set_reg(SI, place.offset() + 0x14 + 7);
@@ -1952,7 +1952,7 @@ fn skill_needs_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(CX, 0);
     let mut id = place.first_troop(c);
     c.set_reg8(r8::AL, id);
-    // Each troop of the chain lowers the needs its bits cover.
+    // Each troop of the chain lowers the kinds it holds.
     loop {
         if id == 0 {
             c.run(0x7f3a, 4)?;
@@ -1962,7 +1962,7 @@ fn skill_needs_at(c: &mut Ctx) -> Result<(), Bail> {
         }
         c.run(0x7f3a, 3)?;
         let troop = troop_record(c, 0x7f41)?;
-        let walk = BitWalk::of(troop.byte_19(c));
+        let walk = BitWalk::of(troop.equipment(c));
         let mut cost = 4 + walk.cost + 2;
         let mut lowered = Vec::new();
         for &k in &walk.set {
@@ -2214,12 +2214,12 @@ pub fn merge_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (troop, other) = (Troop(c.reg(SI)), Troop(into));
     let sum = other.size(&mut c).wrapping_add(troop.size(&mut c));
     other.set_size(&mut c, sum);
-    let mine = troop.byte_19(&mut c);
-    let both = mine & other.byte_19(&mut c);
+    let mine = troop.equipment(&mut c);
+    let both = mine & other.equipment(&mut c);
     c.set_reg(AX, (mine as u16) << 8 | both as u16);
-    troop.set_byte_19(&mut c, both);
-    let theirs = other.byte_19(&mut c);
-    other.set_byte_19(&mut c, theirs | mine);
+    troop.set_equipment(&mut c, both);
+    let theirs = other.equipment(&mut c);
+    other.set_equipment(&mut c, theirs | mine);
     let w = other.word_12(&mut c);
     other.set_word_12(&mut c, w | 0x200);
     c.call(entry::RESET_TROOP, 0x6d5d)?;
@@ -2287,7 +2287,7 @@ pub fn troop_bit_10_by_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.test(B, b0a as u16, 0x20);
             c.set_flag(CF, true);
             if n > 8 {
-                let b = Troop(si).byte_19(&mut c);
+                let b = Troop(si).equipment(&mut c);
                 let a = pure::and(B, b as u16, 2);
                 c.set_reg8(r8::AL, a as u8);
                 c.cmp(B, a, 1);
@@ -2302,20 +2302,20 @@ pub(super) fn troop_bit_10_set_by_skill(c: &mut Ctx, ret: u16) -> Result<bool, B
     c.call_cf(0x6bd7, ret)
 }
 
-/// `loc_08018`: the need BX at [`SKILL_NEEDS`] one lower (unless 0 or 80h
+/// `loc_08018`: the spare of kind BX at [`SPARE_EQUIPMENT_COPY`] one lower (unless 0 or 80h
 /// and up) for each troop travelling to DI and moving (job bits 3)
 /// to elsewhere (word 0Ch) with BL in byte 0Eh; then, at the location
-/// [`g::LAST_PLACE`] before phase 50h, need 1 one lower the same way. AL as
+/// [`g::LAST_PLACE`] before phase 50h, kind 1 one lower the same way. AL as
 /// the last troop's tests left it.
-pub fn lower_needs_by_movers(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn lower_spare_by_movers(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8018)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
-    let (place, skill) = (c.reg(DI), c.reg(BX));
-    let need_at = SKILL_NEEDS.wrapping_add(skill);
+    let (place, kind) = (c.reg(DI), c.reg(BX));
+    let spare_at = SPARE_EQUIPMENT_COPY.wrapping_add(kind);
     for troop in Troop::all() {
         let state = troop.state(&mut c);
-        let need = c.byte(need_at);
+        let spare = c.byte(spare_at);
         // How far its tests go (each `jne` a step), and the cost of each.
         let travelling = state & troop_state::TRAVELLING != 0;
         let moving = state & 3 == 3;
@@ -2323,7 +2323,7 @@ pub fn lower_needs_by_movers(m: &mut Machine, start: u16) -> Result<(), Bail> {
             && moving
             && troop.location(&mut c) == place
             && troop.destination(&mut c) != place
-            && (troop.carried(&mut c) as u8) == skill as u8;
+            && (troop.carried(&mut c) as u8) == kind as u8;
         let cost = 6 + if !travelling {
             0
         } else if !moving {
@@ -2335,13 +2335,13 @@ pub fn lower_needs_by_movers(m: &mut Machine, start: u16) -> Result<(), Bail> {
         } else if !lowers {
             9
         } else {
-            11 + if need.wrapping_sub(1) & 0x80 != 0 { 2 } else { 0 }
+            11 + if spare.wrapping_sub(1) & 0x80 != 0 { 2 } else { 0 }
         };
         c.run(0x801b, cost)?;
         c.set_reg(SI, troop.offset());
         c.set_reg8(r8::AL, if travelling { state & 3 } else { state });
-        if lowers && need.wrapping_sub(1) & 0x80 == 0 {
-            c.set_byte(need_at, need - 1);
+        if lowers && spare.wrapping_sub(1) & 0x80 == 0 {
+            c.set_byte(spare_at, spare - 1);
         }
     }
     c.run(0x801b, 3)?;
@@ -2354,18 +2354,18 @@ pub fn lower_needs_by_movers(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x804c, 5)?;
         return c.ret();
     }
-    let need = c.byte(SKILL_NEEDS + 1);
-    let stays = need.wrapping_sub(1) & 0x80 != 0;
+    let spare = c.byte(SPARE_EQUIPMENT_COPY + 1);
+    let stays = spare.wrapping_sub(1) & 0x80 != 0;
     c.run(0x804c, 8 + stays as u32)?;
     if !stays {
-        c.set_byte(SKILL_NEEDS + 1, need - 1);
+        c.set_byte(SPARE_EQUIPMENT_COPY + 1, spare - 1);
     }
     c.ret()
 }
 
-/// The needs `skill_needs` writes and `lower_needs_by_movers` lowers, one
-/// byte a skill, in the scratch buffer.
-const SKILL_NEEDS: u16 = g::SCRATCH_BUFFER;
+/// The spare equipment `spare_equipment` writes and `lower_spare_by_movers`
+/// lowers, one byte a kind, in the scratch buffer.
+const SPARE_EQUIPMENT_COPY: u16 = g::SCRATCH_BUFFER;
 
 /// `loc_0708a`: the troop SI's production rate into word 0Ch (AX): its
 /// effective motivation (`troop_motivation`) plus the top of skill 0,
@@ -2382,7 +2382,7 @@ pub fn troop_rate(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
     let base = motivation.wrapping_add(troop.skill(&mut c, 0) & 0xf0);
     let mut product = base as u16 * troop.size(&mut c) as u16;
-    let quartered = troop.byte_19(&mut c) & 0x80 == 0;
+    let quartered = troop.equipment(&mut c) & 0x80 == 0;
     if quartered {
         product >>= 2;
     }
@@ -2585,8 +2585,8 @@ pub fn unlink_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// off but for job 1, item 9 off from phase 5; and before phase 4, for a
 /// troop with bit 200h of word 10h, or at a location (DI) not taken (bit
 /// 8 of byte 0Ah) of byte 8 28h or more, that's all. Otherwise item 5 off
-/// when its location still needs a skill or the troop has any
-/// (`noted_location_skill_needs`; the needs ORed with its byte 19h, AL). Callers
+/// when its location has spare equipment or the troop holds any
+/// (`noted_spare_equipment`; the spare ORed with its byte 19h, AL). Callers
 /// read the flags: those of its last test.
 pub fn troop_orders_menu(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7847)?;
@@ -2650,17 +2650,17 @@ pub fn troop_orders_menu(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.save(&[SI]);
-    c.call(entry::NOTED_LOCATION_SKILL_NEEDS, 0x78a3)?;
+    c.call(entry::NOTED_SPARE_EQUIPMENT, 0x78a3)?;
     let mut needed = 0u8;
     for k in 0..7 {
-        needed |= c.byte(g::LOCATION_SKILL_NEEDS + k);
+        needed |= c.byte(g::LOCATION_SPARE_EQUIPMENT + k);
     }
     let troop = Troop(c.word_in(SS, c.reg(SP)));
-    let bits = troop.byte_19(&mut c);
+    let bits = troop.equipment(&mut c);
     let any = needed | bits;
-    // `or al,[si]; inc si; loop` over the 7 needs, then `or al,[si+19h]`.
+    // `or al,[si]; inc si; loop` over the 7 kinds, then `or al,[si+19h]`.
     c.run(0x78a3, 27 + if any != 0 { 2 } else { 1 })?;
-    c.set_reg(SI, g::LOCATION_SKILL_NEEDS + 7);
+    c.set_reg(SI, g::LOCATION_SPARE_EQUIPMENT + 7);
     c.set_reg(CX, 0);
     c.restore(&[SI]);
     c.set_reg8(r8::AL, any);
@@ -2936,7 +2936,7 @@ pub fn troop_rate_by_age(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`g::CHANCES`] by the location DI's byte 0. When it passes: bit 4000h of
 /// word 10h, and unless bit 40h of byte 19h, by AH & 3: 1 its size 2
 /// lower when above 2 (bit 2000h); 2 bit 200h and `mark_troop_10`; 3 bit
-/// 1000h, bit 80h of byte 19h off, the location's need 0 one lower and
+/// 1000h, bit 80h of byte 19h off (its kind 0 lost), the location's kind 0 one lower and
 /// the message pair 0F06h (`call_29f0_f`).
 pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x714c)?;
@@ -2946,7 +2946,7 @@ pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let troop = Troop(c.reg(SI));
-    let bits = troop.byte_19(&mut c);
+    let bits = troop.equipment(&mut c);
     if bits & 0x80 == 0 {
         c.run(start, 5)?;
         return c.ret();
@@ -2971,7 +2971,7 @@ pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(BX, g::CHANCES);
         return c.ret();
     }
-    let bits = troop.byte_19(&mut c);
+    let bits = troop.equipment(&mut c);
     let size = troop.size(&mut c);
     let kind = roll & 3;
     let immune = bits & 0x40 != 0;
@@ -3006,9 +3006,9 @@ pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         _ => {
             troop.set_word_10(&mut c, w | 0x1000);
-            troop.set_byte_19(&mut c, bits & !0x80);
-            let need = place.need(&mut c, 0).wrapping_sub(1);
-            place.set_need(&mut c, 0, need);
+            troop.set_equipment(&mut c, bits & !0x80);
+            let left = place.equipment(&mut c, 0).wrapping_sub(1);
+            place.set_equipment(&mut c, 0, left);
             c.set_reg8(r8::AL, 6);
             call_29f0_f(c.m, 0x71b2)
         }
@@ -3028,7 +3028,7 @@ pub fn troop_yield(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let motivation = effective_motivation(&mut c, 0x3430)?;
     let troop = Troop(c.reg(SI));
     let size = troop.size(&mut c);
-    let bits = troop.byte_19(&mut c);
+    let bits = troop.equipment(&mut c);
     let (sum, over) = motivation.wrapping_add(motivation).overflowing_add(troop.skill(&mut c, 1));
     let base = (if over { 0xff } else { sum } as u16 * size as u16) >> 4;
     let mut cost = 16 + over as u32;
@@ -3091,15 +3091,15 @@ pub fn set_troop_activity(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_07f90`: for the troop SI, the nearest other location from location
-/// 3 on (no bit 80h of byte 0Ah, byte 8 below 28h) that still needs skill
-/// BX once its own troops' skills and the movers are counted
-/// (`skill_needs` into [`SKILL_NEEDS`], `lower_needs_by_movers`):
+/// 3 on (no bit 80h of byte 0Ah, byte 8 below 28h) with equipment of
+/// kind BX spare once its own troops and the movers are counted
+/// (`spare_equipment` into [`SPARE_EQUIPMENT_COPY`], `lower_spare_by_movers`):
 /// [`NEAREST`] it, [`NEAREST_DISTANCE`] its distance (FFFFh while none).
 /// The distance: the larger of the x delta's high byte and the y delta
 /// (by their low bytes), too far from 32h (by its low byte), a quarter
 /// of it for a location with byte 8 from 21h. Its own location, x and y
 /// stay pushed (BP over them) while it looks; AX, DX the last deltas.
-pub fn nearest_needing_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn nearest_location_with_spare(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7f90)?;
     let mut c = Ctx::new(m);
     c.run(start, 7)?;
@@ -3149,19 +3149,19 @@ pub fn nearest_needing_location(m: &mut Machine, start: u16) -> Result<(), Bail>
             c.set_reg(AX, abs(down));
             c.set_reg(DX, distance);
             if !far && distance < best {
-                // The needs there: its own troops' skills off, then movers.
+                // The spare there: its own troops' off, then movers'.
                 c.save(&[BX]);
-                c.set_reg(BX, SKILL_NEEDS);
-                c.call(entry::SKILL_NEEDS, 0x7ff5)?;
-                let skill = c.word_in(SS, c.reg(SP));
-                let need = c.byte(SKILL_NEEDS.wrapping_add(skill));
-                c.run(0x7ff5, 3 + (need != 0) as u32)?;
+                c.set_reg(BX, SPARE_EQUIPMENT_COPY);
+                c.call(entry::SPARE_EQUIPMENT, 0x7ff5)?;
+                let wanted = c.word_in(SS, c.reg(SP));
+                let spare = c.byte(SPARE_EQUIPMENT_COPY.wrapping_add(wanted));
+                c.run(0x7ff5, 3 + (spare != 0) as u32)?;
                 c.restore(&[BX]);
-                if need != 0 {
-                    c.call(entry::LOWER_NEEDS_BY_MOVERS, 0x8000)?;
-                    let need = c.byte(SKILL_NEEDS.wrapping_add(c.reg(BX)));
-                    c.run(0x8000, if need != 0 { 4 } else { 2 })?;
-                    if need != 0 {
+                if spare != 0 {
+                    c.call(entry::LOWER_SPARE_BY_MOVERS, 0x8000)?;
+                    let spare = c.byte(SPARE_EQUIPMENT_COPY.wrapping_add(c.reg(BX)));
+                    c.run(0x8000, if spare != 0 { 4 } else { 2 })?;
+                    if spare != 0 {
                         let (d, at) = (c.reg(DX), c.reg(DI));
                         c.set_word(NEAREST_DISTANCE, d);
                         c.set_word(NEAREST, at);
@@ -3176,7 +3176,7 @@ pub fn nearest_needing_location(m: &mut Machine, start: u16) -> Result<(), Bail>
     }
 }
 
-/// The location `nearest_needing_location` found ([470Eh]).
+/// The location `nearest_location_with_spare` found ([470Eh]).
 const NEAREST: u16 = 0x470e;
 /// Its distance, FFFFh for none ([470Ch]).
 const NEAREST_DISTANCE: u16 = 0x470c;
@@ -3398,16 +3398,16 @@ pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
 const JOB_HANDLERS: u16 = 0x6c26;
 
 /// `loc_07be0`: for the selected troop ([46EFh] = SI): [47BAh] 0.
-/// With its skills panel up ([46F4h], [46F5h]), a click on a need (the
+/// With its equipment panel up ([46F4h], [46F5h]), a click on a kind (the
 /// rect 1936h, `loc_0d6fe`; which one by `find_range` over 4C7Ch) moves
-/// one point from the spread bits at [`SPREAD_BITS`] to [`g::LOCATION_SKILL_NEEDS`]
+/// one point from the spread bits at [`SPREAD_EQUIPMENT`] to [`g::LOCATION_SPARE_EQUIPMENT`]
 /// and redraws the panel (`loc_07d0c`). Else the full refresh:
 /// `loc_07ba3`, `loc_031f6`, its location (`loc_02e98`); when it is
 /// farther than [1176h] (`troop_map_distance`), [4Ch] FFh and the marked
 /// particle [`g::TROOP_MARKER_PARTICLE`] gets 1916h in words 0Dh and 0Fh;
 /// `loc_09719` until CF clear; `loc_09efd`; [46F4h] 0, or 1 for an order
-/// panel ([47A5h] 80h) with the bits spread (`spread_location_bits`) and
-/// the skill bars (`loc_07e1e`); with bit 80h of [`g::MAP_MODE`]
+/// panel ([47A5h] 80h) with the bits spread (`spread_troop_equipment`) and
+/// the equipment bars (`loc_07e1e`); with bit 80h of [`g::MAP_MODE`]
 /// `loc_09901`; the front buffer made active.
 pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7be0)?;
@@ -3418,7 +3418,7 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let panel = c.map_selection().panel != 0;
-    if panel && c.map_selection().skills_panel != 0 {
+    if panel && c.map_selection().equipment_panel != 0 {
         c.run(start, 12)?;
         c.update_conversation(|t| t.pending = 0);
         c.set_reg(DI, 0x1936);
@@ -3434,11 +3434,11 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.run(0x7eac, 5)?;
         let k = c.reg(DI);
-        let from = c.byte(SPREAD_BITS.wrapping_add(k)).wrapping_sub(1);
-        c.set_byte(SPREAD_BITS.wrapping_add(k), from);
-        let to = c.byte(g::LOCATION_SKILL_NEEDS.wrapping_add(k)).wrapping_add(1);
-        c.set_byte(g::LOCATION_SKILL_NEEDS.wrapping_add(k), to);
-        c.call(entry::DRAW_SKILLS_PANEL, 0x7ee1)?;
+        let from = c.byte(SPREAD_EQUIPMENT.wrapping_add(k)).wrapping_sub(1);
+        c.set_byte(SPREAD_EQUIPMENT.wrapping_add(k), from);
+        let to = c.byte(g::LOCATION_SPARE_EQUIPMENT.wrapping_add(k)).wrapping_add(1);
+        c.set_byte(g::LOCATION_SPARE_EQUIPMENT.wrapping_add(k), to);
+        c.call(entry::DRAW_EQUIPMENT_PANEL, 0x7ee1)?;
         c.run(0x7ee1, 1)?;
         return c.ret();
     }
@@ -3483,10 +3483,10 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.restore(&[SI]);
     c.update_map_selection(|t| t.panel = orders as u8);
     if orders {
-        c.call(entry::SPREAD_LOCATION_BITS, 0x7c4e)?;
+        c.call(entry::SPREAD_TROOP_EQUIPMENT, 0x7c4e)?;
         c.run(0x7c4e, 2)?;
         c.save(&[SI]);
-        c.call(entry::DRAW_PLACE_SKILL_BARS, 0x7c52)?;
+        c.call(entry::DRAW_PLACE_EQUIPMENT_BARS, 0x7c52)?;
         c.run(0x7c52, 2)?;
         c.restore(&[SI]);
     }
@@ -3673,7 +3673,7 @@ fn sprite_list_of(c: &mut Ctx, troop: Troop) -> SpriteList {
             return done(bp, job, cost);
         }
         cost += 3;
-        let bits = (troop.byte_19(c) & 0xc0) as u16;
+        let bits = (troop.equipment(c) & 0xc0) as u16;
         if bits == 0 {
             return done(bp, bits, cost);
         }
@@ -3691,7 +3691,7 @@ fn sprite_list_of(c: &mut Ctx, troop: Troop) -> SpriteList {
     ax = job;
     if job == 0 {
         cost += 2;
-        let bits = (troop.byte_19(c) & 0xc0) as u16;
+        let bits = (troop.equipment(c) & 0xc0) as u16;
         if bits != 0 {
             cost += 5;
             if bits == 0x80 {
@@ -3844,7 +3844,7 @@ const PANEL: u16 = 0x18df;
 /// for the specialised ones 20h..22h, else 3Ch and the activity
 /// [2Fh] phrase from 11F7h unless in place 2, and a status 3Fh / 40h /
 /// 3Dh / 43h / 3Eh by [32h], [34h], [2Fh], [30h]), the skills heading
-/// 6Eh, the troop's bits (`spread_location_bits`) and skill bars; back
+/// 6Eh, the troop's bits (`spread_troop_equipment`) and equipment bars; back
 /// to the front buffer.
 pub fn troop_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x78e9)?;
@@ -3973,8 +3973,8 @@ fn status_79b6(c: &mut Ctx) -> Result<(), Bail> {
 }
 
 /// From 79BCh: the skills heading 6Eh 4 lower, 8 lower the panel troop's
-/// skill bits spread (`spread_location_bits`) and their bars (`loc_07e3d`
-/// over [`SPREAD_BITS`], BP the bars' sprite); back to the front buffer.
+/// skill bits spread (`spread_troop_equipment`) and their bars (`loc_07e3d`
+/// over [`SPREAD_EQUIPMENT`], BP the bars' sprite); back to the front buffer.
 fn skills_79bc(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x79bc, 4)?;
     let bx = c.reg(BX).wrapping_add(4);
@@ -3987,12 +3987,12 @@ fn skills_79bc(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(BX, bx);
     let troop = c.map_selection().panel_dirty;
     c.set_reg(SI, troop);
-    c.call(entry::SPREAD_LOCATION_BITS, 0x79d1)?;
+    c.call(entry::SPREAD_TROOP_EQUIPMENT, 0x79d1)?;
     c.run(0x79d1, 3)?;
-    c.set_reg(SI, SPREAD_BITS);
+    c.set_reg(SI, SPREAD_EQUIPMENT);
     let bars = c.word(PANEL + 6);
     c.set_reg(BP, bars);
-    c.call(entry::SKILL_BARS, 0x79db)?;
+    c.call(entry::EQUIPMENT_BARS, 0x79db)?;
     c.run(0x79db, 1)?;
     super::video::set_fb1_as_active_framebuffer(c.m, 0xc07c)
 }
@@ -4002,7 +4002,7 @@ fn skills_79bc(c: &mut Ctx) -> Result<(), Bail> {
 pub fn troop_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8308)?;
     let mut c = Ctx::new(m);
-    let fast = Troop(c.reg(SI)).byte_19(&mut c) & 0x40 != 0;
+    let fast = Troop(c.reg(SI)).equipment(&mut c) & 0x40 != 0;
     c.run(start, if fast { 4 } else { 3 })?;
     c.set_reg(CX, if fast { 8 } else { 4 });
     steps_8313(&mut c)
@@ -4168,9 +4168,9 @@ fn tell_troops_83fd(c: &mut Ctx) -> Result<(), Bail> {
 
 /// `loc_0841f`: the troop SI goes on to its next place (word 0Ch). At it
 /// already: no longer moving (job bits 3 cleared), `settle_arrived_troop`.
-/// Else the needs of the old place worked out (`noted_location_skill_needs`; SI
-/// kept) and the skill it carries (word 0Eh: the need's index, and its
-/// bit in the high byte) handed over where still needed: that need of the
+/// Else the spare of the old place worked out (`noted_spare_equipment`; SI
+/// kept) and the equipment it came for (word 0Eh: the kind, and its
+/// bit in the high byte) taken where still spare: that kind of the
 /// old place one down and the bit into its byte 19h; word 0Eh keeps the
 /// index only then. Its location the next place, then its sprite: where
 /// shown (`troop_particle`, ZF) removed, and unless travelling
@@ -4188,22 +4188,22 @@ fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
         return settle_arrived_troop(c.m, 0x83bc);
     }
     c.save(&[SI]);
-    c.call(entry::NOTED_LOCATION_SKILL_NEEDS, 0x842b)?;
+    c.call(entry::NOTED_SPARE_EQUIPMENT, 0x842b)?;
     let troop = Troop(c.word_in(SS, c.reg(SP)));
     let carried = troop.carried(c);
-    let need = carried & 0xff;
-    let needed = c.byte(g::LOCATION_SKILL_NEEDS.wrapping_add(need)) != 0;
-    c.run(0x842b, if needed { 13 } else { 10 })?;
+    let kind = carried & 0xff;
+    let spare = c.byte(g::LOCATION_SPARE_EQUIPMENT.wrapping_add(kind)) != 0;
+    c.run(0x842b, if spare { 13 } else { 10 })?;
     c.restore(&[SI]);
-    c.set_reg(BX, need);
+    c.set_reg(BX, kind);
     let mut carried = carried;
-    if needed {
+    if spare {
         let old = Location(c.reg(DI));
-        let v = old.need(c, need).wrapping_sub(1);
-        old.set_need(c, need, v);
-        let bits = troop.byte_19(c) | (carried >> 8) as u8;
-        troop.set_byte_19(c, bits);
-        carried = need;
+        let v = old.equipment(c, kind).wrapping_sub(1);
+        old.set_equipment(c, kind, v);
+        let bits = troop.equipment(c) | (carried >> 8) as u8;
+        troop.set_equipment(c, bits);
+        carried = kind;
     }
     c.set_reg(CX, carried);
     troop.set_carried(c, carried);
@@ -4270,7 +4270,7 @@ fn figure_gone_848b(c: &mut Ctx) -> Result<(), Bail> {
 /// going to a place of byte 8 below 28h loses motivation
 /// (`decrease_troop_motivation` 3), unless that place is taken: then it
 /// stays. Then on its way: the target its location (DI the old one), at
-/// travelling, slot 0, `lower_by_bits`, `drop_troop_particle`,
+/// travelling, slot 0, `remove_troop_equipment`, `drop_troop_particle`,
 /// and unless it waits (bit 10h of byte 10h) seven steps
 /// ([`steps_8313`]). Callers read the flags: those of its last test.
 pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -4350,7 +4350,7 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let s = troop.state(&mut c);
     troop.set_state(&mut c, s | troop_state::TRAVELLING);
     troop.set_slot(&mut c, 0);
-    c.call(entry::LOWER_BY_BITS, 0x850f)?;
+    c.call(entry::REMOVE_TROOP_EQUIPMENT, 0x850f)?;
     c.run(0x850f, 1)?;
     c.call(entry::DROP_TROOP_PARTICLE, 0x8512)?;
     let b10 = Troop(c.reg(SI)).byte_10(&mut c);
@@ -4434,7 +4434,7 @@ pub fn count_job0_troops_bit_80(m: &mut Machine, start: u16) -> Result<(), Bail>
         c.run(start, 3)?;
         return c.ret();
     }
-    let counted = troop.byte_19(&mut c) & 0x80 != 0;
+    let counted = troop.equipment(&mut c) & 0x80 != 0;
     c.run(start, if counted { 6 } else { 5 })?;
     if counted {
         let n = c.reg(CX).wrapping_add(1);
@@ -4499,7 +4499,7 @@ pub fn raid_garrison_harkonnen_troop(m: &mut Machine, start: u16) -> Result<(), 
     troop.set_byte_10(&mut c, b10 | 0x10);
     troop.set_size(&mut c, 0);
     troop.set_rate(&mut c, 0);
-    troop.set_byte_19(&mut c, 0);
+    troop.set_equipment(&mut c, 0);
     c.set_reg(CX, count.wrapping_add(1));
     c.ret()
 }
@@ -4606,7 +4606,7 @@ pub fn raid_renew_harkonnen_troop(m: &mut Machine, start: u16) -> Result<(), Bai
     let troop = Troop(c.reg(SI));
     troop.set_skill(&mut c, 0, v as u8);
     troop.set_skill(&mut c, 1, (v >> 8) as u8);
-    troop.set_byte_19(&mut c, 0);
+    troop.set_equipment(&mut c, 0);
     troop_at_68e0(&mut c)
 }
 
@@ -5518,7 +5518,7 @@ pub fn job_4(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let al = effective_motivation(&mut c, 0x722b)?;
     // 722Bh: plus the motivation (at least 1Eh); the base by byte 19h.
     let m = al.max(0x1e) as u16;
-    let bl = troop.byte_19(&mut c);
+    let bl = troop.equipment(&mut c);
     let (base, chain) = if bl & 0x0c != 0 {
         (0xc8u16, 0)
     } else if bl & 0x10 != 0 {
@@ -5632,14 +5632,14 @@ pub fn mark_idle_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_07bed` (the text box's click handler, set at 8FDAh in
 /// [`g::TEXT_BOX`]'s word 0Ch, called through a register): with the troop
-/// panel up on its skills panel, on at `loc_07e97` (the skills panel's
+/// panel up on its equipment panel, on at `loc_07e97` (the equipment panel's
 /// click); else the selected troop's place shown (`loc_07c02`, SI the
 /// selection). Flags exact (its callers are not known).
 pub fn text_box_click(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7bed)?;
     let mut c = Ctx::new(m);
     let s = c.map_selection();
-    if s.panel != 0 && s.skills_panel != 0 {
+    if s.panel != 0 && s.equipment_panel != 0 {
         c.run(start, 5)?; // cmp; jz; cmp; jz; jmp
         return c.jump(0x7e97);
     }

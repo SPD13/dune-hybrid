@@ -47,8 +47,8 @@ pub struct TroopRecord {
     pub motivation: u8,
     /// Bytes 16h to 18h: its skills.
     pub skills: [u8; 3],
-    /// Byte 19h: one bit per need of its location it covers.
-    pub needs: u8,
+    /// Byte 19h: the equipment it holds, bit 7 - k for kind k.
+    pub equipment: u8,
     /// Byte 1Ah: its size.
     pub size: u8,
 }
@@ -72,7 +72,7 @@ impl TroopRecord {
             day: b[0x14],
             motivation: b[0x15],
             skills: [b[0x16], b[0x17], b[0x18]],
-            needs: b[0x19],
+            equipment: b[0x19],
             size: b[0x1a],
         }
     }
@@ -98,7 +98,7 @@ impl TroopRecord {
         b[0x14] = self.day;
         b[0x15] = self.motivation;
         b[0x16..0x19].copy_from_slice(&self.skills);
-        b[0x19] = self.needs;
+        b[0x19] = self.equipment;
         b[0x1a] = self.size;
         b
     }
