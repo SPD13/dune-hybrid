@@ -16,9 +16,23 @@ run --seconds 120 --monkey 12:66:0.6 --rec shadow --rec-report $S/v-$T-c.tsv --c
 LATE=${LATE:-4795,5692,b1ee,2566,c8fb,afb5,0e66,0e6c,0e77,1566,37f4,491c,4abe,488a}
 run --seconds 380 --monkey 12:66:0.6 --phase-ladder 70:10 --rec shadow --rec-report $S/v-$T-d.tsv --call-each 6 --call-only $LATE --call-ms 2400 --out $S/v-$T-d > $S/v-$T-d.log 2>&1
 run --seconds 300 --monkey 12:66:0.6 --rec on --shot-every 30 --out $S/v-$T-on > $S/v-$T-on.log 2>&1
+# A troop moved on the map (no monkey): the day13 save, SEE DUNE MAP, a
+# troop, MOVE TROOP, a sietch on the small map: `map_click_pick` (81ECh)
+# and `move_troop_to` (82DAh), which no monkey run reaches. The save is
+# game-derived and stays outside git (SAVES, as suite.sh).
+SAVES=${SAVES:-$REPO/../dune-hybrid/tests-data/saves}
+click() { echo "$1:mouse:$2:$3:0,$1.5:mouse:$2:$3:1,$1.7:mouse:$2:$3:0"; }
+MOVE="68:load:1,$(click 74 130 160),$(click 86 76 92),$(click 92 130 184),$(click 98 177 81)"
+if [ -f $SAVES/openrakis/DuneTools/DUNE37S1.SAV ]; then
+  $B --dir "$GAME" --cmd "ADP220 SBP2227 ENG" --events "61.5:key:1:1,61.6:key:1:0,$MOVE" \
+    --save $SAVES/openrakis/DuneTools/DUNE37S1.SAV --seconds 110 --rec shadow \
+    --rec-report $S/v-$T-e.tsv --out $S/v-$T-e > $S/v-$T-e.log 2>&1
+else
+  echo "no save for the map move run" > $S/v-$T-e.log; : > $S/v-$T-e.tsv
+fi
 
-for x in a b c d on; do echo "== $x"; grep -E "^rec|^call-each:.*calls|^exit" $S/v-$T-$x.log; done
-for x in a b c d; do awk -F'\t' 'NR>1 && $4>0' $S/v-$T-$x.tsv; done
+for x in a b c d e on; do echo "== $x"; grep -E "^rec|^call-each:.*calls|^exit" $S/v-$T-$x.log; done
+for x in a b c d e; do awk -F'\t' 'NR>1 && $4>0' $S/v-$T-$x.tsv; done
 python - "$LIFT_DATA/ref/off" "$S/v-$T-on" <<'PY'
 import sys,os,filecmp
 a,b=sys.argv[1:]
@@ -26,5 +40,5 @@ fs=sorted(f for f in os.listdir(a) if f.endswith('.png'))
 print('shots:', sum(filecmp.cmp(os.path.join(a,f),os.path.join(b,f),shallow=False) for f in fs if os.path.exists(os.path.join(b,f))),'/',len(fs),'identical')
 PY
 echo "hand ports (entry name ok diff bailed skipped), summed:"
-cat $S/v-$T-a.tsv $S/v-$T-b.tsv $S/v-$T-c.tsv $S/v-$T-d.tsv | grep "\[hand\]" | awk -F'	' '{k=$1" "$2; ok[k]+=$3; d[k]+=$4; b[k]+=$5; r[k]+=$8} END {for (k in ok) print k"	"ok[k]"	"d[k]"	"b[k]"	"r[k]}' | sort > $S/v-$T-hand.txt
+cat $S/v-$T-a.tsv $S/v-$T-b.tsv $S/v-$T-c.tsv $S/v-$T-d.tsv $S/v-$T-e.tsv | grep "\[hand\]" | awk -F'	' '{k=$1" "$2; ok[k]+=$3; d[k]+=$4; b[k]+=$5; r[k]+=$8} END {for (k in ok) print k"	"ok[k]"	"d[k]"	"b[k]"	"r[k]}' | sort > $S/v-$T-hand.txt
 awk -F'	' '{n++; if ($3>0) {bad++; print "DIFF", $0}; if ($2+$4==0) un++; if ($2==0 && $5==0) {nr++}} END {print n" hand ports, "bad+0" with differences, "un+0" never checked, "nr+0" never ran their own code to the end"}' $S/v-$T-hand.txt

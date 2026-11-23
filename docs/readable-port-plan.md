@@ -1223,8 +1223,11 @@ instruction count on; diff a plain run with a `--rec on` one),
   register): in the table, but never compared. Of the suite's games only
   day13 reaches it (4 times, 2 sampled), and eight more seeds from that
   save reach it no more; the calls it gets run the whole chain behind a
-  map click (resource, troop set out, screen pop) and end in a bail. It
-  needs a save at the map with a click on a location scripted.
+  map click (resource, troop set out, screen pop) and end in a bail.
+  Checked since 2026-11-23 by `validate.sh`'s run `e`. That run scripts
+  the clicks (no monkey) on the day13 save: SEE DUNE MAP, a troop, MOVE
+  TROOP, a sietch on the small map. `map_click_pick` and `move_troop_to`
+  (82DAh) verify equal there.
 - `exit_with_error`, `out_of_memory_error`: they end the program; no check
   can follow them. Leave them generated.
 - The XMS routines (`xms_memory_func_1`, `initialize_himem_sys`,
