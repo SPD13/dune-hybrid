@@ -22,7 +22,7 @@ use super::records;
 use super::map;
 use super::gfx;
 use super::entry;
-use super::game::{Location, location_flag};
+use super::game::{Location, Troop, location_flag};
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -7431,7 +7431,7 @@ pub fn place_troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let (si, di, dx, bx) = (c.reg(SI), c.reg(DI), c.reg(DX), c.reg(BX));
     let state = c.byte(si.wrapping_add(3));
-    let leader = c.byte(si.wrapping_add(0x10)) & 0x80 != 0;
+    let harkonnen = Troop(si).is_harkonnen(&mut c);
     let mut n = 4; // mov al; mov ah, 2; test; je
     let mut ah: u8 = 2;
     if state & 0x20 != 0 {
@@ -7443,7 +7443,7 @@ pub fn place_troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     } else {
         n += 2; // test; jne
-        if leader {
+        if harkonnen {
             c.run(start, n + 1)?; // ret
             c.set_reg(AX, (ah as u16) << 8 | state as u16);
             return c.ret();
@@ -7466,7 +7466,7 @@ pub fn place_troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (who, slot, ax);
     let mut slots: Option<(u8, bool)> = None;
     let mut asked: Option<(u8, u8)> = None;
-    if !leader {
+    if !harkonnen {
         n += 4; // mov bp; mov di; cmp al, 80h; jnb
         if state >= 0x80 {
             (who, slot, ax) = (14, 0x4756u16, (ah as u16) << 8 | state as u16);

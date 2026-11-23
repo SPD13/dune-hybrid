@@ -341,6 +341,24 @@ the transitions' drawing) are then named like the calls
 (`run_for_each_troop(&mut c, entry::ADD_TROOP_TO_BALANCE, ..)`;
 `name_calls.py`), 66 of 86: the rest have no port or label.
 
+**Record fields named (2026-11-22).** The fields' meanings, read off the
+ports that set and test them, go into `game.rs`:
+- **Location byte 0Ah:** it becomes `flags`, its bits `location_flag::`
+  `HARKONNEN` (2), `RAIDED` (8), `PROSPECTED` (40h), `UNDISCOVERED` (80h),
+  `VISITED` (10h), `COUNTING` (20h), `STARTED` (1) and `BIT_4` (its use is
+  not clear yet).
+- **Location byte 0Bh:** the radius of the location's map circle
+  (`radius`). The same byte is read as the phase it can be found from
+  while it is undiscovered (`found_from`), and as the day a raid ends
+  while it is raided (`raid_ends`).
+- **Location byte 1Bh:** the count the map caption shows (`count`).
+- **Troop byte 10h, bit 80h:** a Harkonnen troop (`Troop::is_harkonnen`).
+  The `apart` locals become `harkonnen`.
+
+52 raw reads go through the views and 56 masks use the names. A name
+that was wrong is fixed where the ports disagreed: in `troop_arrived_at`
+the local `secret` was the Harkonnen bit, not secret.
+
 The shape of a rewritten port: read what it needs through the views,
 work out the result and the instruction count of its path in plain Rust
 (no flag helpers where no caller reads the flags), `c.run(start, cost)`
@@ -1126,7 +1144,7 @@ places), [4722h] (a toggle of the map panel), [118Fh], [0DCE4h].
 | `tools/lift/fix_warnings.py` | Not a check: remove the imports and `code::` constants a rewrite left unused. |
 | `tools/lift/name_regs.py [--list] MODULE...` | Not a check: the named call returning the registers a routine hands back as values, and its call sites rewritten to it (`--list`: the sites that read a register after a call). |
 | `tools/lift/name_args.py [--list] MODULE...` | Not a check: the named call taking the registers a routine is handed as arguments, and its call sites rewritten to pass the values their `set_reg` lines held (`--list MODULE`: its routines, their docs and the registers their callers set right before). |
-| `tools/lift/view_fields.py troop` (or `location`) | Not a check: a record field read or written raw (`c.byte(di.wrapping_add(0x0a))`) becomes the view's accessor (`Location(di).byte_0a(&mut c)`) in ports whose doc names the register a troop or a location (DI also in the troops' jobs: "the location's"), where the local is bound once from the register; the view reads through the record cache, the memory its mirror (21 sites so far; the other ~500 raw reads are of records the docs don't type, or of fields without an accessor). |
+| `tools/lift/view_fields.py troop` (or `location`) | Not a check: a record field read or written raw (`c.byte(di.wrapping_add(0x0a))`) becomes the view's accessor (`Location(di).flags(&mut c)`) in ports whose doc names the register a troop or a location (DI also in the troops' jobs: "the location's"), where the local is bound once from the register; the view reads through the record cache, the memory its mirror (21 sites so far; the other ~500 raw reads are of records the docs don't type, or of fields without an accessor). |
 | `tools/lift/shadow.sh [ENTRIES] [SECS]` | The shadow check of every port (or ENTRIES) in the suite's seven games, with per-entry counts. |
 | `tools/lift/name_calls.py` | Not a check: regenerate `hand/entry.rs` (a constant per routine with a name: the port's, else the listing's label) and write `c.call(entry::NAME, ret)` / `c.jump(entry::NAME)` for the numbers, and `entry::NAME` for a routine handed as an argument (`run_for_each_troop`, `add_task`, `transition_drawn`, ...) (2106 sites, then 191 more: 125 calls to ports added since, 66 routine arguments; run again after adding or renaming ports). |
 | `--save FILE` + event `T:load:1` | Real play from any point of the game (the test saves, Day 1 to 23). |

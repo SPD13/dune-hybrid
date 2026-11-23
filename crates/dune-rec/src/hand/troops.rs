@@ -1821,7 +1821,7 @@ pub fn troop_joins(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 3)?;
         return c.ret();
     }
-    if troop.word_10(&mut c) & 0x80 != 0 {
+    if troop.is_harkonnen(&mut c) {
         c.run(start, 5)?;
         return c.ret();
     }
@@ -1990,7 +1990,7 @@ pub fn reset_location_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x85cc)?;
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
-    if troop.word_10(&mut c) & 0x80 != 0 {
+    if troop.is_harkonnen(&mut c) {
         c.run(start, 3)?;
         return c.ret();
     }
@@ -2012,11 +2012,11 @@ pub fn reset_location_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x85e0, 3)?;
         let other = troop_record(&mut c, 0x85e7)?;
         id = other.next(&mut c);
-        let apart = other.byte_10(&mut c) & 0x80 != 0;
+        let harkonnen = other.is_harkonnen(&mut c);
         let started = other.state(&mut c) & troop_state::STARTED != 0;
-        c.run(0x85e7, if apart { 3 } else if !started { 5 } else { 6 })?;
+        c.run(0x85e7, if harkonnen { 3 } else if !started { 5 } else { 6 })?;
         c.set_reg8(r8::AL, id);
-        if apart || !started {
+        if harkonnen || !started {
             continue;
         }
         c.call(code::SAVE_REGS, 0x85f9)?;
@@ -2186,7 +2186,7 @@ pub fn merge_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let troop = Troop(c.reg(SI));
     let cost = if troop.state(&mut c) & 0xe3 != 0 {
         3
-    } else if troop.byte_10(&mut c) & 0x80 != 0 {
+    } else if troop.is_harkonnen(&mut c) {
         5
     } else if troop == Troop::number(3) {
         7
@@ -3191,10 +3191,10 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
     let id = troop.id(&mut c);
     let first = place.first_troop(&mut c);
-    let apart = troop.word_10(&mut c) & 0x80 != 0;
-    let lowest: u8 = if apart { 9 } else { 1 };
+    let harkonnen = troop.is_harkonnen(&mut c);
+    let lowest: u8 = if harkonnen { 9 } else { 1 };
     if first == 0 {
-        c.run(start, 10 + if apart { 2 } else { 0 })?;
+        c.run(start, 10 + if harkonnen { 2 } else { 0 })?;
         c.set_reg(AX, (id as u16) << 8);
         place.set_first_troop(&mut c, id);
         troop.set_slot(&mut c, lowest);
@@ -3239,8 +3239,8 @@ pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, TABLE);
     // Tested again: the marks can land anywhere (a slot past 1Eh writes
     // beyond the table), the troop's own record included.
-    let apart = Troop(c.reg(SI)).word_10(&mut c) & 0x80 != 0;
-    if apart {
+    let harkonnen = Troop(c.reg(SI)).is_harkonnen(&mut c);
+    if harkonnen {
         c.run(0x8575, 2)?;
         c.set_reg(CX, TABLE - 8);
         c.set_reg(DI, table + 8);
@@ -4376,12 +4376,12 @@ pub fn add_troop_strength(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let amount = troop_yield_value(&mut c, 0x340f)?;
     let troop = Troop(c.reg(SI));
-    let apart = troop.byte_10(&mut c) & 0x80 != 0;
-    c.run(0x340f, if apart { 4 } else { 8 })?;
-    let total = if apart { g::TOPIC_PLACE_HARKONNEN_STRENGTH } else { g::TOPIC_PLACE_OUR_STRENGTH };
+    let harkonnen = troop.is_harkonnen(&mut c);
+    c.run(0x340f, if harkonnen { 4 } else { 8 })?;
+    let total = if harkonnen { g::TOPIC_PLACE_HARKONNEN_STRENGTH } else { g::TOPIC_PLACE_OUR_STRENGTH };
     let v = c.word(total).wrapping_add(amount);
     c.set_word(total, v);
-    if apart {
+    if harkonnen {
         return c.ret();
     }
     let w10 = troop.word_10(&mut c);
@@ -4512,7 +4512,7 @@ pub fn lose_harkonnen_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(start, 2)?;
         return c.ret();
     }
-    if Troop(c.reg(SI)).byte_10(&mut c) & 0x80 == 0 {
+    if !Troop(c.reg(SI)).is_harkonnen(&mut c) {
         c.run(start, 4)?;
         return c.ret();
     }
@@ -4580,7 +4580,7 @@ pub fn raid_renew_harkonnen_troop(m: &mut Machine, start: u16) -> Result<(), Bai
         c.run(start, 2)?;
         return c.ret();
     }
-    if Troop(c.reg(SI)).byte_10(&mut c) & 0x80 == 0 {
+    if !Troop(c.reg(SI)).is_harkonnen(&mut c) {
         c.run(start, 4)?;
         return c.ret();
     }
@@ -4676,9 +4676,9 @@ pub fn count_troop_at_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let travelling = state & troop_state::TRAVELLING != 0;
     // The Harkonnens' count; ours is the byte before, by job the bytes after.
     let base = if travelling { g::TOPIC_PLACE_HARKONNEN_INBOUND } else { g::TOPIC_PLACE_HARKONNEN_TROOPS };
-    let apart = troop.byte_10(&mut c) & 0x80 != 0;
-    let mut cost = 9 + travelling as u32 + if apart { 0 } else { 3 };
-    if !apart && state == troop_state::NOT_A_TROOP {
+    let harkonnen = troop.is_harkonnen(&mut c);
+    let mut cost = 9 + travelling as u32 + if harkonnen { 0 } else { 3 };
+    if !harkonnen && state == troop_state::NOT_A_TROOP {
         c.run(start, cost + 2)?;
         c.set_reg(DX, base);
         c.set_reg8(r8::AL, state);
@@ -4693,7 +4693,7 @@ pub fn count_troop_at_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     cost += 11 + (state & 3 == 3) as u32 + if more { 6 } else { 1 };
     c.run(start, cost)?;
     c.set_reg(DX, base);
-    bump(&mut c, if apart { base } else { base - 1 });
+    bump(&mut c, if harkonnen { base } else { base - 1 });
     bump(&mut c, at + 1);
     c.set_reg(AX, job as u16);
     c.set_reg(BX, at);
@@ -4838,12 +4838,12 @@ pub fn add_troop_to_balance(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6155)?;
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
-    let apart = troop.byte_10(&mut c) & 0x80 != 0;
-    let job6 = !apart && troop.state(&mut c) == 6;
-    c.run(start, if apart { 6 } else if !job6 { 7 } else { 12 })?;
+    let harkonnen = troop.is_harkonnen(&mut c);
+    let job6 = !harkonnen && troop.state(&mut c) == 6;
+    c.run(start, if harkonnen { 6 } else if !job6 { 7 } else { 12 })?;
     let size = troop.size(&mut c) as u16;
     c.set_reg(AX, size);
-    if apart {
+    if harkonnen {
         let v = c.word(SIZE_APART).wrapping_add(size);
         c.set_word(SIZE_APART, v);
         return c.ret();

@@ -203,9 +203,9 @@ impl Troop {
 }
 
 impl Troop {
-    /// Byte 10h (word 10h's low byte): bit 80h sets it apart in the
-    /// tallies (`add_troop_strength`, `add_troop_to_balance`) and raids; bit 10h marks
-    /// it for `refresh_flagged_troop`.
+    /// Byte 10h (word 10h's low byte): bit 80h a Harkonnen troop
+    /// ([`Troop::is_harkonnen`]); bit 10h marks it for
+    /// `refresh_flagged_troop`.
     pub fn byte_10(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x10)
     }
@@ -222,6 +222,14 @@ impl Troop {
     }
     pub fn set_byte_12(self, c: &mut Ctx, v: u8) {
         self.set_byte(c, 0x12, v)
+    }
+
+    /// Bit 80h of byte 10h: a Harkonnen troop. Counted apart in the
+    /// tallies (`add_troop_strength`, `add_troop_to_balance`), slotted from
+    /// 9 at its location (`link_troop`), taken by `harkonnen_take`; its
+    /// size grows by itself.
+    pub fn is_harkonnen(self, c: &mut Ctx) -> bool {
+        self.byte_10(c) & 0x80 != 0
     }
 
     /// Byte 0: its number (as [`Troop::number`] takes it).
