@@ -355,6 +355,13 @@ pub mod particle_flag {
     /// hotspots (`hotspots_particles`, which skip 80h too) pass it by;
     /// the troop marker's particle has it (`mark_troop_location`).
     pub const UNPICKABLE: u8 = 0x40;
+    /// Animated: each step of `animate_map_sprites` takes its next frame
+    /// from its script ([`super::Particle::script`]); set by
+    /// `particles_spawn_variant`.
+    pub const ANIMATED: u8 = 0x01;
+    /// Played once: at the script's end it stops on its last frame
+    /// instead of going back to [`super::Particle::script_start`].
+    pub const ONCE: u8 = 0x02;
 }
 
 impl Particle {
@@ -397,18 +404,32 @@ impl Particle {
     pub fn set_flags(self, c: &mut Ctx, v: u8) {
         c.set_byte(self.0.wrapping_add(0x0c), v)
     }
-    /// Word 0Dh: a scene particle's step (packed signed x, y,
-    /// `scene_particles_step`); the spawn variant's record
-    /// (`particles_spawn_variant`); 1916h for the troop marker.
-    pub fn word_0d(self, c: &mut Ctx) -> u16 {
+    /// Word 0Dh of an animated particle ([`particle_flag::ANIMATED`]): its
+    /// place in its animation script, 3-byte frames (the sprite, then x
+    /// and y offsets, signed) ended by a 0 (`animate_map_sprites`); a
+    /// random frame of it when spawned (`particles_spawn_variant`); 1916h
+    /// for the troop marker.
+    pub fn script(self, c: &mut Ctx) -> u16 {
         c.word(self.0.wrapping_add(0x0d))
     }
-    pub fn set_word_0d(self, c: &mut Ctx, v: u16) {
+    pub fn set_script(self, c: &mut Ctx, v: u16) {
         c.set_word(self.0.wrapping_add(0x0d), v)
     }
-    /// Word 0Fh: the spawn record it came from (`particles_spawn_variant`);
-    /// 1916h for the troop marker.
-    pub fn set_word_0f(self, c: &mut Ctx, v: u16) {
+    /// Word 0Dh of a scene particle: its motion, packed signed x and y
+    /// steps (`scene_particles_step`; 0 for the creature's).
+    pub fn motion(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(0x0d))
+    }
+    pub fn set_motion(self, c: &mut Ctx, v: u16) {
+        c.set_word(self.0.wrapping_add(0x0d), v)
+    }
+    /// Word 0Fh: the start of its animation script, where
+    /// [`Particle::script`] goes back at the end (the spawn variant's
+    /// frames, `particles_spawn_variant`; 1916h for the troop marker).
+    pub fn script_start(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(0x0f))
+    }
+    pub fn set_script_start(self, c: &mut Ctx, v: u16) {
         c.set_word(self.0.wrapping_add(0x0f), v)
     }
 }

@@ -3462,8 +3462,8 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DI, marked);
         if marked != 0 {
             c.set_reg(AX, 0x1916);
-            Particle(marked).set_word_0d(&mut c, 0x1916);
-            Particle(marked).set_word_0f(&mut c, 0x1916);
+            Particle(marked).set_script(&mut c, 0x1916);
+            Particle(marked).set_script_start(&mut c, 0x1916);
         }
     }
     loop {

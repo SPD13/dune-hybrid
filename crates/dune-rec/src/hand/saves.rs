@@ -1,7 +1,7 @@
 //! Saved games (their RLE, restoring the map's bits and the game's
 //! state), particles, numbers in strings, reading resources.
 
-use super::game::{Particle};
+use super::game::{Particle, particle_flag};
 use super::video;
 use super::text;
 use super::files;
@@ -839,7 +839,7 @@ pub fn particles_spawn_variant(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let bp = c.pop();
     c.set_reg(BP, bp);
     let di = c.reg(DI);
-    Particle(di).set_word_0f(&mut c, bp);
+    Particle(di).set_script_start(&mut c, bp);
     let si = c.reg(SI);
     c.push(si);
     c.set_reg(SI, bp);
@@ -871,9 +871,9 @@ pub fn particles_spawn_variant(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let bp = pure::add(W, bp, a3);
     c.set_reg(BP, bp);
     let di = c.reg(DI);
-    Particle(di).set_word_0d(&mut c, bp);
+    Particle(di).set_script(&mut c, bp);
     let f = Particle(di).flags(&mut c);
-    let f = pure::or(B, f as u16, 1);
+    let f = pure::or(B, f as u16, particle_flag::ANIMATED as u16);
     Particle(di).set_flags(&mut c, f as u8);
     let si = c.pop();
     c.set_reg(SI, si);

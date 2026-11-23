@@ -1,7 +1,7 @@
 //! The map screen: its view rect ([`VIEW`]), the cursor's place on it,
 //! the mouse rect, marks and rects copied around.
 
-use super::game::Troop;
+use super::game::{Particle, Troop, particle_flag};
 use super::draw;
 use super::text;
 use super::tasks;
@@ -6149,33 +6149,33 @@ pub fn animate_map_sprites(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     loop {
         let di = c.reg(DI);
-        let fl = c.byte(di.wrapping_add(0x0c));
+        let fl = Particle(di).flags(&mut c);
         let mut draw = false;
-        if fl & 1 == 0 {
+        if fl & particle_flag::ANIMATED == 0 {
             c.run(0x6b55, 2)?;
         } else {
-            let mut si = c.word(di.wrapping_add(0x0d));
+            let mut si = Particle(di).script(&mut c);
             let b = c.byte(si);
             let restart = b == 0;
             let b = if restart {
-                si = c.word(di.wrapping_add(0x0f));
+                si = Particle(di).script_start(&mut c);
                 c.byte(si)
             } else {
                 b
             };
-            let stop = restart && fl & 2 != 0;
+            let stop = restart && fl & particle_flag::ONCE != 0;
             c.run(0x6b55, 6 + if restart { 4 } else { 0 } + if stop { 0 } else { 12 })?;
-            let s0 = c.word(di.wrapping_add(0x0d));
+            let s0 = Particle(di).script(&mut c);
             c.set_reg(SI, s0);
             c.lods(B, DS);
             if restart {
-                let s1 = c.word(di.wrapping_add(0x0f));
+                let s1 = Particle(di).script_start(&mut c);
                 c.set_reg(SI, s1);
                 c.lods(B, DS);
             }
             if !stop {
                 c.set_reg(AX, b as u16);
-                c.set_word(di.wrapping_add(8), b as u16);
+                Particle(di).set_sprite(&mut c, b as u16);
                 let d = c.lods(B, DS) as u8 as i8 as i16 as u16;
                 c.set_reg(AX, d);
                 c.set_reg(DX, d);
@@ -6183,7 +6183,7 @@ pub fn animate_map_sprites(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_reg(AX, y);
                 c.set_reg(BX, y);
                 let si = c.reg(SI);
-                c.set_word(di.wrapping_add(0x0d), si);
+                Particle(di).set_script(&mut c, si);
                 let cx = c.reg(CX);
                 c.push(cx);
                 c.push(di);

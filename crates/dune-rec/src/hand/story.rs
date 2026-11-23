@@ -3948,7 +3948,7 @@ pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::PARTICLES_SPAWN_PARTICLE, 0x0ce4)?;
     c.run(0x0ce4, 2)?;
     let di = c.reg(DI);
-    Particle(di).set_word_0d(&mut c, 0);
+    Particle(di).set_motion(&mut c, 0);
     c.ret()
 }
 
@@ -5256,14 +5256,14 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, ax);
             c.set_reg(DX, dx);
             c.push(cx);
-            let b = Particle(di).word_0d(&mut c);
+            let b = Particle(di).motion(&mut c);
             c.set_reg(BX, b);
             c.call(entry::UNPACK_SIGNED, 0x0be2)?;
             c.run(0x0be2, 1)?;
             c.call(entry::UNPACK_SIGNED, 0x0be5)?;
             c.run(0x0be5, 8)?;
             let bx = c.reg(BX);
-            Particle(di).set_word_0d(&mut c, bx);
+            Particle(di).set_motion(&mut c, bx);
             let seed = c.word(0).rotate_left(3);
             c.set_reg8(r8::CL, 3);
             c.set_word(0, seed);
