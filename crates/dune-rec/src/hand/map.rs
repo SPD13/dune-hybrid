@@ -5518,10 +5518,10 @@ pub fn route_lines(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
-/// `loc_04586`: the message line's subject: in view (`in_view`) and near
-/// a shown location (`nearest_shown_location` 9 or more) the direction
-/// of the map pointer [4749h] (`direction_256`, by eighths: FFF0h + k,
-/// FFFFh off the eighth's middle or with no pointer), else 0; the line
+/// `loc_04586`: the message line's subject: out of view (`in_view`) 0;
+/// within 9 of a shown location (`nearest_shown_location`) that location;
+/// else the direction of the map pointer [4749h] (`direction_256`, by
+/// eighths: FFF0h + k, FFFFh off the eighth's middle or with no pointer); the line
 /// redrawn ([`redraw_message_line`]) when that changes [46FCh].
 pub fn message_subject(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4586)?;
@@ -5534,22 +5534,30 @@ pub fn message_subject(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x4589, 4)?;
     c.set_reg(DI, 0);
-    let (_, distance) = nearest_shown(&mut c, 0xff, 0x4593)?;
+    let (place, distance) = nearest_shown(&mut c, 0xff, 0x4593)?;
     if distance < 9 {
         c.run(0x4593, 2)?;
-        return subject_tail(&mut c, 0);
+        return subject_tail(&mut c, place);
     }
+    // The pointer box and the mouse are each read where the original
+    // reads them (459Bh, 45A6h, 45ACh, 45B0h): an interrupt in the
+    // stretch before can move them.
+    c.run(0x4593, 3)?; // cmp; jb; mov di
     let pointer = c.word(g::MAP_POINTER_BOX);
     if pointer == 0 {
-        c.run(0x4593, 6)?;
+        c.run(0x459b, 3)?; // mov dx; or; jz
         c.set_reg(DI, 0xffff);
         c.set_reg(DX, 0);
         return subject_tail(&mut c, 0xffff);
     }
     // The pointer's direction from the mouse.
-    let [mouse_x, mouse_y] = [super::globals::MOUSE_X, super::globals::MOUSE_Y].map(|a| c.word(a));
+    c.run(0x459b, 4)?; // mov dx; or; jz; add
+    let mouse_x = c.word(super::globals::MOUSE_X);
+    c.run(0x45a6, 2)?; // sub; neg
+    let mouse_y = c.word(super::globals::MOUSE_Y);
+    c.run(0x45ac, 1)?; // mov bx
     let top = c.word(g::MAP_POINTER_BOX_BOTTOM);
-    c.run(0x4593, 12)?;
+    c.run(0x45b0, 2)?; // sub; call
     c.set_reg(DI, 0xffff);
     c.set_reg(DX, mouse_x.wrapping_sub(pointer.wrapping_add(0x0b)));
     c.set_reg(BX, mouse_y.wrapping_sub(top));
