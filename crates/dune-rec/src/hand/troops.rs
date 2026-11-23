@@ -5607,13 +5607,13 @@ pub fn mark_idle_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6ea8)?;
     let mut c = Ctx::new(m);
     let si = c.reg(SI);
-    let b15 = c.byte(si.wrapping_add(0x15));
+    let b15 = Troop(si).motivation(&mut c);
     if b15 >= 0x28 {
         c.run(start, 3)?; // cmp; jnb; ret
         c.cmp(B, b15 as u16, 0x28);
         return c.ret();
     }
-    let state = c.byte(si.wrapping_add(3));
+    let state = Troop(si).state(&mut c);
     let al = pure::and(B, state as u16, 0x2f);
     c.run(start, 7)?; // cmp; jnb; mov al; and; and; jne; ret | call
     let al = c.and(B, al, 0xfb) as u8;
@@ -5623,10 +5623,10 @@ pub fn mark_idle_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.call(entry::MARK_TROOP_10, 0x6eba)?;
     let si = c.reg(SI);
-    let v = c.byte(si.wrapping_add(0x12));
+    let v = Troop(si).byte_12(&mut c);
     c.run(0x6eba, 2)?; // or [si+12h], 10h; ret
     let v = c.or(B, v as u16, 0x10) as u8;
-    c.set_byte(si.wrapping_add(0x12), v);
+    Troop(si).set_byte_12(&mut c, v);
     c.ret()
 }
 

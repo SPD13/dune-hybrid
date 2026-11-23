@@ -5905,8 +5905,8 @@ fn leave_place(c: &mut Ctx) -> Result<(), Bail> {
     let si = c.word(g::PLACE);
     c.set_word(g::PLACE, 0);
     c.set_reg(SI, si);
-    let dx = c.word(si.wrapping_add(2));
-    let bx = c.word(si.wrapping_add(4));
+    let dx = Location(si).x(c);
+    let bx = Location(si).y(c);
     c.set_reg(DX, dx);
     c.xor(B, bx >> 8, bx >> 8);
     c.set_reg(BX, bx & 0xff);

@@ -195,9 +195,9 @@ pub fn troop_job_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(0x6c15, 6)?;
     let si = c.reg(SI);
-    let di = c.word(si.wrapping_add(4));
+    let di = Troop(si).location(&mut c);
     c.set_reg(DI, di);
-    let k = c.byte(si.wrapping_add(3));
+    let k = Troop(si).state(&mut c);
     c.set_reg8(r8::BL, k);
     // The kind's handler (a table jump: it could see the flags of `shl`
     // and the `clc`).
@@ -756,7 +756,7 @@ pub fn move_troop_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x82da)?;
     let mut c = Ctx::new(m);
     let (si, di) = (c.reg(SI), c.reg(DI));
-    let bp = c.word(si.wrapping_add(4));
+    let bp = Troop(si).location(&mut c);
     let player = si == 0x8e0;
     let same = !player && di == bp;
     c.run(0x82da, 5 + if player { 0 } else { 3 } + if same { 1 } else { 3 })?;
@@ -768,14 +768,14 @@ pub fn move_troop_to(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     if !same {
         c.push(bp);
-        c.set_word(si.wrapping_add(4), di);
+        Troop(si).set_location(&mut c, di);
         c.call(entry::DESCRIBE_TROOP, 0x82f2)?;
         c.run(0x82f2, 1)?;
         c.call(entry::NOTE_POINT, 0x82f5)?;
         c.run(0x82f5, 3)?;
         let v = c.pop();
         let s = c.reg(SI);
-        c.set_word(s.wrapping_add(4), v);
+        Troop(s).set_location(&mut c, v);
         c.set_reg8(r8::AL, 0xb);
     }
     c.call(entry::TALL_FONT_COLOUR_F0, 0x82fd)?;
@@ -965,9 +965,9 @@ pub fn update_totals(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut si = 0x8aau16;
     c.set_reg(SI, si);
     loop {
-        let al = c.byte(si.wrapping_add(0x1a));
-        let k3 = c.byte(si.wrapping_add(3));
-        let k10 = c.byte(si.wrapping_add(0x10));
+        let al = Troop(si).size(&mut c);
+        let k3 = Troop(si).state(&mut c);
+        let k10 = Troop(si).byte_10(&mut c);
         let next = c.byte(si.wrapping_add(0x1b));
         let mut n = 3;
         if k3 & 0x20 == 0 {
@@ -1395,7 +1395,7 @@ pub fn select_place_and_tell(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::DESCRIBE_TROOP, 0x7c08)?;
     c.run(0x7c08, 2)?;
     let si = c.reg(SI);
-    let di = c.word(si.wrapping_add(4));
+    let di = Troop(si).location(&mut c);
     records::note_place(&mut c, di, 0x7c0e)?;
     c.run(0x7c0e, 1)?;
     let distance = troops::distance_to_map_position(&mut c, 0x7c11)?;
@@ -2269,7 +2269,7 @@ pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x6a89, 1)?;
     let troop = troops::shown_troop_record(&mut c, 0x6a8c)?;
     let si = troop.0;
-    let k = c.byte(si.wrapping_add(3));
+    let k = Troop(si).state(&mut c);
     let cl = c.reg8(r8::CL);
     let same = k & 0xf == cl;
     c.run(0x6a8c, 4 + if same { 1 } else { 4 })?;
@@ -2282,7 +2282,7 @@ pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let w3 = c.word(si.wrapping_add(3));
     c.push(w3);
     c.push(si);
-    let w12 = c.word(si.wrapping_add(0x12));
+    let w12 = Troop(si).word_12(&mut c);
     c.push(w12);
     c.call(entry::GIVE_TROOP_JOB_UNLESS_SAME, 0x6a9f)?;
     c.run(0x6a9f, 1)?;
@@ -2304,13 +2304,13 @@ pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x6abb, 2 + if (activity as u8) == 0 { 1 } else { 3 })?;
         if (activity as u8) != 0 {
             let si = c.reg(SI);
-            let v = c.byte(si.wrapping_add(0x19));
+            let v = Troop(si).byte_19(&mut c);
             let v = pure::and(B, v as u16, 0x7f);
-            c.set_byte(si.wrapping_add(0x19), v as u8);
+            Troop(si).set_byte_19(&mut c, v as u8);
         }
         return c.jump(entry::LEAVE_AND_FADE);
     }
-    c.set_word(si.wrapping_add(0x12), ax);
+    Troop(si).set_word_12(&mut c, ax);
     c.call(entry::GIVE_TROOP_JOB_UNLESS_SAME, 0x6ab5)?;
     c.run(0x6ab5, 1)?;
     c.jump(entry::LEAVE_AND_FADE)
