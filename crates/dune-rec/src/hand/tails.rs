@@ -1709,9 +1709,9 @@ pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut si = g::SMUGGLERS;
     c.set_reg(SI, si);
     loop {
-        let f = c.byte(si.wrapping_add(2));
+        let f = super::smugglers::SmugglerAt(si).flags(&mut c);
         c.run(0x1cae, 2)?;
-        if f & 8 != 0 {
+        if f & super::smugglers::smuggler_flag::MET != 0 {
             c.run(0x1cb4, 1)?;
             c.set_reg(BP, 4);
             let mut bp = 4u16;

@@ -1,5 +1,6 @@
 //! Story progress, the intro script, and one-line flag setters.
 
+use super::smugglers::{self, SmugglerAt, smuggler_flag};
 use super::characters::{CharacterAt, character_flag};
 use super::dialogue;
 use super::waits;
@@ -1011,10 +1012,10 @@ pub fn select_smuggler(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x235f)?;
     let mut c = Ctx::new(m);
     let si = c.reg(SI);
-    let w = c.word(si.wrapping_add(0x0e));
+    let w = SmugglerAt(si).debt(&mut c);
     c.run(start, if w == 0 { 8 } else { 9 })?;
     c.update_character(13, |t| t.word_0c = si);
-    let b2 = c.byte(si.wrapping_add(2));
+    let b2 = SmugglerAt(si).flags(&mut c);
     c.set_reg8(r8::AL, b2);
     c.update_progress(|t| t.smuggler_flags = b2);
     c.set_reg(AX, w);
@@ -1025,14 +1026,14 @@ pub fn select_smuggler(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x237b, 2)?;
         let al = c.reg8(r8::AL);
         let si = c.reg(SI);
-        let b = c.byte(si.wrapping_add(0x10));
+        let b = SmugglerAt(si).debt_since(&mut c);
         let d = pure::sub(B, al as u16, b as u16) as u8;
         c.set_reg8(r8::AL, d);
         c.update_progress(|t| t.debt_days = d);
     }
     c.run(0x2381, 3)?;
     let si = c.reg(SI);
-    let b1 = c.byte(si.wrapping_add(1));
+    let b1 = SmugglerAt(si).patience(&mut c);
     c.set_reg8(r8::AL, b1);
     c.update_progress(|t| t.smuggler_patience = b1);
     c.ret()
@@ -1049,21 +1050,21 @@ pub fn visit_smuggler(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
     let key = c.byte(di);
-    let mut si = g::SMUGGLERS - 0x11;
+    let mut si = g::SMUGGLERS - smugglers::SIZE;
     let mut k = 0;
     loop {
-        si = si.wrapping_add(0x11);
+        si = si.wrapping_add(smugglers::SIZE);
         k += 1;
-        if c.byte(si) == key {
+        if SmugglerAt(si).location(&mut c) == key {
             break;
         }
     }
     c.run(start, 2 + 3 * k + 1)?;
     c.set_reg8(r8::AL, key);
-    let mut s = g::SMUGGLERS - 0x11;
+    let mut s = g::SMUGGLERS - smugglers::SIZE;
     loop {
-        s = pure::add(W, s, 0x11);
-        let v = c.byte(s);
+        s = pure::add(W, s, smugglers::SIZE);
+        let v = SmugglerAt(s).location(&mut c);
         if v == key {
             break;
         }
@@ -1073,8 +1074,8 @@ pub fn visit_smuggler(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x2327, 1)?;
     c.call(code::GET_INGAME_DAY_Q, 0x232a)?;
     let si = c.reg(SI);
-    let f = c.byte(si.wrapping_add(2));
-    let first = f & 8 == 0;
+    let f = SmugglerAt(si).flags(&mut c);
+    let first = f & smuggler_flag::MET == 0;
     let m0 = c.word(0) & 7;
     let modulus = c.byte(g::ITEMS_OFFERED) as u16;
     if modulus == 0 {
@@ -1089,12 +1090,12 @@ pub fn visit_smuggler(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x232a, 3 + if first { 2 } else { 0 } + 4 + 4 * rounds + 2 + 4)?;
     let al = c.reg8(r8::AL);
-    let b3 = c.byte(si.wrapping_add(3));
+    let b3 = SmugglerAt(si).visited_on(&mut c);
     let mut d = pure::sub(B, al as u16, b3 as u16) as u8;
     if first {
         d = 1;
-        let f = pure::or(B, f as u16, 8);
-        c.set_byte(si.wrapping_add(2), f as u8);
+        let f = pure::or(B, f as u16, smuggler_flag::MET as u16);
+        SmugglerAt(si).set_flags(&mut c, f as u8);
     }
     c.set_reg8(r8::AL, d);
     c.update_progress(|t| t.smuggler_days_away = d);
@@ -1126,20 +1127,20 @@ pub fn buy_from_smuggler_on_credit(m: &mut Machine, start: u16) -> Result<(), Ba
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
     let price = c.economy().smuggler_price as u16;
-    let w = c.word(di.wrapping_add(0x0e)).wrapping_add(price);
+    let w = SmugglerAt(di).debt(&mut c).wrapping_add(price);
     let new = w == price;
     c.run(start, 7 + new as u32 + 1)?;
-    let f = c.byte(di.wrapping_add(2));
-    let f = pure::and(B, f as u16, 0x9f);
-    c.set_byte(di.wrapping_add(2), f as u8);
+    let f = SmugglerAt(di).flags(&mut c);
+    let f = pure::and(B, f as u16, !smuggler_flag::TALK_ENDED as u16);
+    SmugglerAt(di).set_flags(&mut c, f as u8);
     c.update_economy(|t| t.smuggler_price = 0);
     c.set_reg(AX, price);
     let v = c.progress().smuggler_debt;
     let v = pure::add(W, v, price);
     c.update_progress(|t| t.smuggler_debt = v);
-    let v = c.word(di.wrapping_add(0x0e));
+    let v = SmugglerAt(di).debt(&mut c);
     let v = pure::add(W, v, price);
-    c.set_word(di.wrapping_add(0x0e), v);
+    SmugglerAt(di).set_debt(&mut c, v);
     if new {
         let b = c.progress().debts;
         let b = pure::inc(B, b as u16);
@@ -1149,15 +1150,14 @@ pub fn buy_from_smuggler_on_credit(m: &mut Machine, start: u16) -> Result<(), Ba
     c.run(0x2403, 8)?;
     let di = c.reg(DI);
     let al = c.reg8(r8::AL);
-    c.set_byte(di.wrapping_add(0x10), al);
+    SmugglerAt(di).set_debt_since(&mut c, al);
     let i = c.word(g::SMUGGLER_ITEM);
     let i = pure::sub(W, i, 0xe8);
     c.set_reg(AX, i);
     c.set_reg(BX, i);
-    let at = i.wrapping_add(di).wrapping_add(4);
-    let b = c.byte(at);
+    let b = SmugglerAt(di).stock(&mut c, i);
     let b = pure::dec(B, b as u16);
-    c.set_byte(at, b as u8);
+    SmugglerAt(di).set_stock(&mut c, i, b as u8);
     let si = c.word(g::PLACE);
     c.set_reg(SI, si);
     let at = i.wrapping_add(si).wrapping_add(0x14);

@@ -10,8 +10,10 @@
 //! fields to [`g::SMUGGLER_FLAGS`] .. [`g::SMUGGLER_DEBT`] for the
 //! dialogue's conditions.
 
+use super::Ctx;
 use super::globals as g;
 use super::record_table::{self, Single, Which};
+use pc::cpu::DS;
 
 /// Where the table starts in the data segment.
 pub const AT: u16 = Which::Smugglers.base();
@@ -95,3 +97,89 @@ impl Single for Smuggler {
 }
 
 const _: () = assert!(g::SMUGGLERS == AT && record(6) < g::CHANCES);
+
+/// Bits of a smuggler's byte 2 ([`Smuggler::flags`]; the dialogue reads
+/// them at [`g::SMUGGLER_FLAGS`]).
+pub mod smuggler_flag {
+    /// Met: the player has visited it (`visit_smuggler`); only those met
+    /// are restocked (`new_day`).
+    pub const MET: u8 = 0x08;
+    /// Bits 20h, 40h: how the last talk ended (2538h, 254Ch; cleared by a
+    /// purchase, `buy_from_smuggler_on_credit`).
+    pub const TALK_ENDED: u8 = 0x60;
+}
+
+/// The smuggler record at an offset, read and written where the ports
+/// read it: in the record table when DS is the game's and the offset is
+/// one of the six records, else in the memory.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SmugglerAt(pub u16);
+
+impl SmugglerAt {
+    fn native(self, c: &mut Ctx, field: u16) -> Option<usize> {
+        if c.sreg(DS) != g::GAME_DS || field >= SIZE {
+            return None;
+        }
+        index(self.0)
+    }
+    fn byte(self, c: &mut Ctx, field: u16) -> u8 {
+        match self.native(c, field) {
+            Some(i) => record_table::byte(c, Which::Smugglers, i, field),
+            None => c.byte(self.0.wrapping_add(field)),
+        }
+    }
+    fn set_byte(self, c: &mut Ctx, field: u16, v: u8) {
+        match self.native(c, field) {
+            Some(i) => record_table::set_byte(c, Which::Smugglers, i, field, v),
+            None => c.set_byte(self.0.wrapping_add(field), v),
+        }
+    }
+    fn word(self, c: &mut Ctx, field: u16) -> u16 {
+        self.byte(c, field) as u16 | (self.byte(c, field + 1) as u16) << 8
+    }
+    fn set_word(self, c: &mut Ctx, field: u16, v: u16) {
+        self.set_byte(c, field, v as u8);
+        self.set_byte(c, field + 1, (v >> 8) as u8);
+    }
+
+    /// Byte 0: [`Smuggler::location`].
+    pub(super) fn location(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 0)
+    }
+    /// Byte 1: [`Smuggler::patience`].
+    pub(super) fn patience(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 1)
+    }
+    /// Byte 2: [`Smuggler::flags`] ([`smuggler_flag`]).
+    pub(super) fn flags(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 2)
+    }
+    pub(super) fn set_flags(self, c: &mut Ctx, v: u8) {
+        self.set_byte(c, 2, v)
+    }
+    /// Byte 3: [`Smuggler::visited_on`].
+    pub(super) fn visited_on(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 3)
+    }
+    /// Byte 4 + `kind`: [`Smuggler::stock`].
+    pub(super) fn stock(self, c: &mut Ctx, kind: u16) -> u8 {
+        self.byte(c, 4 + kind)
+    }
+    pub(super) fn set_stock(self, c: &mut Ctx, kind: u16, v: u8) {
+        self.set_byte(c, 4 + kind, v)
+    }
+    /// Word 0Eh: [`Smuggler::debt`].
+    pub(super) fn debt(self, c: &mut Ctx) -> u16 {
+        self.word(c, 0x0e)
+    }
+    pub(super) fn set_debt(self, c: &mut Ctx, v: u16) {
+        self.set_word(c, 0x0e, v)
+    }
+    /// Byte 10h: [`Smuggler::debt_since`].
+    pub(super) fn debt_since(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 0x10)
+    }
+    pub(super) fn set_debt_since(self, c: &mut Ctx, v: u8) {
+        self.set_byte(c, 0x10, v)
+    }
+}
