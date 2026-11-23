@@ -341,6 +341,76 @@ pub fn here(c: &mut Ctx) -> u16 {
     c.word(g::PLACE)
 }
 
+/// A particle: an 11h-byte record of the list after the count at
+/// [`g::PARTICLES`] (a sprite on the screen, `particles_spawn_particle`).
+/// Read and written in the memory.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Particle(pub u16);
+
+/// Bits of a particle's byte 0Ch ([`Particle::flags`]).
+pub mod particle_flag {
+    /// Not picked by the cursor: `particle_at`, `troop_particle` and the
+    /// hotspots (`hotspots_particles`, which skip 80h too) pass it by;
+    /// the troop marker's particle has it (`mark_troop_location`).
+    pub const UNPICKABLE: u8 = 0x40;
+}
+
+impl Particle {
+    pub const SIZE: u16 = 0x11;
+
+    pub fn offset(self) -> u16 {
+        self.0
+    }
+    /// Words 0, 2: its rectangle's top left (x0, y0; x0 with flags in
+    /// its top bits, `particles_update_dirty_rect`).
+    pub fn x0(self, c: &mut Ctx) -> u16 {
+        c.word(self.0)
+    }
+    pub fn y0(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(2))
+    }
+    /// Words 4, 6: its rectangle's bottom right (x1, y1).
+    pub fn x1(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(4))
+    }
+    pub fn y1(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(6))
+    }
+    /// Word 8: its sprite (of the resource it was spawned from).
+    pub fn sprite(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(8))
+    }
+    pub fn set_sprite(self, c: &mut Ctx, v: u16) {
+        c.set_word(self.0.wrapping_add(8), v)
+    }
+    /// Word 0Ah: what it shows (SI when spawned): for a troop's, the
+    /// [`Troop`] record.
+    pub fn owner(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(0x0a))
+    }
+    /// Byte 0Ch: its [`particle_flag`] bits (0 when spawned).
+    pub fn flags(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0.wrapping_add(0x0c))
+    }
+    pub fn set_flags(self, c: &mut Ctx, v: u8) {
+        c.set_byte(self.0.wrapping_add(0x0c), v)
+    }
+    /// Word 0Dh: a scene particle's step (packed signed x, y,
+    /// `scene_particles_step`); the spawn variant's record
+    /// (`particles_spawn_variant`); 1916h for the troop marker.
+    pub fn word_0d(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(0x0d))
+    }
+    pub fn set_word_0d(self, c: &mut Ctx, v: u16) {
+        c.set_word(self.0.wrapping_add(0x0d), v)
+    }
+    /// Word 0Fh: the spawn record it came from (`particles_spawn_variant`);
+    /// 1916h for the troop marker.
+    pub fn set_word_0f(self, c: &mut Ctx, v: u16) {
+        c.set_word(self.0.wrapping_add(0x0f), v)
+    }
+}
+
 /// A location (sietch, palace, ...): a 1Ch-byte record in the table at
 /// 100h, which ends with a byte FFh.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

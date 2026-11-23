@@ -1,6 +1,7 @@
 //! Saved games (their RLE, restoring the map's bits and the game's
 //! state), particles, numbers in strings, reading resources.
 
+use super::game::{Particle};
 use super::video;
 use super::text;
 use super::files;
@@ -838,7 +839,7 @@ pub fn particles_spawn_variant(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let bp = c.pop();
     c.set_reg(BP, bp);
     let di = c.reg(DI);
-    c.set_word(di.wrapping_add(0x0f), bp);
+    Particle(di).set_word_0f(&mut c, bp);
     let si = c.reg(SI);
     c.push(si);
     c.set_reg(SI, bp);
@@ -870,10 +871,10 @@ pub fn particles_spawn_variant(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let bp = pure::add(W, bp, a3);
     c.set_reg(BP, bp);
     let di = c.reg(DI);
-    c.set_word(di.wrapping_add(0x0d), bp);
-    let f = c.byte(di.wrapping_add(0x0c));
+    Particle(di).set_word_0d(&mut c, bp);
+    let f = Particle(di).flags(&mut c);
     let f = pure::or(B, f as u16, 1);
-    c.set_byte(di.wrapping_add(0x0c), f as u8);
+    Particle(di).set_flags(&mut c, f as u8);
     let si = c.pop();
     c.set_reg(SI, si);
     c.ret()
@@ -1296,7 +1297,7 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
         c.set_reg(SI, si);
         let mut di = sp;
         for k in 0..count {
-            let f = c.byte(si.wrapping_add(0xc));
+            let f = Particle(si).flags(&mut c);
             let p: Vec<u16> = (0..4).map(|i| c.word(si.wrapping_add(2 * i))).collect();
             let mut n = 2;
             let mut meets = false;
@@ -1355,11 +1356,11 @@ pub fn particles_update_dirty_rect(m: &mut Machine, start: u16) -> Result<(), Ba
                 let s = c.word(bx.wrapping_sub(2));
                 c.set_word(bx.wrapping_sub(2), 0);
                 c.set_reg(SI, s);
-                let ax = c.word(s.wrapping_add(8));
+                let ax = Particle(s).sprite(&mut c);
                 c.set_reg(AX, ax);
-                let dx = c.word(s);
+                let dx = Particle(s).x0(&mut c);
                 c.set_reg(DX, dx);
-                let b = c.word(s.wrapping_add(2));
+                let b = Particle(s).y0(&mut c);
                 c.set_reg(BX, b);
                 c.call(entry::DRAW_SPRITE_CLIPPED_CLOBBERING, 0xc77c)?;
                 c.run(0xc77c, 2)?;

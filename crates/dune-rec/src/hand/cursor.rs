@@ -7,6 +7,7 @@
 //! best point (x, y). DX, BX are the cursor. A candidate is scored with DX,
 //! BX as they are and AX, SI its point; a lower score wins.
 
+use super::game::{Particle};
 use super::screens;
 use super::entry;
 use super::globals as g;
@@ -207,7 +208,7 @@ pub fn hotspots_particles(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut di = pure::add(W, g::PARTICLES, 2);
     c.set_reg(DI, di);
     loop {
-        let flags = c.byte(di.wrapping_add(0x0c));
+        let flags = Particle(di).flags(&mut c);
         let hidden = flags & 0xc0 != 0;
         c.run(0xe0b3, if hidden { 2 } else { 3 })?;
         if !hidden {

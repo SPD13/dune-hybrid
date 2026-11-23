@@ -1,6 +1,7 @@
 //! Troops: 1Bh-byte records from [`g::TROOPS`], numbered from 1; and the
 //! per-location byte 19h, its bits spread over bytes and back.
 
+use super::game::{Particle, particle_flag};
 use super::ui;
 use super::story;
 use super::gfx;
@@ -903,7 +904,7 @@ pub fn troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let mut zf;
             loop {
                 di = di.wrapping_add(0x11);
-                zf = c.word(di.wrapping_add(0x0a)) == si;
+                zf = Particle(di).owner(&mut c) == si;
                 cx = cx.wrapping_sub(1);
                 n += 3;
                 if cx == 0 || zf {
@@ -916,7 +917,7 @@ pub fn troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break;
             }
             n += 2;
-            if c.byte(di.wrapping_add(0x0c)) & 0x40 == 0 {
+            if Particle(di).flags(&mut c) & particle_flag::UNPICKABLE == 0 {
                 n += 1;
                 found = true;
                 break;
@@ -937,7 +938,7 @@ pub fn troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         loop {
             di = pure::add(W, di, 0x11);
-            let w = c.word(di.wrapping_add(0x0a));
+            let w = Particle(di).owner(&mut c);
             c.cmp(W, w, si);
             cx = cx.wrapping_sub(1);
             if cx == 0 || w == si {
@@ -946,12 +947,12 @@ pub fn troop_particle(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         c.set_reg(DI, di);
         c.set_reg(CX, cx);
-        if c.word(di.wrapping_add(0x0a)) != si {
+        if Particle(di).owner(&mut c) != si {
             return c.ret();
         }
-        let f = c.byte(di.wrapping_add(0x0c));
+        let f = Particle(di).flags(&mut c);
         c.test(B, f as u16, 0x40);
-        if f & 0x40 == 0 {
+        if f & particle_flag::UNPICKABLE == 0 {
             let _ = found;
             return c.ret();
         }
@@ -999,7 +1000,7 @@ pub fn particle_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
             false
         } else if {
             cost += 2;
-            c.byte(at.wrapping_add(0x0c)) & 0x40 != 0
+            Particle(at).flags(&mut c) & particle_flag::UNPICKABLE != 0
         } {
             false
         } else {
@@ -1028,7 +1029,7 @@ pub fn particle_at(m: &mut Machine, start: u16) -> Result<(), Bail> {
     match found {
         Some((particle, left)) => {
             c.set_reg(CX, left);
-            let troop = Troop(c.word(particle.wrapping_add(0x0a)));
+            let troop = Troop(Particle(particle).owner(&mut c));
             c.set_reg(DI, troop.offset());
             let yours = troop.state(&mut c) < 0x80;
             c.set_flag(CF, yours);
@@ -1420,8 +1421,8 @@ pub fn mark_troop_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::PARTICLES_SPAWN_VARIANT, 0x699a)?;
     c.run(0x699a, 3)?;
     let particle = c.reg(DI);
-    let b = c.byte(particle.wrapping_add(0x0c));
-    c.set_byte(particle.wrapping_add(0x0c), b | 0x40);
+    let b = Particle(particle).flags(&mut c);
+    Particle(particle).set_flags(&mut c, b | particle_flag::UNPICKABLE);
     c.set_word(g::TROOP_MARKER_PARTICLE, particle);
     c.ret()
 }
@@ -3461,8 +3462,8 @@ pub fn refresh_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DI, marked);
         if marked != 0 {
             c.set_reg(AX, 0x1916);
-            c.set_word(marked.wrapping_add(0x0d), 0x1916);
-            c.set_word(marked.wrapping_add(0x0f), 0x1916);
+            Particle(marked).set_word_0d(&mut c, 0x1916);
+            Particle(marked).set_word_0f(&mut c, 0x1916);
         }
     }
     loop {
@@ -3818,7 +3819,7 @@ pub fn troop_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.save(&[SI]);
     c.set_reg(SI, PANEL);
     let particle = c.reg(DI);
-    let (x, y) = (c.word(particle), c.word(particle.wrapping_add(2)));
+    let (x, y) = (Particle(particle).x0(&mut c), Particle(particle).y0(&mut c));
     c.set_reg(BX, y);
     c.set_reg(DX, x);
     c.set_reg(CX, 0x64);

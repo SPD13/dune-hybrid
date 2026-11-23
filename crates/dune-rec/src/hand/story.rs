@@ -1,5 +1,6 @@
 //! Story progress, the intro script, and one-line flag setters.
 
+use super::game::{Particle};
 use super::characters::{CharacterAt, character_flag};
 use super::dialogue;
 use super::waits;
@@ -5224,7 +5225,7 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     loop {
         let di = c.reg(DI);
-        let (ax, dx) = (c.word(di.wrapping_add(8)), c.word(di.wrapping_add(0x0a)));
+        let (ax, dx) = (Particle(di).sprite(&mut c), c.word(di.wrapping_add(0x0a)));
         let al = ax as u8;
         let cx = c.reg(CX);
         let mut remove = false;
@@ -5255,14 +5256,14 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, ax);
             c.set_reg(DX, dx);
             c.push(cx);
-            let b = c.word(di.wrapping_add(0x0d));
+            let b = Particle(di).word_0d(&mut c);
             c.set_reg(BX, b);
             c.call(entry::UNPACK_SIGNED, 0x0be2)?;
             c.run(0x0be2, 1)?;
             c.call(entry::UNPACK_SIGNED, 0x0be5)?;
             c.run(0x0be5, 8)?;
             let bx = c.reg(BX);
-            c.set_word(di.wrapping_add(0x0d), bx);
+            Particle(di).set_word_0d(&mut c, bx);
             let seed = c.word(0).rotate_left(3);
             c.set_reg8(r8::CL, 3);
             c.set_word(0, seed);
@@ -5271,7 +5272,7 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if !remove {
             c.run(0x0c09, 10)?;
             let ax = c.reg(AX);
-            c.set_word(di.wrapping_add(8), ax);
+            Particle(di).set_sprite(&mut c, ax);
             let dx = c.reg(DX);
             let y = (dx >> 8) as u8 as i8 as i16 as u16;
             let x = dx as u8 as i8 as i16 as u16;
@@ -5281,9 +5282,9 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.push(di);
             c.call(entry::PARTICLES_MOVE_PARTICLE, 0x0c1c)?;
             let di = c.word_in(SS, c.reg(SP));
-            let (x0, y0, y1) = (c.word(di), c.word(di.wrapping_add(4)), c.word(di.wrapping_add(6)));
-            let off = x0 >= 0x140 || y0 & 0x8000 != 0 || y1 & 0x8000 != 0;
-            let n = if x0 >= 0x140 { 3 } else if y0 & 0x8000 != 0 { 6 } else { 8 };
+            let (x0, x1, y1) = (Particle(di).x0(&mut c), Particle(di).x1(&mut c), Particle(di).y1(&mut c));
+            let off = x0 >= 0x140 || x1 & 0x8000 != 0 || y1 & 0x8000 != 0;
+            let n = if x0 >= 0x140 { 3 } else if x1 & 0x8000 != 0 { 6 } else { 8 };
             c.run(0x0c1c, n)?;
             let d = c.pop();
             c.set_reg(DI, d);
