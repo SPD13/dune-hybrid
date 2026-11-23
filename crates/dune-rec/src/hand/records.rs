@@ -105,11 +105,11 @@ pub fn place_troop_at_location(m: &mut Machine, start: u16) -> Result<(), Bail> 
     let mut c = Ctx::new(m);
     c.check(start, 18)?;
     let (si, di, dx, bx) = (c.reg(SI), c.reg(DI), c.reg(DX), c.reg(BX));
-    c.set_word(si.wrapping_add(4), di);
+    Troop(si).set_location(&mut c, di);
     c.set_word(si.wrapping_add(6), dx);
     c.set_word(si.wrapping_add(8), bx);
     let kind = c.byte(di);
-    let old = c.byte(si.wrapping_add(0x12));
+    let old = Troop(si).byte_12(&mut c);
     let ax = pure::and(W, (old as u16) << 8 | kind as u16, 0x700f);
     let kind = ax & 0xff;
     let mut high = ax >> 8;
@@ -124,7 +124,7 @@ pub fn place_troop_at_location(m: &mut Machine, start: u16) -> Result<(), Bail> 
     }
     let byte = pure::or(B, kind, high);
     c.set_reg(AX, high << 8 | byte);
-    c.set_byte(si.wrapping_add(0x12), byte as u8);
+    Troop(si).set_byte_12(&mut c, byte as u8);
     c.count(n);
     c.ret()
 }
@@ -252,7 +252,7 @@ pub fn find_location_by_word_6(m: &mut Machine, start: u16) -> Result<(), Bail> 
             break;
         }
         n += 2;
-        if c.word(si.wrapping_add(6)) == di {
+        if Location(si).cell(&mut c) == di {
             n += 1;
             break;
         }
@@ -266,7 +266,7 @@ pub fn find_location_by_word_6(m: &mut Machine, start: u16) -> Result<(), Bail> 
             c.or(W, si, si);
             break;
         }
-        let v = c.word(si.wrapping_add(6));
+        let v = Location(si).cell(&mut c);
         c.cmp(W, di, v);
         if v == di {
             break;

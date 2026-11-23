@@ -1889,7 +1889,7 @@ pub fn head_for_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::GET_MAP_POSITION, 0x5128)?;
     c.run(0x5128, 3)?;
     let di = c.reg(DI);
-    let (cx, d) = (c.word(di.wrapping_add(4)), c.word(di.wrapping_add(2)));
+    let (cx, d) = (Location(di).y(&mut c), Location(di).x(&mut c));
     c.set_reg(CX, cx);
     c.set_reg(DI, d);
     c.call(entry::DIRECTION_BETWEEN, 0x5131)?;
@@ -2059,7 +2059,7 @@ pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_progress(|t| t.harkonnen_place = v as u8);
     c.call(entry::NOTE_BATTLE_BALANCE, 0x505f)?;
     let di = c.reg(DI);
-    let kind = c.byte(di.wrapping_add(8));
+    let kind = Location(di).kind(&mut c);
     let n = if kind < 0x20 { 4 } else if kind == 0x30 { 7 } else if kind < 0x28 { 9 } else { 10 };
     c.run(0x505f, n + 2)?;
     c.set_reg8(r8::AL, kind);
@@ -3492,9 +3492,9 @@ pub fn ui_comm(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut di = 0x100u16;
     loop {
         let bx = c.reg(BX);
-        let b8 = c.byte(di.wrapping_add(8));
+        let b8 = Location(di).kind(&mut c);
         let f = Location(di).flags(&mut c);
-        let x = c.word(di.wrapping_add(4));
+        let x = Location(di).y(&mut c);
         'one: {
             // A sietch (below 20h, not 82h) west of BX.
             if b8 >= 0x20 {
@@ -3564,7 +3564,7 @@ pub fn ui_comm(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'one;
             }
             if take {
-                let x = c.word(d.wrapping_add(4));
+                let x = Location(d).y(&mut c);
                 c.set_reg(BX, x);
                 c.set_word(g::COMM_STEP, d);
                 c.set_word(g::SPAN_ROW, d2);
@@ -3716,7 +3716,7 @@ pub fn event_place_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(BX, 0xff9c);
     loop {
         let (di, bx) = (c.reg(DI), c.reg(BX));
-        let ax = c.word(di.wrapping_add(4));
+        let ax = Location(di).y(&mut c);
         'one: {
             if (ax as i16) <= bx as i16 {
                 c.run(0x1f19, 3)?;
@@ -3736,7 +3736,7 @@ pub fn event_place_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'one;
             }
             let (di, bx) = (c.reg(DI), c.reg(BX));
-            let ax = c.word(di.wrapping_add(4));
+            let ax = Location(di).y(&mut c);
             let more = (ax as i16) > bx as i16;
             c.run(0x1f28, 5 + if more { 2 } else { 0 })?;
             c.set_reg(AX, ax);
@@ -3966,12 +3966,12 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::SAVE_REGS, 0x31f9)?;
     c.run(0x31f9, 11)?;
     let si = c.reg(SI);
-    let di = c.word(si.wrapping_add(4));
+    let di = Troop(si).location(&mut c);
     c.set_reg(DI, di);
     c.update_topic_troop(|t| t.place = di);
     let id = c.byte(si);
     c.update_topic_troop(|t| t.id = id);
-    let b3 = c.byte(si.wrapping_add(3));
+    let b3 = Troop(si).state(&mut c);
     c.update_topic_troop(|t| t.state = b3);
     let ax = c.reg(AX) & 0xff00 | b3 as u16;
     let a = pure::and(W, ax, 0x0f);
@@ -3986,9 +3986,9 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     let ax = c.reg(AX);
     c.update_topic_troop(|t| t.rate = ax);
-    let w = c.word(si.wrapping_add(0x10));
+    let w = Troop(si).word_10(&mut c);
     c.update_topic_troop(|t| t.word_10 = w);
-    let w = c.word(si.wrapping_add(0x12));
+    let w = Troop(si).word_12(&mut c);
     c.update_topic_troop(|t| t.word_12 = w);
     let a = pure::and(W, w, 0x0f);
     c.update_topic_troop(|t| t.word_12_low = a as u8);
@@ -4020,9 +4020,9 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     c.set_word(g::PHRASE_ARG_SKILLS + 4, ax);
     let si = c.reg(SI);
-    let w = c.word(si.wrapping_add(0x0c));
+    let w = Troop(si).rate(&mut c);
     c.update_topic_troop(|t| t.word_0c = w);
-    let w = c.word(si.wrapping_add(0x0e));
+    let w = Troop(si).word_0e(&mut c);
     c.update_topic_troop(|t| t.word_0e = w);
     let a = pure::add(W, w & 0xff, 0xe8);
     c.set_reg(AX, a);
@@ -4034,16 +4034,16 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     let s = c.byte_in(SS, ax.wrapping_add(si).wrapping_add(0x16));
     c.update_topic_troop(|t| t.job_skill = s);
-    let b = c.byte(si.wrapping_add(0x19));
+    let b = Troop(si).byte_19(&mut c);
     c.update_topic_troop(|t| t.needs = b);
-    let z = c.byte(si.wrapping_add(0x1a));
+    let z = Troop(si).size(&mut c);
     c.update_topic_troop(|t| t.size = z);
     c.set_reg(AX, ax & 0xff00 | z as u16);
     c.call(entry::GET_INGAME_DAY_Q, 0x3290)?;
     c.run(0x3290, 3)?;
     let al = c.reg8(r8::AL);
     let si = c.reg(SI);
-    let d = c.byte(si.wrapping_add(0x14));
+    let d = Troop(si).day(&mut c);
     let v = pure::sub(B, al as u16, d as u16);
     c.set_reg8(r8::AL, v as u8);
     c.update_topic_troop(|t| t.days = v as u8);
@@ -4839,8 +4839,8 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.run(0x1fa1, 3)?;
             let troop_ = troops::troop_record(&mut c, 0x1fa8)?;
             let si = troop_.0;
-            let nx = c.byte(si.wrapping_add(1));
-            let f = c.byte(si.wrapping_add(0x10));
+            let nx = Troop(si).next(&mut c);
+            let f = Troop(si).byte_10(&mut c);
             c.run(0x1fa8, if f & 0x80 != 0 { 9 } else { 3 })?;
             c.set_reg8(r8::AL, nx);
             if f & 0x80 != 0 {
@@ -4856,16 +4856,16 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(bp);
         c.push(si);
         c.push(di);
-        c.set_byte(si.wrapping_add(3), 0x8d);
+        Troop(si).set_state(&mut c, 0x8d);
         c.call(entry::TROOP_SET_OUT, 0x1fbc)?;
         c.run(0x1fbc, 5)?;
         let d = c.pop();
         c.set_reg(DI, d);
         let s = c.pop();
         c.set_reg(SI, s);
-        let f = c.byte(s.wrapping_add(0x10));
+        let f = Troop(s).byte_10(&mut c);
         let f = pure::and(B, f as u16, 0xef);
-        c.set_byte(s.wrapping_add(0x10), f as u8);
+        Troop(s).set_byte_10(&mut c, f as u8);
         c.push(d);
         c.call(entry::TROOP_ARRIVED, 0x1fc6)?;
         c.run(0x1fc6, 4)?;
@@ -7432,12 +7432,12 @@ pub fn place_troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x316e)?;
     let mut c = Ctx::new(m);
     let (si, di, dx, bx) = (c.reg(SI), c.reg(DI), c.reg(DX), c.reg(BX));
-    let state = c.byte(si.wrapping_add(3));
+    let state = Troop(si).state(&mut c);
     let harkonnen = Troop(si).is_harkonnen(&mut c);
     let mut n = 4; // mov al; mov ah, 2; test; je
     let mut ah: u8 = 2;
     if state & 0x20 != 0 {
-        let kind = c.byte(di.wrapping_add(8));
+        let kind = Location(di).kind(&mut c);
         n += 2; // cmp; jb
         if kind >= 0x28 {
             ah = 3;
@@ -7490,7 +7490,7 @@ pub fn place_troop_marker(m: &mut Machine, start: u16) -> Result<(), Bail> {
             0xff
         } else {
             n += 1; // mov al, [si+15h]
-            c.byte(si.wrapping_add(0x15))
+            Troop(si).motivation(&mut c)
         };
         n += 1; // mov [0EDh], al
         asked = Some((bit, al));

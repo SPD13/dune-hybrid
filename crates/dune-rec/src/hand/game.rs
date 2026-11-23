@@ -632,6 +632,15 @@ impl Location {
     pub fn byte_1a(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x1a)
     }
+    pub fn set_byte_1a(self, c: &mut Ctx, v: u8) {
+        self.set_byte(c, 0x1a, v)
+    }
+
+    /// Word 6: its map cell (an offset in the map; `find_location_by_word_6`
+    /// finds the location of a cell, `grow_spice` counts around it).
+    pub fn cell(self, c: &mut Ctx) -> u16 {
+        self.word(c, 6)
+    }
 
     /// Byte 0Bh: the radius of its circle on the map (`location_circle`,
     /// `start_move`): 2 once a troop of yours has joined there

@@ -7,8 +7,7 @@
 //! best point (x, y). DX, BX are the cursor. A candidate is scored with DX,
 //! BX as they are and AX, SI its point; a lower score wins.
 
-use super::game::{UiElement, ui_flag};
-use super::game::{Particle};
+use super::game::{Particle, UiElement, ui_flag};
 use super::screens;
 use super::entry;
 use super::globals as g;

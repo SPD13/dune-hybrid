@@ -1344,9 +1344,9 @@ pub fn troop_bit_10_by_state(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6b96)?;
     let mut c = Ctx::new(m);
     let (si, di) = (c.reg(SI), c.reg(DI));
-    let w10 = c.word(si.wrapping_add(0x10));
-    let w12 = c.word(si.wrapping_add(0x12));
-    let b12 = c.byte(di.wrapping_add(0x12));
+    let w10 = Troop(si).word_10(&mut c);
+    let w12 = Troop(si).word_12(&mut c);
+    let b12 = Location(di).spice(&mut c);
     let a = Location(di).flags(&mut c);
     let x = (a ^ 0x40) & 0x41;
     let n = if w10 & 0x200 != 0 {
@@ -2266,7 +2266,7 @@ pub fn troop_bit_10_by_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6bd7)?;
     let mut c = Ctx::new(m);
     let (si, di) = (c.reg(SI), c.reg(DI));
-    let w12 = c.word(si.wrapping_add(0x12));
+    let w12 = Troop(si).word_12(&mut c);
     let b1b = Location(di).count(&mut c);
     let b0a = Location(di).flags(&mut c);
     let n = if w12 & 0x30 != 0 {
@@ -2287,7 +2287,7 @@ pub fn troop_bit_10_by_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.test(B, b0a as u16, 0x20);
             c.set_flag(CF, true);
             if n > 8 {
-                let b = c.byte(si.wrapping_add(0x19));
+                let b = Troop(si).byte_19(&mut c);
                 let a = pure::and(B, b as u16, 2);
                 c.set_reg8(r8::AL, a as u8);
                 c.cmp(B, a, 1);
@@ -5170,7 +5170,7 @@ pub fn job_10(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if !wraps {
             return c.ret();
         }
-        c.set_byte(di.wrapping_add(0x1a), 0x10);
+        Location(di).set_byte_1a(&mut c, 0x10);
     } else {
         c.run(0x767d, 4)?;
     }
@@ -5246,8 +5246,8 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let w = troop.word_10(&mut c);
         troop.set_word_10(&mut c, w | 0x100);
         Location(di).set_flags(&mut c, a | location_flag::STARTED);
-        c.set_byte(di.wrapping_add(0x12), 0);
-        let (dx, bx) = (c.word(di.wrapping_add(2)), c.word(di.wrapping_add(4)));
+        Location(di).set_spice(&mut c, 0);
+        let (dx, bx) = (Location(di).x(&mut c), Location(di).y(&mut c));
         c.set_reg(DX, dx);
         c.set_word(di.wrapping_add(0x0c), dx);
         let bx = pure::xor(B, bx >> 8, bx >> 8) << 8 | bx & 0xff; // the flags the tail gets
@@ -5333,7 +5333,7 @@ pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let mut rate = troop.rate(&mut c);
         if rate == 0 {
-            let v = (c.byte(di.wrapping_add(0x11)) as u16) << 4;
+            let v = (Location(di).harvest_per_spice(&mut c) as u16) << 4;
             let cl = troop.motivation(&mut c).wrapping_add(troop.skill(&mut c, 0));
             if cl == 0 || v / cl as u16 > 0xff {
                 c.run(0x70da, 4 + 5)?;
@@ -5571,24 +5571,24 @@ pub fn mark_idle_troop_elsewhere(m: &mut Machine, start: u16) -> Result<(), Bail
         c.run(start, 3)?; // cmp; je; ret
         return c.ret();
     }
-    let kind = c.byte(di.wrapping_add(8));
+    let kind = Location(di).kind(&mut c);
     if kind >= 0x21 {
         c.run(start, 5)?;
         return c.ret();
     }
-    let b15 = c.byte(si.wrapping_add(0x15));
+    let b15 = Troop(si).motivation(&mut c);
     if b15 >= 0x28 {
         c.run(start, 7)?;
         return c.ret();
     }
-    let state = c.byte(si.wrapping_add(3));
+    let state = Troop(si).state(&mut c);
     if state & 0x2f != 0 {
         c.run(start, 10)?; // ... mov al; and; jne; ret
         let al = pure::and(B, state as u16, 0x2f) as u8;
         c.set_reg8(r8::AL, al);
         return c.ret();
     }
-    let high = c.byte(si.wrapping_add(0x12)) & 0x80 != 0;
+    let high = Troop(si).byte_12(&mut c) & 0x80 != 0;
     c.run(start, 14 + high as u32)?; // ... mov dh, 1; test; je | shl; or; ret
     c.set_reg8(r8::AL, 0);
     let dh = if high { 2 } else { 1 };

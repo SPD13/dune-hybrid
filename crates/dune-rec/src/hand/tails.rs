@@ -3,6 +3,7 @@
 //! into the next one. The routine they go on to runs as its own port
 //! when it has one, else in the original from there.
 
+use super::game::{Location, Troop};
 use super::characters::{CharacterAt};
 use super::video;
 use super::text;
@@ -177,7 +178,7 @@ pub fn blink_and_toggle_map_screen(m: &mut Machine, start: u16) -> Result<(), Ba
 pub fn give_troop_job_unless_same(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6acb)?;
     let mut c = Ctx::new(m);
-    let job = super::game::Troop(c.reg(SI)).job(&mut c);
+    let job = Troop(c.reg(SI)).job(&mut c);
     let same = job == c.reg8(r8::CL);
     c.run(start, if same { 5 } else { 4 })?;
     c.set_reg8(r8::AL, job);
@@ -2500,7 +2501,7 @@ pub fn draw_map_place_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 0xf5fe);
     c.call(entry::DRAW_LOCATION_NAME, 0x56b0)?;
     let di = c.reg(DI);
-    let kind = c.byte(di.wrapping_add(8));
+    let kind = Location(di).kind(&mut c);
     if di < 0x138 {
         c.run(0x56b0, 2)?;
         return c.jump(0x5719);
