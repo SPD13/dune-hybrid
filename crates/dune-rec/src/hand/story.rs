@@ -1,6 +1,5 @@
 //! Story progress, the intro script, and one-line flag setters.
 
-use super::game::{Particle};
 use super::characters::{CharacterAt, character_flag};
 use super::dialogue;
 use super::waits;
@@ -24,7 +23,7 @@ use super::records;
 use super::map;
 use super::gfx;
 use super::entry;
-use super::game::{Location, Troop, location_flag};
+use super::game::{Location, Particle, SceneSpawner, Troop, location_flag};
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
@@ -3814,7 +3813,7 @@ pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x0c3b)?;
     let mut c = Ctx::new(m);
     let si = c.reg(SI);
-    let t = c.byte(si.wrapping_add(1));
+    let t = SceneSpawner(si).creature_timer(&mut c);
     let t1 = t.wrapping_sub(1);
     if t1 & 0x80 != 0 {
         let seed = c.word(0);
@@ -3822,11 +3821,11 @@ pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let b = a && seed & 0xc == 0;
         c.run(start, 2 + 2 + if a { 3 + b as u32 } else { 0 } + 1)?;
         let v = pure::dec(B, t as u16);
-        c.set_byte(si.wrapping_add(1), v as u8);
+        SceneSpawner(si).set_creature_timer(&mut c, v as u8);
         if a {
-            c.set_byte(si.wrapping_add(7), 0x0b);
+            SceneSpawner(si).set_timer(&mut c, 0x0b);
             if b {
-                c.set_byte(si.wrapping_add(7), 0x11);
+                SceneSpawner(si).set_timer(&mut c, 0x11);
             }
         }
         c.call(entry::RAND, 0x0c5b)?;
@@ -3843,26 +3842,26 @@ pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let hi = (random as u8) >= 4;
         c.run(0x0c6c, 3 + hi as u32 + 1)?;
         let si = c.reg(SI);
-        c.set_byte(si.wrapping_add(1), random as u8);
+        SceneSpawner(si).set_creature_timer(&mut c, random as u8);
         let mut cx = c.reg(CX);
         if hi {
             let ch = pure::or(B, cx >> 8, 0x40);
             cx = ch << 8 | cx & 0xff;
             c.set_reg(CX, cx);
         }
-        c.set_word(si.wrapping_add(2), cx);
+        SceneSpawner(si).set_creature_move(&mut c, cx);
     } else {
         c.run(start, 2)?;
         let v = pure::dec(B, t as u16);
-        c.set_byte(si.wrapping_add(1), v as u8);
+        SceneSpawner(si).set_creature_timer(&mut c, v as u8);
     }
     let si = c.reg(SI);
-    let al = c.byte(si.wrapping_add(2));
+    let al = SceneSpawner(si).creature_flags(&mut c);
     let ax = c.reg(AX) & 0xff00 | al as u16;
-    let b3 = c.byte(si.wrapping_add(3));
+    let b3 = SceneSpawner(si).creature_heading(&mut c);
     if al & 0x10 == 0 {
         c.run(0x0c79, 12)?;
-        c.set_byte(si, 8);
+        SceneSpawner(si).set_creature_wait(&mut c, 8);
         c.set_reg(AX, ax);
         c.set_reg(DI, ax);
         let bx = c.reg(BX) & 0xff00 | b3 as u16;
@@ -3899,7 +3898,7 @@ pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         n += 2;
         c.run(0x0c79, n)?;
-        c.set_byte(si, 8);
+        SceneSpawner(si).set_creature_wait(&mut c, 8);
         c.set_reg(DI, ax);
         let bx = c.reg(BX) & 0xff00 | b3 as u16;
         c.set_reg(BX, bx);
@@ -3925,7 +3924,7 @@ pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 }
                 let v = pure::or(B, ah, al);
                 ah = v;
-                c.set_byte(si.wrapping_add(3), v as u8);
+                SceneSpawner(si).set_creature_heading(&mut c, v as u8);
             }
         }
         let a = pure::add(B, al, 0xe0);
@@ -3948,7 +3947,7 @@ pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::PARTICLES_SPAWN_PARTICLE, 0x0ce4)?;
     c.run(0x0ce4, 2)?;
     let di = c.reg(DI);
-    c.set_word(di.wrapping_add(0x0d), 0);
+    Particle(di).set_word_0d(&mut c, 0);
     c.ret()
 }
 
@@ -5168,22 +5167,22 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let si = c.reg(SI);
-    let w4 = c.word(si.wrapping_add(4)).wrapping_sub(1);
+    let w4 = SceneSpawner(si).spawn_wait(&mut c).wrapping_sub(1);
     let neg4 = w4 & 0x8000 != 0;
-    let b6 = c.byte(si.wrapping_add(6)).wrapping_sub(1);
+    let b6 = SceneSpawner(si).burst(&mut c).wrapping_sub(1);
     let neg6 = b6 & 0x80 != 0;
     c.run(0x0b5f, 4 + 2 + if neg4 { 3 } else { 0 })?;
     c.set_reg(AX, v);
-    c.set_word(si.wrapping_add(4), w4);
+    SceneSpawner(si).set_spawn_wait(&mut c, w4);
     if neg4 {
-        c.set_byte(si.wrapping_add(6), b6);
+        SceneSpawner(si).set_burst(&mut c, b6);
         let r = math::random_word(&mut c, if neg6 { 0x0b78 } else { 0x0b89 })?;
         if neg6 {
             // A new wait.
             c.run(0x0b78, 6)?;
-            c.set_byte(si.wrapping_add(6), (r & 0x7f) as u8);
+            SceneSpawner(si).set_burst(&mut c, (r & 0x7f) as u8);
             c.set_reg(AX, r >> 8);
-            c.set_word(si.wrapping_add(4), r >> 8);
+            SceneSpawner(si).set_spawn_wait(&mut c, r >> 8);
         } else {
             let bl = (r & 0x7f) as u8;
             let x = r.swap_bytes();
@@ -5210,9 +5209,9 @@ pub fn scene_particles_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     let si = c.reg(SI);
-    let k = c.byte(si).wrapping_sub(1);
+    let k = SceneSpawner(si).creature_wait(&mut c).wrapping_sub(1);
     c.run(0x0bb7, if k & 0x80 != 0 { 3 } else { 2 })?;
-    c.set_byte(si, k);
+    SceneSpawner(si).set_creature_wait(&mut c, k);
     if k & 0x80 != 0 {
         c.call(entry::CREATURE_STEP, 0x0bbe)?;
     }

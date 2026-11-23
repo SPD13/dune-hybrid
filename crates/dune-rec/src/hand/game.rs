@@ -411,6 +411,67 @@ impl Particle {
     }
 }
 
+/// The scene's spawner record at 4856h (8 bytes; cleared, with
+/// the 8 after it, by `intro_night_attack`): the counters of the scene's frame step
+/// (`scene_particles_step`) and its creature (a bird or a worm sign,
+/// `creature_step`). Read and written in the memory.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SceneSpawner(pub u16);
+
+impl SceneSpawner {
+    /// Byte 0: frames to the creature's next step (set to 8 by
+    /// `creature_step`).
+    pub fn creature_wait(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0)
+    }
+    pub fn set_creature_wait(self, c: &mut Ctx, v: u8) {
+        c.set_byte(self.0, v)
+    }
+    /// Byte 1: the creature's steps left on its move (a new random move
+    /// when it runs out).
+    pub fn creature_timer(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0.wrapping_add(1))
+    }
+    pub fn set_creature_timer(self, c: &mut Ctx, v: u8) {
+        c.set_byte(self.0.wrapping_add(1), v)
+    }
+    /// Byte 2: the creature's move bits (10h turning, by its heading;
+    /// 0Ch its place in the table at 1592h).
+    pub fn creature_flags(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0.wrapping_add(2))
+    }
+    /// Word 2: the creature's move bits and heading together (a new move).
+    pub fn set_creature_move(self, c: &mut Ctx, v: u16) {
+        c.set_word(self.0.wrapping_add(2), v)
+    }
+    /// Byte 3: the creature's heading: bits 0..5 the direction (0 to
+    /// 3Fh), 40h turning, 80h which way.
+    pub fn creature_heading(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0.wrapping_add(3))
+    }
+    pub fn set_creature_heading(self, c: &mut Ctx, v: u8) {
+        c.set_byte(self.0.wrapping_add(3), v)
+    }
+    /// Word 4: frames to the next particle (or burst).
+    pub fn spawn_wait(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(4))
+    }
+    pub fn set_spawn_wait(self, c: &mut Ctx, v: u16) {
+        c.set_word(self.0.wrapping_add(4), v)
+    }
+    /// Byte 6: particles left in the burst (a new wait when it runs out).
+    pub fn burst(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0.wrapping_add(6))
+    }
+    pub fn set_burst(self, c: &mut Ctx, v: u8) {
+        c.set_byte(self.0.wrapping_add(6), v)
+    }
+    /// Byte 7: the scene timer ([`g::SCENE_TIMER`]).
+    pub fn set_timer(self, c: &mut Ctx, v: u8) {
+        c.set_byte(self.0.wrapping_add(7), v)
+    }
+}
+
 /// A UI element: a 0Eh-byte record of a UI list (a count, then the
 /// records; the current one at [`g::CURRENT_UI_LIST`]): a rectangle the
 /// cursor can click, drawn by `draw_ui_element`. Read and written in the
