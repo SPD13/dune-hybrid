@@ -846,7 +846,7 @@ pub fn advance_flight_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_04ded`: `loc_0661d` with BP = 4E04h, CX = 0 (SI kept); then
-/// [4733h] = CX with CH = the record's byte 14h, and `loc_07f27` (ES
+/// [4733h] = CX with CH = the location's equipment of kind 0 (byte 14h), and `loc_07f27` (ES
 /// kept).
 pub fn note_place_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x4ded)?;
@@ -861,7 +861,7 @@ pub fn note_place_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(code::FOR_RECORD, 0x4df6)?;
     c.run(0x4df6, 4)?;
     let di = c.reg(DI);
-    let ch = c.byte(di.wrapping_add(0x14));
+    let ch = Location(di).equipment(&mut c, 0);
     let cx = (ch as u16) << 8 | c.reg(CX) & 0xff;
     c.set_reg(CX, cx);
     c.set_word(g::PLACE_TROOP_COUNT, cx);
@@ -4643,8 +4643,8 @@ pub fn map_pick_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [472Bh] 0, `loc_041c5` (the head down in mode 1), the game rect to
 /// the screen, the place's records, `loc_04795` with the heading [11C7h]
 /// kept, [8] FFh, `loc_04b3b`, [114Eh] and [4729h] 0, `loc_02dbf`
-/// outside the map views, `loc_04ab8`; then in mode 1 the troop's
-/// counter [[1150h] + 15h] down and the voice stopped, else `loc_02eb2`
+/// outside the map views, `loc_04ab8`; then in mode 1 the last place's
+/// equipment of kind 1 ([[1150h] + 15h]) one down and the voice stopped, else `loc_02eb2`
 /// and the palette.
 pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x4703, 1)?;
@@ -4740,9 +4740,9 @@ pub(super) fn arrive_from_4703(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg8(r8::AL, a as u8);
     let di = c.word(g::LAST_PLACE);
     c.set_reg(DI, di);
-    let v = c.byte(di.wrapping_add(0x15));
+    let v = Location(di).equipment(c, 1);
     let v = c.dec(B, v as u16);
-    c.set_byte(di.wrapping_add(0x15), v as u8);
+    Location(di).set_equipment(c, 1, v as u8);
     super::audio::pcm_stop_voc(c.m, 0xac14)
 }
 
@@ -6069,12 +6069,12 @@ pub fn draw_room(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// with 5, `loc_04d57` with AH 0, the task 4BB9h every 10h).
 fn enemy_watch(c: &mut Ctx) -> Result<(), Bail> {
     let di = c.word(g::LAST_PLACE);
-    let dx = c.word(di.wrapping_add(2));
+    let dx = Location(di).x(c);
     let here = c.player().x;
     let ax = c.word(g::PLACE_TROOP_COUNT);
     let ah = (ax >> 8) as u8;
     let bx = c.player().y;
-    let b4 = c.byte(di.wrapping_add(4));
+    let b4 = Location(di).y(c) as u8;
     let bh = (bx >> 8) as u8;
     let n = if dx != here {
         5

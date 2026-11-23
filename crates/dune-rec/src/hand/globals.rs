@@ -1288,7 +1288,7 @@ pub const DESERT_COUNTDOWN: u16 = 0x4726;
 pub const ROOM_FIGURES_X: u16 = 0x472d;
 /// [472Fh]: and its y (+ 8, 3A67h).
 pub const ROOM_FIGURES_Y: u16 = 0x472f;
-/// [4733h]: a word: the count from `loc_0661d` (handler 4E04h) in the low byte, the location's byte 14h (its first skill need) in the high byte [4734h] (4DF9h); 0 for the map place's scene (4E12h); the enemy watch needs [4734h] set.
+/// [4733h]: a word: the count from `loc_0661d` (handler 4E04h) in the low byte, the location's equipment of kind 0 (byte 14h) in the high byte [4734h] (4DF9h); 0 for the map place's scene (4E12h); the enemy watch needs [4734h] set.
 pub const PLACE_TROOP_COUNT: u16 = 0x4733;
 /// [4736h]: the dotted pattern of a move's trail: 44h at `start_move`, rotated left each span (659Dh); its carry picks the bytes whose bits 30h become 10h.
 pub const MOVE_TRAIL_PATTERN: u16 = 0x4736;

@@ -106,8 +106,7 @@ pub fn place_troop_at_location(m: &mut Machine, start: u16) -> Result<(), Bail> 
     c.check(start, 18)?;
     let (si, di, dx, bx) = (c.reg(SI), c.reg(DI), c.reg(DX), c.reg(BX));
     Troop(si).set_location(&mut c, di);
-    c.set_word(si.wrapping_add(6), dx);
-    c.set_word(si.wrapping_add(8), bx);
+    Troop(si).set_position(&mut c, dx, bx);
     let kind = c.byte(di);
     let old = Troop(si).byte_12(&mut c);
     let ax = pure::and(W, (old as u16) << 8 | kind as u16, 0x700f);
