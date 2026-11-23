@@ -1053,7 +1053,7 @@ pub fn grow_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6cfc)?;
     let mut c = Ctx::new(m);
     let place = Location(c.reg(DI));
-    let stage = place.byte_0b(&mut c);
+    let stage = place.radius(&mut c);
     let cost = if place.kind(&mut c) >= 0x20 {
         3
     } else if stage >= 0x0c {
@@ -1068,7 +1068,7 @@ pub fn grow_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !grows {
         return c.ret();
     }
-    place.set_byte_0b(&mut c, stage + 1);
+    place.set_radius(&mut c, stage + 1);
     c.save(&[SI, DI]);
     c.call(entry::LOCATION_CIRCLE, 0x6d16)?;
     c.run(0x6d16, 3)?;
@@ -1846,7 +1846,7 @@ pub fn troop_joins(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::GET_INGAME_DAY_Q, 0x6701)?;
     let troop = Troop(c.reg(SI));
     let place = Location(troop.location(&mut c));
-    let first = place.byte_0b(&mut c) == 0;
+    let first = place.radius(&mut c) == 0;
     c.run(0x6701, if first { 6 } else { 5 })?;
     let day = c.reg8(r8::AL);
     troop.set_day(&mut c, day);
@@ -1854,7 +1854,7 @@ pub fn troop_joins(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !first {
         return c.ret();
     }
-    place.set_byte_0b(&mut c, 2);
+    place.set_radius(&mut c, 2);
     c.call(entry::LOCATION_CIRCLE, 0x6714)?;
     c.run(0x6714, 1)?;
     c.ret()
@@ -2266,7 +2266,7 @@ pub fn troop_bit_10_by_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let (si, di) = (c.reg(SI), c.reg(DI));
     let w12 = c.word(si.wrapping_add(0x12));
-    let b1b = c.byte(di.wrapping_add(0x1b));
+    let b1b = Location(di).count(&mut c);
     let b0a = Location(di).flags(&mut c);
     let n = if w12 & 0x30 != 0 {
         3
@@ -2847,7 +2847,7 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if taken {
         let day_ = time::game_day(&mut c, 0x6e31)?;
         let place = Location(c.reg(DI));
-        let since = (day_ as u8).wrapping_sub(place.byte_0b(&mut c));
+        let since = (day_ as u8).wrapping_sub(place.raid_ends(&mut c));
         c.set_reg8(r8::AL, since);
         if since >= 0xfe {
             c.run(0x6e31, 4)?;
@@ -2861,7 +2861,7 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
         bump(&mut c, g::SIETCHES_HELD);
         c.call(entry::SET_PEOPLE_STATE_AT_PLACE, 0x6e47)?;
         c.run(0x6e47, 2)?;
-        Location(c.reg(DI)).set_byte_0b(&mut c, 5);
+        Location(c.reg(DI)).set_radius(&mut c, 5);
     }
     c.call(entry::GROW_LOCATION, 0x6e4e)?;
     c.run(0x6e4e, 1)?;
@@ -5196,11 +5196,11 @@ pub fn job_9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x771c, 1)?;
     c.call(entry::TROOP_STRENGTH, 0x771f)?;
     let al = c.reg8(r8::AL);
-    let v = c.byte(di.wrapping_add(0x1b));
+    let v = Location(di).count(&mut c);
     let carry = v as u16 + al as u16 > 0xff;
     c.run(0x771f, if carry { 6 } else { 3 })?;
     let r = pure::add(B, v as u16, al as u16) as u8; // the exit's flags
-    c.set_byte(di.wrapping_add(0x1b), r);
+    Location(di).set_count(&mut c, r);
     if !carry {
         return c.ret();
     }
@@ -5209,7 +5209,7 @@ pub fn job_9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let b = Location(di).kind(&mut c);
     let b = pure::or(B, b as u16, 8) as u8; // the flags the tail gets
     Location(di).set_kind(&mut c, b);
-    c.set_byte(di.wrapping_add(0x1b), 5);
+    Location(di).set_count(&mut c, 5);
     c.jump(entry::SET_TROOP_ACTIVITY)
 }
 
@@ -5252,7 +5252,7 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let bx = pure::xor(B, bx >> 8, bx >> 8) << 8 | bx & 0xff; // the flags the tail gets
         c.set_reg(BX, bx);
         c.set_word(di.wrapping_add(0x0e), bx);
-        c.set_byte(di.wrapping_add(0x0b), 4);
+        Location(di).set_radius(&mut c, 4);
         return c.jump(entry::START_MOVE);
     }
     c.run(0x769c, 1 + 4 + 1)?;
@@ -5276,22 +5276,22 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     raise_skill(&mut c, 2, 1, 0x76e5)?;
-    let e = c.byte(di.wrapping_add(0x1b));
+    let e = Location(di).count(&mut c);
     if e < 0x0c {
         c.run(0x76e5, 2 + 2)?;
-        c.set_byte(di.wrapping_add(0x1b), 0);
+        Location(di).set_count(&mut c, 0);
         c.call(entry::MARK_TROOP_10, 0x770e)?;
         c.run(0x770e, 1)?;
         return c.jump(entry::DROP_TROOP_PARTICLE);
     }
-    let b = c.byte(di.wrapping_add(0x0b));
+    let b = Location(di).radius(&mut c);
     let ax = c.word(di.wrapping_add(0x0e));
     let ax = ((ax as u8 as i8) as i16 as u16).wrapping_sub(2);
     let keep = (ax as i16) < -0x52;
     c.run(0x76e5, 2 + 2 + (b < 0x0c) as u32 + 5 + (!keep) as u32 + 1)?;
-    c.set_byte(di.wrapping_add(0x1b), e - 0x0c);
+    Location(di).set_count(&mut c, e - 0x0c);
     if b < 0x0c {
-        c.set_byte(di.wrapping_add(0x0b), b + 1);
+        Location(di).set_radius(&mut c, b + 1);
     }
     c.set_reg(AX, ax);
     if !keep {

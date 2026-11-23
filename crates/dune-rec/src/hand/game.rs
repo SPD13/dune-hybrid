@@ -47,9 +47,11 @@ pub mod location_flag {
     /// Set by `maybe_mark_troop`; job 4 counts down while it is set, then
     /// clears it (`clear_location_4`).
     pub const BIT_4: u8 = 0x04;
-    /// Raided (`location_raided`): its orders menu and `pick_map_location`
-    /// treat it as taken, until `troop_day_update` frees it once the day
-    /// in byte 0Bh has passed.
+    /// Raided (`location_raided`, which raises the charisma and the
+    /// motivation): its orders menu and `pick_map_location` treat it as
+    /// taken until the day in byte 0Bh has passed; then `troop_day_update`
+    /// clears it, makes it a sietch again (byte 8 to its low three bits)
+    /// and counts it held ([`super::g::SIETCHES_HELD`]).
     pub const RAIDED: u8 = 0x08;
     /// Visited: set when the player steps into it, for a kind of 20h or
     /// more (`step_3ff5`). Others' troops there get the sprite list 181Fh
@@ -490,11 +492,42 @@ impl Location {
         self.byte(c, 0x1a)
     }
 
-    /// Byte 0Bh: 2 once a troop of yours has joined there (`troop_joins`).
-    pub fn byte_0b(self, c: &mut Ctx) -> u8 {
+    /// Byte 0Bh: the radius of its circle on the map (`location_circle`,
+    /// `start_move`): 2 once a troop of yours has joined there
+    /// (`troop_joins`), grown up to 0Ch (`grow_location`, job 8). Read
+    /// also as [`Location::found_from`] and [`Location::raid_ends`].
+    pub fn radius(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x0b)
     }
-    pub fn set_byte_0b(self, c: &mut Ctx, v: u8) {
+    pub fn set_radius(self, c: &mut Ctx, v: u8) {
         self.set_byte(c, 0x0b, v)
+    }
+
+    /// Byte 0Bh while [`location_flag::UNDISCOVERED`]: the phase from which
+    /// it can be found (`scan_encounters`, `location_ahead`,
+    /// `nearest_places`).
+    pub fn found_from(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 0x0b)
+    }
+
+    /// Byte 0Bh while [`location_flag::RAIDED`]: the day the raid ends
+    /// (its day + 2, `location_raided`; `troop_day_update`).
+    pub fn raid_ends(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 0x0b)
+    }
+    pub fn set_raid_ends(self, c: &mut Ctx, v: u8) {
+        self.set_byte(c, 0x0b, v)
+    }
+
+    /// Byte 1Bh: the count the map caption shows with
+    /// [`location_flag::COUNTING`] (`caption_count_line`). Job 9 raises it
+    /// by its troops' strength until it overflows (then it is 5 and
+    /// counting); then it grows (`grow_spice`, up to FAh) and job 8 takes
+    /// 0Ch a time from it.
+    pub fn count(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 0x1b)
+    }
+    pub fn set_count(self, c: &mut Ctx, v: u8) {
+        self.set_byte(c, 0x1b, v)
     }
 }

@@ -2429,7 +2429,7 @@ pub fn caption_count_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x6c);
     c.call(entry::FONT_DRAW_STRING_WITH_COLOR_AT_POS, 0x6071)?;
     let di = c.reg(DI);
-    let al = c.byte(di.wrapping_add(0x1b));
+    let al = Location(di).count(&mut c);
     let f = Location(di).flags(&mut c);
     c.run(0x6071, 5)?;
     c.set_reg8(r8::AL, al);
@@ -2590,7 +2590,7 @@ pub fn location_circle(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 3)?;
     c.set_byte(g::CIRCLE_COLOUR, 0x20);
     let di = c.reg(DI);
-    let r = Location(di).byte_0b(&mut c);
+    let r = Location(di).radius(&mut c);
     c.set_reg(CX, r as u16);
     circle_at(&mut c, 0x6458)
 }
@@ -3890,7 +3890,7 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let si = c.reg(SI);
             let f = Location(si).flags(&mut c);
             let ph = c.progress().phase;
-            let due = c.byte(si.wrapping_add(0x0b));
+            let due = Location(si).found_from(&mut c);
             if f & location_flag::UNDISCOVERED == 0 {
                 c.run(0x4123, 3)?;
                 tail(&mut c)?;
@@ -4078,7 +4078,7 @@ pub fn location_ahead(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let f = Location(si).flags(&mut c);
             if f & location_flag::UNDISCOVERED != 0 {
                 let ph = c.progress().phase;
-                let due = c.byte(si.wrapping_add(0x0b));
+                let due = Location(si).found_from(&mut c);
                 if ph < due {
                     skip(&mut c, 0x4211, 6)?;
                     break 'f false;
@@ -4526,7 +4526,7 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (si, di) = (c.reg(SI), c.reg(DI));
     c.push(si);
     c.push(di);
-    c.set_byte(di.wrapping_add(0x0b), 5);
+    Location(di).set_radius(&mut c, 5);
     c.call(entry::LOCATION_CIRCLE, 0x744c)?;
     c.run(0x744c, 3)?;
     let di = c.pop();
@@ -4538,7 +4538,7 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let al = c.reg8(r8::AL);
     let a = pure::add(B, al as u16, 2);
     let di = c.reg(DI);
-    c.set_byte(di.wrapping_add(0x0b), a as u8);
+    Location(di).set_raid_ends(&mut c, a as u8);
     story::raise_charisma(&mut c, 4, 0x745b)?;
     c.run(0x745b, 2)?;
     troops::raise_all_motivation(&mut c, 1, 0x7460)?;
@@ -4622,7 +4622,7 @@ pub fn grow_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut di = 0x100u16;
     loop {
         let al = Location(di).flags(&mut c);
-        let bl = c.byte(di.wrapping_add(0x1b));
+        let bl = Location(di).count(&mut c);
         'one: {
             if al & location_flag::COUNTING == 0 {
                 c.run(0x63fe, 3)?;
@@ -4652,7 +4652,7 @@ pub fn grow_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let v = if cap { 0xfa } else { v as u8 };
             c.set_reg(BX, 0xfa00 | v as u16);
             let di = c.reg(DI);
-            c.set_byte(di.wrapping_add(0x1b), v);
+            Location(di).set_count(&mut c, v);
         }
         di = c.reg(DI);
         let nd = di.wrapping_add(0x1c);
@@ -6747,7 +6747,7 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let k8 = c.byte(si.wrapping_add(8));
         let f = Location(si).flags(&mut c);
         let phase = c.progress().phase;
-        let due = c.byte(si.wrapping_add(0x0b));
+        let due = Location(si).found_from(&mut c);
         let (bp, skip, nsel) = if k8 >= 0x28 {
             if f & location_flag::UNDISCOVERED != 0 { (g::NEAREST_HIGH_UNMAPPED, false, 5u32) } else { (g::NEAREST_HIGH_MAPPED, false, 7) }
         } else if f & location_flag::UNDISCOVERED == 0 {
