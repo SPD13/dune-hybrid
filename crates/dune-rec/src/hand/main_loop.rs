@@ -3,6 +3,7 @@
 //! shadow check can't see them; `--rec on` runs them, checked by whole-run
 //! state hashes (`STATE_HASH=1`, against plain emulation).
 
+use super::game::{UiElement, ui_press};
 use super::tails;
 use super::gfx;
 use super::ui;
@@ -458,10 +459,10 @@ fn dispatch(c: &mut Ctx, ax: u16, si: u16, di: u16, cx: u16) -> Result<(), Bail>
             c.set_word(g::PRESSED_ELEMENT, di);
             c.call(entry::DRAW_ELEMENT_PRESSED, 0xd91f)?;
             let di = c.reg(DI);
-            let b = c.byte(di.wrapping_add(9));
+            let b = UiElement(di).press(c);
             c.run(0xd91f, 2)?;
             c.test(B, b as u16, 0x40);
-            if b & 0x40 == 0 {
+            if b & ui_press::REPEATS == 0 {
                 return release_at_d92b(c);
             }
             c.run(0xd925, 2)?;

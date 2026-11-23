@@ -6055,7 +6055,7 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let di = c.word(g::PLACE);
         n += 4;
         if di != 0 {
-            let tr = c.byte(di.wrapping_add(9));
+            let tr = Location(di).first_troop(&mut c);
             n += 3;
             if tr != 0 {
                 n += 1;
@@ -6089,7 +6089,7 @@ pub fn map_panel_buttons(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let di = c.word(g::PLACE);
         c.set_reg(DI, di);
         if di != 0 {
-            let tr = c.byte(di.wrapping_add(9));
+            let tr = Location(di).first_troop(&mut c);
             c.set_reg8(r8::AL, tr);
         }
         if chk.is_some() {

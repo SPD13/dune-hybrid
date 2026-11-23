@@ -411,6 +411,69 @@ impl Particle {
     }
 }
 
+/// A UI element: a 0Eh-byte record of a UI list (a count, then the
+/// records; the current one at [`g::CURRENT_UI_LIST`]): a rectangle the
+/// cursor can click, drawn by `draw_ui_element`. Read and written in the
+/// memory.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct UiElement(pub u16);
+
+/// Bits of a UI element's byte 8 ([`UiElement::flags`]).
+pub mod ui_flag {
+    /// Without its sprite (`draw_ui_element` draws only the fill).
+    pub const NO_SPRITE: u8 = 0x20;
+    /// Its rectangle filled first (`draw_ui_element`).
+    pub const FILLED: u8 = 0x40;
+    /// Live: it takes clicks (`element_under_cursor`) and the keyboard
+    /// moves to it (`keyboard_move`).
+    pub const LIVE: u8 = 0x80;
+}
+
+/// Bits of a UI element's byte 9 ([`UiElement::press`]).
+pub mod ui_press {
+    /// Drawn pressed while held (`draw_element_pressed`, its sprite one
+    /// up; [`super::g::PRESSED_ELEMENT`]).
+    pub const SHOWS_PRESSED: u8 = 0x20;
+    /// Its handler called again while held ([`super::g::REPEAT_ELEMENT`]).
+    pub const REPEATS: u8 = 0x40;
+}
+
+impl UiElement {
+    pub const SIZE: u16 = 0x0e;
+
+    /// Words 0, 2, 4, 6: its rectangle (x0, y0, x1, y1).
+    pub fn x0(self, c: &mut Ctx) -> u16 {
+        c.word(self.0)
+    }
+    pub fn y0(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(2))
+    }
+    pub fn x1(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(4))
+    }
+    pub fn y1(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(6))
+    }
+    /// Byte 8: its [`ui_flag`] bits.
+    pub fn flags(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0.wrapping_add(8))
+    }
+    pub fn set_flags(self, c: &mut Ctx, v: u8) {
+        c.set_byte(self.0.wrapping_add(8), v)
+    }
+    /// Byte 9: its [`ui_press`] bits.
+    pub fn press(self, c: &mut Ctx) -> u8 {
+        c.byte(self.0.wrapping_add(9))
+    }
+    /// Word 0Ah: its sprite (FFFFh none).
+    pub fn sprite(self, c: &mut Ctx) -> u16 {
+        c.word(self.0.wrapping_add(0x0a))
+    }
+    pub fn set_sprite(self, c: &mut Ctx, v: u16) {
+        c.set_word(self.0.wrapping_add(0x0a), v)
+    }
+}
+
 /// A location (sietch, palace, ...): a 1Ch-byte record in the table at
 /// 100h, which ends with a byte FFh.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

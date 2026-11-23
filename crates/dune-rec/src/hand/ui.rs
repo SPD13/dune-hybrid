@@ -2,6 +2,7 @@
 //! communication device, the sky, the sun and moon, location names, and
 //! smaller game-logic steps they trigger.
 
+use super::game::{UiElement, ui_flag};
 use super::characters::{CharacterAt, character_flag};
 use super::waits;
 use super::sprites;
@@ -1660,7 +1661,7 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, p);
     let di = p.wrapping_add(0x1b48);
     c.set_reg(DI, di);
-    let bx = c.word(di.wrapping_add(2)).wrapping_add(1);
+    let bx = UiElement(di).y0(&mut c).wrapping_add(1);
     video::set_draw_position(&mut c, 0x5d, bx, 0xd4b4)?;
     let text = ax & 0x3fff;
     let ah = (ax >> 8) as u8;
@@ -1668,8 +1669,8 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let swap = lit && ah & 0x80 != 0;
     c.run(0xd4b4, 5 + if text == 0 { 0 } else { 3 + if lit { 4 + swap as u32 } else { 0 } + 2 })?;
     c.set_byte(g::TEXT_BACK_COLOUR, 0xf3);
-    let f = c.byte(di.wrapping_add(8)) & 0x7f;
-    c.set_byte(di.wrapping_add(8), f);
+    let f = UiElement(di).flags(&mut c) & !ui_flag::LIVE;
+    UiElement(di).set_flags(&mut c, f);
     c.set_reg(AX, ax);
     c.set_reg(SI, text);
     if text != 0 {
@@ -1677,7 +1678,7 @@ pub fn button_label(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // swapped with the background for bit 15.
         c.set_reg8(r8::AL, 0xf5);
         if lit {
-            c.set_byte(di.wrapping_add(8), f | 0x80);
+            UiElement(di).set_flags(&mut c, f | ui_flag::LIVE);
             c.set_reg8(r8::AL, 0xfa);
             if swap {
                 let old = c.byte(g::TEXT_BACK_COLOUR);

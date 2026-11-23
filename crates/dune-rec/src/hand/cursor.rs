@@ -7,6 +7,7 @@
 //! best point (x, y). DX, BX are the cursor. A candidate is scored with DX,
 //! BX as they are and AX, SI its point; a lower score wins.
 
+use super::game::{UiElement, ui_flag};
 use super::game::{Particle};
 use super::screens;
 use super::entry;
@@ -686,7 +687,7 @@ pub fn highlight_hovered_text_action_item(m: &mut Machine, start: u16) -> Result
                 c.set_reg(CX, 0);
                 loop {
                     let di = c.reg(DI);
-                    let (t, b) = (c.word(di.wrapping_add(2)), c.word(di.wrapping_add(6)));
+                    let (t, b) = (UiElement(di).y0(&mut c), UiElement(di).y1(&mut c));
                     if bx <= t {
                         c.run(0xd5c7, 2)?;
                         at = 3;
@@ -1131,7 +1132,7 @@ pub(super) fn keyboard_move(c: &mut Ctx) -> Result<(), Bail> {
     let mut di = UI_ELEMENTS + 2;
     c.set_reg(DI, di);
     loop {
-        let shown = c.byte(di.wrapping_add(8)) & 0x80 != 0;
+        let shown = UiElement(di).flags(c) & ui_flag::LIVE != 0;
         c.run(0xe00a, if shown { 3 } else { 2 })?;
         if shown {
             let under = inside_rect(c, 0xe013)?;

@@ -1,6 +1,7 @@
 //! Drawing sprites (plain and scaled), UI elements, the screen update
 //! with the talking head, and small string helpers.
 
+use super::game::{UiElement, ui_flag};
 use super::entry;
 use super::pure;
 use super::{B, Ctx, W, entered, globals as g, r8};
@@ -141,9 +142,9 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(fb);
     c.call(code::SET_SCREEN_AS_ACTIVE_FRAMEBUFFER, 0xd207)?;
     let si = c.reg(SI);
-    let flags = c.byte(si.wrapping_add(8));
-    c.run(0xd207, if flags & 0x40 != 0 { 5 } else { 3 })?;
-    if flags & 0x40 != 0 {
+    let flags = UiElement(si).flags(&mut c);
+    c.run(0xd207, if flags & ui_flag::FILLED != 0 { 5 } else { 3 })?;
+    if flags & ui_flag::FILLED != 0 {
         c.push(si);
         let fb = c.screen_buffers().active;
         c.set_sreg(ES, fb);
@@ -156,9 +157,9 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.push(si);
     }
     let si = c.reg(SI);
-    let flags = c.byte(si.wrapping_add(8));
-    let sprite = c.word(si.wrapping_add(0x0a));
-    let n = if flags & 0x20 != 0 {
+    let flags = UiElement(si).flags(&mut c);
+    let sprite = UiElement(si).sprite(&mut c);
+    let n = if flags & ui_flag::NO_SPRITE != 0 {
         2
     } else if sprite == 0xffff {
         14
@@ -166,7 +167,7 @@ pub fn draw_ui_element(m: &mut Machine, start: u16) -> Result<(), Bail> {
         16
     };
     c.run(0xd218, n + if n == 16 { 0 } else { 3 })?;
-    if flags & 0x20 == 0 {
+    if flags & ui_flag::NO_SPRITE == 0 {
         for r in [DX, BX, DI, CX] {
             let v = c.lods(W, DS);
             c.set_reg(r, v);

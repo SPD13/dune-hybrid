@@ -3,6 +3,7 @@
 //! starts with a byte: its kind in the low 4 bits (0Fh: none to leave),
 //! FFh at the end of the stack.
 
+use super::game::{UiElement, ui_flag, ui_press};
 use super::troops;
 use super::text;
 use super::waits;
@@ -286,16 +287,16 @@ pub fn draw_element_pressed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xd65a)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
-    let f = c.byte(di.wrapping_add(9));
-    let on = f & 0x20 != 0;
+    let f = UiElement(di).press(&mut c);
+    let on = f & ui_press::SHOWS_PRESSED != 0;
     c.run(start, if on { 9 } else { 3 })?;
     if !on {
         return c.ret();
     }
     c.set_word(g::PRESSED_ELEMENT, di);
-    let v = c.word(di.wrapping_add(0x0a));
+    let v = UiElement(di).sprite(&mut c);
     let v = pure::inc(W, v);
-    c.set_word(di.wrapping_add(0x0a), v);
+    UiElement(di).set_sprite(&mut c, v);
     let si = c.reg(SI);
     c.push(si);
     c.push(di);
@@ -305,9 +306,9 @@ pub fn draw_element_pressed(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(DI, di);
     let si = c.pop();
     c.set_reg(SI, si);
-    let v = c.word(di.wrapping_add(0x0a));
+    let v = UiElement(di).sprite(&mut c);
     let v = pure::dec(W, v);
-    c.set_word(di.wrapping_add(0x0a), v);
+    UiElement(di).set_sprite(&mut c, v);
     c.ret()
 }
 
@@ -540,10 +541,10 @@ pub fn element_under_cursor(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (mut k, mut d) = (cx, di);
     let mut found = false;
     loop {
-        let f = c.byte(d.wrapping_add(8));
-        let r = [c.word(d), c.word(d.wrapping_add(2)), c.word(d.wrapping_add(4)), c.word(d.wrapping_add(6))];
+        let f = UiElement(d).flags(&mut c);
+        let r = [UiElement(d).x0(&mut c), UiElement(d).y0(&mut c), UiElement(d).x1(&mut c), UiElement(d).y1(&mut c)];
         n += 2;
-        let inside = if f & 0x80 == 0 {
+        let inside = if f & ui_flag::LIVE == 0 {
             false
         } else {
             n += 2;
