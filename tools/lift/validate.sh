@@ -1,7 +1,8 @@
 #!/bin/sh
 # validate.sh TAG: shadow + call-each on seeds 12 and 21, the long-call and
-# phase-ladder runs, and --rec on screenshots against ref/off (seed 12),
-# one game at a time. Expect only differences marked as the harness's.
+# phase-ladder runs, two scripted runs on the day13 save (a troop moved,
+# a flight), and --rec on screenshots against ref/off (seed 12), one game
+# at a time. Expect only differences marked as the harness's.
 . "$(dirname "$0")/common.sh"
 S=$LIFT_DATA/validate; mkdir -p $S
 T=$1
@@ -23,16 +24,26 @@ run --seconds 300 --monkey 12:66:0.6 --rec on --shot-every 30 --out $S/v-$T-on >
 SAVES=${SAVES:-$REPO/../dune-hybrid/tests-data/saves}
 click() { echo "$1:mouse:$2:$3:0,$1.5:mouse:$2:$3:1,$1.7:mouse:$2:$3:0"; }
 MOVE="68:load:1,$(click 74 130 160),$(click 86 76 92),$(click 92 130 184),$(click 98 177 81)"
-if [ -f $SAVES/openrakis/DuneTools/DUNE37S1.SAV ]; then
+# A flight from the same save: SEE DUNE MAP, TAKE AN ORNITHOPTER, a
+# sietch on the cockpit's map, SKIP TO DESTINATION; the flight room's
+# ports called each (`draw_flight_room` 37F4h, `redraw_flight_room`
+# 4ABEh, ...), which the monkey runs never reach.
+FLY="68:load:1,$(click 74 130 160),$(click 86 130 184),$(click 96 190 89),$(click 158 130 161)"
+FLY_ONLY=37f4,4abe,9f8b,3551,a244,a248,0e66,0e6c,0e77,488a
+DAY13=$SAVES/openrakis/DuneTools/DUNE37S1.SAV
+if [ -f $DAY13 ]; then
   $B --dir "$GAME" --cmd "ADP220 SBP2227 ENG" --events "61.5:key:1:1,61.6:key:1:0,$MOVE" \
-    --save $SAVES/openrakis/DuneTools/DUNE37S1.SAV --seconds 110 --rec shadow \
+    --save $DAY13 --seconds 110 --rec shadow \
     --rec-report $S/v-$T-e.tsv --out $S/v-$T-e > $S/v-$T-e.log 2>&1
+  $B --dir "$GAME" --cmd "ADP220 SBP2227 ENG" --events "61.5:key:1:1,61.6:key:1:0,$FLY" \
+    --save $DAY13 --seconds 200 --rec shadow --call-each 6 --call-only $FLY_ONLY --call-ms 3000 \
+    --rec-report $S/v-$T-f.tsv --out $S/v-$T-f > $S/v-$T-f.log 2>&1
 else
-  echo "no save for the map move run" > $S/v-$T-e.log; : > $S/v-$T-e.tsv
+  for x in e f; do echo "no save for the scripted runs" > $S/v-$T-$x.log; : > $S/v-$T-$x.tsv; done
 fi
 
-for x in a b c d e on; do echo "== $x"; grep -E "^rec|^call-each:.*calls|^exit" $S/v-$T-$x.log; done
-for x in a b c d e; do awk -F'\t' 'NR>1 && $4>0' $S/v-$T-$x.tsv; done
+for x in a b c d e f on; do echo "== $x"; grep -E "^rec|^call-each:.*calls|^exit" $S/v-$T-$x.log; done
+for x in a b c d e f; do awk -F'\t' 'NR>1 && $4>0' $S/v-$T-$x.tsv; done
 python - "$LIFT_DATA/ref/off" "$S/v-$T-on" <<'PY'
 import sys,os,filecmp
 a,b=sys.argv[1:]
@@ -40,5 +51,5 @@ fs=sorted(f for f in os.listdir(a) if f.endswith('.png'))
 print('shots:', sum(filecmp.cmp(os.path.join(a,f),os.path.join(b,f),shallow=False) for f in fs if os.path.exists(os.path.join(b,f))),'/',len(fs),'identical')
 PY
 echo "hand ports (entry name ok diff bailed skipped), summed:"
-cat $S/v-$T-a.tsv $S/v-$T-b.tsv $S/v-$T-c.tsv $S/v-$T-d.tsv $S/v-$T-e.tsv | grep "\[hand\]" | awk -F'	' '{k=$1" "$2; ok[k]+=$3; d[k]+=$4; b[k]+=$5; r[k]+=$8} END {for (k in ok) print k"	"ok[k]"	"d[k]"	"b[k]"	"r[k]}' | sort > $S/v-$T-hand.txt
+cat $S/v-$T-a.tsv $S/v-$T-b.tsv $S/v-$T-c.tsv $S/v-$T-d.tsv $S/v-$T-e.tsv $S/v-$T-f.tsv | grep "\[hand\]" | awk -F'	' '{k=$1" "$2; ok[k]+=$3; d[k]+=$4; b[k]+=$5; r[k]+=$8} END {for (k in ok) print k"	"ok[k]"	"d[k]"	"b[k]"	"r[k]}' | sort > $S/v-$T-hand.txt
 awk -F'	' '{n++; if ($3>0) {bad++; print "DIFF", $0}; if ($2+$4==0) un++; if ($2==0 && $5==0) {nr++}} END {print n" hand ports, "bad+0" with differences, "un+0" never checked, "nr+0" never ran their own code to the end"}' $S/v-$T-hand.txt

@@ -1228,6 +1228,16 @@ instruction count on; diff a plain run with a `--rec on` one),
   the clicks (no monkey) on the day13 save: SEE DUNE MAP, a troop, MOVE
   TROOP, a sietch on the small map. `map_click_pick` and `move_troop_to`
   (82DAh) verify equal there.
+- The flight room: run `f` of `validate.sh` (2026-11-23) flies from the
+  same save. It clicks SEE DUNE MAP, TAKE AN ORNITHOPTER, a sietch on
+  the cockpit's map, then SKIP TO DESTINATION, and calls the flight
+  ports each. `draw_flight_room` (37F4h), `redraw_flight_room` (4ABEh)
+  and `say_entry_mask_20` (9F8Bh) are checked there, and the scene's
+  record (3551h) and the answer offers (A244h, A248h) are reached.
+  Never checked: 11, down from 17.
+- `start_script_at_si` (13C8h) is left out of run `f`. Called each, it
+  reaches the start-up's own writes into the code segment (the PIT,
+  EFDDh), like `parse_command_line`: the harness's differences.
 - `exit_with_error`, `out_of_memory_error`: they end the program; no check
   can follow them. Leave them generated.
 - The XMS routines (`xms_memory_func_1`, `initialize_himem_sys`,
