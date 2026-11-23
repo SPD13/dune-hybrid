@@ -4,6 +4,7 @@
 //! 20h, 21h..27h, 28h..2Fh and 30h and up the kinds that
 //! `get_location_type_string_offset` and `calc_SAL_index` tell apart.
 
+use super::characters::{CharacterAt, character_flag};
 use super::game::Troop;
 use super::game::Location;
 use super::entry;
@@ -187,13 +188,13 @@ pub fn move_following_character(m: &mut Machine, start: u16) -> Result<(), Bail>
     entered(start, 0x40c9)?;
     let mut c = Ctx::new(m);
     let si = c.reg(SI);
-    let flags = c.byte(si.wrapping_add(0x0f));
-    let movable = flags & 0x40 != 0;
-    c.run(start, if movable { 5 } else { 3 })?;
-    if movable {
+    let flags = CharacterAt(si).flags(&mut c);
+    let in_party = flags & character_flag::IN_PARTY != 0;
+    c.run(start, if in_party { 5 } else { 3 })?;
+    if in_party {
         let (dx, bx) = (c.reg(DX), c.reg(BX));
         c.set_word(si, dx);
-        c.set_word(si.wrapping_add(2), bx);
+        CharacterAt(si).set_y(&mut c, bx);
     }
     c.ret()
 }

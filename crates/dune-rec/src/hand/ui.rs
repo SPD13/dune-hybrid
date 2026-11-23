@@ -2,6 +2,7 @@
 //! communication device, the sky, the sun and moon, location names, and
 //! smaller game-logic steps they trigger.
 
+use super::characters::{CharacterAt, character_flag};
 use super::waits;
 use super::sprites;
 use super::screens;
@@ -1304,14 +1305,14 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for i in 0..0x10u16 {
         let si = 0xfd8 + 0x10 * i;
         c.set_reg(SI, si);
-        let b3 = c.byte(si.wrapping_add(3));
+        let b3 = CharacterAt(si).location_index(&mut c);
         'one: {
             if b3 != place {
                 c.run(0x1962, 2)?;
                 break 'one;
             }
             c.run(0x1962, 4)?;
-            let al = c.byte(si.wrapping_add(0x0e));
+            let al = CharacterAt(si).number(&mut c);
             c.set_reg8(r8::AL, al);
             if story::four_in_phases_15_to_1f(&mut c, 0x196d)? {
                 c.run(0x196d, 1)?;
@@ -1319,12 +1320,12 @@ pub fn people_panel(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
             let si = c.reg(SI);
             let w = c.word(si);
-            let f = c.byte(si.wrapping_add(0x0f));
-            let hi = f & 0x40 != 0;
-            c.run(0x196d, 6 + hi as u32 + 1)?;
+            let f = CharacterAt(si).flags(&mut c);
+            let in_party = f & character_flag::IN_PARTY != 0;
+            c.run(0x196d, 6 + in_party as u32 + 1)?;
             let bl = pure::dec(B, w & 0xff);
             let mut bx = bl;
-            if hi {
+            if in_party {
                 bx = pure::add(W, bx, 0x0c);
             }
             c.set_reg(BX, bx);

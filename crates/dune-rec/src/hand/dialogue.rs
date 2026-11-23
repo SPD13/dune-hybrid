@@ -1,6 +1,7 @@
 //! Dialogue state: the talking character's mode bytes (47C2h, 47C4h,
 //! 47DCh...), the phrase pointers, and small steps of the conversation.
 
+use super::characters::{CharacterAt, character_flag};
 use super::game::location_flag;
 use super::screen;
 use super::draw;
@@ -205,13 +206,13 @@ pub fn release_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
     let record = c.reg(SI);
-    let f = c.byte(record.wrapping_add(0x0f));
-    c.set_byte(record.wrapping_add(0x0f), f & !0x40);
+    let f = CharacterAt(record).flags(&mut c);
+    CharacterAt(record).set_flags(&mut c, f & !character_flag::IN_PARTY);
     c.set_reg(BX, 2);
     c.call(entry::STAMP_RECORD_TIME, 0x9560)?;
     c.run(0x9560, 5)?;
     let record = c.reg(SI);
-    let bit = c.byte(record.wrapping_add(0x0e));
+    let bit = CharacterAt(record).number(&mut c);
     c.set_reg8(r8::CL, bit);
     // `rol ax,cl` of FFFEh (the 8086 rotates by the count mod 16).
     let mask = 0xfffeu16.rotate_left((bit & 0x1f) as u32 % 16);
@@ -853,13 +854,13 @@ pub fn speaker_mood(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let record = c.conversation().speaker;
-    let flags = c.byte(record.wrapping_add(0x0f));
-    let near = flags & 0x40 == 0;
-    c.run(start, 13 + near as u32)?;
+    let flags = CharacterAt(record).flags(&mut c);
+    let out_of_party = flags & character_flag::IN_PARTY == 0;
+    c.run(start, 13 + out_of_party as u32)?;
     c.save(&[SI]);
     c.set_reg(SI, record);
     c.update_progress(|t| t.speaker_flags = flags);
-    let then = c.word(record.wrapping_add(if near { 0x0a } else { 8 }));
+    let then = c.word(record.wrapping_add(if out_of_party { 0x0a } else { 8 }));
     let since = game::game_time(&mut c).wrapping_sub(then);
     c.set_reg(AX, since);
     c.update_progress(|t| t.speaker_time_since = since);
@@ -1296,7 +1297,7 @@ pub fn reset_dialogue(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn add_speaker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x30b9)?;
     let mut c = Ctx::new(m);
-    if c.byte(c.reg(SI).wrapping_add(0x0f)) & 0x40 != 0 {
+    if CharacterAt(c.reg(SI)).flags(&mut c) & character_flag::IN_PARTY != 0 {
         c.run(start, 3)?;
         return c.ret();
     }
@@ -1314,7 +1315,7 @@ pub fn add_speaker(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn add_speaker_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3120)?;
     let mut c = Ctx::new(m);
-    if c.byte(c.reg(SI).wrapping_add(0x0f)) & 0x40 == 0 {
+    if CharacterAt(c.reg(SI)).flags(&mut c) & character_flag::IN_PARTY == 0 {
         c.run(start, 3)?;
         return c.ret();
     }
@@ -1329,8 +1330,8 @@ pub fn add_speaker_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// - [476Ah] (signed, from DI) made phrase 8Fh.
 fn speaker_entries_at(c: &mut Ctx, at: u16, pre: u32, head: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
     let record = c.reg(SI);
-    let speaker = c.byte(record.wrapping_add(0x0e));
-    let place = c.word(record.wrapping_add(4));
+    let speaker = CharacterAt(record).number(c);
+    let place = CharacterAt(record).on_click(c);
     let (k, last) = (c.byte(g::CHARACTER_15_TROOP_COUNT), c.byte(g::CHARACTER_15_SPECIAL_SLOT));
     let phase = c.progress().phase;
     let more = (k as u16).wrapping_sub(1);
@@ -1437,7 +1438,7 @@ pub fn grow_dialogue_rect(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn add_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9673)?;
     let mut c = Ctx::new(m);
-    let speaker = c.byte(c.reg(SI).wrapping_add(0x0e));
+    let speaker = CharacterAt(c.reg(SI)).number(&mut c);
     let (first, second) = (c.byte(g::SPEAKER_SLOTS), c.byte(g::SPEAKER_SLOTS + 1));
     c.set_reg8(r8::CL, speaker);
     if first == speaker {
@@ -1462,7 +1463,7 @@ pub fn add_speaker_gauge(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::CL, first);
         let leaving = 0x10 * first as u16 + g::CHARACTERS;
         c.set_reg(SI, leaving);
-        let note = c.byte(leaving.wrapping_add(0x0e)).wrapping_add(0x64);
+        let note = CharacterAt(leaving).number(&mut c).wrapping_add(0x64);
         c.set_reg(AX, leaving & 0xff00 | note as u16);
         c.update_progress(|t| t.talk_reason = note);
         c.call(entry::RELEASE_RECORD, 0x96a4)?;
@@ -2295,13 +2296,13 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let held = c.travel().screen_kind != 0;
     let speaker = c.conversation().speaker;
-    let bits = c.byte(speaker.wrapping_add(0x0f));
+    let bits = CharacterAt(speaker).flags(&mut c);
     c.run(0x97d2, 9)?;
     c.set_reg(SI, speaker);
     let bits = (bits | 0x20) & 0xfb;
     match characters::index(speaker) {
         Some(i) => c.update_character(i, |t| t.flags = bits),
-        None => c.set_byte(speaker.wrapping_add(0x0f), bits),
+        None => CharacterAt(speaker).set_flags(&mut c, bits),
     }
     c.update_sentence(|t| (t.number_part, t.number_entry) = (0 as u8, (0u16 >> 8) as u8));
     c.call(entry::CLOSE_DIALOGUE_BOX, if held { 0x97f5 } else { 0x980f })?;
@@ -2330,7 +2331,7 @@ pub fn line_done(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let state = c.conversation().line_state;
     let speaker = c.conversation().speaker;
-    let gauge = c.byte(speaker.wrapping_add(0x0f)) & 0x40 != 0;
+    let gauge = CharacterAt(speaker).flags(&mut c) & character_flag::IN_PARTY != 0;
     if state & 0x80 != 0 {
         c.run(0x980f, 6 + gauge as u32)?;
         c.set_reg(SI, speaker);
@@ -3257,8 +3258,8 @@ pub fn speaker_list_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x90bd)?;
     let mut c = Ctx::new(m);
     let record = c.reg(SI);
-    let speaker = c.byte(record.wrapping_add(0x0e));
-    let flags = c.byte(record.wrapping_add(0x0f));
+    let speaker = CharacterAt(record).number(&mut c);
+    let flags = CharacterAt(record).flags(&mut c);
     let special = speaker != 0x0c && c.progress().present & 0x1000 != 0;
     let (mut phrase, mut handler) = (c.reg(BX), c.reg(DX));
     let mut by_flags = false;
@@ -3286,7 +3287,7 @@ pub fn speaker_list_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 if flags & 0x80 == 0 {
                     cost += 4;
                     (phrase, handler) = (0x91, 0x95e2);
-                    if flags & 0x40 != 0 {
+                    if flags & character_flag::IN_PARTY != 0 {
                         cost += 2;
                         (phrase, handler) = (0x92, 0x9533);
                     }
@@ -3404,7 +3405,7 @@ fn record_handler_9234(c: &mut Ctx) -> Result<(), Bail> {
     let at = c.add(W, record * 0x10, g::CHARACTERS);
     c.set_reg(AX, at);
     c.set_reg(SI, at);
-    let to = c.word(at.wrapping_add(4));
+    let to = CharacterAt(at).on_click(c);
     c.jump(to)
 }
 

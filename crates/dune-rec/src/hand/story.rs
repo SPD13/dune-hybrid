@@ -1,5 +1,6 @@
 //! Story progress, the intro script, and one-line flag setters.
 
+use super::characters::{CharacterAt, character_flag};
 use super::dialogue;
 use super::waits;
 use super::video;
@@ -1759,7 +1760,7 @@ fn for_records_here(c: &mut Ctx, at: u16, prefix: u32, ops: impl FnOnce(&mut Ctx
         let si = c.reg(SI);
         let cx = c.reg(CX);
         let (y, x) = (c.reg(BX), c.reg(DX));
-        let (w2, w0) = (c.word(si.wrapping_add(2)), c.word(si));
+        let (w2, w0) = (CharacterAt(si).y(c), c.word(si));
         let last = cx.wrapping_sub(1) == 0;
         let hit = y == w2 && x == w0;
         if !hit {
@@ -4227,14 +4228,14 @@ pub fn update_people(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(CX, 9);
     for i in 0..9u16 {
         let si = 0xfd8 + 0x10 * i;
-        let f = c.byte(si.wrapping_add(0x0f));
+        let f = CharacterAt(si).flags(&mut c);
         'one: {
-            if f & 0x40 != 0 {
+            if f & character_flag::IN_PARTY != 0 {
                 c.run(0x2179, 2)?;
                 break 'one;
             }
             let mut dx = c.word(si);
-            let bx = c.word(si.wrapping_add(2));
+            let bx = CharacterAt(si).y(&mut c);
             let home = si == 0x1008 && bx == 0x180;
             let n0 = 2 + 4 + if si == 0x1008 { 2 + if home { 2 } else { 0 } } else { 0 } + 2;
             if home {
@@ -4289,7 +4290,7 @@ pub fn update_people(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 n += 2 + 6 + 3 + 7;
                 4
             };
-            let e = c.byte(si.wrapping_add(0x0e));
+            let e = CharacterAt(si).number(&mut c);
             let nx = c.byte(g::PEOPLE_NEXT_STATE.wrapping_add(e as u16));
             let ph = c.progress().phase;
             if stage == 4 && nx == 6 {
@@ -4321,9 +4322,9 @@ pub fn update_people(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(BX, 0x144d);
             c.set_reg8(r8::AL, nx);
             c.set_byte(si, nx);
-            let g = c.byte(si.wrapping_add(0x0f));
+            let g = CharacterAt(si).flags(&mut c);
             let g = pure::and(B, g as u16, 0xfb);
-            c.set_byte(si.wrapping_add(0x0f), g as u8);
+            CharacterAt(si).set_flags(&mut c, g as u8);
             if nx == 6 {
                 if ph < 0x24 {
                     c.set_byte(si, 0x0a);

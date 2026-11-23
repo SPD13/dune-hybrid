@@ -9,8 +9,10 @@
 //! the ports reach a record through SI (its bytes written, followed);
 //! fields not yet understood keep their offsets in their names.
 
+use super::Ctx;
 use super::globals as g;
 use super::record_table::{self, Single, Which};
+use pc::cpu::DS;
 
 /// Where the table starts in the data segment.
 pub const AT: u16 = Which::Characters.base();
@@ -53,8 +55,7 @@ pub struct Character {
     /// +0Eh: its number, its bit in the sets [`g::MET`], [`g::PARTY`],
     /// [`g::PRESENT`] and [`g::TALKED_HERE`] (0Eh: none).
     pub number: u8,
-    /// +0Fh: bits. 40h: in the party (its gauge shown); 20h: set when a
-    /// line ends (with 4 cleared).
+    /// +0Fh: its [`character_flag`] bits.
     pub flags: u8,
 }
 
@@ -89,3 +90,75 @@ impl Single for Character {
 }
 
 const _: () = assert!(g::CHARACTERS == AT && g::CHARACTER_0_LOCATION == AT + 3);
+
+/// Bits of a character's byte 0Fh ([`Character::flags`]).
+pub mod character_flag {
+    /// Set when one of its lines ends (`line_done`, with 4 cleared).
+    pub const TALKED: u8 = 0x20;
+    /// In the party: its gauge shown (`add_speaker_gauge`), it follows
+    /// the player (`move_following_character`), `update_people` leaves
+    /// it be.
+    pub const IN_PARTY: u8 = 0x40;
+}
+
+/// The view of the character record at an offset (what the ports hold
+/// in SI): its fields through the table, as [`Character`] has them;
+/// the memory for an offset that starts no record or another data
+/// segment.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CharacterAt(pub u16);
+
+impl CharacterAt {
+    fn native(self, c: &mut Ctx, field: u16) -> Option<usize> {
+        if c.sreg(DS) != g::GAME_DS || field >= SIZE {
+            return None;
+        }
+        index(self.0)
+    }
+    fn byte(self, c: &mut Ctx, field: u16) -> u8 {
+        match self.native(c, field) {
+            Some(i) => record_table::byte(c, Which::Characters, i, field),
+            None => c.byte(self.0.wrapping_add(field)),
+        }
+    }
+    fn set_byte(self, c: &mut Ctx, field: u16, v: u8) {
+        match self.native(c, field) {
+            Some(i) => record_table::set_byte(c, Which::Characters, i, field, v),
+            None => c.set_byte(self.0.wrapping_add(field), v),
+        }
+    }
+    fn word(self, c: &mut Ctx, field: u16) -> u16 {
+        self.byte(c, field) as u16 | (self.byte(c, field + 1) as u16) << 8
+    }
+    fn set_word(self, c: &mut Ctx, field: u16, v: u16) {
+        self.set_byte(c, field, v as u8);
+        self.set_byte(c, field + 1, (v >> 8) as u8);
+    }
+
+    /// Word 2: [`Character::y`].
+    pub(super) fn y(self, c: &mut Ctx) -> u16 {
+        self.word(c, 2)
+    }
+    pub(super) fn set_y(self, c: &mut Ctx, v: u16) {
+        self.set_word(c, 2, v)
+    }
+    /// Byte 3 (y's high byte): at a location, the location's index.
+    pub(super) fn location_index(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 3)
+    }
+    /// Word 4: [`Character::on_click`].
+    pub(super) fn on_click(self, c: &mut Ctx) -> u16 {
+        self.word(c, 4)
+    }
+    /// Byte 0Eh: [`Character::number`].
+    pub(super) fn number(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 0x0e)
+    }
+    /// Byte 0Fh: its [`character_flag`] bits.
+    pub(super) fn flags(self, c: &mut Ctx) -> u8 {
+        self.byte(c, 0x0f)
+    }
+    pub(super) fn set_flags(self, c: &mut Ctx, v: u8) {
+        self.set_byte(c, 0x0f, v)
+    }
+}

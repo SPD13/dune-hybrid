@@ -3,6 +3,7 @@
 //! into the next one. The routine they go on to runs as its own port
 //! when it has one, else in the original from there.
 
+use super::characters::{CharacterAt};
 use super::video;
 use super::text;
 use super::mouse;
@@ -1064,7 +1065,7 @@ pub fn set_people_state_at_place(m: &mut Machine, start: u16) -> Result<(), Bail
     let (bx, dh) = (c.reg(BX), c.reg8(r8::DH));
     for k in 0..0xcu16 {
         let s = 0xfd8 + 0x10 * k;
-        let p = c.word(s.wrapping_add(2));
+        let p = CharacterAt(s).y(&mut c);
         let hit = p == bx;
         let v = c.word(s);
         let one = v & 0xff == 1;
