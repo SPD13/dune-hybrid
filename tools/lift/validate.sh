@@ -3,7 +3,8 @@
 # phase-ladder runs, scripted runs on the day13 save (a troop moved, a
 # flight, its videos, Chani asked to stay) and the day23 save (a flight
 # from the palace), and --rec on screenshots against ref/off (seed 12), one game
-# at a time. Expect only differences marked as the harness's.
+# at a time. Expect 0 differences; calls of the harness that ran other code
+# than the lifted (they wrote into code) are counted apart.
 . "$(dirname "$0")/common.sh"
 S=$LIFT_DATA/validate; mkdir -p $S
 T=$1
@@ -93,5 +94,5 @@ fs=sorted(f for f in os.listdir(a) if f.endswith('.png'))
 print('shots:', sum(filecmp.cmp(os.path.join(a,f),os.path.join(b,f),shallow=False) for f in fs if os.path.exists(os.path.join(b,f))),'/',len(fs),'identical')
 PY
 echo "hand ports (entry name ok diff bailed skipped), summed:"
-cat $S/v-$T-a.tsv $S/v-$T-b.tsv $S/v-$T-c.tsv $S/v-$T-d.tsv $S/v-$T-e.tsv $S/v-$T-f.tsv $S/v-$T-g.tsv $S/v-$T-h.tsv $S/v-$T-i.tsv $S/v-$T-j.tsv | grep "\[hand\]" | awk -F'	' '{k=$1" "$2; ok[k]+=$3; d[k]+=$4; b[k]+=$5; r[k]+=$8} END {for (k in ok) print k"	"ok[k]"	"d[k]"	"b[k]"	"r[k]}' | sort > $S/v-$T-hand.txt
-awk -F'	' '{n++; if ($3>0) {bad++; print "DIFF", $0}; if ($2+$4==0) un++; if ($2==0 && $5==0) {nr++}} END {print n" hand ports, "bad+0" with differences, "un+0" never checked, "nr+0" never ran their own code to the end"}' $S/v-$T-hand.txt
+cat $S/v-$T-a.tsv $S/v-$T-b.tsv $S/v-$T-c.tsv $S/v-$T-d.tsv $S/v-$T-e.tsv $S/v-$T-f.tsv $S/v-$T-g.tsv $S/v-$T-h.tsv $S/v-$T-i.tsv $S/v-$T-j.tsv | grep "\[hand\]" | awk -F'	' '{k=$1" "$2; ok[k]+=$3; d[k]+=$4; b[k]+=$5; r[k]+=$8; f[k]+=$9} END {for (k in ok) print k"	"ok[k]"	"d[k]"	"b[k]"	"r[k]"	"f[k]}' | sort > $S/v-$T-hand.txt
+awk -F'	' '{n++; if ($3>0) {bad++; print "DIFF", $0}; if ($2+$4==0) un++; if ($2==0 && $5==0) {nr++}; if ($6>0) fo++} END {print n" hand ports, "bad+0" with differences, "un+0" never checked, "nr+0" never ran their own code to the end, "fo+0" with harness calls running other code than the lifted"}' $S/v-$T-hand.txt

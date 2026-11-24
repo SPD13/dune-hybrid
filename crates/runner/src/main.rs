@@ -311,26 +311,31 @@ fn rec_report(rec: &pc::rec::Rec, tsv: Option<&std::path::Path>, total: u64) {
             names.extend(d.names.iter().map(|&(e, n)| (pc::rec::key(i as u8 + 1, e), n)));
         }
     }
-    let (mut ok, mut diff, mut bailed, mut skipped) = (0, 0, 0, 0);
-    let mut rows = String::from("entry	name	ok	diff	bailed	skipped	first_diff	reached
+    let (mut ok, mut diff, mut bailed, mut skipped, mut foreign) = (0, 0, 0, 0, 0);
+    let mut rows = String::from("entry	name	ok	diff	bailed	skipped	first_diff	reached	foreign	first_foreign
 ");
     for (e, s) in &rec.stats {
         ok += (s.ok > 0 && s.diff == 0) as u32;
         diff += (s.diff > 0) as u32;
         bailed += (s.bailed > 0 && s.diff == 0 && s.ok == 0) as u32;
         skipped += (s.skipped > 0 && s.ok + s.diff + s.bailed == 0) as u32;
+        foreign += (s.foreign > 0) as u32;
         let hand = if *e < 0x10000 && dune_rec::is_hand(*e as u16) { " [hand]" } else { "" };
         let name = format!("{}{hand}", names.get(e).copied().unwrap_or("?"));
         let fd = s.first_diff.clone().unwrap_or_default();
         let name = name.as_str();
         let reached = if *e < 0x10000 { dune_rec::hand::reached(*e as u16) } else { 0 } + rec.returned[*e as usize];
-        let _ = writeln!(rows, "{e:04x}	{name}	{}	{}	{}	{}	{fd}	{reached}", s.ok, s.diff, s.bailed, s.skipped);
+        let ff = s.first_foreign.clone().unwrap_or_default();
+        let _ = writeln!(rows, "{e:04x}	{name}	{}	{}	{}	{}	{fd}	{reached}	{}	{ff}", s.ok, s.diff, s.bailed, s.skipped, s.foreign);
         if s.diff > 0 {
             println!("rec diff: {e:04x} {name}: {} of {} calls differ; first: {fd}", s.diff, s.ok + s.diff + s.bailed);
         }
+        if s.foreign > 0 {
+            println!("rec foreign: {e:04x} {name}: {} calls ran other code than the lifted; first: {ff}", s.foreign);
+        }
     }
     println!(
-        "rec shadow: {} routines called; {ok} verified equal, {diff} with differences, {bailed} equal with interpreted parts only, {skipped} not checked (too long)",
+        "rec shadow: {} routines called; {ok} verified equal, {diff} with differences, {bailed} equal with interpreted parts only, {skipped} not checked (too long), {foreign} with calls running other code than the lifted",
         rec.stats.len()
     );
     let total = (rec.replay_native + rec.replay_interp).max(1);

@@ -74,6 +74,13 @@ pub struct ShadowStats {
     /// Not compared: the call ran too long.
     pub skipped: u32,
     pub first_diff: Option<String>,
+    /// Different, but not comparable: the original ran other code than
+    /// the lifted (the call wrote into code, its own or a driver's, or a
+    /// driver's code was not the lifted one when it began), which the
+    /// Rust version, keeping the code as lifted, cannot follow. Only the
+    /// harness's random calls do this (`--call-each`).
+    pub foreign: u32,
+    pub first_foreign: Option<String>,
 }
 
 pub struct Rec {
@@ -778,7 +785,7 @@ impl Machine {
                 let early = self.now_ns() < self.rec.as_ref().unwrap().check_from;
                 let rec = self.rec.as_mut().unwrap();
                 let st = rec.stats.entry(k).or_default();
-                let checked = st.ok + st.diff + st.bailed + st.skipped;
+                let checked = st.ok + st.diff + st.bailed + st.skipped + st.foreign;
                 let in_flight = rec.pending.iter().filter(|p| p.entry == k).count() as u32;
                 let room = !early && checked + in_flight < rec.samples && rec.pending.len() < MAX_PENDING && check_only(k);
                 let (ss, sp) = (self.cpu.sregs[SS], self.cpu.regs[SP]);
@@ -995,6 +1002,12 @@ impl Machine {
         let diff = diff.map(|d| if foreign { format!("{d} (a driver's code was not the lifted one at the call)") } else { d });
         let st = rec.stats.entry(p.entry).or_default();
         match &diff {
+            Some(d) if code_changed || foreign => {
+                st.foreign += 1;
+                if st.first_foreign.is_none() {
+                    st.first_foreign = Some(d.clone());
+                }
+            }
             Some(d) => {
                 st.diff += 1;
                 if st.first_diff.is_none() {

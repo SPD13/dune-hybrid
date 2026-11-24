@@ -1265,7 +1265,8 @@ instruction count on; diff a plain run with a `--rec on` one),
   Never checked: 11, down from 17.
 - `start_script_at_si` (13C8h) is left out of run `f`. Called each, it
   reaches the start-up's own writes into the code segment (the PIT,
-  EFDDh), like `parse_command_line`: the harness's differences.
+  EFDDh), like `parse_command_line`: the harness's (counted apart since
+  2026-11-24, see below).
 - Every call checked, not 20 (2026-11-23): run `f` with `REC_BUDGET`
   2e9 and `REC_SAMPLES` raised found two wrong ports the default check
   had passed. `message_subject` (4586h) took 0 as the subject near a
@@ -1294,6 +1295,18 @@ instruction count on; diff a plain run with a `--rec on` one),
   chapter's entry, B254h). The book opens from the frieze's element
   1B10h (18h,9Bh..45h,B0h); none of the six saves is at a chapter with a
   video, so it stays unchecked.
+- No differences left (2026-11-24). The five that stayed in every
+  validation (`SAL_polygon` 3BE9h, `swap_byte_arrays` 99B2h, 9BACh,
+  `hnm_decode_typed_chunk_video_to_bp` CCF4h, `parse_command_line`
+  E4ADh) came only from the harness's random calls (runs `a`, `b`), and
+  each was marked: the original wrote into code (its own or a driver's)
+  or began with a driver's code not the lifted one, so it ran other code
+  than the Rust version follows. Such a call that differs is now counted
+  apart (`ShadowStats::foreign`, the report's `rec foreign:` lines, the
+  TSV's `foreign` and `first_foreign` columns, and the summary's "with
+  harness calls running other code than the lifted"), not as a
+  difference. A difference with no such mark still counts. The summary:
+  0 with differences, 5 with such harness calls.
 - Run `j` (2026-11-24): calls with chosen inputs (`--call-with
   ENTRY:REG=hex:[addr]=hex;...`, in `callall`), from the main-loop top
   of the day23 save, for the ports no save reaches: 0E6Ch with video 0Dh
