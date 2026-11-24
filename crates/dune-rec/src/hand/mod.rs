@@ -1402,6 +1402,9 @@ impl Ctx<'_> {
             m.hw.read_log = Some(Vec::new());
             m.hw.write_log = Some(Vec::new());
         }
+        if m.hw.watch.is_some() {
+            m.hw.watch_who = pc::hw::WHO_HAND << 32 | (pc::LOAD_SEG as u64) << 16 | entry as u64;
+        }
         Ctx { m, entry, diag, pre_reads: Vec::new(), pending: None, last_len: 0, pre_after_one: false }
     }
 
@@ -1455,6 +1458,9 @@ impl Ctx<'_> {
     /// wrote and read; what it read is kept for the next stretch.
     fn boundary(&mut self) {
         self.m.rec_stack_fixup();
+        if self.m.hw.watch.is_some() {
+            self.m.hw.watch_who = pc::hw::WHO_HAND << 32 | (pc::LOAD_SEG as u64) << 16 | self.entry as u64;
+        }
         if !self.diag {
             return;
         }

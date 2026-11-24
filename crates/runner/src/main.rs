@@ -553,6 +553,11 @@ fn main() -> ExitCode {
     }
     let files = OverlayFs { game: DirFs { root: args.dir.clone() }, saves: DirFs { root: saves } };
     let mut m = Machine::new(&exe, &args.cmd, Box::new(files)).unwrap();
+    // CLOCK_WATCH=1: count the accesses to the clock's words by code other
+    // than the clock's, printed at the end (`clock watch:` lines).
+    if std::env::var_os("CLOCK_WATCH").is_some() {
+        dune_rec::hand::clock::watch(&mut m);
+    }
     m.trace_mouse = std::env::var_os("TRACE_MOUSE").is_some();
     m.idle_skip = std::env::var_os("NO_IDLE_SKIP").is_none();
     if let Ok(mask) = std::env::var("REPLACED_SONGS") {
@@ -880,6 +885,16 @@ fn main() -> ExitCode {
         // the memory's values, written by code outside it.
         let (n, t) = (dune_rec::hand::clock::syncs(&mut m), dune_rec::hand::clock::ticks_outside(&mut m));
         println!("clock: {n} sync-ins ({t} ticks counted by the original's code, as the clock predicts)");
+        let mut entries: Vec<(u16, &str)> = dune_rec::names().to_vec();
+        entries.sort();
+        let name = |e: u16| entries.iter().find(|x| x.0 == e).map_or("?".to_string(), |x| x.1.to_string());
+        let owner = |a: u16| {
+            let i = entries.partition_point(|x| x.0 <= a);
+            i.checked_sub(1).map_or("?".to_string(), |i| format!("{} {:04x}", entries[i].1, entries[i].0))
+        };
+        for line in dune_rec::hand::clock::watch_report(&m, name, owner) {
+            println!("{line}");
+        }
         // The record tables kept in Rust (dune_rec::hand::record_table).
         use dune_rec::hand::record_table::{self, Which};
         for w in Which::ALL {

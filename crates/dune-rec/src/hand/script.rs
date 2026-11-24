@@ -30,13 +30,13 @@ pub fn read_condit_operand_into_ax(m: &mut Machine, start: u16) -> Result<(), Ba
         c.set_reg(SI, si.wrapping_add(1));
         c.set_reg(BX, var);
         if kind == 1 {
-            let v = c.byte(var);
+            let v = super::clock::story_byte(&mut c, var);
             c.set_reg8(r8::AL, v);
             let zero = pure::xor(B, 0, 0);
             c.set_reg8(r8::AH, zero as u8);
             c.count(13);
         } else {
-            let v = c.word(var);
+            let v = super::clock::story_byte(&mut c, var) as u16 | (super::clock::story_byte(&mut c, var.wrapping_add(1)) as u16) << 8;
             c.set_reg(AX, v);
             c.count(12);
         }

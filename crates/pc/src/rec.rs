@@ -1239,6 +1239,9 @@ impl Machine {
     /// in `bail_cpu`).
     #[inline]
     pub fn rec_tick_at(&mut self, len: u32, ip: u16) -> bool {
+        if self.hw.watch.is_some() {
+            self.hw.watch_who = crate::hw::WHO_GENERATED << 32 | (self.cpu.sregs[CS] as u64) << 16 | ip as u64;
+        }
         if let Some(r) = self.rec.as_mut()
             && let Some(n) = r.top_generated
             && n != self.cpu.instructions

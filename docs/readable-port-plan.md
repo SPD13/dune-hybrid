@@ -796,6 +796,43 @@ save's image is built from the memory (`create_save_in_memory`), so it
 would need the clock's values, and the tick would need to finish in
 Rust across such a stop.
 
+#### Who else touches the clock's words (`CLOCK_WATCH`, 2026-11-24)
+
+`CLOCK_WATCH=1` (the runner) watches the clock's words on the bus and
+counts each access the clock itself doesn't make (`Quiet` marks its
+own), by who made it: an instruction the interpreter ran (CS:IP), a
+hand port (its entry), or a block of generated code, seg000's or a
+driver's (`Hardware::watch`, `watch_who`; `clock watch:` lines at the
+end). In 300 s from the day23 save with `--rec on` and `REC_INPLACE`:
+
+- The ticks ([0CE7Ah]) are read about 40 million times, nearly all by
+  the graphics driver's lifted code (334Bh: 2ACAh, 2545h, 2AFAh, ...).
+  The game gives the driver the ticks' address in BP (`gfx.rs`,
+  `panels.rs`, `screen.rs`) and the driver polls it for its timing. Also
+  the fade's wait (D2A9h, in the generated code a bail leaves it to) and
+  `wait_a_bit`'s (E393h). So the ticks must stay in the memory while
+  the driver is the original's.
+- Hand ports read the clock's words by computed address: through null
+  pointers, as the original does (`get_res_index_by_name` reads [SI+2]
+  with SI 0, `place_octant` [DI+2] with DI 0: the game time, [2], as
+  junk), and the save image's copy (`create_save_in_memory`). These
+  reads are exact as ported, so the memory must hold the clock's values
+  for them too.
+- Two hand ports read them by name and now go through the clock:
+  `clock_step` (the ticks, `c.timer()`) and the condition scripts'
+  variables (`read_condit_operand_into_ax`, `clock::story_byte`: the
+  game time is variable [2]).
+- Written outside the clock: only at the start (`initialize_system`,
+  `start`, `play_intro`), by the load (`restore_from_save_memory`, told
+  to the clock) and the interpreter's tick (4 times, a device event
+  inside the tick's stretch, as the clock predicts).
+
+So the clock can't stop writing its words: the memory is where the
+original's code (the driver, the computed reads, the save) finds them,
+and that code is exact. What can go is the other direction, the clock
+reading the memory back (`Clock::get`'s compare): the writers outside
+it are the start-up, the load and the interpreter's tick.
+
 ### The troops and the locations (in Rust with a mirror)
 
 `hand/record_table.rs`: the game's record tables, the troops (43h of

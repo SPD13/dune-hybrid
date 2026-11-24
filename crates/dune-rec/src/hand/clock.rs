@@ -74,6 +74,7 @@ pub fn ticks_outside(m: &mut Machine) -> u64 {
 impl Clock {
     /// The clock as the memory has it.
     fn mirror(c: &mut Ctx) -> Clock {
+        let _q = Quiet::new(c.m);
         let w = |c: &mut Ctx, off| c.word_at(g::GAME_DS, off);
         let b = |c: &mut Ctx, off| c.byte_at_seg(g::GAME_DS, off);
         Clock {
@@ -89,6 +90,7 @@ impl Clock {
 
     /// The clock's words in the memory set to `self` (those that changed).
     fn write_mirror(&self, old: &Clock, c: &mut Ctx) {
+        let _q = Quiet::new(c.m);
         let w = |c: &mut Ctx, off, v: u16| c.set_word_at(g::GAME_DS, off, v);
         let b = |c: &mut Ctx, off, v: u8| c.set_byte_at_seg(g::GAME_DS, off, v);
         if self.ticks as u16 != old.ticks as u16 {
@@ -236,6 +238,10 @@ pub(super) fn loaded(c: &mut Ctx) {
 /// stepping it in the interpreter, a snapshot restored): the clock takes
 /// the memory's values (a sync-in at the boundary, not counted).
 pub fn outside(m: &mut Machine) {
+    let quiet = m.hw.watch.as_ref().is_some_and(|w| w.quiet);
+    if let Some(w) = &mut m.hw.watch {
+        w.quiet = true;
+    }
     let a = |m: &Machine, off: u16| m.cpu.phys(g::GAME_DS, off);
     let b = |m: &mut Machine, off: u16| {
         let p = a(m, off);
@@ -251,9 +257,106 @@ pub fn outside(m: &mut Machine) {
         steps_pending: b(m, g::CLOCK_STEPS_PENDING),
         time: w(m, g::GAME_TIME),
     };
+    if let Some(w) = &mut m.hw.watch {
+        w.quiet = quiet;
+    }
     let n = native(m);
     n.started = true;
     n.clock = mem;
+}
+
+/// The clock's words in the memory: DS offset and size.
+const WORDS: [(u16, u16); 8] = [
+    (g::TIMER, 2),
+    (g::TIMER_HIGH, 2),
+    (g::CLOCK_HELD, 1),
+    (g::CLOCK_STOPPED, 1),
+    (g::CLOCK_COUNTDOWN, 2),
+    (g::CLOCK_PERIOD, 2),
+    (g::CLOCK_STEPS_PENDING, 1),
+    (g::GAME_TIME, 2),
+];
+
+/// Marks the clock's own accesses to its words (not counted by the
+/// watch, [`watch`]) while it lives.
+struct Quiet {
+    m: *mut Machine,
+    was: bool,
+}
+
+impl Quiet {
+    fn new(m: &mut Machine) -> Quiet {
+        let was = m.hw.watch.as_ref().is_some_and(|w| w.quiet);
+        if let Some(w) = &mut m.hw.watch {
+            w.quiet = true;
+        }
+        Quiet { m, was }
+    }
+}
+
+impl Drop for Quiet {
+    fn drop(&mut self) {
+        // SAFETY: the machine outlives the guard (made and dropped inside
+        // one call on it, and only its `watch` is touched).
+        let m = unsafe { &mut *self.m };
+        if let Some(w) = &mut m.hw.watch {
+            w.quiet = self.was;
+        }
+    }
+}
+
+/// `CLOCK_WATCH=1` (the runner): watch the clock's words for accesses
+/// by code other than the clock's (Stage B: what still reads or writes
+/// them outside it).
+pub fn watch(m: &mut Machine) {
+    let addrs = WORDS.iter().flat_map(|&(off, n)| (0..n).map(move |i| m_phys(off + i)));
+    m.hw.watch = Some(Box::new(pc::hw::MemWatch::new(addrs.collect::<Vec<_>>())));
+}
+
+fn m_phys(off: u16) -> u32 {
+    ((g::GAME_DS as u32) << 4) + off as u32
+}
+
+/// The watch's findings ([`watch`]): one line per (who, word, read or
+/// write), most accesses first. `name` names a hand port or a routine by
+/// its entry, `owner` gives the routine a seg000 address belongs to.
+pub fn watch_report(m: &Machine, name: impl Fn(u16) -> String, owner: impl Fn(u16) -> String) -> Vec<String> {
+    let Some(w) = &m.hw.watch else { return Vec::new() };
+    let word = |addr: u32| {
+        let off = addr.wrapping_sub((g::GAME_DS as u32) << 4) as u16;
+        WORDS.iter().find(|&&(o, n)| off >= o && off < o + n).map_or(format!("{off:04x}"), |&(o, _)| format!("[{o:04x}]"))
+    };
+    let mut by: std::collections::HashMap<(String, String, bool), u64> = Default::default();
+    for (&(who, addr, write), &n) in &w.hits {
+        let (kind, cs, ip) = (who >> 32, (who >> 16) as u16, who as u16);
+        let kind = match kind {
+            pc::hw::WHO_HAND => "hand",
+            pc::hw::WHO_GENERATED => "generated block",
+            _ => "interpreter",
+        };
+        let who = if kind == "hand" {
+            format!("hand {ip:04x} {}", name(ip))
+        } else if cs == pc::LOAD_SEG {
+            format!("{kind} {cs:04x}:{ip:04x} (in {})", owner(ip))
+        } else {
+            format!("{kind} {cs:04x}:{ip:04x} (a driver)")
+        };
+        *by.entry((who, word(addr), write)).or_default() += n;
+    }
+    let mut v: Vec<_> = by.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    v.into_iter().map(|((who, word, write), n)| format!("clock watch: {n:9} {} {word} by {who}", if write { "write" } else { "read " })).collect()
+}
+
+/// The byte at DS:`off` as the scripts read their variables (the story
+/// state, DS:0-FFh): from the clock where it is one of its words (the
+/// game time, [2]), else the memory's.
+pub(super) fn story_byte(c: &mut Ctx, off: u16) -> u8 {
+    match off.wrapping_sub(g::GAME_TIME) {
+        0 => time(c) as u8,
+        1 => (time(c) >> 8) as u8,
+        _ => c.byte(off),
+    }
 }
 
 /// The game time ([`Clock::time`]).

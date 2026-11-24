@@ -6658,7 +6658,7 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x2b3a, 4)?;
     c.cmp(B, map_ui as u16, 0);
     c.run(0x2b47, 1)?;
-    let t = c.word(super::globals::TIMER);
+    let t = c.timer();
     c.set_reg(AX, t);
     let h = c.progress().phase;
     if h < 0x14 {

@@ -447,6 +447,9 @@ impl Machine {
     /// [`NO_INTERP`], CS:IP unchanged.
     #[inline]
     pub(crate) fn cpu_step(&mut self) -> Step {
+        if self.hw.watch.is_some() {
+            self.hw.watch_who = crate::hw::WHO_INTERP << 32 | (self.cpu.sregs[CS] as u64) << 16 | self.cpu.ip as u64;
+        }
         #[cfg(feature = "interp")]
         return self.cpu.step(&mut self.hw);
         #[cfg(not(feature = "interp"))]

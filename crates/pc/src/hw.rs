@@ -291,6 +291,39 @@ pub struct Hardware {
     pub trace_pc: (u16, u16),
     /// Set when a device changed its schedule; the machine re-polls `update`.
     pub reschedule: bool,
+    /// Diagnostics: watched memory, its accesses counted by who made them
+    /// ([`MemWatch`]).
+    pub watch: Option<Box<MemWatch>>,
+    /// Who runs, for [`MemWatch`]: a kind ([`WHO_INTERP`], [`WHO_HAND`],
+    /// [`WHO_GENERATED`]) << 32 | CS << 16 | IP (the instruction, the hand
+    /// port's entry, the generated block).
+    pub watch_who: u64,
+}
+
+/// [`Hardware::watch_who`]'s kinds: the interpreter,
+pub const WHO_INTERP: u64 = 0;
+/// a hand port (seg000, its entry),
+pub const WHO_HAND: u64 = 1;
+/// generated (lifted) code, seg000's or a driver's (the block).
+pub const WHO_GENERATED: u64 = 2;
+
+/// Watched memory: each access through the bus to an address in `mask`
+/// is counted by ([`Hardware::watch_who`], address, write?), unless
+/// `quiet` (the owner's own accesses).
+pub struct MemWatch {
+    pub mask: Vec<bool>,
+    pub quiet: bool,
+    pub hits: std::collections::HashMap<(u64, u32, bool), u64>,
+}
+
+impl MemWatch {
+    pub fn new(addrs: impl IntoIterator<Item = u32>) -> MemWatch {
+        let mut mask = vec![false; 0x10_0000];
+        for a in addrs {
+            mask[a as usize & 0xf_ffff] = true;
+        }
+        MemWatch { mask, quiet: false, hits: Default::default() }
+    }
 }
 
 impl Hardware {
@@ -313,6 +346,8 @@ impl Hardware {
             io_log: IoLog::default(),
             reschedule: false,
             trace_pc: (0, 0),
+            watch: None,
+            watch_who: 0,
         }
     }
 
@@ -416,6 +451,12 @@ impl Bus for Hardware {
         if let Some(l) = &mut self.read_log {
             l.push(addr);
         }
+        if let Some(w) = &mut self.watch
+            && !w.quiet
+            && w.mask[addr as usize & 0xf_ffff]
+        {
+            *w.hits.entry((self.watch_who, addr, false)).or_default() += 1;
+        }
         self.mem[addr as usize]
     }
 
@@ -425,6 +466,12 @@ impl Bus for Hardware {
         if !(0xf0000..0x100000).contains(&addr) {
             if let Some(l) = &mut self.write_log {
                 l.push(addr);
+            }
+            if let Some(w) = &mut self.watch
+                && !w.quiet
+                && w.mask[addr as usize & 0xf_ffff]
+            {
+                *w.hits.entry((self.watch_who, addr, true)).or_default() += 1;
             }
             self.mem[addr as usize] = value;
         }
