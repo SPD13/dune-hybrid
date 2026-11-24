@@ -1294,7 +1294,25 @@ instruction count on; diff a plain run with a `--rec on` one),
   chapter's entry, B254h). The book opens from the frieze's element
   1B10h (18h,9Bh..45h,B0h); none of the six saves is at a chapter with a
   video, so it stays unchecked.
-- Never ran to the end: 14, the never-checked ones without skips and 9
+- Run `j` (2026-11-24): calls with chosen inputs (`--call-with
+  ENTRY:REG=hex:[addr]=hex;...`, in `callall`), from the main-loop top
+  of the day23 save, for the ports no save reaches: 0E6Ch with video 0Dh
+  (as the load does, 0E51h), C8FBh with video 0Dh and the SAL scene's
+  callback C4CDh (48DDh), `play_chapter_video` (B1EEh) with chapter
+  video 19h at [243Eh] (the whole video, 110 s), and 13C8h with SI 1322h.
+  13C8h is not the intro's: it is opcode 0 of the scene scripts (the
+  handler table at 1475h, dispatched at 1731h; scripts start at 1771h,
+  as the events at 102Fh and 1139h do with CS:1321h and 1313h); 1321h
+  begins with opcode 0. All four equal (13C8h all in Rust, the videos
+  with interpreted parts at the frame wait). Never checked: 3, `start`,
+  `play_intro`, `game_loop`, which never return. Never ran to the end:
+  12 (the three and the 9 below); the three videos never ran to the end
+  either, but the count leaves out ports with skipped calls (counting
+  every port with no call run all in Rust gives 45, mostly long calls
+  over the budget). `STEPS="d j" validate.sh TAG` runs only those runs
+  (each a few minutes, for when a whole check can't run at once), then
+  the summary over all of the tag's runs.
+- Never ran to the end: 14 (12 after run `j`), the never-checked ones without skips and 9
   that always bail, all at wait loops. With `REC_TRACE_BAIL=all` the
   bails are interrupts landing in the frame wait (E398h, in
   `wait_processing_frame_tasks`) and in the fade's loop (D2A4h..D2B1h,

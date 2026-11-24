@@ -11,6 +11,11 @@
 //! `--rec shadow` each one is a shadow check (the original and the Rust
 //! version start from the same state, so they must end the same way), and
 //! `--coverage` counts everything they execute.
+//!
+//! `--call-with SPECS`: the same, once per spec, for routines whose inputs
+//! random registers never hit (a video number, a chapter's video): each
+//! spec `ENTRY:REG=hex:[addr]=hex...` (`;` between specs) sets general
+//! registers and data-segment words before its call.
 
 use pc::{LOAD_SEG, Machine, RunExit, cpu};
 
@@ -20,6 +25,78 @@ struct Outcome {
     timed_out: u32,
     exited: u32,
     other: u32,
+}
+
+/// A call with chosen inputs (`--call-with`).
+pub struct Call {
+    entry: u16,
+    regs: Vec<(usize, u16)>,
+    words: Vec<(u16, u16)>,
+}
+
+impl Call {
+    /// `ENTRY:REG=hex:[addr]=hex...`, all hex; REG a general register.
+    pub fn parse(spec: &str) -> Result<Call, String> {
+        let bad = || format!("--call-with ENTRY:REG=hex:[addr]=hex..., got {spec}");
+        let hex = |s: &str| u16::from_str_radix(s, 16).map_err(|_| bad());
+        let mut parts = spec.split(':');
+        let entry = hex(parts.next().ok_or_else(bad)?)?;
+        let (mut regs, mut words) = (Vec::new(), Vec::new());
+        for set in parts {
+            let (k, v) = set.split_once('=').ok_or_else(bad)?;
+            if let Some(addr) = k.strip_prefix('[').and_then(|k| k.strip_suffix(']')) {
+                words.push((hex(addr)?, hex(v)?));
+            } else {
+                let names = ["AX", "CX", "DX", "BX", "SP", "BP", "SI", "DI"];
+                let r = names.iter().position(|n| n.eq_ignore_ascii_case(k)).ok_or_else(bad)?;
+                regs.push((r, hex(v)?));
+            }
+        }
+        Ok(Call { entry, regs, words })
+    }
+}
+
+/// `--call-with`: each call once, from the main-loop top, as `run` does.
+pub fn run_with(m: &mut Machine, main_loop: u16, calls: &[Call], call_ns: u64) {
+    m.break_at = Some((LOAD_SEG, main_loop));
+    let r = m.run_until(m.now_ns() + 10_000_000_000);
+    m.break_at = None;
+    if r != RunExit::Break {
+        println!("call-with: the main loop was not reached ({r:?})");
+        return;
+    }
+    let base = m.save_state();
+    for c in calls {
+        m.load_state(&base).expect("call-with: restore");
+        m.exited = None;
+        m.rec_drop_checks();
+        for &(r, v) in &c.regs {
+            m.cpu.regs[r] = v;
+        }
+        for &(addr, v) in &c.words {
+            let at = pc::GAME_DS as usize * 16 + addr as usize;
+            m.hw.mem[at..at + 2].copy_from_slice(&v.to_le_bytes());
+        }
+        let (ss, sp) = (m.cpu.sregs[cpu::SS], m.cpu.regs[cpu::SP].wrapping_sub(2));
+        m.cpu.regs[cpu::SP] = sp;
+        let a = (ss as usize * 16 + sp as usize) & 0xf_ffff;
+        m.hw.mem[a..a + 2].copy_from_slice(&main_loop.to_le_bytes());
+        m.cpu.ip = c.entry;
+        m.rec_check_here();
+        let t0 = m.now_ns();
+        m.break_at = Some((LOAD_SEG, main_loop));
+        let r = m.run_until(t0 + call_ns);
+        m.break_at = None;
+        let how = match r {
+            RunExit::Break => "returned".to_string(),
+            RunExit::Deadline => format!("still running after {} ms", call_ns / 1_000_000),
+            other => format!("{other:?}"),
+        };
+        println!("call-with {:04x}: {how} ({:.1} s)", c.entry, (m.now_ns() - t0) as f64 / 1e9);
+    }
+    m.rec_drop_checks();
+    m.load_state(&base).expect("call-with: restore");
+    m.exited = None;
 }
 
 /// Run the harness from the machine's current state; it is left as found.

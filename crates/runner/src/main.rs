@@ -32,7 +32,8 @@
 //! the original as the game runs (see `pc::rec`) and prints a report;
 //! `--rec-report FILE` also writes it as TSV. `--rec on` runs them instead
 //! of the original. `--call-each N` calls every recompiled routine N times
-//! from the main-loop top at the end of the run (see `callall`).
+//! from the main-loop top at the end of the run (see `callall`);
+//! `--call-with SPECS` calls chosen routines with chosen inputs.
 
 mod callall;
 mod gfxcheck;
@@ -84,6 +85,8 @@ struct Args {
     /// time one call may take.
     call_only: Option<Vec<u16>>,
     call_ms: u64,
+    /// `--call-with`: calls with chosen inputs (see `callall::Call`).
+    call_with: Vec<callall::Call>,
     /// Write each loaded driver's segment (64 KB from offset 0) here at the
     /// end of the run, for `dune-lift --raw` (game-derived: never commit).
     dump_drivers: Option<PathBuf>,
@@ -130,6 +133,7 @@ fn parse() -> Result<Args, String> {
         call_each: 0,
         call_only: None,
         call_ms: 300,
+        call_with: Vec::new(),
         dump_drivers: None,
     };
     let mut it = std::env::args().skip(1);
@@ -168,6 +172,11 @@ fn parse() -> Result<Args, String> {
                 let list = v()?;
                 let es: Result<Vec<u16>, _> = list.split(',').map(|e| u16::from_str_radix(e.trim(), 16)).collect();
                 a.call_only = Some(es.map_err(|e| format!("--call-only HEX,HEX..: {e}"))?);
+            }
+            "--call-with" => {
+                for spec in v()?.split(';').filter(|s| !s.is_empty()) {
+                    a.call_with.push(callall::Call::parse(spec)?);
+                }
             }
             "--dump-drivers" => a.dump_drivers = Some(v()?.into()),
             "--call-ms" => a.call_ms = v()?.parse().map_err(|e| format!("--call-ms: {e}"))?,
@@ -838,6 +847,9 @@ fn main() -> ExitCode {
             None => dune_rec::routines().iter().map(|r| r.0).collect(),
         };
         callall::run(&mut m, MAIN_LOOP, &entries, args.call_each, args.call_ms * 1_000_000);
+    }
+    if !args.call_with.is_empty() {
+        callall::run_with(&mut m, MAIN_LOOP, &args.call_with, args.call_ms * 1_000_000);
     }
     if let (Some(dir), Some(tr)) = (&args.rooms, &tracker) {
         rooms::capture(&mut m, dir, tr.clone());
