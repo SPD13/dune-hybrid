@@ -734,7 +734,7 @@ impl Machine {
                 rec.one_block = 0;
                 if r.is_err() {
                     if let Ok(v) = std::env::var("REC_TRACE_BAIL")
-                        && u16::from_str_radix(&v, 16) == Ok(self.cpu.ip)
+                        && (v == "all" || u16::from_str_radix(&v, 16) == Ok(self.cpu.ip))
                     {
                         eprintln!("bail at {:04x} from entry {cs:04x}:{ip:04x} (lifted {lifted}) insn {} next {}", self.cpu.ip, self.cpu.instructions, self.next_event);
                     }
@@ -1030,6 +1030,9 @@ impl Machine {
         self.hw.io_log.stopped = false;
         let r = f(self, entry as u16);
         let mut just_bailed = self.rec_settle().and(r).is_err();
+        if just_bailed {
+            self.trace_replay_bail("entry");
+        }
         if !just_bailed {
             self.rec.as_mut().unwrap().returned[entry as usize] += 1;
         }
@@ -1051,6 +1054,9 @@ impl Machine {
                 self.hw.io_log.stopped = false;
                 let r = g(self, ip);
                 just_bailed = self.rec_settle().and(r).is_err();
+                if just_bailed {
+                    self.trace_replay_bail("resumed");
+                }
                 bails += (just_bailed && !self.hw.io_log.stopped) as u32;
             } else {
                 just_bailed = false;
@@ -2054,7 +2060,15 @@ impl Machine {
             let rec = self.rec.as_mut().unwrap();
             rec.deferred_bailed += 1;
             rec.nested_bails += 1;
+            self.trace_replay_bail("interrupt changed the stretch");
             Err(Bail)
+        }
+    }
+
+    /// `REC_TRACE_BAIL=all`: where a shadow replay bails.
+    fn trace_replay_bail(&self, why: &str) {
+        if std::env::var("REC_TRACE_BAIL").is_ok_and(|v| v == "all") {
+            eprintln!("replay bail ({why}) at {:04x}:{:04x} insn {}", self.cpu.sregs[CS], self.cpu.ip, self.cpu.instructions);
         }
     }
 

@@ -1,7 +1,8 @@
 #!/bin/sh
 # validate.sh TAG: shadow + call-each on seeds 12 and 21, the long-call and
-# phase-ladder runs, two scripted runs on the day13 save (a troop moved,
-# a flight, its videos), and --rec on screenshots against ref/off (seed 12), one game
+# phase-ladder runs, scripted runs on the day13 save (a troop moved, a
+# flight, its videos, Chani asked to stay) and the day23 save (a flight
+# from the palace), and --rec on screenshots against ref/off (seed 12), one game
 # at a time. Expect only differences marked as the harness's.
 . "$(dirname "$0")/common.sh"
 S=$LIFT_DATA/validate; mkdir -p $S
@@ -45,12 +46,31 @@ if [ -f $DAY13 ]; then
   $B --dir "$GAME" --cmd "ADP220 SBP2227 ENG" --events "61.5:key:1:1,61.6:key:1:0,$FLY" \
     --save $DAY13 --seconds 200 --rec shadow --call-each 1 --call-only 0e66,0e77 --call-ms 20000 \
     --rec-report $S/v-$T-g.tsv --out $S/v-$T-g > $S/v-$T-g.log 2>&1
+  # Chani asked to stay, then back (STAY HERE twice): a leave and a join
+  # request, `say_entry_mask_20` (9F8Bh).
+  STAY="68:load:1,$(click 74 130 192),$(click 82 130 168),$(click 96 130 192),$(click 104 130 168)"
+  REC_FROM=68 $B --dir "$GAME" --cmd "ADP220 SBP2227 ENG" --events "61.5:key:1:1,61.6:key:1:0,$STAY" \
+    --save $DAY13 --seconds 120 --rec shadow \
+    --rec-report $S/v-$T-i.tsv --out $S/v-$T-i > $S/v-$T-i.log 2>&1
 else
-  for x in e f g; do echo "no save for the scripted runs" > $S/v-$T-$x.log; : > $S/v-$T-$x.tsv; done
+  for x in e f g i; do echo "no save for the scripted runs" > $S/v-$T-$x.log; : > $S/v-$T-$x.tsv; done
+fi
+# The day23 save: out of the palace, TAKE AN ORNITHOPTER from the room
+# (not the map), a sietch, SKIP TO DESTINATION; the landing plays the
+# SAL scene (`play_sal_scene`, 488Ah), a long call (REC_BUDGET).
+DAY23=$SAVES/day23-DUNE37S1.SAV
+if [ -f $DAY23 ]; then
+  PALACE="68:load:1,$(click 74 277 190),$(click 80 277 190),$(click 86 277 190),$(click 90 130 168),$(click 98 190 89),$(click 104 130 161)"
+  REC_FROM=68 REC_BUDGET=2000000000 REC_EVENTS=33554432 \
+  $B --dir "$GAME" --cmd "ADP220 SBP2227 ENG" --events "61.5:key:1:1,61.6:key:1:0,$PALACE" \
+    --save $DAY23 --seconds 170 --rec shadow \
+    --rec-report $S/v-$T-h.tsv --out $S/v-$T-h > $S/v-$T-h.log 2>&1
+else
+  echo "no save for the scripted runs" > $S/v-$T-h.log; : > $S/v-$T-h.tsv
 fi
 
-for x in a b c d e f g on; do echo "== $x"; grep -E "^rec|^call-each:.*calls|^exit" $S/v-$T-$x.log; done
-for x in a b c d e f g; do awk -F'\t' 'NR>1 && $4>0' $S/v-$T-$x.tsv; done
+for x in a b c d e f g h i on; do echo "== $x"; grep -E "^rec|^call-each:.*calls|^exit" $S/v-$T-$x.log; done
+for x in a b c d e f g h i; do awk -F'\t' 'NR>1 && $4>0' $S/v-$T-$x.tsv; done
 python - "$LIFT_DATA/ref/off" "$S/v-$T-on" <<'PY'
 import sys,os,filecmp
 a,b=sys.argv[1:]
@@ -58,5 +78,5 @@ fs=sorted(f for f in os.listdir(a) if f.endswith('.png'))
 print('shots:', sum(filecmp.cmp(os.path.join(a,f),os.path.join(b,f),shallow=False) for f in fs if os.path.exists(os.path.join(b,f))),'/',len(fs),'identical')
 PY
 echo "hand ports (entry name ok diff bailed skipped), summed:"
-cat $S/v-$T-a.tsv $S/v-$T-b.tsv $S/v-$T-c.tsv $S/v-$T-d.tsv $S/v-$T-e.tsv $S/v-$T-f.tsv $S/v-$T-g.tsv | grep "\[hand\]" | awk -F'	' '{k=$1" "$2; ok[k]+=$3; d[k]+=$4; b[k]+=$5; r[k]+=$8} END {for (k in ok) print k"	"ok[k]"	"d[k]"	"b[k]"	"r[k]}' | sort > $S/v-$T-hand.txt
+cat $S/v-$T-a.tsv $S/v-$T-b.tsv $S/v-$T-c.tsv $S/v-$T-d.tsv $S/v-$T-e.tsv $S/v-$T-f.tsv $S/v-$T-g.tsv $S/v-$T-h.tsv $S/v-$T-i.tsv | grep "\[hand\]" | awk -F'	' '{k=$1" "$2; ok[k]+=$3; d[k]+=$4; b[k]+=$5; r[k]+=$8} END {for (k in ok) print k"	"ok[k]"	"d[k]"	"b[k]"	"r[k]}' | sort > $S/v-$T-hand.txt
 awk -F'	' '{n++; if ($3>0) {bad++; print "DIFF", $0}; if ($2+$4==0) un++; if ($2==0 && $5==0) {nr++}} END {print n" hand ports, "bad+0" with differences, "un+0" never checked, "nr+0" never ran their own code to the end"}' $S/v-$T-hand.txt
