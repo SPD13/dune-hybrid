@@ -228,10 +228,9 @@ pub const PHRASE_ARG_DETAIL: u16 = 0x11f5;
 pub const PHRASE_ARG_SKILLS: u16 = 0x11f7;
 /// 89h: the direction of the nearest place (`nearest_places`, + DAh);
 pub const PHRASE_ARG_DIRECTION: u16 = 0x11fd;
-/// 8Ah: a troop's word 12h's low nibble, as a phrase (0..0Fh: the
-/// first words of the places' names; what it says of the troop is
-/// unclear).
-pub const PHRASE_ARG_8A: u16 = 0x11ff;
+/// 8Ah: a troop's home ([`TOPIC_TROOP_HOME`]): the first word of the
+/// name of the place it comes from (a location's byte 0).
+pub const PHRASE_ARG_TROOP_HOME: u16 = 0x11ff;
 /// The steps the player has walked outside a location (low 7 bits, up
 /// to 7Fh; `ui_click_move_room`, 3F49h), bit 7 while a step is to be
 /// shown (`loc_03723`); 0 on arriving at one (401Fh).
@@ -832,8 +831,11 @@ pub const TOPIC_TROOP_JOB: u16 = 0x2f;
 /// Its byte 3: the job and the state bits (40h: moving; 20h..22h the
 /// specialised).
 pub const TOPIC_TROOP_STATE: u16 = 0x30;
-/// Its word 12h's low four bits (also a phrase number at [11FFh]).
-pub const TOPIC_TROOP_WORD_12_LOW: u16 = 0x31;
+/// Its home: word 12h's low four bits, the first word of the name of
+/// the place it comes from (a location's byte 0; also phrase 8Ah's
+/// argument at [11FFh]). In the saves it is its location's byte 0 for
+/// every troop that never moved, and only the moved ones differ.
+pub const TOPIC_TROOP_HOME: u16 = 0x31;
 /// Its word 10h (bits 200h/100h pick the status line, 797Bh).
 pub const TOPIC_TROOP_WORD_10: u16 = 0x32;
 /// Its word 12h.

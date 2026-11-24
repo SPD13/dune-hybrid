@@ -3992,10 +3992,10 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let w = Troop(si).word_12(&mut c);
     c.update_topic_troop(|t| t.word_12 = w);
     let a = pure::and(W, w, 0x0f);
-    c.update_topic_troop(|t| t.word_12_low = a as u8);
+    c.update_topic_troop(|t| t.home = a as u8);
     let a = pure::add(W, a, 0);
     c.set_reg(AX, a);
-    c.set_word(g::PHRASE_ARG_8A, a);
+    c.set_word(g::PHRASE_ARG_TROOP_HOME, a);
     c.call(entry::TROOP_MOTIVATION, 0x323b)?;
     for (at, src, dst, word, ret) in [
         (0x323bu16, 0x16u16, g::TOPIC_TROOP_SKILLS, g::PHRASE_ARG_SKILLS, 0x3247u16),

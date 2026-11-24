@@ -1176,8 +1176,10 @@ wind-trap built (`location_flag::WIND_TRAP`; `grow_water`, was
 espionage, not harvesting (a wrong comment). The location kinds by the
 map's type strings 44h..47h (`game::location_kind`): below 20h a sietch,
 20h the palace, 21h..27h a village, 28h..2Fh a fortress, 30h on a palace
-again. Still open: [31h] (a troop's word 12h low nibble: as phrase 8Ah's
-argument it names a place's first word). The strings come from a memory
+again. A troop's word 12h low nibble ([31h], phrase 8Ah's argument) is
+its home: the first word of the name of the place it comes from (in four
+saves' memory it is its location's byte 0 for every troop that never
+moved; `TOPIC_TROOP_HOME`). No open names left from this list. The strings come from a memory
 dump: the command strings are numbered from 1 (string n at word n - 1 of
 their offset table).
 

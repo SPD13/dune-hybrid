@@ -211,8 +211,11 @@ impl Troop {
         self.set_word(c, 0x0a, v)
     }
 
-    /// Word 12h: bits, not all known (bits 15..13 select the skills its
-    /// activity trains, see `troop_skills_decay`; 400h, 40h, 30h).
+    /// Word 12h: its low four bits its home (the first word of the name
+    /// of the place it comes from, a location's byte 0; [31h] of the
+    /// troop talked about); the other bits not all known (bits 15..13
+    /// select the skills its activity trains, see `troop_skills_decay`;
+    /// 400h, 40h, 30h).
     pub fn word_12(self, c: &mut Ctx) -> u16 {
         self.word(c, 0x12)
     }
@@ -690,8 +693,10 @@ impl Location {
         self.set_byte(c, 0x19, v)
     }
 
-    /// Byte 0: indexes the table at 1141h in `troop_event_roll`.
-    pub fn byte_00(self, c: &mut Ctx) -> u8 {
+    /// Byte 0: the first word of its name (the Tuono of Tuono-Tabr and
+    /// Tuono-Clam); a troop's home is one ([`Troop::word_12`]). Indexes
+    /// the table at 1141h in `troop_event_roll`.
+    pub fn name_first(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0)
     }
 

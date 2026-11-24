@@ -2963,7 +2963,7 @@ pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let random = math::random_word(&mut c, 0x716b)?;
     let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
     let roll = (random >> 8) as u8;
-    let k = place.byte_00(&mut c);
+    let k = place.name_first(&mut c);
     let chance = c.byte(g::CHANCES.wrapping_add(k as u16));
     if chance < roll {
         c.run(0x716b, 6)?;

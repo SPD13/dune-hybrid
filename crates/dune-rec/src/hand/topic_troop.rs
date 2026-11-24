@@ -29,8 +29,8 @@ pub struct TopicTroop {
     pub job: u8,
     /// [`g::TOPIC_TROOP_STATE`] (30h).
     pub state: u8,
-    /// [`g::TOPIC_TROOP_WORD_12_LOW`] (31h).
-    pub word_12_low: u8,
+    /// [`g::TOPIC_TROOP_HOME`] (31h).
+    pub home: u8,
     /// [`g::TOPIC_TROOP_WORD_10`] (32h).
     pub word_10: u16,
     /// [`g::TOPIC_TROOP_WORD_12`] (34h).
@@ -91,7 +91,7 @@ impl Single for TopicTroop {
             id: b[at(g::TOPIC_TROOP_ID)],
             job: b[at(g::TOPIC_TROOP_JOB)],
             state: b[at(g::TOPIC_TROOP_STATE)],
-            word_12_low: b[at(g::TOPIC_TROOP_WORD_12_LOW)],
+            home: b[at(g::TOPIC_TROOP_HOME)],
             word_10: word(b, at(g::TOPIC_TROOP_WORD_10)),
             word_12: word(b, at(g::TOPIC_TROOP_WORD_12)),
             motivation: b[at(g::TOPIC_TROOP_MOTIVATION)],
@@ -119,7 +119,7 @@ impl Single for TopicTroop {
         b[at(g::TOPIC_TROOP_ID)] = self.id;
         b[at(g::TOPIC_TROOP_JOB)] = self.job;
         b[at(g::TOPIC_TROOP_STATE)] = self.state;
-        b[at(g::TOPIC_TROOP_WORD_12_LOW)] = self.word_12_low;
+        b[at(g::TOPIC_TROOP_HOME)] = self.home;
         set_word(&mut b, at(g::TOPIC_TROOP_WORD_10), self.word_10);
         set_word(&mut b, at(g::TOPIC_TROOP_WORD_12), self.word_12);
         b[at(g::TOPIC_TROOP_MOTIVATION)] = self.motivation;
@@ -146,7 +146,7 @@ const _: () = assert!(g::TOPIC_TROOP_PLACE == 0x2c);
 const _: () = assert!(g::TOPIC_TROOP_ID == 0x2e);
 const _: () = assert!(g::TOPIC_TROOP_JOB == 0x2f);
 const _: () = assert!(g::TOPIC_TROOP_STATE == 0x30);
-const _: () = assert!(g::TOPIC_TROOP_WORD_12_LOW == 0x31);
+const _: () = assert!(g::TOPIC_TROOP_HOME == 0x31);
 const _: () = assert!(g::TOPIC_TROOP_WORD_10 == 0x32);
 const _: () = assert!(g::TOPIC_TROOP_WORD_12 == 0x34);
 const _: () = assert!(g::TOPIC_TROOP_MOTIVATION == 0x36);
