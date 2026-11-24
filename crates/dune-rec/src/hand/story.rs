@@ -1,5 +1,6 @@
 //! Story progress, the intro script, and one-line flag setters.
 
+use super::characters::character_id as who;
 use super::smugglers::{self, SmugglerAt, smuggler_flag};
 use super::characters::{CharacterAt, character_flag};
 use super::dialogue;
@@ -89,8 +90,8 @@ set_flag!(
     on_phase_20, 0x10b2, g::FLAG_0FFB, 1
 );
 set_flag!(
-    /// `sub_1127`: the handler of phase 38h (and 39h): character 0's location
-    /// byte ([0FDBh], its +3) = FFh.
+    /// `sub_1127`: the handler of phase 38h (and 39h): Duke Leto's
+    /// (character 0's) location byte ([0FDBh], its +3) = FFh: he is gone.
     on_phase_38, 0x1127, g::CHARACTER_0_LOCATION, 0xff
 );
 set_flag!(
@@ -99,15 +100,15 @@ set_flag!(
     clear_settings_hover, 0xa5aa, g::SETTINGS_HOVER, 0
 );
 
-/// `sub_112d`: the handler of phase 40h (and 41h): bit 2 of character 8's
-/// flags ([1067h], its +0Fh). Flags from the `or`.
+/// `sub_112d`: the handler of phase 40h (and 41h): bit 2 of Harah's
+/// (character 8's) flags ([1067h], its +0Fh). Flags from the `or`.
 pub fn on_phase_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x112d)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
-    let bits = c.character(8).flags;
+    let bits = c.character(who::HARAH as usize).flags;
     let bits = pure::or(B, bits as u16, 2) as u8;
-    c.update_character(8, |t| t.flags = bits);
+    c.update_character(who::HARAH as usize, |t| t.flags = bits);
     c.ret()
 }
 
@@ -392,8 +393,8 @@ macro_rules! set_word {
 }
 
 set_flag!(
-    /// `loc_0100b`: at phase 1 (`next_phase_unless_done`): character 3's
-    /// location byte ([100Bh], its +3) = 1.
+    /// `loc_0100b`: at phase 1 (`next_phase_unless_done`): Duncan Idaho's
+    /// (character 3's) location byte ([100Bh], its +3) = 1, the palace.
     on_phase_01, 0x100b, 0x100b, 1
 );
 set_flag!(
@@ -3245,16 +3246,16 @@ pub fn set_current_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     super::ui::open_sal_resource(c.m, 0x2d74)
 }
 
-/// `sub_110f`: record FD8h's byte 10h set to 0Ah (word 12h 180h) unless
-/// it is 8; then message 280Ah ([`add_message`]).
+/// `sub_110f`: Jessica's (character 1's) byte 10h set to 0Ah (word 12h
+/// 180h) unless it is 8; then message 280Ah ([`add_message`]).
 pub fn on_phase_34(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x110f)?;
     let mut c = Ctx::new(m);
-    let k = c.character(1).x as u8;
+    let k = c.character(who::JESSICA as usize).x as u8;
     c.run(start, if k == 8 { 4 } else { 6 })?;
     if k != 8 {
-        c.update_character(1, |t| t.x = t.x & 0xff00 | 0x0a);
-        c.update_character(1, |t| t.y = 0x180);
+        c.update_character(who::JESSICA as usize, |t| t.x = t.x & 0xff00 | 0x0a);
+        c.update_character(who::JESSICA as usize, |t| t.y = 0x180);
     }
     c.set_reg(AX, 0x280a);
     add_message_in(&mut c)
@@ -3389,7 +3390,7 @@ pub fn start_phase_15(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_character(4, |t| t.x = 0x200b);
     c.update_character(4, |t| t.y = 0x180);
     c.update_character(1, |t| t.x = t.x & 0xff00 | 0x0a);
-    c.update_situation(|t| t.character_1_days = 0xff);
+    c.update_situation(|t| t.jessica_days = 0xff);
     c.call(entry::NEXT_DEMAND, 0x1099)?;
     c.run(0x1099, 3)?;
     let v = c.progress().event_flags;
@@ -3423,7 +3424,7 @@ pub fn describe_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
     for (src, dst) in [
         (0x0au16, g::TOPIC_PLACE_STATUS),
         (0x12, g::TOPIC_PLACE_SPICE),
-        (0x1b, g::TOPIC_PLACE_BYTE_1B),
+        (0x1b, g::TOPIC_PLACE_WATER),
         (8, g::TOPIC_PLACE_KIND),
     ] {
         al = c.byte(di.wrapping_add(src));
@@ -6430,7 +6431,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     c.push(b);
     c.call(entry::TROOPS_TICK, 0x1b73)?;
     c.run(0x1b73, 1)?;
-    c.call(entry::GROW_SPICE, 0x1b76)?;
+    c.call(entry::GROW_WATER, 0x1b76)?;
     c.run(0x1b76, 1)?;
     c.call(entry::GET_INGAME_TIME_OF_DAY, 0x1b79)?;
     c.run(0x1b79, 3)?;

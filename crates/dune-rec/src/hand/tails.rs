@@ -1635,7 +1635,7 @@ pub fn set_room_light_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
 
 /// `loc_01c46`: a day passes. [`g::DAYS_IN_PHASE`] (reset when
 /// [`g::GAME_PHASE`] changed, [`g::LAST_DAY_PHASE`] the last);
-/// `loc_01d66`, `loc_01e43`; [`g::CHARACTER_1_DAYS`] up from 1; the
+/// `loc_01d66`, `loc_01e43`; [`g::JESSICA_DAYS`] up from 1; the
 /// spice: [`g::SPICE_INCOME`] = [`g::SPICE`] + [`g::SPICE_PAID`] -
 /// [`g::SPICE_YESTERDAY`] (both taken, 0 below), its change against
 /// [`g::SPICE_INCOME_BEFORE`] (kept) as a rise [`g::SPICE_INCOME_RISE`]
@@ -1664,7 +1664,7 @@ pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::FIX_CHARACTER_ROOMS, 0x1c5f)?;
     c.run(0x1c5f, 1)?;
     c.call(entry::PICK_ATTACK_LOCATION, 0x1c62)?;
-    let d = c.situation().character_1_days.wrapping_add(1);
+    let d = c.situation().jessica_days.wrapping_add(1);
     let (shipped, spice, at_start, before) = (c.word(g::SPICE_PAID), c.economy().spice, c.word(g::SPICE_YESTERDAY), c.economy().income_before);
     let s = shipped.wrapping_add(spice);
     let (stock, borrow) = s.overflowing_sub(at_start);
@@ -1675,7 +1675,7 @@ pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let a = pure::inc(B, d.wrapping_sub(1) as u16);
     c.set_reg8(r8::AL, a as u8);
     if d >= 2 {
-        c.update_situation(|t| t.character_1_days = d);
+        c.update_situation(|t| t.jessica_days = d);
     }
     c.set_word(g::SPICE_PAID, 0);
     c.set_reg(BX, spice);

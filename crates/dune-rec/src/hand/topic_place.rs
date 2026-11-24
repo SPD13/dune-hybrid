@@ -32,8 +32,8 @@ pub struct TopicPlace {
     pub spice: u8,
     /// [`g::TOPIC_PLACE_SPARE_KINDS`] (53h).
     pub spare_kinds: u8,
-    /// [`g::TOPIC_PLACE_BYTE_1B`] (54h).
-    pub byte_1b: u8,
+    /// [`g::TOPIC_PLACE_WATER`] (54h).
+    pub water: u8,
     /// [`g::TOPIC_PLACE_EQUIPMENT`] (55h).
     pub equipment: [u8; 7],
     /// [`g::TOPIC_PLACE_TROOP_BITS_10`] (5Ch).
@@ -66,7 +66,7 @@ impl Single for TopicPlace {
             status: b[at(g::TOPIC_PLACE_STATUS)],
             spice: b[at(g::TOPIC_PLACE_SPICE)],
             spare_kinds: b[at(g::TOPIC_PLACE_SPARE_KINDS)],
-            byte_1b: b[at(g::TOPIC_PLACE_BYTE_1B)],
+            water: b[at(g::TOPIC_PLACE_WATER)],
             equipment: std::array::from_fn(|k| b[at(g::TOPIC_PLACE_EQUIPMENT) + k]),
             troop_bits_10: word(b, at(g::TOPIC_PLACE_TROOP_BITS_10)),
             troop_bits_12: word(b, at(g::TOPIC_PLACE_TROOP_BITS_12)),
@@ -81,7 +81,7 @@ impl Single for TopicPlace {
         b[at(g::TOPIC_PLACE_STATUS)] = self.status;
         b[at(g::TOPIC_PLACE_SPICE)] = self.spice;
         b[at(g::TOPIC_PLACE_SPARE_KINDS)] = self.spare_kinds;
-        b[at(g::TOPIC_PLACE_BYTE_1B)] = self.byte_1b;
+        b[at(g::TOPIC_PLACE_WATER)] = self.water;
         b[at(g::TOPIC_PLACE_EQUIPMENT)..at(g::TOPIC_PLACE_EQUIPMENT) + 7].copy_from_slice(&self.equipment);
         set_word(&mut b, at(g::TOPIC_PLACE_TROOP_BITS_10), self.troop_bits_10);
         set_word(&mut b, at(g::TOPIC_PLACE_TROOP_BITS_12), self.troop_bits_12);
@@ -95,7 +95,7 @@ const _: () = assert!(g::TOPIC_PLACE_CHANCE == 0x50);
 const _: () = assert!(g::TOPIC_PLACE_STATUS == 0x51);
 const _: () = assert!(g::TOPIC_PLACE_SPICE == 0x52);
 const _: () = assert!(g::TOPIC_PLACE_SPARE_KINDS == 0x53);
-const _: () = assert!(g::TOPIC_PLACE_BYTE_1B == 0x54);
+const _: () = assert!(g::TOPIC_PLACE_WATER == 0x54);
 const _: () = assert!(g::TOPIC_PLACE_EQUIPMENT == 0x55);
 const _: () = assert!(g::TOPIC_PLACE_TROOP_BITS_10 == 0x5c);
 const _: () = assert!(g::TOPIC_PLACE_TROOP_BITS_12 == 0x5e);

@@ -1,8 +1,10 @@
 //! Records: locations (sietches, palaces) and the objects on the map.
 //!
-//! A location record's byte at +8 is its kind: below 20h a plain place,
-//! 20h, 21h..27h, 28h..2Fh and 30h and up the kinds that
-//! `get_location_type_string_offset` and `calc_SAL_index` tell apart.
+//! A location record's byte at +8 is its kind ([`super::game::location_kind`]):
+//! below 20h a sietch, 20h the palace, 21h..27h a village, 28h..2Fh a
+//! fortress and 30h and up a palace again, the kinds that
+//! `get_location_type_string_offset` (by the map's type strings) and
+//! `calc_SAL_index` tell apart.
 
 use super::characters::{CharacterAt, character_flag};
 use super::game::Troop;
@@ -54,8 +56,9 @@ pub(super) fn sal_index(c: &mut Ctx, base: u16, ret: u16) -> Result<(u16, u8), B
 }
 
 /// `get_location_type_string_offset` (6231): AX = the string index for the
-/// kind of the location at DI: 0 below 20h, 1 for 20h, 2 for 21h..27h, 3 for
-/// 28h..2Fh, and 1 again from 30h on.
+/// kind of the location at DI: 0 below 20h (sietch), 1 for 20h (palace), 2
+/// for 21h..27h (village), 3 for 28h..2Fh (fortress), and 1 again from 30h
+/// on (the strings 44h.. "Sietch:", "Palace:", "Village:", "Fort:").
 ///
 /// Exit: BX kept; flags from the last `cmp`, or the `sub` for 30h and up.
 pub fn get_location_type_string_offset(m: &mut Machine, start: u16) -> Result<(), Bail> {

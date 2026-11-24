@@ -3,7 +3,7 @@
 //! smaller game-logic steps they trigger.
 
 use super::game::{UiElement, ui_flag};
-use super::characters::{CharacterAt, character_flag};
+use super::characters::{CharacterAt, character_flag, character_id as who};
 use super::waits;
 use super::sprites;
 use super::screens;
@@ -1597,9 +1597,9 @@ pub fn draw_character(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x3d5b, 1)?;
     let four_in_phases_15_to_1f = story::four_in_phases_15_to_1f(&mut c, 0x3d5e)?;
     let mut al = if four_in_phases_15_to_1f { 0x11 } else { c.reg8(r8::AL) };
-    let f = c.character(12).flags;
-    let swap = al == 0x0c && f & 0x10 != 0;
-    let n = 1 + if four_in_phases_15_to_1f { 2 } else { 0 } + 2 + if al == 0x0c { 2 + swap as u32 } else { 0 } + 4;
+    let f = c.character(who::HARKONNEN as usize).flags;
+    let swap = al == who::HARKONNEN as u8 && f & 0x10 != 0;
+    let n = 1 + if four_in_phases_15_to_1f { 2 } else { 0 } + 2 + if al == who::HARKONNEN as u8 { 2 + swap as u32 } else { 0 } + 4;
     c.run(0x3d5e, n)?;
     if four_in_phases_15_to_1f {
         c.set_reg8(r8::AL, 0x11);

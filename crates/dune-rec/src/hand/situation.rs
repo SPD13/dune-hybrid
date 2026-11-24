@@ -39,8 +39,8 @@ pub struct Situation {
     pub shipment_days_left: u8,
     /// [`g::NEAREST_LOW_MAPPED`] (D0h).
     pub nearest_low_mapped: Nearest,
-    /// [`g::CHARACTER_1_DAYS`] (D5h).
-    pub character_1_days: u8,
+    /// [`g::JESSICA_DAYS`] (D5h).
+    pub jessica_days: u8,
     /// [`g::NEAREST_LOW_UNMAPPED`] (D6h).
     pub nearest_low_unmapped: Nearest,
     /// [`g::MESSAGES_READ_LIST`] (DBh).
@@ -119,7 +119,7 @@ impl Single for Situation {
             nearest: near(at(g::NEAREST_PLACE)),
             shipment_days_left: b[at(g::SHIPMENT_DAYS_LEFT)],
             nearest_low_mapped: near(at(g::NEAREST_LOW_MAPPED)),
-            character_1_days: b[at(g::CHARACTER_1_DAYS)],
+            jessica_days: b[at(g::JESSICA_DAYS)],
             nearest_low_unmapped: near(at(g::NEAREST_LOW_UNMAPPED)),
             messages_read_list: b[at(g::MESSAGES_READ_LIST)],
             nearest_high_mapped: near(at(g::NEAREST_HIGH_MAPPED)),
@@ -159,7 +159,7 @@ impl Single for Situation {
         set_word(&mut b, at(g::NEAREST_LOW_MAPPED), self.nearest_low_mapped.distance);
         set_word(&mut b, at(g::NEAREST_LOW_MAPPED) + 2, self.nearest_low_mapped.record);
         b[at(g::NEAREST_LOW_MAPPED) + 4] = self.nearest_low_mapped.direction;
-        b[at(g::CHARACTER_1_DAYS)] = self.character_1_days;
+        b[at(g::JESSICA_DAYS)] = self.jessica_days;
         set_word(&mut b, at(g::NEAREST_LOW_UNMAPPED), self.nearest_low_unmapped.distance);
         set_word(&mut b, at(g::NEAREST_LOW_UNMAPPED) + 2, self.nearest_low_unmapped.record);
         b[at(g::NEAREST_LOW_UNMAPPED) + 4] = self.nearest_low_unmapped.direction;
@@ -200,7 +200,7 @@ impl Single for Situation {
 const _: () = assert!(g::NEAREST_PLACE == 0xca);
 const _: () = assert!(g::SHIPMENT_DAYS_LEFT == 0xcf);
 const _: () = assert!(g::NEAREST_LOW_MAPPED == 0xd0);
-const _: () = assert!(g::CHARACTER_1_DAYS == 0xd5);
+const _: () = assert!(g::JESSICA_DAYS == 0xd5);
 const _: () = assert!(g::NEAREST_LOW_UNMAPPED == 0xd6);
 const _: () = assert!(g::MESSAGES_READ_LIST == 0xdb);
 const _: () = assert!(g::NEAREST_HIGH_MAPPED == 0xdc);

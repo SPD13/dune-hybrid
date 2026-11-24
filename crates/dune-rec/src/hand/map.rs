@@ -1990,7 +1990,7 @@ pub fn draw_location_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if pre {
         let ax = c.reg(AX);
         c.push(ax);
-        c.call(entry::CAPTION_COUNT_LINE, 0x6055)?;
+        c.call(entry::CAPTION_WATER_LINE, 0x6055)?;
         c.run(0x6055, 2)?;
         let ax = c.pop();
         c.set_reg(AX, ax);
@@ -2408,12 +2408,12 @@ pub fn location_balance(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0605c`: the location DI's line of the caption: the label 6Ch
-/// (colour 90h) at ([1668h] + 4, BX + 0Ah), then for a location with bit
-/// 20h of byte 0Ah its count (byte 1Bh, `draw_number_al` with the phrase
-/// 75h) and `loc_0617a` (BP [166Ch]), else the phrase 6Dh. BX moves
-/// down 7.
-pub fn caption_count_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
+/// `loc_0605c`: the location DI's water line of the caption: the label
+/// 6Ch, "water:" (colour 90h) at ([1668h] + 4, BX + 0Ah), then for a
+/// location with a wind-trap (bit 20h of byte 0Ah) its water (byte 1Bh,
+/// `draw_number_al` with the phrase 75h) and `loc_0617a` (BP [166Ch]),
+/// else the phrase 6Dh, "No wind-trap". BX moves down 7.
+pub fn caption_water_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x605c)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -2429,13 +2429,13 @@ pub fn caption_count_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x6c);
     c.call(entry::FONT_DRAW_STRING_WITH_COLOR_AT_POS, 0x6071)?;
     let di = c.reg(DI);
-    let al = Location(di).count(&mut c);
+    let al = Location(di).water(&mut c);
     let f = Location(di).flags(&mut c);
     c.run(0x6071, 5)?;
     c.set_reg8(r8::AL, al);
     c.set_reg(SI, 0x75);
     c.set_reg(BP, 0x6d);
-    if f & location_flag::COUNTING == 0 {
+    if f & location_flag::WIND_TRAP == 0 {
         c.run(0x609d, 5)?;
         c.set_reg(AX, 0x6d);
         let bx = c.reg(BX);
@@ -4603,11 +4603,11 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     count_shown_location(c.m, 0x5d50)
 }
 
-/// `map_func_qq`: with [46DEh] set, each location from 100h with bit 20h
-/// of byte 0Ah gains spice (byte 1Bh, up to FAh) by half the cells of
+/// `map_func_qq`: with [46DEh] set, each location from 100h with a
+/// wind-trap (bit 20h of byte 0Ah) gains water (byte 1Bh, up to FAh) by half the cells of
 /// kind 10h around it + 1 (`count_10_bytes` at its map cell, word 6);
 /// then [`spread_spice`].
-pub fn grow_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn grow_water(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x63f0)?;
     let mut c = Ctx::new(m);
     let k = c.byte(g::DAY_CHANGED);
@@ -4622,9 +4622,9 @@ pub fn grow_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut di = 0x100u16;
     loop {
         let al = Location(di).flags(&mut c);
-        let bl = Location(di).count(&mut c);
+        let bl = Location(di).water(&mut c);
         'one: {
-            if al & location_flag::COUNTING == 0 {
+            if al & location_flag::WIND_TRAP == 0 {
                 c.run(0x63fe, 3)?;
                 c.set_reg8(r8::AL, al);
                 break 'one;
@@ -4652,7 +4652,7 @@ pub fn grow_spice(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let v = if cap { 0xfa } else { v as u8 };
             c.set_reg(BX, 0xfa00 | v as u16);
             let di = c.reg(DI);
-            Location(di).set_count(&mut c, v);
+            Location(di).set_water(&mut c, v);
         }
         di = c.reg(DI);
         let nd = di.wrapping_add(0x1c);

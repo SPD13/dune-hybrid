@@ -33,6 +33,44 @@ pub mod troop_state {
     pub const NOT_A_TROOP: u8 = 0x80;
 }
 
+/// A troop's jobs (byte 3's low four bits, [`Troop::job`]), named by the
+/// game's own strings (the list the troop's panel reads them from). Three
+/// groups of four, one per skill (the job / 4, `troop_activity`): spice,
+/// army, ecology, which the orders SPECIALIZE IN SPICE / ARMY / ECOLOGY
+/// (phrases 75h..77h; 6A71h, 6A83h, 6A87h) start at their first job (the
+/// last greyed until bit 20h of [0Ah]); the other orders (6A2Bh, 6A2Fh,
+/// 6A33h) pick 1..3 within the group.
+pub mod troop_job {
+    pub const SPICE_MINING: u8 = 0;
+    pub const SPICE_PROSPECTING: u8 = 1;
+    pub const AWAITING_ORDERS: u8 = 2;
+    pub const SEARCH_FOR_EQUIPMENT: u8 = 3;
+    pub const MILITARY_TRAINING: u8 = 4;
+    pub const ESPIONAGE: u8 = 5;
+    pub const ATTACKS: u8 = 6;
+    /// Also 7 and 0Bh: each group's last.
+    pub const SEARCH_FOR_EQUIPMENT_ARMY: u8 = 7;
+    pub const IRRIGATION: u8 = 8;
+    pub const WIND_TRAP_ASSEMBLY: u8 = 9;
+    pub const BULB_GROWING: u8 = 0x0a;
+    pub const SEARCH_FOR_EQUIPMENT_ECOLOGY: u8 = 0x0b;
+}
+
+/// A location's kinds (byte 8, [`Location::kind`]), named by the type
+/// strings the map shows for them (`get_location_type_string_offset`:
+/// strings 44h..47h "Sietch:", "Palace:", "Village:", "Fort:", and
+/// 48h..4Bh "a sietch" ... "a fortress" when one is sighted).
+pub mod location_kind {
+    /// Below it a sietch (its low bits its look, `grow_location` grows it).
+    pub const PALACE: u8 = 0x20;
+    /// 21h..27h.
+    pub const VILLAGE: u8 = 0x21;
+    /// 28h..2Fh, the low three bits kept from the sietch it was.
+    pub const FORTRESS: u8 = 0x28;
+    /// 30h and up: a palace again (the type string's index 1).
+    pub const PALACE_2: u8 = 0x30;
+}
+
 /// Bits of a location's byte 0Ah ([`Location::flags`]).
 pub mod location_flag {
     /// Set by job 8 the first time it works the location (its spice
@@ -58,9 +96,11 @@ pub mod location_flag {
     /// (`sprite_list_of`); the map shows it by its type string
     /// (`location_map_kind`).
     pub const VISITED: u8 = 0x10;
-    /// Its byte 1Bh counts (set by job 9 when it overflows): it grows
-    /// (`grow_spice`) and shows in the map caption (`caption_count_line`).
-    pub const COUNTING: u8 = 0x20;
+    /// A wind-trap built (job 9, Wind-trap Assembly, when its work at
+    /// byte 1Bh overflows): from then on byte 1Bh is its water, which
+    /// grows (`grow_water`); the map caption shows "water:" and it, else
+    /// "No wind-trap" (`caption_water_line`, strings 6Ch, 6Dh).
+    pub const WIND_TRAP: u8 = 0x20;
     /// Prospected: set when job 1 finishes there; the map colours its
     /// region by its spice (`region_colours`).
     pub const PROSPECTED: u8 = 0x40;
@@ -655,8 +695,9 @@ impl Location {
         self.byte(c, 0)
     }
 
-    /// Byte 8: its kind. Below 28h a sietch (`abandon_location`, which
-    /// makes it 28h + its low three bits; `location_kind_check`,
+    /// Byte 8: its kind ([`location_kind`]: a sietch, the palace, a
+    /// village, a fortress). Below 28h not a fortress (`abandon_location`,
+    /// which makes it 28h + its low three bits; `location_kind_check`,
     /// `raid_rally_own_troop` compare with 28h); `grow_location` grows
     /// those below 20h; kept to its low three bits when the location is
     /// freed (`troop_day_update`).
@@ -724,7 +765,7 @@ impl Location {
     }
 
     /// Word 6: its map cell (an offset in the map; `find_location_by_word_6`
-    /// finds the location of a cell, `grow_spice` counts around it).
+    /// finds the location of a cell, `grow_water` counts around it).
     pub fn cell(self, c: &mut Ctx) -> u16 {
         self.word(c, 6)
     }
@@ -756,15 +797,16 @@ impl Location {
         self.set_byte(c, 0x0b, v)
     }
 
-    /// Byte 1Bh: the count the map caption shows with
-    /// [`location_flag::COUNTING`] (`caption_count_line`). Job 9 raises it
-    /// by its troops' strength until it overflows (then it is 5 and
-    /// counting); then it grows (`grow_spice`, up to FAh) and job 8 takes
+    /// Byte 1Bh: its water, which the map caption shows ("water:") with
+    /// [`location_flag::WIND_TRAP`] (`caption_water_line`). Before that,
+    /// the wind-trap's assembly: job 9 raises it by its troops' strength
+    /// until it overflows (the wind-trap built, the water 5); then it grows
+    /// (`grow_water`, up to FAh) and job 8 (Irrigation & Tree Care) takes
     /// 0Ch a time from it.
-    pub fn count(self, c: &mut Ctx) -> u8 {
+    pub fn water(self, c: &mut Ctx) -> u8 {
         self.byte(c, 0x1b)
     }
-    pub fn set_count(self, c: &mut Ctx, v: u8) {
+    pub fn set_water(self, c: &mut Ctx, v: u8) {
         self.set_byte(c, 0x1b, v)
     }
 }

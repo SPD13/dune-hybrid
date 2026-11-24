@@ -1,6 +1,7 @@
 //! Dialogue state: the talking character's mode bytes (47C2h, 47C4h,
 //! 47DCh...), the phrase pointers, and small steps of the conversation.
 
+use super::characters::character_id as who;
 use super::characters::{CharacterAt, character_flag};
 use super::game::location_flag;
 use super::screen;
@@ -760,8 +761,8 @@ pub fn speaker_text_setup(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let talker = c.conversation().talker;
     let k = c.economy().endgame_stage;
-    let sums = talker == 2 && k == 4;
-    c.run(start, if talker != 2 { 3 } else if !sums { 5 } else { 8 })?;
+    let sums = talker == who::THUFIR_HAWAT && k == 4;
+    c.run(start, if talker != who::THUFIR_HAWAT { 3 } else if !sums { 5 } else { 8 })?;
     c.set_reg(AX, talker);
     if sums {
         c.save(&[AX, SI]);
@@ -1075,7 +1076,7 @@ pub fn speak_number_part(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_09a7b`: SI the text of the sentence the sentence kind ([47D0h]) - 1 (else
-/// 5, 6 for character 7 from phase C8h, with BX 0F38h for 0F18h) plus
+/// 5, 6 for Chani (character 7) from phase C8h, with BX 0F38h for 0F18h) plus
 /// [0F0h] (BP the entry, AX its offset) of [47CAh] in ES = [0DBB2h]; then
 /// `rand_masked` with BX.
 pub fn random_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
@@ -1086,7 +1087,7 @@ pub fn random_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let late = c.progress().phase >= 0xc8;
     let cost = if kind != 0 {
         4
-    } else if talker != 7 {
+    } else if talker != who::CHANI {
         8
     } else if !late {
         10
@@ -1099,7 +1100,7 @@ pub fn random_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
         kind
     } else {
         c.set_reg(BX, 0x0f38);
-        if talker == 7 && late { 6 } else { 5 }
+        if talker == who::CHANI && late { 6 } else { 5 }
     };
     let offset = (sentence - 1) as u16 * 2;
     c.set_reg(AX, offset);
@@ -1325,7 +1326,7 @@ pub fn add_speaker_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// From `loc_030ca` (`pre` instructions before, done by `head`): the
 /// speaker SI's entries stored at ES:DI, 2 words each: its phrase (78h +
 /// its number, byte 0Eh; AL, CL the number) and its place (word 4); its
-/// bit in [12h]. For speaker 0Fh also [476Ah] - 1 more (phrases 88h on,
+/// bit in [12h]. For the Fremen chiefs (0Fh) also [476Ah] - 1 more (phrases 88h on,
 /// the same place; CX the count), and from phase 5 the entry [476Bh] - 1
 /// - [476Ah] (signed, from DI) made phrase 8Fh.
 fn speaker_entries_at(c: &mut Ctx, at: u16, pre: u32, head: impl FnOnce(&mut Ctx)) -> Result<(), Bail> {
@@ -1337,7 +1338,7 @@ fn speaker_entries_at(c: &mut Ctx, at: u16, pre: u32, head: impl FnOnce(&mut Ctx
     let more = (k as u16).wrapping_sub(1);
     let extra = if (more as i16) > 0 { more } else { 0 };
     let mut cost = pre + 12;
-    if speaker != 0x0f {
+    if speaker != who::FREMEN_CHIEF as u8 {
         cost += 1;
     } else {
         cost += 6 + if extra > 0 { 4 + 6 * extra as u32 } else { 0 };
@@ -1356,7 +1357,7 @@ fn speaker_entries_at(c: &mut Ctx, at: u16, pre: u32, head: impl FnOnce(&mut Ctx
     c.update_progress(|t| t.present = v);
     c.set_reg(AX, place);
     c.stos(W);
-    if speaker != 0x0f {
+    if speaker != who::FREMEN_CHIEF as u8 {
         return c.ret();
     }
     c.set_reg(CX, more);
@@ -2265,13 +2266,13 @@ pub fn two_heads_text_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 3)?;
     c.call(entry::SWAP_GAME_STATE, 0x99c8)?;
     c.run(0x99c8, 2)?;
-    open_head_resource(&mut c, 7, 0x99ce)?;
+    open_head_resource(&mut c, who::CHANI, 0x99ce)?;
     c.run(0x99ce, 1)?;
     c.call(entry::DIALOGUE_TEXT_STEP, 0x99d1)?;
     c.run(0x99d1, 1)?;
     c.call(entry::SWAP_GAME_STATE, 0x99d4)?;
     c.run(0x99d4, 2)?;
-    open_head_resource(&mut c, 0x2d, 0x99da)?;
+    open_head_resource(&mut c, who::PAUL_HEAD, 0x99da)?;
     dialogue_text_step(c.m, 0x99da)
 }
 
@@ -2808,7 +2809,7 @@ pub(super) fn next_line_from_9472(c: &mut Ctx) -> Result<(), Bail> {
             }
         }
         // 94B9h: the group ran out.
-        if c.conversation().talker != 0x0d {
+        if c.conversation().talker != who::SMUGGLER {
             c.run(0x94b9, 3)?;
             return super::screens::leave_and_fade(c.m, 0xd2e2);
         }
@@ -3186,8 +3187,8 @@ pub fn setup_lip_sync_data_from_sprite_sheet(m: &mut Machine, start: u16) -> Res
 fn lip_sync_setup_at(c: &mut Ctx) -> Result<(), Bail> {
     use super::globals::SPRITE_SHEET;
     let talker = c.reg(AX);
-    let alt = talker == 0x0c && c.character(12).flags & 0x10 != 0;
-    c.run(0x91a0, if talker != 0x0c { 4 } else if alt { 7 } else { 6 })?;
+    let alt = talker == who::HARKONNEN && c.character(who::HARKONNEN as usize).flags & 0x10 != 0;
+    c.run(0x91a0, if talker != who::HARKONNEN { 4 } else if alt { 7 } else { 6 })?;
     c.update_situation(|t| t.sentence_bank = if alt { 0x0a } else { 0 });
     let head = picked_sentence(c, 0x91bb)?;
     if head == c.word(g::LOADED_HEAD) {
@@ -3260,18 +3261,18 @@ pub fn speaker_list_item(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let record = c.reg(SI);
     let speaker = CharacterAt(record).number(&mut c);
     let flags = CharacterAt(record).flags(&mut c);
-    let special = speaker != 0x0c && c.progress().present & 0x1000 != 0;
+    let special = speaker != who::HARKONNEN as u8 && c.progress().present & 0x1000 != 0;
     let (mut phrase, mut handler) = (c.reg(BX), c.reg(DX));
     let mut by_flags = false;
-    let mut cost = 3 + if speaker != 0x0c { 2 } else { 0 };
+    let mut cost = 3 + if speaker != who::HARKONNEN as u8 { 2 } else { 0 };
     if special {
         cost += 4;
         (phrase, handler) = (0x9c, 0x9584);
     }
-    if !(special && c.character(12).flags & 0x10 == 0) {
+    if !(special && c.character(who::HARKONNEN as usize).flags & 0x10 == 0) {
         cost += 4;
         (phrase, handler) = (0x93, 0x5a03);
-        if speaker != 0x0f {
+        if speaker != who::FREMEN_CHIEF as u8 {
             cost += 2;
             if speaker == 0x0e {
                 cost += 4;
@@ -4365,19 +4366,19 @@ fn clear_900b(c: &mut Ctx) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0a172`: by [`g::TALKER`] (AX): 1 counts at [0F5h]; 3 goes on into
-/// `loc_024a3`; others return.
+/// `loc_0a172`: by [`g::TALKER`] (AX): Jessica (1) counts at [0F5h];
+/// Duncan Idaho (3) goes on into `loc_024a3`; others return.
 pub fn note_remark_by_talker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xa172)?;
     let mut c = Ctx::new(m);
     let talker = c.conversation().talker;
-    c.run(start, if talker == 1 { 7 } else { 6 })?;
+    c.run(start, if talker == who::JESSICA { 7 } else { 6 })?;
     c.set_reg(AX, talker);
-    if talker == 1 {
+    if talker == who::JESSICA {
         let n = c.situation().desert_remarks.wrapping_add(1);
         c.update_situation(|t| t.desert_remarks = n);
     }
-    if talker == 3 {
+    if talker == who::DUNCAN_IDAHO {
         return c.jump(0x24a3);
     }
     c.ret()
@@ -4459,9 +4460,10 @@ pub fn show_person_on_map(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_0a125`: by [`g::TALKER`] (AX): 1, the charisma step below; 3, on
-/// into `loc_02239`; 5, [227Eh] 2CCFh; 0Ch, bit 80h of byte 0Ah of the
-/// location [11CEh] cleared (DI it); 0Dh, on into `loc_02388`. The
+/// `loc_0a125`: by [`g::TALKER`] (AX): Jessica (1), the charisma step
+/// below; Duncan Idaho (3), on into `loc_02239`; Stilgar (5), [227Eh]
+/// 2CCFh; 0Ch, bit 80h of byte 0Ah of the location [11CEh] cleared (DI
+/// it); the smuggler (0Dh), on into `loc_02388`. The
 /// charisma step: with bit 2 of [0Ah], charisma 28h more (6F78h, AL)
 /// and AX -32h; else with [`g::REACH`] 1, charisma 0Ah more and AX 0Ah;
 /// else AX [`g::REACH`]. Then [`charisma_tail`].
@@ -4470,7 +4472,7 @@ pub fn reward_talk_by_talker(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let talker = c.conversation().talker;
     match talker {
-        1 => {
+        who::JESSICA => {
             c.run(start, 3)?;
             c.set_reg(AX, talker);
             if c.progress().event_flags & 2 != 0 {
@@ -4492,28 +4494,28 @@ pub fn reward_talk_by_talker(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, reach);
             charisma_tail(&mut c, reach)
         }
-        3 => {
+        who::DUNCAN_IDAHO => {
             c.run(start, 6)?;
             c.set_reg(AX, talker);
             c.jump(0x2239)
         }
-        5 => {
+        who::STILGAR => {
             c.run(start, 9)?;
             c.set_reg(AX, talker);
             c.set_word(g::DIALOGUE_ENTRY_HOOK, 0x2ccf);
             c.ret()
         }
         _ => {
-            c.run(start, 12 + if talker == 0x0c { 2 } else { 0 })?;
+            c.run(start, 12 + if talker == who::HARKONNEN { 2 } else { 0 })?;
             c.set_reg(AX, talker);
-            if talker == 0x0c {
+            if talker == who::HARKONNEN {
                 let place = c.word(g::TOPIC_PLACE_RECORD);
                 c.set_reg(DI, place);
                 let place = game::Location(place);
                 let b = place.flags(&mut c);
                 place.set_flags(&mut c, b & !location_flag::UNDISCOVERED);
             }
-            if talker == 0x0d {
+            if talker == who::SMUGGLER {
                 return c.jump(0x2388);
             }
             c.ret()
@@ -4537,7 +4539,7 @@ fn charisma_tail(c: &mut Ctx, ax: u16) -> Result<(), Bail> {
         d5 = 0x80u8.wrapping_sub(q as u8);
     }
     c.set_reg8(r8::BL, d5);
-    c.update_situation(|t| t.character_1_days = d5);
+    c.update_situation(|t| t.jessica_days = d5);
     c.ret()
 }
 

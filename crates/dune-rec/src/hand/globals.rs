@@ -55,7 +55,7 @@ pub const SHIPMENT_RATIO: u16 = 0x00be;
 /// at 25A8h, 20h set at 2951h.
 pub const SHIPMENT_FLAGS: u16 = 0x00bf;
 /// The amount chosen for the next shipment (250Dh), shipped when the
-/// player is in room 8 with character 3 present (35CFh).
+/// player is in room 8 with Duncan Idaho (character 3) present (35CFh).
 pub const SHIPMENT_CHOSEN: u16 = 0x00c0;
 /// How many demands the Emperor has made (20D5h).
 pub const DEMANDS: u16 = 0x00c3;
@@ -79,7 +79,7 @@ pub const SPICE_DEMAND_LAPSED: u16 = 0x11bb;
 /// [`NEXT_EVENT`]: a word with the kind (to [`EVENT_KIND`]; 1: told) and
 /// in its high byte the character who tells it (to [`TALKER`]; told
 /// when it is [`PRESENT`], 2AD8h), and a word, the location record
-/// where (0 for none; for character 0Fh it must be [`PLACE`]). The first is told in the room view after a while
+/// where (0 for none; for a Fremen chief, character 0Fh, it must be [`PLACE`]). The first is told in the room view after a while
 /// (`loc_02b2a`).
 pub const PENDING_EVENTS: u16 = 0x1190;
 /// The first event waiting ([`PENDING_EVENTS`]): its kind and teller,
@@ -165,7 +165,7 @@ pub const ATTACK_DAY: u16 = 0x1156;
 /// (`speaker_mood`).
 pub const ATTACK_TARGET: u16 = 0x11db;
 /// The followed troop's (troop 3, 8E0h) note: the location it heads for
-/// (0: none; `job_1` sets it out, `troop_arrived_at`), then a map point
+/// (0: none; `job_spice_prospecting` sets it out, `troop_arrived_at`), then a map point
 /// (6 bytes in all, copied to 4718h at 8087h).
 pub const FOLLOWED_TROOP_PLACE: u16 = 0x11d3;
 /// Set when a fight was seen (the night attack, 2DE2h; `map_func`):
@@ -182,7 +182,7 @@ pub const BYTE_11D0: u16 = 0x11d0;
 pub const PALACE_ROOM_2_LABEL: u16 = 0x122a;
 /// [0FD8h]: the characters' records, 10h bytes each (`characters.rs`).
 pub const CHARACTERS: u16 = 0x0fd8;
-/// [0FDBh]: character 0's location index (its record's byte 3; FFh none).
+/// [0FDBh]: Duke Leto's (character 0's) location index (its record's byte 3; FFh none).
 pub const CHARACTER_0_LOCATION: u16 = 0x0fdb;
 pub const WORD_1154: u16 = 0x1154;
 /// The count of [`g::JOINED`] from which `troop_joins` calls 121Fh.
@@ -887,8 +887,10 @@ pub const TOPIC_PLACE_SPICE: u16 = 0x52;
 /// Bit 7 - k: some of equipment kind k spare, not held by its troops
 /// (from 46FEh, 3363h).
 pub const TOPIC_PLACE_SPARE_KINDS: u16 = 0x53;
-/// Its byte 1Bh.
-pub const TOPIC_PLACE_BYTE_1B: u16 = 0x54;
+/// Its byte 1Bh, the water (`Location::water`: built up by job 9, the
+/// wind-trap's assembly, then grown, taken from by job 8, irrigation;
+/// the map caption shows it).
+pub const TOPIC_PLACE_WATER: u16 = 0x54;
 /// Its equipment, seven kinds (bytes 14h..1Ah). (7 bytes)
 pub const TOPIC_PLACE_EQUIPMENT: u16 = 0x55;
 /// The words 10h of its troops (not the Harkonnens') ORed together.
@@ -935,7 +937,7 @@ pub const TOPIC_PLACE_STRIKE_ODDS: u16 = 0x9c;
 /// its lines by it.
 pub const SMUGGLER_MOOD: u16 = 0x9e;
 /// The answer picked (1..3, 2496h; cleared at 2359h, A24Dh); 3 with
-/// spice on talking to character 3 (223Bh).
+/// spice on talking to Duncan Idaho (character 3, 223Bh).
 pub const ANSWER: u16 = 0x9f;
 /// The spice of the places of kind 28h and up not taken, an eighth
 /// each, plus up to a sixteenth at random (1CE1h..1D0Bh).
@@ -959,10 +961,10 @@ pub const ROOM_SEAT_SHIFT: u16 = 0xc5;
 pub const NEAREST_PLACE: u16 = 0xca;
 /// The nearest of kind below 28h, mapped. (6 bytes)
 pub const NEAREST_LOW_MAPPED: u16 = 0xd0;
-/// Set on each talk with character 1 (its charisma step, A1BFh): 80h -
+/// Set on each talk with Jessica (character 1; her charisma step, A1BFh): 80h -
 /// [`REACH`] / 6, 0 once the reach is 64h or more; then one up each day
 /// while it is 1 or more, up to FFh (1C62h); FFh from phase 15h (1091h).
-pub const CHARACTER_1_DAYS: u16 = 0xd5;
+pub const JESSICA_DAYS: u16 = 0xd5;
 /// The nearest of kind below 28h, unmapped. (6 bytes)
 pub const NEAREST_LOW_UNMAPPED: u16 = 0xd6;
 /// 0: the message list shows the new ones, FFh: those read (2841h).
@@ -997,7 +999,7 @@ pub const EVENT_PLACE_NAME: u16 = 0xf2;
 /// time slot, 0 below 10h (1B2Fh); from 10h the greeting is the one
 /// for coming back from the desert (918Ah).
 pub const DESERT_FATIGUE: u16 = 0xf4;
-/// One up per action 14 with character 1 (A17Ah); 0 as
+/// One up per action 14 with Jessica (character 1, A17Ah); 0 as
 /// [`DESERT_FATIGUE`] drops (1B3Ah).
 pub const DESERT_REMARKS: u16 = 0xf5;
 /// 1 when the troops' march to the place is shown (4D2Eh).
@@ -1058,7 +1060,7 @@ pub const GAME_AREA_RECT_X1: u16 = 0x1474;
 pub const GAME_AREA_RECT_Y1: u16 = 0x1476;
 /// [149Ah]: the next free slot of the map points' ring (x, y words, CS:E40Ch..E85Ch); `draw_map_points` starts from it (gfx.rs `POINTS_NEXT`).
 pub const MAP_POINTS_NEXT: u16 = 0x149a;
-/// [1668h]: the location caption's frame, a 0Ah-byte box (x0, y0, x1, y1 words, outline colour, fill colour). Its x0 places the caption lines (`draw_location_caption`, `caption_count_line`, `location_panel_line`).
+/// [1668h]: the location caption's frame, a 0Ah-byte box (x0, y0, x1, y1 words, outline colour, fill colour). Its x0 places the caption lines (`draw_location_caption`, `caption_water_line`, `location_panel_line`).
 pub const CAPTION_FRAME: u16 = 0x1668;
 /// [166Ah]: [`CAPTION_FRAME`]'s y0.
 pub const CAPTION_FRAME_Y0: u16 = 0x166a;
@@ -1254,7 +1256,7 @@ pub const HEAD_OFFSET_Y: u16 = 0x46d4;
 pub const SKIP_BOX_RESTORE: u16 = 0x46d8;
 /// [46DAh]: 1 while `run_clock_ticks` runs (0FD9h..1005h); the hour's update does not redraw the room meanwhile (1BBFh, 1BDCh).
 pub const CLOCK_TICKING: u16 = 0x46da;
-/// [46DEh]: the change of the time [2]'s high nibble at the time step (1B56h): non-zero on a new day, while the day's updates run (`grow_spice`, `troop_day_update`).
+/// [46DEh]: the change of the time [2]'s high nibble at the time step (1B56h): non-zero on a new day, while the day's updates run (`grow_water`, `troop_day_update`).
 pub const DAY_CHANGED: u16 = 0x46de;
 /// [46E0h]: the sky palette shown, swapped with SKY_PALETTE_SET to see whether the light changed (2E2Eh, then a fade); restored from SEQUENCE_RETURN's high byte (1742h), one down per video step (48D1h).
 pub const SKY_PALETTE_SHOWN: u16 = 0x46e0;

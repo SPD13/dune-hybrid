@@ -700,7 +700,7 @@ load/save) (before the callbacks: 39-76 in hand ports, mostly
 before the inputs in
 place: 50-100, about 1450 and 1300-2300; before generated code took
 interrupts in place: 3000-5500 generated, 6000-7000 drivers).
-`REC_TRACE_BAIL=ADDR` prints each bail at ADDR with the entry it came
+`REC_TRACE_BAIL=ADDR` (or `all`) prints each bail at ADDR with the entry it came
 from; `REC_TRACE_SKIP=1` each place the run loop leaves one instruction
 to the interpreter. The hand ports' stretches that
 still give up are listed with their reason (`rec: hand stretch bails`):
@@ -1148,12 +1148,38 @@ troop's word 12h low nibble). `note_point` (2E98h) notes a place's
 name there, not a point. These stay in memory (a mix, no one
 subsystem).
 
-Still unclear: [9Eh] `SMUGGLER_MOOD`, [D5h] `CHARACTER_1_DAYS` (set
-from the reach on each talk with character 1, then counted up each
-day; which character 1 is), [54h] (a location's byte 1Bh), [31h] (a
-troop's word 12h low nibble: as phrase 8Ah's argument it names a
-place's first word), the kinds from 28h (sietches or Harkonnen
-places), [4722h] (a toggle of the map panel), [118Fh], [0DCE4h].
+Settled since (2026-11-23): the characters, by talking to each in the
+running game and reading the talker [47C4h] (`characters::character_id`):
+Duke Leto 0, Jessica 1, Duncan Idaho 3, Stilgar 5, Chani 7, Harah 8, a
+Fremen chief 0Fh; 0Dh is the smuggler (its talk picks [9Eh]
+`SMUGGLER_MOOD`, 2388h). So [D5h] is `JESSICA_DAYS`, phase 38h takes
+the Duke away (his location FFh), phase 1 puts Duncan in the palace.
+[54h] is `TOPIC_PLACE_COUNT` (a location's count, byte 1Bh); [4722h]
+`PLACE_VIEW_STRENGTH`, [118Fh] `PENDING_EVENTS_FLAG`, [0DCE4h]
+`ITEM_SCROLL`. The rest of the characters from the game's own data: a
+talker's head is resource talker + 2 (`open_talking_head_resource`), and
+the resource names at [31FFh] (read from a memory dump) run LETO, JESS,
+HAWA, IDAH, GURN, STIL, KYNE, CHAN, HARA, BARO, FEYD, EMPR, HARK, SMUG,
+FRM1..3, GENERIC, matching every talker read above: 2 Thufir Hawat, 4
+Gurney Halleck, 6 Liet Kynes, 9 the Baron, 0Ah Feyd, 0Bh the Emperor,
+0Ch a Harkonnen (sentence bank 0Ah with its flag 10h). The troops' jobs
+from the game's strings too (`game::troop_job`): the troop panel's list
+of twelve names, and the orders SPECIALIZE IN SPICE / ARMY / ECOLOGY
+(phrases 75h..77h) whose handlers (6A71h, 6A83h, 6A87h) give jobs 0, 4
+and 8: 0 Spice Mining, 1 Spice Prospecting, 2 Awaiting orders, 4
+Military Training, 5 Espionage, 6 Attacks, 8 Irrigation & Tree Care, 9
+Wind-trap Assembly, 0Ah Bulb growing; 3, 7 and 0Bh Search for
+Equipment. So a location's byte 1Bh is its water (the caption's strings
+6Ch "water:" and 6Dh "No wind-trap"), and bit 20h of its byte 0Ah a
+wind-trap built (`location_flag::WIND_TRAP`; `grow_water`, was
+`grow_spice`). An arriving troop on job 5 that shows a new place is
+espionage, not harvesting (a wrong comment). The location kinds by the
+map's type strings 44h..47h (`game::location_kind`): below 20h a sietch,
+20h the palace, 21h..27h a village, 28h..2Fh a fortress, 30h on a palace
+again. Still open: [31h] (a troop's word 12h low nibble: as phrase 8Ah's
+argument it names a place's first word). The strings come from a memory
+dump: the command strings are numbered from 1 (string n at word n - 1 of
+their offset table).
 
 ## Tools in place
 
@@ -1253,6 +1279,27 @@ instruction count on; diff a plain run with a `--rec on` one),
   raised: both equal (with interpreted parts). Never checked: 9. With
   `REC_SAMPLES` 20000 (and `REC_FROM` 68 on the save), runs `a`, `b`,
   `e`, `f` show no difference.
+- Runs `h` and `i` (2026-11-23). `h` takes the day23 save out of the
+  palace and flies from the room (TAKE AN ORNITHOPTER, a sietch, SKIP TO
+  DESTINATION): the landing reaches `play_sal_scene` (488Ah), equal with
+  interpreted parts. `i` asks Chani to stay and back (STAY HERE twice):
+  `say_entry_mask_20` (9F8Bh) checked twice. Never checked: 7. Left:
+  `start`, `play_intro`, `game_loop` (they never return), 0E6Ch, C8FBh
+  (videos), 13C8h (skipped, as above), and `play_chapter_video` (B1EEh).
+  B1EEh has no caller in the code: it is the handler of the book's
+  top-left element (DS:1C28h, its rectangle 0,4..28h,2Eh), live only
+  when the chapter has a video ([243Eh], from the table at 2426h by the
+  chapter's entry, B254h). The book opens from the frieze's element
+  1B10h (18h,9Bh..45h,B0h); none of the six saves is at a chapter with a
+  video, so it stays unchecked.
+- Never ran to the end: 14, the never-checked ones without skips and 9
+  that always bail, all at wait loops. With `REC_TRACE_BAIL=all` the
+  bails are interrupts landing in the frame wait (E398h, in
+  `wait_processing_frame_tasks`) and in the fade's loop (D2A4h..D2B1h,
+  `fade_panel`): `ship_spice_to_emperor` (2566h), `play_sal_scene`,
+  `settings_ui_draw`, `leave_and_fade`, `unwind_and_fade`, C8C1h and
+  E3A0h itself; the two XMS calls go out to the driver. A shadow replay can't finish these with
+  the clock's interrupts in them; the interpreted parts are equal.
 - `exit_with_error`, `out_of_memory_error`: they end the program; no check
   can follow them. Leave them generated.
 - The XMS routines (`xms_memory_func_1`, `initialize_himem_sys`,

@@ -13,7 +13,7 @@ use super::map;
 use super::cursor;
 use super::entry;
 use super::pure;
-use super::game::{self, Location, Troop, location_flag, troop_state};
+use super::game::{self, Location, Troop, location_flag, troop_job, troop_state};
 use super::{B, Ctx, W, entered, globals as g, r8};
 use pc::{
     Machine,
@@ -1176,7 +1176,7 @@ pub fn troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail> {
         cost += 1;
     }
     let mut ah = job;
-    if job == 6 {
+    if job == troop_job::ATTACKS {
         let home = troop.location(&mut c) == game::here(&mut c);
         cost += 5;
         if home {
@@ -1214,7 +1214,7 @@ pub fn troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.run(start, cost)?;
-    if job == 6 {
+    if job == troop_job::ATTACKS {
         // The location compared through DI (saved and given back).
         c.save(&[DI]);
         c.restore(&[DI]);
@@ -2267,13 +2267,13 @@ pub fn troop_bit_10_by_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let (si, di) = (c.reg(SI), c.reg(DI));
     let w12 = Troop(si).word_12(&mut c);
-    let b1b = Location(di).count(&mut c);
+    let b1b = Location(di).water(&mut c);
     let b0a = Location(di).flags(&mut c);
     let n = if w12 & 0x30 != 0 {
         3
     } else if b1b < 1 {
         5
-    } else if b0a & location_flag::COUNTING == 0 {
+    } else if b0a & location_flag::WIND_TRAP == 0 {
         8
     } else {
         12
@@ -2599,7 +2599,7 @@ pub fn troop_orders_menu(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let job = troop.job(&mut c);
-    if job == 2 {
+    if job == troop_job::AWAITING_ORDERS {
         c.run(start, 14)?;
         menu_start(&mut c);
         c.set_reg8(r8::AL, job);
@@ -2613,7 +2613,7 @@ pub fn troop_orders_menu(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let taken = place.flags(&mut c) & location_flag::RAIDED != 0;
     let kind = place.kind(&mut c);
     // The instructions to the test it stops at.
-    let mut cost = 15 + (job != 1) as u32 + (phase >= 5) as u32;
+    let mut cost = 15 + (job != troop_job::SPICE_PROSPECTING) as u32 + (phase >= 5) as u32;
     let stop = if phase < 4 {
         cost += 1;
         Some(1)
@@ -2630,7 +2630,7 @@ pub fn troop_orders_menu(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, cost)?;
     menu_start(&mut c);
     c.set_reg8(r8::AL, job);
-    if job != 1 {
+    if job != troop_job::SPICE_PROSPECTING {
         clear_bit_40(&mut c, ORDER_ITEMS + 1);
     }
     if phase >= 5 {
@@ -3669,7 +3669,7 @@ fn sprite_list_of(c: &mut Ctx, troop: Troop) -> SpriteList {
     if state & 0x30 != 0 {
         cost += 6;
         bp = c.word_in(SS, BUSY_SPRITES + job * 2);
-        if job != 0 {
+        if job != troop_job::SPICE_MINING as u16 {
             return done(bp, job, cost);
         }
         cost += 3;
@@ -3689,7 +3689,7 @@ fn sprite_list_of(c: &mut Ctx, troop: Troop) -> SpriteList {
     }
     cost += 2;
     ax = job;
-    if job == 0 {
+    if job == troop_job::SPICE_MINING as u16 {
         cost += 2;
         let bits = (troop.equipment(c) & 0xc0) as u16;
         if bits != 0 {
@@ -4116,8 +4116,8 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
         let ax = c.word_in(SS, c.reg(SP));
         let job = ax as u8;
         let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
-        if job == 5 {
-            // Harvesting: a place newly found is shown.
+        if job == troop_job::ESPIONAGE {
+            // Espionage: a place newly found is shown.
             let flags = place.flags(c);
             let new = flags & location_flag::UNDISCOVERED != 0;
             c.run(0x838b, if new { 7 } else { 5 })?;
@@ -4408,8 +4408,8 @@ pub fn count_by_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let job = Troop(c.reg(SI)).job(&mut c);
     let group = job >> 2;
-    c.run(start, if job == 2 { 6 } else if group == 0 { 10 } else { 12 })?;
-    if job == 2 {
+    c.run(start, if job == troop_job::AWAITING_ORDERS { 6 } else if group == 0 { 10 } else { 12 })?;
+    if job == troop_job::AWAITING_ORDERS {
         c.set_reg8(r8::AL, job);
         return c.ret();
     }
@@ -4653,7 +4653,7 @@ pub fn raid_rally_own_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x75d1, 3)?;
     raise_skill(&mut c, 1, 3, 0x75d9)?;
     c.run(0x75d9, 2)?;
-    c.set_reg8(r8::CL, 4);
+    c.set_reg8(r8::CL, troop_job::MILITARY_TRAINING);
     c.jump(entry::GIVE_TROOP_JOB_UNLESS_SAME)
 }
 
@@ -4736,9 +4736,9 @@ pub(super) fn set_job_at_6ad4(c: &mut Ctx) -> Result<(), Bail> {
     let place = troop.location(c);
     let job = c.reg8(r8::CL);
     // Job 8 at the location 7C8h becomes 0Ah while its byte 1Ah is zero.
-    let special = job == 8 && place == SPECIAL_PLACE;
+    let special = job == troop_job::IRRIGATION && place == SPECIAL_PLACE;
     let quiet = special && Location(place).byte_1a(c) == 0;
-    let n = if job != 8 {
+    let n = if job != troop_job::IRRIGATION {
         3
     } else if !special {
         5
@@ -4878,18 +4878,18 @@ pub fn alert_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let job = state & 0x0f;
     c.run(start, 6 + match job {
-        1 => 1,
-        6 => 3,
+        troop_job::SPICE_PROSPECTING => 1,
+        troop_job::ATTACKS => 3,
         _ => 4,
     })?;
     c.set_reg8(r8::AL, job);
     match job {
-        1 => c.jump(entry::MARK_TROOP_10),
-        6 => {
+        troop_job::SPICE_PROSPECTING => c.jump(entry::MARK_TROOP_10),
+        troop_job::ATTACKS => {
             c.ret()
         }
         _ => {
-            c.set_reg8(r8::CL, 6);
+            c.set_reg8(r8::CL, troop_job::ATTACKS);
             c.call(entry::GIVE_TROOP_JOB_UNLESS_SAME, 0x841b)?;
             c.run(0x841b, 1)?;
             c.ret()
@@ -4926,7 +4926,7 @@ pub fn tally_job4_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// and the spice harvested in all ([0A0h]).
 const SPICE_TENTHS: u16 = 0x46e1;
 
-/// `loc_06fe5`, job 0: harvesting spice. The troop SI's day
+/// `loc_06fe5`, job 0, Spice Mining. The troop SI's day
 /// (`troop_day_update`); unless it waits (word 10h bit 200h) or is held
 /// (`troop_bit_10_by_state`, CF: then its rate and word 0Eh cleared and
 /// byte 3 bit 10h set), its events (`troop_event_roll`); word 10h bit
@@ -5049,7 +5049,7 @@ fn held_end(c: &mut Ctx, troop: Troop) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_072b0`, job 5. BX the game time since the troop SI last changed
+/// `loc_072b0`, job 5, Espionage. BX the game time since the troop SI last changed
 /// (word 0Ah). Unless done before (byte 10h bit 40h): with
 /// h = (50h - skill 1) / 2 (signed) and h / 2 below BX, its rate (word
 /// 0Ch, when 0 from `refresh_flagged_troops`'s count in CX; none: done)
@@ -5057,7 +5057,7 @@ fn held_end(c: &mut Ctx, troop: Troop) -> Result<(), Bail> {
 /// bit 40h set. Then, unless it is at its location's own troop (byte 0
 /// = location +9), once skill 1 / 2 is below BX: a random number's low
 /// six bits not below skill 1 start it (`start_troop`).
-pub fn job_5(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn job_espionage(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x72b0)?;
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
@@ -5154,9 +5154,9 @@ fn job_5_start(c: &mut Ctx, troop: Troop, elapsed: u16, skill: u8) -> Result<(),
     c.jump(entry::START_TROOP)
 }
 
-/// `loc_0767d`, job 10: with the location's byte 1Ah 0, the counter
+/// `loc_0767d`, job 10, Bulb growing: with the location's byte 1Ah 0, the counter
 /// [0ECh] up (on to 0: byte 1Ah 10h); else, or then, `give_troop_job_unless_same` with CL 8.
-pub fn job_10(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn job_bulb_growing(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x767d)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
@@ -5174,21 +5174,21 @@ pub fn job_10(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         c.run(0x767d, 4)?;
     }
-    c.set_reg8(r8::CL, 8);
+    c.set_reg8(r8::CL, troop_job::IRRIGATION);
     c.jump(entry::GIVE_TROOP_JOB_UNLESS_SAME)
 }
 
-/// `loc_07711`, job 9: unless the location's byte 0Ah has bit 20h, the
+/// `loc_07711`, job 9, Wind-trap Assembly: unless the location's byte 0Ah has bit 20h, the
 /// troop's motivation up 1 (`add_motivation`) and the location's byte
 /// 1Bh up by its strength (`troop_strength`); on a carry bits 20h of
 /// byte 0Ah and 8 of byte 8 set and byte 1Bh 5. Then (bit 20h)
 /// `set_troop_activity`.
-pub fn job_9(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn job_wind_trap_assembly(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7711)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
     let a = Location(di).flags(&mut c);
-    if a & location_flag::COUNTING != 0 {
+    if a & location_flag::WIND_TRAP != 0 {
         c.run(0x7711, 3)?;
         return c.jump(entry::SET_TROOP_ACTIVITY);
     }
@@ -5197,24 +5197,24 @@ pub fn job_9(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x771c, 1)?;
     c.call(entry::TROOP_STRENGTH, 0x771f)?;
     let al = c.reg8(r8::AL);
-    let v = Location(di).count(&mut c);
+    let v = Location(di).water(&mut c);
     let carry = v as u16 + al as u16 > 0xff;
     c.run(0x771f, if carry { 6 } else { 3 })?;
     let r = pure::add(B, v as u16, al as u16) as u8; // the exit's flags
-    Location(di).set_count(&mut c, r);
+    Location(di).set_water(&mut c, r);
     if !carry {
         return c.ret();
     }
     let a = Location(di).flags(&mut c);
-    Location(di).set_flags(&mut c, a | location_flag::COUNTING);
+    Location(di).set_flags(&mut c, a | location_flag::WIND_TRAP);
     let b = Location(di).kind(&mut c);
     let b = pure::or(B, b as u16, 8) as u8; // the flags the tail gets
     Location(di).set_kind(&mut c, b);
-    Location(di).set_count(&mut c, 5);
+    Location(di).set_water(&mut c, 5);
     c.jump(entry::SET_TROOP_ACTIVITY)
 }
 
-/// `loc_07693`, job 8. Not for a marked troop (byte 3 bit 10h) or one
+/// `loc_07693`, job 8, Irrigation & Tree Care. Not for a marked troop (byte 3 bit 10h) or one
 /// held by its skill (`troop_bit_10_by_skill`, CF). [4737h] FFh, word
 /// 10h bit 100h. A location not yet started (byte 0Ah bit 0) is: its
 /// +12h 0, +0Ch / +0Eh its position (+2, +4's low byte), +0Bh 4, then
@@ -5224,7 +5224,7 @@ pub fn job_9(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// troop marked (`mark_troop_10`) and its particle dropped
 /// (`drop_troop_particle`); else +0Bh up to 0Ch, +0Eh (signed byte)
 /// down 2 unless below -50h, and `start_move`.
-pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn job_irrigation(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7693)?;
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
@@ -5277,10 +5277,10 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     raise_skill(&mut c, 2, 1, 0x76e5)?;
-    let e = Location(di).count(&mut c);
+    let e = Location(di).water(&mut c);
     if e < 0x0c {
         c.run(0x76e5, 2 + 2)?;
-        Location(di).set_count(&mut c, 0);
+        Location(di).set_water(&mut c, 0);
         c.call(entry::MARK_TROOP_10, 0x770e)?;
         c.run(0x770e, 1)?;
         return c.jump(entry::DROP_TROOP_PARTICLE);
@@ -5290,7 +5290,7 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = ((ax as u8 as i8) as i16 as u16).wrapping_sub(2);
     let keep = (ax as i16) < -0x52;
     c.run(0x76e5, 2 + 2 + (b < 0x0c) as u32 + 5 + (!keep) as u32 + 1)?;
-    Location(di).set_count(&mut c, e - 0x0c);
+    Location(di).set_water(&mut c, e - 0x0c);
     if b < 0x0c {
         Location(di).set_radius(&mut c, b + 1);
     }
@@ -5303,7 +5303,7 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.ret()
 }
 
-/// `loc_070cc`, job 1. Not at a location with byte 0Ah bit 2, nor one
+/// `loc_070cc`, job 1, Spice Prospecting. Not at a location with byte 0Ah bit 2, nor one
 /// held (`troop_bit_10_by_location`, CF). Unless bit 40h is already set:
 /// the troop's rate (word 0Ch; when 0 set to (location +11h · 16) /
 /// (motivation + skill 0)); while the game time since its last change
@@ -5313,7 +5313,7 @@ pub fn job_8(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (`troop_bit_10_by_location`), word 0Eh 100; then, unless it is the
 /// troop [46EFh], it sets out (`troop_set_out`) when [11D3h] is set,
 /// else (not marked, byte 3 bit 10h) `call_29f0_f` with AL 0Eh.
-pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn job_spice_prospecting(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x70cc)?;
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
@@ -5419,7 +5419,7 @@ pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.jump(entry::CALL_29F0_F)
 }
 
-/// `loc_071ef`, job 4. The troop's day (`troop_day_update`), its wait
+/// `loc_071ef`, job 4, Military Training. The troop's day (`troop_day_update`), its wait
 /// over (word 10h bit 200h cleared). At a location without byte 0Ah bit
 /// 4: the countdown (word 0Ch) down one; at its end a new one: from the
 /// strength there (at the location [473Ch] A0h and word 10h bit 800h;
@@ -5431,7 +5431,7 @@ pub fn job_1(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// its value once the high byte is FFh) until below 0, then the
 /// location's bit 4 cleared (`clear_location_4`, its CX into word 12h)
 /// and word 0Eh 0.
-pub fn job_4(m: &mut Machine, start: u16) -> Result<(), Bail> {
+pub fn job_military_training(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x71ef)?;
     let mut c = Ctx::new(m);
     c.run(0x71ef, 1)?;

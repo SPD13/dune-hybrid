@@ -1,6 +1,7 @@
 //! Game-phase handlers (called by `set_game_phase` through its table) and
 //! the discovery of locations they trigger.
 
+use super::characters::character_id as who;
 use super::entry;
 use super::story;
 use super::pure;
@@ -157,10 +158,10 @@ pub fn on_phase_48(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, 0x1313);
     c.call(code::SUB_1771, 0x1144)?;
     c.run(0x1144, 9)?;
-    let v = c.character(7).flags;
+    let v = c.character(who::CHANI as usize).flags;
     let v = pure::or(B, v as u16, 0x10);
     let v = pure::and(B, v, 0xfd) as u8;
-    c.update_character(7, |t| t.flags = v);
+    c.update_character(who::CHANI as usize, |t| t.flags = v);
     let b = c.progress().joined;
     let b = pure::add(B, b as u16, 2) as u8;
     c.set_reg8(r8::AL, b);

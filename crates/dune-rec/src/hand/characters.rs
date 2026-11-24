@@ -101,6 +101,41 @@ pub mod character_flag {
     pub const IN_PARTY: u8 = 0x40;
 }
 
+/// Character numbers (the talker, [47C4h]; the record at FD8h + 10h * it).
+/// A talker's head is resource talker + 2 (`open_talking_head_resource`),
+/// and the game's resource names (the table at [31FFh]) name each: LETO,
+/// JESS, HAWA, IDAH, GURN, STIL, KYNE, CHAN, HARA, BARO, FEYD, EMPR, HARK,
+/// SMUG, then FRM1..FRM3 (heads 0Eh..10h, the Fremen chiefs) and GENERIC
+/// (11h, the head of phases 15h..1Fh). The ones talked to in the running
+/// game (Duke Leto, Jessica, Duncan, Stilgar, Chani, Harah, a Fremen chief)
+/// read the same.
+pub mod character_id {
+    pub const DUKE_LETO: u16 = 0;
+    pub const JESSICA: u16 = 1;
+    pub const THUFIR_HAWAT: u16 = 2;
+    pub const DUNCAN_IDAHO: u16 = 3;
+    pub const GURNEY_HALLECK: u16 = 4;
+    pub const STILGAR: u16 = 5;
+    pub const LIET_KYNES: u16 = 6;
+    pub const CHANI: u16 = 7;
+    pub const HARAH: u16 = 8;
+    pub const BARON: u16 = 9;
+    pub const FEYD: u16 = 0x0a;
+    pub const EMPEROR: u16 = 0x0b;
+    /// HARK's head; with bit 10h of its flags it talks from sentence bank
+    /// 0Ah (91A0h).
+    pub const HARKONNEN: u16 = 0x0c;
+    /// Talked to, the smuggler's mood [9Eh] is picked (2388h).
+    pub const SMUGGLER: u16 = 0x0d;
+    /// The Fremen troops' chiefs: a speaker from 0Fh up talks as 0Fh, the
+    /// rest kept at [`CHARACTER_15_SLOT`](super::super::globals::CHARACTER_15_SLOT) (3D4Bh).
+    pub const FREMEN_CHIEF: u16 = 0x0f;
+    /// The head GENERIC.HSQ (the speaker in phases 15h..1Fh, 3D5Eh).
+    pub const GENERIC_HEAD: u16 = 0x11;
+    /// Paul's head (PAUL.HSQ), the second head of a two-head scene (99D4h).
+    pub const PAUL_HEAD: u16 = 0x2d;
+}
+
 /// The view of the character record at an offset (what the ports hold
 /// in SI): its fields through the table, as [`Character`] has them;
 /// the memory for an offset that starts no record or another data
