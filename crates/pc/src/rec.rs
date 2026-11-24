@@ -1097,7 +1097,13 @@ impl Machine {
             }
             other => {
                 let what = crate::hw::describe(other);
+                let first = log.mismatch.is_none();
+                let at = log.replay;
                 log.fail(format!("io: service int {n:02x}, original: {what}"));
+                if first && std::env::var_os("REC_DEBUG").is_some() {
+                    let ss = (self.cpu.sregs[SS] as usize) << 4; let sp = self.cpu.regs[SP] as usize; let st: Vec<String> = (0..24).map(|i| { let a = ss + ((sp + 2 * i) & 0xffff); format!("{:04x}", self.hw.mem[a] as u16 | (self.hw.mem[a + 1] as u16) << 8) }).collect();
+                    eprintln!("service {n:02x} at {:04x}:{:04x} insn {} AX {:04x} log {at:?} stack {}", self.cpu.sregs[CS], self.cpu.ip, self.cpu.instructions, self.cpu.regs[0], st.join(" "));
+                }
                 return;
             }
         };

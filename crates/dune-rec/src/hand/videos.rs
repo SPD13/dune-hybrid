@@ -186,7 +186,7 @@ pub fn play_wormsuit_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x0ea0, 1)?;
     c.call(entry::COPY_ACTIVE_FRAMEBUFFER_TO_FRAMEBUFFER_2, 0x0ea3)?;
     c.run(0x0ea3, 1)?;
-    c.jump(0x1803)
+    c.jump(entry::UI_HEAD_ANIMATE_DOWN)
 }
 
 /// `loc_0c8fb`: video AX opened on the back buffer (`loc_0c4dd`, the

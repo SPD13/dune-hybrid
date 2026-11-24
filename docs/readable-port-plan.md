@@ -1238,6 +1238,16 @@ instruction count on; diff a plain run with a `--rec on` one),
 - `start_script_at_si` (13C8h) is left out of run `f`. Called each, it
   reaches the start-up's own writes into the code segment (the PIT,
   EFDDh), like `parse_command_line`: the harness's differences.
+- Every call checked, not 20 (2026-11-23): run `f` with `REC_BUDGET`
+  2e9 and `REC_SAMPLES` raised found two wrong ports the default check
+  had passed. `message_subject` (4586h) took 0 as the subject near a
+  shown place (14,910 of 70,351 calls); `play_wormsuit_video` (0E77h)
+  ended in a jump to the other `ui_head_animate_down` (1803h, not 181Eh:
+  two labels share the name). A bisect over `REC_HAND_SKIP` found the
+  first; `REC_DEBUG` (the service's CS:IP and stack at a mismatch) the
+  second. `tools/lift/audit_calls.py` checks every call and tail jump of
+  the ports against the listing, the XREF picking between shared names;
+  it finds nothing else.
 - `exit_with_error`, `out_of_memory_error`: they end the program; no check
   can follow them. Leave them generated.
 - The XMS routines (`xms_memory_func_1`, `initialize_himem_sys`,
