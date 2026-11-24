@@ -1,7 +1,7 @@
 #!/bin/sh
 # validate.sh TAG: shadow + call-each on seeds 12 and 21, the long-call and
 # phase-ladder runs, two scripted runs on the day13 save (a troop moved,
-# a flight), and --rec on screenshots against ref/off (seed 12), one game
+# a flight, its videos), and --rec on screenshots against ref/off (seed 12), one game
 # at a time. Expect only differences marked as the harness's.
 . "$(dirname "$0")/common.sh"
 S=$LIFT_DATA/validate; mkdir -p $S
@@ -38,12 +38,19 @@ if [ -f $DAY13 ]; then
   $B --dir "$GAME" --cmd "ADP220 SBP2227 ENG" --events "61.5:key:1:1,61.6:key:1:0,$FLY" \
     --save $DAY13 --seconds 200 --rec shadow --call-each 6 --call-only $FLY_ONLY --call-ms 3000 \
     --rec-report $S/v-$T-f.tsv --out $S/v-$T-f > $S/v-$T-f.log 2>&1
+  # The videos called one at a time, 20 s each, long calls checked
+  # (REC_BUDGET): `play_comm_device_video` (0E66h) and
+  # `play_wormsuit_video` (0E77h), which the 3 s calls above cut short.
+  REC_FROM=68 REC_BUDGET=2000000000 REC_EVENTS=33554432 \
+  $B --dir "$GAME" --cmd "ADP220 SBP2227 ENG" --events "61.5:key:1:1,61.6:key:1:0,$FLY" \
+    --save $DAY13 --seconds 200 --rec shadow --call-each 1 --call-only 0e66,0e77 --call-ms 20000 \
+    --rec-report $S/v-$T-g.tsv --out $S/v-$T-g > $S/v-$T-g.log 2>&1
 else
-  for x in e f; do echo "no save for the scripted runs" > $S/v-$T-$x.log; : > $S/v-$T-$x.tsv; done
+  for x in e f g; do echo "no save for the scripted runs" > $S/v-$T-$x.log; : > $S/v-$T-$x.tsv; done
 fi
 
-for x in a b c d e f on; do echo "== $x"; grep -E "^rec|^call-each:.*calls|^exit" $S/v-$T-$x.log; done
-for x in a b c d e f; do awk -F'\t' 'NR>1 && $4>0' $S/v-$T-$x.tsv; done
+for x in a b c d e f g on; do echo "== $x"; grep -E "^rec|^call-each:.*calls|^exit" $S/v-$T-$x.log; done
+for x in a b c d e f g; do awk -F'\t' 'NR>1 && $4>0' $S/v-$T-$x.tsv; done
 python - "$LIFT_DATA/ref/off" "$S/v-$T-on" <<'PY'
 import sys,os,filecmp
 a,b=sys.argv[1:]
@@ -51,5 +58,5 @@ fs=sorted(f for f in os.listdir(a) if f.endswith('.png'))
 print('shots:', sum(filecmp.cmp(os.path.join(a,f),os.path.join(b,f),shallow=False) for f in fs if os.path.exists(os.path.join(b,f))),'/',len(fs),'identical')
 PY
 echo "hand ports (entry name ok diff bailed skipped), summed:"
-cat $S/v-$T-a.tsv $S/v-$T-b.tsv $S/v-$T-c.tsv $S/v-$T-d.tsv $S/v-$T-e.tsv $S/v-$T-f.tsv | grep "\[hand\]" | awk -F'	' '{k=$1" "$2; ok[k]+=$3; d[k]+=$4; b[k]+=$5; r[k]+=$8} END {for (k in ok) print k"	"ok[k]"	"d[k]"	"b[k]"	"r[k]}' | sort > $S/v-$T-hand.txt
+cat $S/v-$T-a.tsv $S/v-$T-b.tsv $S/v-$T-c.tsv $S/v-$T-d.tsv $S/v-$T-e.tsv $S/v-$T-f.tsv $S/v-$T-g.tsv | grep "\[hand\]" | awk -F'	' '{k=$1" "$2; ok[k]+=$3; d[k]+=$4; b[k]+=$5; r[k]+=$8} END {for (k in ok) print k"	"ok[k]"	"d[k]"	"b[k]"	"r[k]}' | sort > $S/v-$T-hand.txt
 awk -F'	' '{n++; if ($3>0) {bad++; print "DIFF", $0}; if ($2+$4==0) un++; if ($2==0 && $5==0) {nr++}} END {print n" hand ports, "bad+0" with differences, "un+0" never checked, "nr+0" never ran their own code to the end"}' $S/v-$T-hand.txt

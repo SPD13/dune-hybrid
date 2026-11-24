@@ -1248,6 +1248,11 @@ instruction count on; diff a plain run with a `--rec on` one),
   second. `tools/lift/audit_calls.py` checks every call and tail jump of
   the ports against the listing, the XREF picking between shared names;
   it finds nothing else.
+- Run `g` of `validate.sh` calls `play_comm_device_video` (0E66h) and
+  `play_wormsuit_video` (0E77h) once each, 20 s a call, `REC_BUDGET`
+  raised: both equal (with interpreted parts). Never checked: 9. With
+  `REC_SAMPLES` 20000 (and `REC_FROM` 68 on the save), runs `a`, `b`,
+  `e`, `f` show no difference.
 - `exit_with_error`, `out_of_memory_error`: they end the program; no check
   can follow them. Leave them generated.
 - The XMS routines (`xms_memory_func_1`, `initialize_himem_sys`,
