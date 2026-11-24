@@ -935,6 +935,9 @@ impl Machine {
         let entry_state = (p.cpu.clone(), p.mem.clone());
         let cpu1 = std::mem::replace(&mut self.cpu, p.cpu);
         let mem1 = std::mem::replace(&mut self.hw.mem, p.mem);
+        if let Some(f) = self.native_restored {
+            f(self);
+        }
         let io1 = self.hw.io_count;
         let ints1 = self.int_counts;
         let end = self.hw.io_log.events.len();
@@ -989,6 +992,9 @@ impl Machine {
             rec.defer = None;
             self.cpu = entry_state.0.clone();
             self.hw.mem.copy_from_slice(&entry_state.1);
+            if let Some(f) = self.native_restored {
+                f(self);
+            }
             self.hw.io_log.replay = Some((p.log_start, end));
             self.hw.io_log.mismatch = None;
         };
@@ -1027,6 +1033,9 @@ impl Machine {
         // Carry on from the original's result.
         self.cpu = cpu1;
         self.hw.mem = mem1;
+        if let Some(f) = self.native_restored {
+            f(self);
+        }
         self.hw.io_count = io1;
         self.int_counts = ints1;
     }

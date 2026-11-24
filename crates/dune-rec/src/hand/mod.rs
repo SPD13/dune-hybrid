@@ -33,6 +33,7 @@ pub mod clock;
 pub mod native;
 pub mod troop_table;
 pub mod record_table;
+pub mod save_image;
 pub mod text_box;
 pub mod dialogue_text;
 pub mod conversation;

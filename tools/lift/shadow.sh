@@ -13,7 +13,10 @@ ENTRIES=${1:-$(cd "$REPO" && python -c "
 import re;t=open('crates/dune-rec/src/hand/mod.rs',encoding='utf-8').read();print(','.join(sorted(set(re.findall(r'\(0x([0-9a-f]+), \w+::\w+,',t)))))")}
 [ -n "$ENTRIES" ] || { echo "shadow.sh: no entries"; exit 1; }
 mkdir -p $T
+# GAMES="start12 day1 ...": only those games (their TSVs replaced, the
+# others' kept), for running the check in parts.
 while read name seed lang save; do
+    [ -z "$GAMES" ] || case " $GAMES " in *" $name "*) ;; *) continue ;; esac
     ev="61.5:key:1:1,61.6:key:1:0"; extra=""
     if [ "$save" != "-" ]; then ev="$ev,68:load:1"; extra="--save $save"; fi
     rm -rf $T/$name

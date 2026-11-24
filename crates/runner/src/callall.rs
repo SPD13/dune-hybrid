@@ -68,6 +68,9 @@ pub fn run_with(m: &mut Machine, main_loop: u16, calls: &[Call], call_ns: u64) {
     let base = m.save_state();
     for c in calls {
         m.load_state(&base).expect("call-with: restore");
+        if let Some(f) = m.native_restored {
+            f(m);
+        }
         m.exited = None;
         m.rec_drop_checks();
         for &(r, v) in &c.regs {
@@ -96,6 +99,9 @@ pub fn run_with(m: &mut Machine, main_loop: u16, calls: &[Call], call_ns: u64) {
     }
     m.rec_drop_checks();
     m.load_state(&base).expect("call-with: restore");
+    if let Some(f) = m.native_restored {
+        f(m);
+    }
     m.exited = None;
 }
 
@@ -115,6 +121,9 @@ pub fn run(m: &mut Machine, main_loop: u16, entries: &[u16], samples: u32, call_
     for (i, &entry) in entries.iter().enumerate() {
         for k in 0..samples {
             m.load_state(&base).expect("call-each: restore");
+            if let Some(f) = m.native_restored {
+                f(m);
+            }
             m.exited = None;
             m.rec_drop_checks();
             if k > 0 {
@@ -148,6 +157,9 @@ pub fn run(m: &mut Machine, main_loop: u16, entries: &[u16], samples: u32, call_
     }
     m.rec_drop_checks();
     m.load_state(&base).expect("call-each: restore");
+    if let Some(f) = m.native_restored {
+        f(m);
+    }
     m.exited = None;
     println!(
         "call-each: {} calls: {} returned, {} still running after {} ms, {} quit the game, {} stopped otherwise",

@@ -9,6 +9,7 @@ use pc::Machine;
 #[derive(Default)]
 pub struct Native {
     pub clock: super::clock::ClockState,
+    pub save_image: super::save_image::SaveImageState,
     pub troops: super::record_table::RecordTable,
     pub locations: super::record_table::RecordTable,
     pub text_box: super::record_table::RecordTable,
@@ -51,4 +52,10 @@ pub fn native(m: &mut Machine) -> &mut Native {
 pub fn outside(m: &mut Machine) {
     super::clock::outside(m);
     super::record_table::outside(m);
+}
+
+/// A snapshot restored: every subsystem takes the memory's state whole.
+pub fn restored(m: &mut Machine) {
+    super::clock::outside(m);
+    super::record_table::loaded(m);
 }

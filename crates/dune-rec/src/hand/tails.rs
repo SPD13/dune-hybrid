@@ -2391,9 +2391,19 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0xaa76);
     c.set_reg(CX, 0x11f8);
     c.rep_counted(0xa4);
+    // DS:0-1260h, the story's part, from the Rust state
+    // (`save_image::story_part`), as the `rep movsb` leaves it.
     c.set_reg(SI, 0);
     c.set_reg(CX, 0x1261);
-    c.rep_counted(0xa4);
+    let img = super::save_image::story_part(&mut c, 0x1261);
+    let di = c.reg(DI);
+    for (k, &v) in img.iter().enumerate() {
+        c.m.cpu.write8(&mut c.m.hw, ES, di.wrapping_add(k as u16), v);
+    }
+    c.wrote(ES, di, 0x1261);
+    c.set_reg(SI, 0x1261);
+    c.set_reg(DI, di.wrapping_add(0x1261));
+    c.set_reg(CX, 0);
     let v = c.pop();
     c.set_sreg(ES, v);
     let v = c.pop();

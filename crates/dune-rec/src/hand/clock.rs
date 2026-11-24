@@ -305,6 +305,42 @@ impl Drop for Quiet {
     }
 }
 
+/// The clock's words that lie in DS:`from` on, laid over `out` (its
+/// first byte at `from`) from the clock kept in Rust: the bytes laid (none
+/// before it was first read).
+pub(super) fn lay_over(m: &mut Machine, from: u16, out: &mut [u8]) -> usize {
+    let n = native(m);
+    if !n.started {
+        return 0;
+    }
+    let k = n.clock;
+    let value = |off: u16| -> u16 {
+        match off {
+            g::TIMER => k.ticks as u16,
+            g::TIMER_HIGH => (k.ticks >> 16) as u16,
+            g::CLOCK_HELD => k.held as u16,
+            g::CLOCK_STOPPED => k.stopped as u16,
+            g::CLOCK_COUNTDOWN => k.countdown,
+            g::CLOCK_PERIOD => k.period,
+            g::CLOCK_STEPS_PENDING => k.steps_pending as u16,
+            _ => k.time,
+        }
+    };
+    let mut laid = 0;
+    for &(off, size) in &WORDS {
+        let v = value(off);
+        for i in 0..size {
+            if let Some(at) = (off + i).checked_sub(from).map(|d| d as usize)
+                && at < out.len()
+            {
+                out[at] = (v >> (8 * i)) as u8;
+                laid += 1;
+            }
+        }
+    }
+    laid
+}
+
 /// `CLOCK_WATCH=1` (the runner): watch the clock's words for accesses
 /// by code other than the clock's (Stage B: what still reads or writes
 /// them outside it).

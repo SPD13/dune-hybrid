@@ -23,7 +23,10 @@
 //! make, and the record takes the memory's bytes:
 //! - a port's writes that don't use a view yet are followed (`Ctx`'s
 //!   writes tell the table, [`follow`]), not counted;
-//! - a save loaded and the tools' own stepping are told ([`outside`]);
+//! - a save loaded or a snapshot restored fills every record from the
+//!   memory ([`loaded`]); at the tools' own stops each kept record is
+//!   checked and one that changed takes the memory's bytes, counted
+//!   ([`outside`], [`at_stops`]);
 //! - the generated code (the original's code in Rust, finishing a port
 //!   that gave up at a stop) and the interpreter (the drivers, loaded at
 //!   run time, and what the ports leave to it) are counted apart
@@ -283,6 +286,9 @@ pub struct RecordTable {
     syncs: u64,
     /// Writes of the generated code.
     after_generated: u64,
+    /// Records the memory had changed at one of the tools' stops
+    /// ([`outside`]).
+    at_stops: u64,
 }
 
 fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
@@ -504,10 +510,61 @@ pub(super) fn follow(m: &mut Machine, at: u32, len: u32) -> Option<(Which, usize
     hit
 }
 
-/// The machine ran outside the recompiled code on purpose, or a save was
-/// loaded: every record is read from the memory again when next used.
+/// The records kept in Rust (those cached) that lie in DS:`from` on,
+/// laid over `out` (its first byte at `from`): the bytes laid.
+pub(super) fn lay_over(m: &mut Machine, from: u16, out: &mut [u8]) -> usize {
+    let mut n = 0;
+    for w in Which::ALL {
+        let t = table(m, w);
+        for (i, r) in t.records.iter().enumerate() {
+            let Some(r) = r else { continue };
+            for k in 0..w.size() {
+                let off = record_offset(w, i) + k;
+                if let Some(at) = off.checked_sub(from).map(|d| d as usize)
+                    && at < out.len()
+                {
+                    out[at] = r[k as usize];
+                    n += 1;
+                }
+            }
+        }
+    }
+    n
+}
+
+/// The machine ran outside the recompiled code on purpose (a tool
+/// stepping it in the interpreter to a stop): each record kept is
+/// checked against the memory, and one that changed takes the memory's
+/// bytes (counted, [`at_stops`]); the others stay as kept.
 pub fn outside(m: &mut Machine) {
     for w in Which::ALL {
-        table(m, w).records.iter_mut().for_each(|r| *r = None);
+        for i in 0..w.count() {
+            let Some(r) = table(m, w).records[i] else { continue };
+            let mem = mirror(m, w, i);
+            if mem != r {
+                let t = table(m, w);
+                t.records[i] = Some(mem);
+                t.at_stops += 1;
+                if std::env::var_os("TROOPS_TRACE").is_some() {
+                    eprintln!("{} record {} changed at a stop", w.name(), i + 1);
+                }
+            }
+        }
     }
+}
+
+/// A save loaded or a snapshot restored: every record of every table is
+/// the memory's (the Rust state taken from it whole).
+pub fn loaded(m: &mut Machine) {
+    for w in Which::ALL {
+        for i in 0..w.count() {
+            let mem = mirror(m, w, i);
+            table(m, w).records[i] = Some(mem);
+        }
+    }
+}
+
+/// How often a record of `w` had changed at the tools' stops.
+pub fn at_stops(m: &mut Machine, w: Which) -> u64 {
+    table(m, w).at_stops
 }

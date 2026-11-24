@@ -833,6 +833,43 @@ and that code is exact. What can go is the other direction, the clock
 reading the memory back (`Clock::get`'s compare): the writers outside
 it are the start-up, the load and the interpreter's tick.
 
+### The save image from the Rust state (2026-11-24)
+
+`create_save_in_memory` (B427h) builds the image the save file is made
+from: the map's cells packed, A2h bytes from CS:AAh, 11F8h from
+DS:AA76h, and the story's part, 1261h bytes from DS:0. That last block
+now comes from the Rust state (`hand/save_image.rs`, `story_part`):
+the clock's words ([2]) and the cached records of every table there
+(the locations, the troops, the characters, the smugglers, the player,
+the story state's tables, the travel), laid over the memory for the
+bytes no subsystem holds (0-1, 8A8h, FBBh-FD7h, 113Eh-11C0h,
+11CEh-1260h: 311 of 4705). The runner prints `save image: N built, M
+bytes of DS:0-1260h from the Rust state in the last, D differing from
+the memory`; with a save loaded M is 4394 (all the tables' bytes) and D
+0 in every suite game; `SAVE_TRACE=1` prints the bytes that differ.
+
+For that the Rust state had to last. Before, every record was dropped
+at each of the runner's stops (`native::outside`, the load and save
+events, the rewinds), so a save made at a stop had only the clock's 2
+bytes from Rust. Now:
+
+- a save loaded fills every record from the loaded memory
+  (`record_table::loaded`, from `after_restore`), as the clock was;
+- at the runner's stops each kept record is checked against the memory
+  and one that changed takes the memory's bytes, counted
+  (`record_table::outside`, `at_stops`; the tables' lines say `N changed
+  at the runner's stops`: only the sound's and the voice buffers' state,
+  written by the interpreter's stepping to the stop);
+- where the memory is put back to an earlier state (the shadow check's
+  entry and the original's result, the harness's restores, a rewind),
+  the Rust state is taken from it whole (`Machine::native_restored`, set
+  by the runner to `native::restored`): the memory is its mirror at those
+  points. Without it the harness's calls of `create_save_in_memory` built
+  the image from records of a later state (run `c`, 6 of 7 calls).
+
+`shadow.sh` takes `GAMES="start12 day1 ..."` to run some of its games
+(each two in about 7 minutes), like `validate.sh`'s `STEPS`.
+
 ### The troops and the locations (in Rust with a mirror)
 
 `hand/record_table.rs`: the game's record tables, the troops (43h of

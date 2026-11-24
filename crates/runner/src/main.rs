@@ -588,6 +588,10 @@ fn main() -> ExitCode {
         println!("rec: {} routines, {mode:?}", routines.len());
         let rec = pc::rec::Rec::new(mode, routines, dune_rec::leaders()).with_hand_resumes(&dune_rec::hand_resumes()).with_flags_read(dune_rec::hand::flags_read::FLAGS_READ);
         let mut rec = rec;
+        // The Rust state (dune_rec::hand::native) taken again from the
+        // memory wherever the memory is put back (the shadow check, the
+        // harness's calls).
+        m.native_restored = Some(dune_rec::hand::native::restored);
         rec.late_events = args.rec_native;
         // REC_SAMPLES=N: check the first N calls of each routine (default 20).
         if let Some(n) = std::env::var("REC_SAMPLES").ok().and_then(|v| v.parse().ok()) {
@@ -840,7 +844,7 @@ fn main() -> ExitCode {
             m.exited = None;
             m.load_state(state).expect("rewind");
             if m.rec.is_some() {
-                dune_rec::hand::native::outside(&mut m);
+                dune_rec::hand::native::restored(&mut m);
             }
             t = *at;
             events = queue(&mut m, schedule(*at, rewinds * 0x1_0000));
@@ -885,6 +889,12 @@ fn main() -> ExitCode {
         // the memory's values, written by code outside it.
         let (n, t) = (dune_rec::hand::clock::syncs(&mut m), dune_rec::hand::clock::ticks_outside(&mut m));
         println!("clock: {n} sync-ins ({t} ticks counted by the original's code, as the clock predicts)");
+        // The save image's story part from the Rust state
+        // (dune_rec::hand::save_image).
+        let (saves, owned, differing) = dune_rec::hand::save_image::counts(&mut m);
+        if saves > 0 {
+            println!("save image: {saves} built, {owned} bytes of DS:0-1260h from the Rust state in the last, {differing} differing from the memory");
+        }
         let mut entries: Vec<(u16, &str)> = dune_rec::names().to_vec();
         entries.sort();
         let name = |e: u16| entries.iter().find(|x| x.0 == e).map_or("?".to_string(), |x| x.1.to_string());
@@ -899,7 +909,8 @@ fn main() -> ExitCode {
         use dune_rec::hand::record_table::{self, Which};
         for w in Which::ALL {
             let (n, b) = (record_table::syncs(&mut m, w), record_table::after_generated(&mut m, w));
-            println!("{}: {n} sync-ins ({b} written by the generated code)", w.name());
+            let s = record_table::at_stops(&mut m, w);
+            println!("{}: {n} sync-ins ({b} written by the generated code, {s} changed at the runner's stops)", w.name());
         }
     }
     if let Some(rec) = &m.rec {

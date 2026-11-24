@@ -177,6 +177,11 @@ pub struct Machine {
     /// of the 8086 memory, kept in step with it), made on first use. Not
     /// in snapshots: it syncs in from the memory after one is restored.
     pub native: Option<Box<dyn std::any::Any + Send>>,
+    /// Called when the machine's memory was put back to an earlier state
+    /// (the shadow check's entry and the original's result, a snapshot
+    /// restored): the Rust state in `native` takes it from the memory,
+    /// its mirror at those points (dune-rec's `native::restored`).
+    pub native_restored: Option<fn(&mut Machine)>,
 }
 
 /// Detects the game's busy-wait: back-to-back INT 33h/3 polls with nothing
@@ -234,6 +239,7 @@ impl Machine {
             break_at: None,
             rec: None,
             native: None,
+            native_restored: None,
         };
         for _ in 0..5 {
             m.files.push(None);

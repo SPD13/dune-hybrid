@@ -243,7 +243,7 @@ fn after_restore(c: &mut Ctx) -> Result<(), Bail> {
     // The game time and the troops came with the save: the subsystems
     // kept in Rust take them.
     super::clock::loaded(c);
-    super::record_table::outside(c.m);
+    super::record_table::loaded(c.m);
     c.run(0xb3f0, 2)?;
     let v = c.pop();
     c.set_sreg(DS, v);
