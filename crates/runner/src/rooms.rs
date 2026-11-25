@@ -34,7 +34,7 @@ use std::{
 };
 
 use gfx::{
-    DrawOp, Mem,
+    DrawOp,
     room::{AREA, RoomTrack},
 };
 use pc::{
@@ -49,7 +49,7 @@ const ROOM_GRAPHS: u16 = 0x13c4;
 const BUDGET: u64 = 200_000_000;
 
 fn ds8(m: &Machine, off: u16) -> u8 {
-    m.hw.mem[(GAME_DS as usize) * 16 + off as usize]
+    m.hw.peek((GAME_DS as u32) * 16 + off as u32)
 }
 
 fn ds16(m: &Machine, off: u16) -> u16 {
@@ -57,7 +57,7 @@ fn ds16(m: &Machine, off: u16) -> u16 {
 }
 
 fn set_ds8(m: &mut Machine, off: u16, v: u8) {
-    m.hw.mem[(GAME_DS as usize) * 16 + off as usize] = v;
+    m.hw.poke((GAME_DS as u32) * 16 + off as u32, v);
 }
 
 /// A room as `draw_SAL` left it.
@@ -97,7 +97,7 @@ impl Tracker {
             GfxEvent::Enter(c) => {
                 if let Some(t) = self.room.as_mut() {
                     let r = c.regs();
-                    let mem = Mem(&hw.mem);
+                    let mem = hw.view();
                     t.follow(&DrawOp::decode(c.slot, &r, mem), &r, mem);
                 }
             }
@@ -107,12 +107,11 @@ impl Tracker {
                     self.empty += 1;
                     return;
                 };
-                let base = (target as usize) << 4;
                 self.seen.push(Seen {
                     room,
                     key: t.key.value(),
                     calls: t.calls,
-                    low: hw.mem[base..base + AREA].to_vec(),
+                    low: hw.view().bytes(target, 0, AREA),
                     cover: t.drawn[..AREA].to_vec(),
                     overdrawn: t.overdrawn[..AREA].to_vec(),
                     owner: t.owner[..AREA].to_vec(),
@@ -199,7 +198,7 @@ fn rooms_of(m: &Machine, t: u8) -> BTreeMap<u8, u8> {
 fn driver_palette(m: &Machine) -> [[u8; 3]; 256] {
     let drv = ds16(m, 0x38b5 + 2) as usize;
     let at = drv * 16 + 0x5bf;
-    std::array::from_fn(|i| [0, 1, 2].map(|k| m.hw.mem[at + i * 3 + k]))
+    std::array::from_fn(|i| [0, 1, 2].map(|k| m.hw.peek((at + i * 3 + k) as u32)))
 }
 
 fn write_room(dir: &Path, prefix: &str, s: &Seen, json: &str, dac: &[[u8; 3]; 256]) {

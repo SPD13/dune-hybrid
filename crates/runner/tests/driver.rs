@@ -8,7 +8,7 @@
 
 use std::{collections::BTreeMap, fs::File, path::PathBuf};
 
-use gfx::{DrawOp, Mem, Regs, model, ops::Format, sheet};
+use gfx::{DrawOp, Regs, model, ops::Format, sheet};
 use pc::{
     GAME_DS, Machine,
     cpu::{AX, BP, BX, CX, DF, DI, DS, DX, ES, SI, SP, SS},
@@ -60,9 +60,9 @@ impl Rig {
         let drv_base = (self.drv as usize) << 4;
         self.m.hw.mem[drv_base..drv_base + 0x10000].copy_from_slice(&self.code);
         self.m.hw.mem[drv_base + 0x1a3..drv_base + 0x1a5].copy_from_slice(&r.y_offset.to_le_bytes());
-        let op = DrawOp::decode(slot, &r, Mem(&self.m.hw.mem));
+        let op = DrawOp::decode(slot, &r, self.m.hw.view());
         let mut expect = self.m.hw.mem[base..base + 0x10000].to_vec();
-        if !model::apply(&op, &r, Mem(&self.m.hw.mem), &mut expect) {
+        if !model::apply(&op, &r, self.m.hw.view(), &mut expect) {
             return Ok(None);
         }
         let c = &mut self.m.cpu;

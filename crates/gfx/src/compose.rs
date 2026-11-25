@@ -420,7 +420,7 @@ impl Compositor {
         }
         let base = (target as usize) << 4;
         for o in 0..0x10000usize {
-            let v = mem.0.get(base + o).copied().unwrap_or(0);
+            let v = mem.at(base + o);
             if dst.low[o] == v {
                 continue;
             }
@@ -1235,7 +1235,7 @@ mod tests {
         let mut c = Compositor::new(4);
         let r = Regs { es: 0x2000, ..Default::default() };
         let sprite = SpriteRef { wflags: 8, height: 8, format: Format::Nibble { pal: 0x10 }, seg: 0x1000, off: 0 };
-        c.apply(&DrawOp::Blit { sprite, x: 10, y: 10 }, &r, Mem(&m), &dac());
+        c.apply(&DrawOp::Blit { sprite, x: 10, y: 10 }, &r, Mem::new(&m), &dac());
         let s = c.shadow(0x2000).unwrap();
         // A pixel on the diagonal: its block is mostly 0x15 but MMPX cuts the corner.
         let at = 15 * 320 + 15;
@@ -1267,7 +1267,7 @@ mod tests {
         c.set_plates(Some(Box::new(move |_, _| plate.take())));
         let r = Regs { es: 0x2000, ..Default::default() };
         c.room_begin();
-        c.apply(&DrawOp::Fill { rect: Rect { x0: 10, y0: 10, x1: 14, y1: 12 }, colour: 7 }, &r, Mem(&m), &dac());
+        c.apply(&DrawOp::Fill { rect: Rect { x0: 10, y0: 10, x1: 14, y1: 12 }, colour: 7 }, &r, Mem::new(&m), &dac());
         c.room_end();
         assert_eq!((c.plate_hits, c.plate_misses), (1, 0));
         let s = c.shadow(0x2000).unwrap();
@@ -1317,7 +1317,7 @@ mod tests {
         let mut art = Some(SpriteArt { palette, colour: Some(TrueColour { px, refs }) });
         c.set_art(Some(Box::new(move |_, _| art.take())));
         let r = Regs { es: SCREEN, ..Default::default() };
-        c.apply(&DrawOp::Blit { sprite, x: 10, y: 10 }, &r, Mem(&m), &dac());
+        c.apply(&DrawOp::Blit { sprite, x: 10, y: 10 }, &r, Mem::new(&m), &dac());
         assert_eq!(c.art_hits, 1);
         // The screen as the game drew it.
         let mut screen = vec![0u8; 64000];
@@ -1378,7 +1378,7 @@ mod tests {
         low[7 * 8 + 3] = [0x16, 0, 0, 255];
         let texels = PackSprite { w: 8 * k, h: 8 * k, px: vec![[9, 9, 0, 255]; 64 * k * k] };
         let sprite = SpriteRef { wflags: 8, height: 8, format: Format::Nibble { pal: 0x10 }, seg: 0x1000, off: 0 };
-        let single = crate::head::key(&[(crate::head::picture_hash(&sprite, Mem(&m)).unwrap(), 0, 0)]);
+        let single = crate::head::key(&[(crate::head::picture_hash(&sprite, Mem::new(&m)).unwrap(), 0, 0)]);
         let plate = move |key, _| {
             (key == single).then(|| HeadPlate {
                 art: SpriteArt { palette: PackSprite { w: texels.w, h: texels.h, px: texels.px.clone() }, colour: None },
@@ -1389,8 +1389,8 @@ mod tests {
         // Two parts, the staircase twice: each is a run with a plate.
         let r = Regs { es: 0x2000, ..Default::default() };
         c.head_begin();
-        c.apply(&DrawOp::Blit { sprite, x: 10, y: 10 }, &r, Mem(&m), &dac());
-        c.apply(&DrawOp::Blit { sprite, x: 30, y: 10 }, &r, Mem(&m), &dac());
+        c.apply(&DrawOp::Blit { sprite, x: 10, y: 10 }, &r, Mem::new(&m), &dac());
+        c.apply(&DrawOp::Blit { sprite, x: 30, y: 10 }, &r, Mem::new(&m), &dac());
         c.head_end();
         assert_eq!((c.head_hits, c.head_misses), (1, 0), "each part is a run with a plate");
         let s = c.shadow(0x2000).unwrap();
@@ -1421,7 +1421,7 @@ mod tests {
         let m = mem();
         let mut c = Compositor::new(4);
         let r = Regs { es: 0x2000, ..Default::default() };
-        c.apply(&DrawOp::Glyph { x: 0, y: 0, w: 5, h: 5, fg: 0xfa, bg: Some(0xf1), seg: 0x1000, off: 0x100 }, &r, Mem(&m), &dac());
+        c.apply(&DrawOp::Glyph { x: 0, y: 0, w: 5, h: 5, fg: 0xfa, bg: Some(0xf1), seg: 0x1000, off: 0x100 }, &r, Mem::new(&m), &dac());
         let s = c.shadow(0x2000).unwrap();
         let at = 320 + 1;
         let block = &s.hd[at * 16..at * 16 + 16];

@@ -307,12 +307,12 @@ pub struct Hardware {
     owner_map: Vec<u8>,
     owned_lo: u32,
     owned_hi: u32,
-    /// `OWN_POISON=1` (a test of the ownership, `--rec on` only: the
-    /// shadow check's copies of `mem` would be poisoned): `mem` holds CCh
-    /// at the owned addresses instead of a copy, so code reading them
-    /// other than through the owners reads garbage; the snapshots and
-    /// hashes copy the owners' bytes in first ([`Hardware::copy_owned`],
-    /// then [`Hardware::poison_owned`]).
+    /// No copy of the owned bytes in `mem` ([`Hardware::keep_copy`]; the
+    /// default of `--rec on` runs, `OWN_POISON=1` anywhere): `mem` holds
+    /// CCh at the owned addresses, so code reading them other than
+    /// through the bus or [`Hardware::view`] reads garbage, loudly; the
+    /// snapshots and hashes copy the owners' bytes in first
+    /// ([`Hardware::copy_owned`], then [`Hardware::poison_owned`]).
     owned_poison: bool,
 }
 
@@ -423,13 +423,29 @@ impl Hardware {
         }
     }
 
+    /// Whether `mem` keeps a copy of the owned bytes, written through
+    /// (the shadow check's snapshots are raw memory: it needs one). Off,
+    /// `mem` holds CCh there. `OWN_POISON=1` turns it off whatever the
+    /// caller asks.
+    pub fn keep_copy(&mut self, on: bool) {
+        self.owned_poison = !on || std::env::var_os("OWN_POISON").is_some();
+        self.poison_owned();
+    }
+
+    /// The memory as the game's code sees it, for the graphics tools (the
+    /// HD compositor, the room capture, the driver check): the owned bytes
+    /// served by their owners, whatever `mem` holds there.
+    pub fn view(&self) -> gfx::Mem<'_> {
+        gfx::Mem::with(&self.mem, self)
+    }
+
     /// Whether `addr` is owned (the bytes counted by the save image).
     pub fn is_owned(&self, addr: u32) -> bool {
         addr >= self.owned_lo && addr < self.owned_hi && self.owner_map[addr as usize] != 0
     }
 
     /// A direct write (the BIOS's and DOS's services): `mem` and the owner.
-    pub(crate) fn poke(&mut self, addr: u32, v: u8) {
+    pub fn poke(&mut self, addr: u32, v: u8) {
         if addr >= self.owned_lo && addr < self.owned_hi && self.owned_write(addr, v) && self.owned_poison {
             return;
         }
@@ -985,5 +1001,12 @@ impl Hardware {
         self.audio.load(r)?;
         self.reschedule = true;
         Ok(())
+    }
+}
+
+impl gfx::Overlay for Hardware {
+    #[inline]
+    fn byte(&self, addr: u32) -> Option<u8> {
+        if addr >= self.owned_lo && addr < self.owned_hi { self.owned_read(addr) } else { None }
     }
 }

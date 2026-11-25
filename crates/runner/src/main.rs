@@ -368,7 +368,7 @@ fn enter_phase(m: &mut Machine, phase: u8) -> Option<RunExit> {
     match r {
         RunExit::Break => {
             let ds = pc::GAME_DS as usize * 16;
-            println!("phase {:02x} -> {phase:02x} at {:.1}s", m.hw.mem[ds + 0x2a], m.now_ns() as f64 / 1e9);
+            println!("phase {:02x} -> {phase:02x} at {:.1}s", m.hw.peek((ds + 0x2a) as u32), m.now_ns() as f64 / 1e9);
             // CALL from the loop top: return address D820, AL = phase.
             let (ss, sp) = (m.cpu.sregs[pc::cpu::SS], m.cpu.regs[pc::cpu::SP].wrapping_sub(2));
             m.cpu.regs[pc::cpu::SP] = sp;
@@ -613,6 +613,10 @@ fn main() -> ExitCode {
             }
         }
         m.rec = Some(Box::new(rec));
+        // `--rec on`: the owned memory lives only in its owners (CCh in
+        // `mem`; OWN_COPY=1 keeps a copy written through). The shadow
+        // check's snapshots are raw memory: it keeps the copy.
+        m.hw.keep_copy(args.rec != Some(pc::rec::RecMode::On) || std::env::var_os("OWN_COPY").is_some());
     }
     if args.coverage.is_some() {
         m.coverage = Some(Box::default());
@@ -805,7 +809,9 @@ fn main() -> ExitCode {
         // STATE_DUMP=1: the memory itself at each shot (`mem-NNNN.bin`), to
         // find what differs between two runs.
         if std::env::var_os("STATE_DUMP").is_some() {
+            m.hw.copy_owned();
             fs::write(args.out.join(format!("mem-{shot:04}.bin")), &m.hw.mem).unwrap();
+            m.hw.poison_owned();
         }
         if let Some(rec) = &recorder
             && let Some(hd) = rec.borrow().hd.as_ref().map(|f| &f.comp)
@@ -1001,7 +1007,7 @@ fn main() -> ExitCode {
     if gfx_stats {
         let calls: Vec<String> = m.gfx.counts.iter().enumerate().filter(|(_, c)| **c > 0).map(|(i, c)| format!("{i}:{c}")).collect();
         println!("gfx slot calls: {}", calls.join(" "));
-        let var = |off: usize| u16::from_le_bytes([m.hw.mem[pc::GAME_DS as usize * 16 + off], m.hw.mem[pc::GAME_DS as usize * 16 + off + 1]]);
+        let var = |off: u16| m.hw.view().u16(pc::GAME_DS, off);
         println!(
             "gfx buffers: [DBD8]={:04x} [DBD6]={:04x} [DBDE]={:04x} [DBDA] (target)={:04x} [DC32]={:04x}",
             var(0xdbd8),

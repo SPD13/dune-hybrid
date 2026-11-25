@@ -27,14 +27,47 @@ pub mod sprite;
 
 pub use ops::{DrawOp, Regs};
 
-/// Read-only view of the emulated PC's memory.
-#[derive(Clone, Copy)]
-pub struct Mem<'a>(pub &'a [u8]);
+/// Memory a running game keeps outside the emulated PC's: the bytes
+/// subsystems ported to Rust own (`pc::hw::Owned`), served to a [`Mem`]
+/// view in place of the raw memory's (which may hold a stale copy, or none).
+pub trait Overlay {
+    /// The byte at linear `addr`, if it is kept here.
+    fn byte(&self, addr: u32) -> Option<u8>;
+}
 
-impl Mem<'_> {
+/// Read-only view of the emulated PC's memory, as the game's code sees it:
+/// the raw memory, with the bytes an [`Overlay`] keeps read from it.
+#[derive(Clone, Copy)]
+pub struct Mem<'a> {
+    raw: &'a [u8],
+    over: Option<&'a dyn Overlay>,
+}
+
+impl<'a> Mem<'a> {
+    /// The raw memory alone (an offline tool's, a test's).
+    pub fn new(raw: &'a [u8]) -> Mem<'a> {
+        Mem { raw, over: None }
+    }
+
+    /// The raw memory with the bytes `over` keeps.
+    pub fn with(raw: &'a [u8], over: &'a dyn Overlay) -> Mem<'a> {
+        Mem { raw, over: Some(over) }
+    }
+
+    /// The byte at linear `addr` (0 past the memory's end).
+    #[inline]
+    pub fn at(&self, addr: usize) -> u8 {
+        if let Some(o) = self.over
+            && let Some(v) = o.byte(addr as u32)
+        {
+            return v;
+        }
+        self.raw.get(addr).copied().unwrap_or(0)
+    }
+
     #[inline]
     pub fn u8(&self, seg: u16, off: u16) -> u8 {
-        self.0.get(((seg as usize) << 4) + off as usize).copied().unwrap_or(0)
+        self.at(((seg as usize) << 4) + off as usize)
     }
     #[inline]
     pub fn u16(&self, seg: u16, off: u16) -> u16 {

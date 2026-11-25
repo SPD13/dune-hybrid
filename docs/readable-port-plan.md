@@ -920,7 +920,7 @@ by a map of owners by address (`owner_map`, one array access behind the
 span compare). The services' reads and `state_at`'s overlay read
 through the owners too (`Hardware::peek`).
 
-**The proof, `OWN_POISON=1`** (`--rec on` only): `mem` holds CCh at the
+**The proof, `OWN_POISON=1`** (`--rec on` only; its default since 2026-11-25, below): `mem` holds CCh at the
 owned addresses instead of a copy, never written; the snapshots and
 the state hashes copy the owners' bytes in first and poison again
 (`copy_owned`, `poison_owned`). Code that read an owned address other
@@ -954,6 +954,45 @@ part has 4488 bytes from the owners in every game, the new games too
 the block on the bus (`save_image::story_part`), so it is the owners'
 bytes; it counts where the memory's own copy differs (0, but CCh with
 the poison).
+
+**The graphics tools read through the owners, and `--rec on` keeps no
+copy** (2026-11-25): `gfx::Mem`, the view of the memory the graphics
+code decodes draw operations from (the HD compositor, the room capture
+`--rooms`, the driver check `GFX_VERIFY`, the trace `--gfx-trace`, the
+web host's compositor), is the raw memory with an overlay
+(`gfx::Overlay`): `Hardware::view()` serves the owned bytes from their
+owners. The runner's other readers go through the bus too
+(`Hardware::peek`, `poke`: the phase print, the gfx buffers' report,
+`--call-with`'s words, the room harness's location and room records);
+the memory dumps (`STATE_DUMP`) copy the owners in first. Then nothing
+needs the copy: in `--rec on` runs `mem` holds CCh at the owned
+addresses (`Hardware::keep_copy(false)`; `OWN_COPY=1` keeps a copy
+written through). The shadow check keeps it, its entry snapshots being
+raw memory. `tools/lift/viewcheck.sh` runs day 23 with every graphics
+tool on (HD ×2 with its shots, the trace, the driver check, the room
+capture of the 27 rooms), copy against no copy: the trace (63602
+lines), the 134 files written and the logs are identical, and the
+driver check has no mismatch.
+
+**Replacement assets (the HD art, the 3D talking heads).** The HD
+layer stays what it is: a follower of the driver's calls
+(`pc::gfx::GfxEvent`: each call's registers, the marks a room, a
+character and a head are drawn between) and of a `gfx::Mem` view; it
+replaces what is drawn by the identity of the sprite drawn (its hash,
+the head's key), and it never reads the game's memory but through the
+view. So it sees the same bytes whichever code ran (the original's,
+the generated, a port) and wherever the bytes live (memory or a Rust
+owner). A 3D talking head is one more renderer behind the same marks:
+the head's begin and end give the frame where it is drawn, the mouth
+and eye groups drawn between them give the pose (as the talking pages
+already play them from the game's groups), and who speaks and in which
+room is game state the view reads (the talker, the conversation, the
+location, owned by their tables now, so typed state the renderer can
+also ask for by name rather than by address). What it needs from here
+on, kept in the design: the events and the view only, no hook inside
+a port; output composited over the HD frame, not into the 320 × 200
+index buffer the original draws (the compositor's `present` is where
+it joins).
 
 ### The troops and the locations (in Rust with a mirror)
 
@@ -1349,7 +1388,8 @@ their offset table).
 | `--rec shadow` (`REC_ONLY`, `REC_BUDGET`, `REC_SAMPLES`) | Each port's call against the original, from the same state. |
 | `tools/lift/validate.sh` | All ports in two 10-minute games and the harness, plus `--rec on` screenshots. |
 | `tools/lift/hashcmp.sh` | One game, plain emulation against `--rec on`, the whole memory every 10 s (`STATE_HASH=1`). |
-| `OWN_POISON=1 REC_INPLACE=1 tools/lift/suite.sh check` | The ownership's check: the owned addresses hold CCh in the memory, so the seven games are equal only if nothing reads them but through their owners. |
+| `OWN_COPY=1 REC_INPLACE=1 tools/lift/suite.sh check` | The ownership with a copy written through in the memory (the shadow check's way). Without `OWN_COPY` (the default of `--rec on`, the two suites above) the owned addresses hold CCh in the memory, so the seven games are equal only if nothing reads them but through their owners. |
+| `tools/lift/viewcheck.sh` | The graphics tools (HD, trace, driver check, room capture) on day 23 with and without the copy: everything they write must be identical. |
 | `tools/lift/suite.sh record\|check` | Seven games from the start and from the saves, against a stored reference (states, screens and a save written near the end). |
 | `tools/lift/flags_used.py` | Which routines' returned flags any caller reads. |
 | `tools/lift/add_table.py`, `drop_consts.py` | Not checks: add a table of one and route the ports' accesses to it; drop the globals left unused. |

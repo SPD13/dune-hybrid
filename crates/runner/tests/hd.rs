@@ -8,7 +8,7 @@
 
 use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
-use gfx::{Mem, Regs, compose::Follower, hash::fnv64};
+use gfx::{Regs, compose::Follower, hash::fnv64};
 use pc::{
     Machine,
     fs::MemFs,
@@ -42,9 +42,9 @@ fn hd_golden() {
     m.gfx.enabled = true;
     m.gfx.hook = Some(Box::new(move |e, hw| match e {
         GfxEvent::Enter(c) => {
-            f.borrow_mut().enter(c.slot, &regs(c), Mem(&hw.mem), &hw.vga.dac);
+            f.borrow_mut().enter(c.slot, &regs(c), hw.view(), &hw.vga.dac);
         }
-        GfxEvent::Return { .. } => f.borrow_mut().leave(Mem(&hw.mem)),
+        GfxEvent::Return { .. } => f.borrow_mut().leave(hw.view()),
         GfxEvent::Begin(pc::gfx::Mark::Room { .. }) => f.borrow_mut().comp.room_begin(),
         GfxEvent::End(pc::gfx::Mark::Room { .. }) => f.borrow_mut().comp.room_end(),
         GfxEvent::Begin(pc::gfx::Mark::Character) => f.borrow_mut().comp.room_character(true),

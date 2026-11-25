@@ -314,9 +314,9 @@ impl Emu {
             let mut h = h.borrow_mut();
             match e {
                 pc::gfx::GfxEvent::Enter(c) => {
-                    h.follower.enter(c.slot, &c.regs(), gfx::Mem(&hw.mem), &hw.vga.dac);
+                    h.follower.enter(c.slot, &c.regs(), hw.view(), &hw.vga.dac);
                 }
-                pc::gfx::GfxEvent::Return { .. } => h.follower.leave(gfx::Mem(&hw.mem)),
+                pc::gfx::GfxEvent::Return { .. } => h.follower.leave(hw.view()),
                 pc::gfx::GfxEvent::Begin(pc::gfx::Mark::Room { .. }) => h.follower.comp.room_begin(),
                 pc::gfx::GfxEvent::End(pc::gfx::Mark::Room { .. }) => h.follower.comp.room_end(),
                 pc::gfx::GfxEvent::Begin(pc::gfx::Mark::Character) => h.follower.comp.room_character(true),

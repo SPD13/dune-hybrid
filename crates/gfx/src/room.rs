@@ -211,12 +211,12 @@ mod tests {
         let r = Regs::default();
         let key = |seg| {
             let mut k = RoomKey::new();
-            k.add(&DrawOp::Blit { sprite: s(seg), x: 3, y: 4 }, &r, Mem(&mem));
+            k.add(&DrawOp::Blit { sprite: s(seg), x: 3, y: 4 }, &r, Mem::new(&mem));
             k.value()
         };
         assert_eq!(key(0x1000), key(0x2000));
         let mut moved = RoomKey::new();
-        moved.add(&DrawOp::Blit { sprite: s(0x1000), x: 4, y: 4 }, &r, Mem(&mem));
+        moved.add(&DrawOp::Blit { sprite: s(0x1000), x: 4, y: 4 }, &r, Mem::new(&mem));
         assert_ne!(moved.value(), key(0x1000));
     }
 
@@ -226,7 +226,7 @@ mod tests {
         let mut c = vec![false; 0x10000];
         let clip = Rect { x0: 0, y0: 0, x1: 320, y1: 152 };
         let op = DrawOp::Line { x0: 10, y0: 5, x1: 13, y1: 5, colour: 7, pattern: 0xffff, clip };
-        assert!(cover(&op, &Regs::default(), Mem(&mem), &mut c));
+        assert!(cover(&op, &Regs::default(), Mem::new(&mem), &mut c));
         let set: Vec<usize> = (0..0x10000).filter(|&i| c[i]).collect();
         assert_eq!(set, vec![5 * 320 + 10, 5 * 320 + 11, 5 * 320 + 12, 5 * 320 + 13]);
     }

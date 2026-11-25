@@ -77,8 +77,10 @@ pub fn run_with(m: &mut Machine, main_loop: u16, calls: &[Call], call_ns: u64) {
             m.cpu.regs[r] = v;
         }
         for &(addr, v) in &c.words {
-            let at = pc::GAME_DS as usize * 16 + addr as usize;
-            m.hw.mem[at..at + 2].copy_from_slice(&v.to_le_bytes());
+            // On the bus: an owned word goes to its owner.
+            let at = pc::GAME_DS as u32 * 16 + addr as u32;
+            m.hw.poke(at, v as u8);
+            m.hw.poke(at + 1, (v >> 8) as u8);
         }
         let (ss, sp) = (m.cpu.sregs[cpu::SS], m.cpu.regs[cpu::SP].wrapping_sub(2));
         m.cpu.regs[cpu::SP] = sp;

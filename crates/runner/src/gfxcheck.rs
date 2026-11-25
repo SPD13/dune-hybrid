@@ -100,13 +100,13 @@ impl Recorder {
     }
 
     pub fn on_event(&mut self, e: &GfxEvent, hw: &pc::Hardware) {
-        let mem = &hw.mem[..];
+        let mem = hw.view();
         match e {
             GfxEvent::Enter(c) => {
                 let r = regs(c);
-                let op = DrawOp::decode(c.slot, &r, Mem(mem));
+                let op = DrawOp::decode(c.slot, &r, mem);
                 if let Some(hd) = self.hd.as_mut() {
-                    hd.enter(c.slot, &r, Mem(mem), &hw.vga.dac);
+                    hd.enter(c.slot, &r, mem, &hw.vga.dac);
                 }
                 if let Some(t) = self.trace.as_mut() {
                     // Palettes in use, for choosing HD art colours offline.
@@ -131,14 +131,13 @@ impl Recorder {
                     // Palette, mode, retrace: state, not drawing.
                     return;
                 };
-                let base = (target as usize) << 4;
-                let mut seg = mem[base..base + 0x10000].to_vec();
+                let mut seg = mem.bytes(target, 0, 0x10000);
                 // The game's data segment also changes under interrupts:
                 // there, only the bytes the model writes are compared.
                 let mut touched = (target == pc::GAME_DS).then(|| vec![false; 0x10000]);
                 let modelled = match touched.as_mut() {
-                    Some(t) => model::walk(&op, &r, Mem(mem), &mut Touch { dst: &mut seg, touched: t }),
-                    None => model::apply(&op, &r, Mem(mem), &mut seg),
+                    Some(t) => model::walk(&op, &r, mem, &mut Touch { dst: &mut seg, touched: t }),
+                    None => model::apply(&op, &r, mem, &mut seg),
                 };
                 if modelled {
                     self.pending = Some(Pending { call: *c, op, target, model: seg, touched, interrupted: false });
@@ -168,7 +167,7 @@ impl Recorder {
             }
             GfxEvent::Return { depth, .. } => {
                 if let Some(hd) = self.hd.as_mut() {
-                    hd.leave(Mem(mem));
+                    hd.leave(mem);
                 }
                 if *depth != 0 {
                     return;
@@ -179,8 +178,7 @@ impl Recorder {
                     s.interrupted += 1;
                     return;
                 }
-                let base = (p.target as usize) << 4;
-                let real = &mem[base..base + 0x10000];
+                let real = mem.bytes(p.target, 0, 0x10000);
                 let diffs: Vec<usize> = (0..0x10000).filter(|&i| real[i] != p.model[i] && p.touched.as_ref().is_none_or(|t| t[i])).collect();
                 if diffs.is_empty() {
                     s.ok += 1;
@@ -217,11 +215,11 @@ impl Recorder {
 
 /// One trace record: the call, its decoded operation and, for sprites, the
 /// sprite's identity hash.
-fn trace_line(c: &DriverCall, op: &DrawOp, mem: &[u8], catalog: &HashMap<u64, (String, usize)>) -> String {
+fn trace_line(c: &DriverCall, op: &DrawOp, mem: Mem, catalog: &HashMap<u64, (String, usize)>) -> String {
     // Which buffer is the target: the VGA screen, or the game's [DBD6] and
     // [DBDE] frame buffers or [DC32] scratch buffer. ([DBD8] normally holds
     // A000 but the game repoints it while composing off screen.)
-    let var = |off: u16| Mem(mem).u16(pc::GAME_DS, off);
+    let var = |off: u16| mem.u16(pc::GAME_DS, off);
     let dst = match c.es {
         0xa000 => "screen",
         es if es == var(0xdbd6) => "fb1",
@@ -242,7 +240,7 @@ fn trace_line(c: &DriverCall, op: &DrawOp, mem: &[u8], catalog: &HashMap<u64, (S
             };
             // Enough for the worst-case RLE of this size.
             let max = (sprite::row_bytes(s.format, s.wflags) * s.height as usize * 2 + 16).min(0x10000 - s.off as usize);
-            let data = Mem(mem).bytes(s.seg, s.off, max);
+            let data = mem.bytes(s.seg, s.off, max);
             let hash = sprite::decode(&data, s.wflags, s.height, s.format).map(|(img, _)| image_hash(&img.px, img.stride, img.height));
             // The game's scratch buffer (DS:4C60): images it decoded itself.
             let lin = ((s.seg as usize) << 4) + s.off as usize;
