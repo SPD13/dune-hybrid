@@ -1112,7 +1112,7 @@ pub fn visit_smuggler(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let ax = pure::add(W, ax, 0xe8);
     c.set_reg(AX, ax);
-    c.set_word(g::SMUGGLER_ITEM, ax);
+    c.update_phrase_args(|t| t.slots[super::phrase_args::SMUGGLER_ITEM] = ax);
     c.update_economy(|t| t.answer = 0);
     c.ret()
 }
@@ -1152,7 +1152,7 @@ pub fn buy_from_smuggler_on_credit(m: &mut Machine, start: u16) -> Result<(), Ba
     let di = c.reg(DI);
     let al = c.reg8(r8::AL);
     SmugglerAt(di).set_debt_since(&mut c, al);
-    let i = c.word(g::SMUGGLER_ITEM);
+    let i = c.phrase_args().slots[super::phrase_args::SMUGGLER_ITEM];
     let i = pure::sub(W, i, 0xe8);
     c.set_reg(AX, i);
     c.set_reg(BX, i);
@@ -3040,7 +3040,7 @@ pub fn record_age_phrase(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(AX, a);
         ax = a;
     }
-    c.set_word(g::PHRASE_ARG_DETAIL, ax);
+    c.update_phrase_args(|t| t.slots[super::phrase_args::DETAIL] = ax);
     c.ret()
 }
 
@@ -3977,7 +3977,7 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_topic_troop(|t| t.job = a as u8);
     let a = pure::add(W, a, 0x18);
     c.set_reg(AX, a);
-    c.set_word(g::PHRASE_ARG_SUBJECT, a);
+    c.update_phrase_args(|t| t.slots[super::phrase_args::SUBJECT] = a);
     c.call(entry::RECORD_AGE_PHRASE, 0x321a)?;
     c.run(0x321a, 1)?;
     c.call(entry::TROOP_RATE_BY_AGE, 0x321d)?;
@@ -3993,7 +3993,7 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_topic_troop(|t| t.home = a as u8);
     let a = pure::add(W, a, 0);
     c.set_reg(AX, a);
-    c.set_word(g::PHRASE_ARG_TROOP_HOME, a);
+    c.update_phrase_args(|t| t.slots[super::phrase_args::TROOP_HOME] = a);
     c.call(entry::TROOP_MOTIVATION, 0x323b)?;
     for (at, src, dst, word, ret) in [
         (0x323bu16, 0x16u16, g::TOPIC_TROOP_SKILLS, g::PHRASE_ARG_SKILLS, 0x3247u16),
@@ -4005,8 +4005,8 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
         if at == 0x323b {
             c.update_topic_troop(|t| t.motivation = ax as u8);
         } else {
-            let prev = if at == 0x3247 { g::PHRASE_ARG_SKILLS } else { g::PHRASE_ARG_SKILLS + 2 };
-            c.set_word(prev, ax);
+            let prev = super::phrase_args::SKILLS + if at == 0x3247 { 0 } else { 1 };
+            c.set_phrase_slot(prev, ax);
         }
         let si = c.reg(SI);
         let b = c.byte(si.wrapping_add(src));
@@ -4017,7 +4017,7 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x325f, 9)?;
     let ax = c.reg(AX);
-    c.set_word(g::PHRASE_ARG_SKILLS + 4, ax);
+    c.set_phrase_slot(super::phrase_args::SKILLS + 2, ax);
     let si = c.reg(SI);
     let w = Troop(si).rate(&mut c);
     c.update_topic_troop(|t| t.word_0c = w);
@@ -4025,7 +4025,7 @@ pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_topic_troop(|t| t.word_0e = w);
     let a = pure::add(W, w & 0xff, 0xe8);
     c.set_reg(AX, a);
-    c.set_word(g::SMUGGLER_ITEM, a);
+    c.update_phrase_args(|t| t.slots[super::phrase_args::SMUGGLER_ITEM] = a);
     c.call(entry::TROOP_ACTIVITY, 0x3279)?;
     c.run(0x3279, 8)?;
     let ax = c.reg(AX);
@@ -6424,7 +6424,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     c.cmp(B, st as u16, 7);
     c.call(entry::CHECK_CHARACTER_7_ATTACK, 0x1b68)?;
     c.run(0x1b68, 3)?;
-    let (a, b) = (c.word(g::PHRASE_ARG_SKILLS), c.word(g::TOPIC_PLACE_RECORD));
+    let (a, b) = (c.phrase_args().slots[super::phrase_args::SKILLS], c.word(g::TOPIC_PLACE_RECORD));
     c.push(a);
     c.push(b);
     c.call(entry::TROOPS_TICK, 0x1b73)?;
@@ -6446,7 +6446,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     talk_about_location(c, di, 0x1b89)?;
     c.run(0x1b89, 2)?;
     let v = c.pop();
-    c.set_word(g::PHRASE_ARG_SKILLS, v);
+    c.update_phrase_args(|t| t.slots[super::phrase_args::SKILLS] = v);
     c.call(entry::REVISIT_HARKONNEN_PLACE, 0x1b90)?;
     let k = c.byte(g::COMM_CALLER);
     if k != 0 {

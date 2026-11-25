@@ -1091,7 +1091,7 @@ pub fn draw_script_caption(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     c.call(entry::FONT_USE_PLAIN_GLYPHS, 0x15ab)?;
     c.run(0x15ab, 4)?;
-    let p = c.word(g::PHRASE_ARGS);
+    let p = c.phrase_args().slots[super::phrase_args::CAPTION];
     c.set_reg(AX, p);
     c.set_reg(DX, 0x0a);
     c.set_reg(BX, 0x9d);

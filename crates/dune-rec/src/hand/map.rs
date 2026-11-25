@@ -3925,13 +3925,13 @@ pub fn scan_encounters(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let (side, phrase) = if right { (1u16, 0xd0u16) } else { (0, 0xce) };
             c.set_reg(AX, side << 8 | v as u16);
             c.set_reg(CX, phrase);
-            c.set_word(g::PHRASE_ARG_DETAIL, phrase);
+            c.update_phrase_args(|t| t.slots[super::phrase_args::DETAIL] = phrase);
             c.update_situation(|t| t.sighting_side = side as u8);
             c.call(entry::GET_LOCATION_TYPE_STRING_OFFSET, 0x415d)?;
             c.run(0x415d, 4)?;
             let ax = c.reg(AX).wrapping_add(0x48);
             c.set_reg(AX, ax);
-            c.set_word(g::PHRASE_ARG_SUBJECT, ax);
+            c.update_phrase_args(|t| t.slots[super::phrase_args::SUBJECT] = ax);
             c.update_progress(|t| t.talk_reason = 3);
             c.call(entry::DISCOVER_LOCATION, 0x416b)?;
             for (at, to) in [(0x416bu16, 0x4944u16), (0x416e, 0xdbb2), (0x4171, 0x2efb), (0x4174, 0x2ffb), (0x4177, 0xd397)] {
@@ -6829,7 +6829,7 @@ pub fn nearest_places(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let ax = c.reg(AX);
     let ax = pure::add(W, ax, 0xda);
     c.set_reg(AX, ax);
-    c.set_word(g::PHRASE_ARG_DIRECTION, ax);
+    c.update_phrase_args(|t| t.slots[super::phrase_args::DIRECTION] = ax);
     octant_of_place(&mut c, 0xcc, 0x531a)?;
     c.run(0x531a, 2)?;
     octant_of_place(&mut c, 0xd2, 0x5320)?;

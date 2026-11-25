@@ -3863,8 +3863,8 @@ fn troop_panel_at(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x78f4, 1)?;
     c.call(entry::DESCRIBE_TROOP, 0x78f7)?;
     c.run(0x78f7, 3)?;
-    let bottom = c.word(g::PHRASE_ARG_SUBJECT).wrapping_add(0x0c);
-    c.set_word(g::PHRASE_ARG_SUBJECT, bottom);
+    let bottom = c.phrase_args().slots[super::phrase_args::SUBJECT].wrapping_add(0x0c);
+    c.update_phrase_args(|t| t.slots[super::phrase_args::SUBJECT] = bottom);
     gfx::fill_and_outline_rect(c, PANEL, 0x7902)?;
     c.run(0x7902, 1)?;
     c.call(entry::FONT_SELECT_SMALL_FONT, 0x7905)?;
@@ -3917,7 +3917,7 @@ fn troop_panel_at(c: &mut Ctx) -> Result<(), Bail> {
     let activity = c.topic_troop().job;
     let at = g::PHRASE_ARG_SKILLS + ((activity >> 1) & 6) as u16;
     c.set_reg(SI, at);
-    let phrase = c.word(at);
+    let phrase = c.phrase_slot(super::phrase_args::SKILLS + ((activity >> 1) & 6) as usize / 2);
     c.set_reg(AX, phrase);
     c.call(entry::FONT_DRAW_STRING_WITH_COLOR_AT_POS, 0x796e)?;
     // Then a status, 0Ah lower, the first that holds: none while moving;

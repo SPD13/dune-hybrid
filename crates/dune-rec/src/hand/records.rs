@@ -360,11 +360,11 @@ pub fn note_point(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_sentence(|t| t.noted_record = di);
     let x = c.byte(di) as u16;
     let x = pure::add(W, x, 0);
-    c.set_word(g::PHRASE_ARG_PLACE, x);
+    c.update_phrase_args(|t| t.slots[super::phrase_args::PLACE] = x);
     let y = c.byte(di.wrapping_add(1)) as u16;
     let y = pure::add(W, y, 0x0c);
     c.set_reg(AX, y);
-    c.set_word(g::PHRASE_ARG_PLACE + 2, y);
+    c.set_phrase_slot(super::phrase_args::PLACE + 1, y);
     c.ret()
 }
 

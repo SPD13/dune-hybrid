@@ -40,6 +40,7 @@ pub struct Native {
     pub sentence: super::record_table::RecordTable,
     pub events: super::record_table::RecordTable,
     pub messages: super::record_table::RecordTable,
+    pub phrase_args: super::record_table::RecordTable,
 }
 
 /// The machine's Rust state (made on first use).

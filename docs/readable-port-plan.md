@@ -875,8 +875,14 @@ the messages kept (`hand/messages.rs`, `Which::Messages`, ten words at
 1179h; their count is the economy's). The ports' accesses go through
 them (the plain ones by `add_table.py`, the computed `NEXT_EVENT + 4 *
 i` by hand); the moves with string instructions stay in the memory and
-the tables follow them. The image now has 4456 bytes from Rust (249
-left). Without `REC_INPLACE` the save's long copy stretch bails at an
+the tables follow them. And the phrase arguments (`hand/phrase_args.rs`,
+`Which::PhraseArgs`, 16 words at 11EBh: the phrase each code 80h..8Fh
+stands for, by its low nibble; named slots `CAPTION`, `PLACE`,
+`SMUGGLER_ITEM`, `SUBJECT`, `DETAIL`, `SKILLS`, `DIRECTION`,
+`TROOP_HOME`; `c.phrase_slot(i)` / `c.set_phrase_slot(i, v)` for the
+computed ones). The image now has 4488 bytes from Rust (217 left: 0-1,
+8A8h, FBBh-FD7h, 113Eh-118Eh but the messages, 11BBh-11C0h, 11CEh-11EAh,
+120Bh-1260h). Without `REC_INPLACE` the save's long copy stretch bails at an
 interrupt and the generated code copies the memory, so only the
 `REC_INPLACE` games build it from Rust.
 

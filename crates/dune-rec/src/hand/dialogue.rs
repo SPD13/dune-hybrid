@@ -3821,7 +3821,7 @@ pub fn format_interpolated_string(m: &mut Machine, start: u16) -> Result<(), Bai
                     let ax = pure::and(W, ax, 0x0f);
                     let bx = pure::shl1(W, ax, 1);
                     c.set_reg(BX, bx);
-                    let v = c.word(bx.wrapping_add(g::PHRASE_ARGS));
+                    let v = c.phrase_slot(bx as usize / 2);
                     c.set_reg(AX, v);
                 }
                 c.run(0x8984, 5)?;

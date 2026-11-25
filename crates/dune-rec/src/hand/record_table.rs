@@ -107,10 +107,12 @@ pub enum Which {
     Events,
     /// The messages kept (`hand/messages.rs`).
     Messages,
+    /// The phrases a phrase's codes 80h..8Fh stand for (`hand/phrase_args.rs`).
+    PhraseArgs,
 }
 
 impl Which {
-    pub const ALL: [Which; 30] = [
+    pub const ALL: [Which; 31] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
@@ -141,6 +143,7 @@ impl Which {
         Which::Sentence,
         Which::Events,
         Which::Messages,
+        Which::PhraseArgs,
     ];
 
     pub fn name(self) -> &'static str {
@@ -175,6 +178,7 @@ impl Which {
             Which::Sentence => "sentence",
             Which::Events => "events",
             Which::Messages => "messages",
+            Which::PhraseArgs => "phrase args",
         }
     }
     /// Where the table starts in the game's data segment.
@@ -210,6 +214,7 @@ impl Which {
             Which::Sentence => 0x47dc,
             Which::Events => 0x118f,
             Which::Messages => 0x1179,
+            Which::PhraseArgs => 0x11eb,
         }
     }
     pub const fn size(self) -> u16 {
@@ -244,6 +249,7 @@ impl Which {
             Which::Sentence => 0xc,
             Which::Events => 0x2a,
             Which::Messages => 0x14,
+            Which::PhraseArgs => 0x20,
         }
     }
     pub const fn count(self) -> usize {
@@ -278,6 +284,7 @@ impl Which {
             Which::Sentence => 1,
             Which::Events => 1,
             Which::Messages => 1,
+            Which::PhraseArgs => 1,
         }
     }
     fn end(self) -> u16 {
@@ -338,6 +345,7 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::Sentence => &mut n.sentence,
         Which::Events => &mut n.events,
         Which::Messages => &mut n.messages,
+        Which::PhraseArgs => &mut n.phrase_args,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];

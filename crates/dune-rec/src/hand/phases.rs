@@ -136,7 +136,7 @@ pub fn on_phase_2c(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.update_character(2, |t| t.y = 0x0180);
     c.update_character(1, |t| t.x = t.x & 0xff00 | 0x0a);
     c.update_character(1, |t| t.y = 0x0180);
-    c.set_word(g::WORD_1201, 0x0109);
+    c.update_phrase_args(|t| t.slots[0x0b] = 0x0109);
     story::raise_charisma(&mut c, 0x14, 0x10ec)?;
     c.run(0x10ec, 3)?;
     let bits = c.progress().event_flags;

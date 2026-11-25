@@ -62,6 +62,7 @@ pub mod phrase;
 pub mod sentence;
 pub mod events;
 pub mod messages;
+pub mod phrase_args;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1868,6 +1869,14 @@ impl Ctx<'_> {
     }
     /// The messages kept changed by `f` (written through).
     fn update_messages(&mut self, f: impl FnOnce(&mut messages::Messages)) {
+        record_table::update_single(self, f)
+    }
+    /// The phrases a phrase's codes stand for (Rust state, see [`phrase_args`]), in step with the memory.
+    fn phrase_args(&mut self) -> phrase_args::PhraseArgs {
+        record_table::single(self)
+    }
+    /// The phrases a phrase's codes stand for changed by `f` (written through).
+    fn update_phrase_args(&mut self, f: impl FnOnce(&mut phrase_args::PhraseArgs)) {
         record_table::update_single(self, f)
     }
     /// The game time ([2]).
