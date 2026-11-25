@@ -581,8 +581,8 @@ impl Machine {
         self.hw.mem[(cpu::linear(seg, off) & cpu::A20_OFF) as usize]
     }
     pub(crate) fn mem_write(&mut self, seg: u16, off: u16, v: u8) {
-        let a = (cpu::linear(seg, off) & cpu::A20_OFF) as usize;
-        self.hw.mem[a] = v;
+        let a = cpu::linear(seg, off) & cpu::A20_OFF;
+        self.hw.poke(a, v);
     }
     pub(crate) fn mem_read16(&self, seg: u16, off: u16) -> u16 {
         self.mem_read(seg, off) as u16 | (self.mem_read(seg, off.wrapping_add(1)) as u16) << 8

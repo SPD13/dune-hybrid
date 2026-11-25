@@ -10,20 +10,24 @@
 //! 0Fh, it must be the player's place). The byte before the count is
 //! cleared when the last one is dropped.
 //!
-//! A table of one record ([`Which::Events`], 2Ah bytes at DS:118Fh) in
-//! the generic record tables (`hand/record_table.rs`, the memory kept as
-//! the checked mirror); [`Events`] is its typed view, each field at its
-//! global's offset ([`super::globals`] says what each one is). The
-//! ports that move the entries with string instructions (`movsw`,
-//! `stosw`) still do it in the memory, as the original; the table follows
-//! those writes.
+//! The first subsystem that owns its memory (the pilot of Stage B's
+//! ownership, `docs/readable-port-plan.md`): its 2Ah bytes at DS:118Fh
+//! live only in [`Events`], the struct registered with the bus
+//! ([`EventsMemory`], `pc::hw::Owned`). Every read and write of them, by
+//! any code (the ports, the generated code, the interpreter, the string
+//! instructions that move the entries), goes to it; the memory keeps a
+//! copy written through for the tools (snapshots, state hashes, the
+//! shadow check's compare), and where they replace the memory the struct
+//! takes its bytes back from it.
 
-use super::globals as g;
-use super::record_table::{self, Single, Which};
 use super::Ctx;
+use super::globals as g;
+use pc::cpu::Bus;
 
-/// Where the record starts in the data segment.
-pub const AT: u16 = Which::Events.base();
+/// Where the events start in the data segment.
+pub const AT: u16 = 0x118f;
+/// Their size.
+pub const LEN: usize = 0x2a;
 
 /// The most events waiting.
 pub const MAX_EVENTS: usize = 10;
@@ -86,10 +90,9 @@ fn set_word(b: &mut [u8], i: usize, v: u16) {
     b[i..i + 2].copy_from_slice(&v.to_le_bytes());
 }
 
-impl Single for Events {
-    const WHICH: Which = Which::Events;
-
-    fn from_bytes(b: &[u8]) -> Events {
+impl Events {
+    /// The events as their bytes in the memory.
+    pub fn from_bytes(b: &[u8]) -> Events {
         let mut list = [Event::default(); MAX_EVENTS];
         for (i, e) in list.iter_mut().enumerate() {
             let k = at(g::NEXT_EVENT) + 4 * i;
@@ -98,8 +101,8 @@ impl Single for Events {
         Events { flag: b[at(g::PENDING_EVENTS_FLAG)], count: b[at(g::PENDING_EVENTS)], list }
     }
 
-    fn to_bytes(&self) -> record_table::Bytes {
-        let mut b = [0; record_table::MAX];
+    pub fn to_bytes(&self) -> [u8; LEN] {
+        let mut b = [0; LEN];
         b[at(g::PENDING_EVENTS_FLAG)] = self.flag;
         b[at(g::PENDING_EVENTS)] = self.count;
         for (i, e) in self.list.iter().enumerate() {
@@ -115,4 +118,53 @@ const _: () = assert!(g::PENDING_EVENTS_FLAG == 0x118f);
 const _: () = assert!(g::PENDING_EVENTS == 0x1190);
 const _: () = assert!(g::NEXT_EVENT == 0x1191);
 const _: () = assert!(g::NEXT_EVENT_PLACE == 0x1193);
-const _: () = assert!(AT == 0x118f && (AT + 0x2a) as usize >= 0x1191 + 4 * MAX_EVENTS);
+const _: () = assert!(AT == g::PENDING_EVENTS_FLAG && AT as usize + LEN == g::NEXT_EVENT as usize + 4 * MAX_EVENTS);
+
+/// The events as the memory the bus serves from them.
+pub struct EventsMemory(Events);
+
+impl pc::hw::Owned for EventsMemory {
+    fn base(&self) -> u32 {
+        ((g::GAME_DS as u32) << 4) + AT as u32
+    }
+    fn len(&self) -> u32 {
+        LEN as u32
+    }
+    fn read(&self, i: u32) -> u8 {
+        self.0.to_bytes()[i as usize]
+    }
+    fn write(&mut self, i: u32, v: u8) {
+        let mut b = self.0.to_bytes();
+        b[i as usize] = v;
+        self.0 = Events::from_bytes(&b);
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+/// The events (their memory owned from the first use on).
+pub(super) fn get(c: &mut Ctx) -> Events {
+    if c.m.hw.owned::<EventsMemory>().is_none() {
+        c.m.hw.own(Box::new(EventsMemory(Events::default())));
+    }
+    c.m.hw.owned::<EventsMemory>().expect("the events' memory").0
+}
+
+/// The events changed by `f`: the bytes that changed written on the bus
+/// (to the struct, and the memory's copy).
+pub(super) fn update(c: &mut Ctx, f: impl FnOnce(&mut Events)) {
+    let old = get(c);
+    let mut new = old;
+    f(&mut new);
+    let (a, b) = (old.to_bytes(), new.to_bytes());
+    for i in 0..LEN {
+        if a[i] != b[i] {
+            let at = c.m.cpu.phys(g::GAME_DS, AT + i as u16);
+            c.m.hw.write8(at, b[i]);
+        }
+    }
+}

@@ -935,6 +935,7 @@ impl Machine {
         let entry_state = (p.cpu.clone(), p.mem.clone());
         let cpu1 = std::mem::replace(&mut self.cpu, p.cpu);
         let mem1 = std::mem::replace(&mut self.hw.mem, p.mem);
+        self.hw.absorb();
         if let Some(f) = self.native_restored {
             f(self);
         }
@@ -992,6 +993,7 @@ impl Machine {
             rec.defer = None;
             self.cpu = entry_state.0.clone();
             self.hw.mem.copy_from_slice(&entry_state.1);
+            self.hw.absorb();
             if let Some(f) = self.native_restored {
                 f(self);
             }
@@ -1033,6 +1035,7 @@ impl Machine {
         // Carry on from the original's result.
         self.cpu = cpu1;
         self.hw.mem = mem1;
+        self.hw.absorb();
         if let Some(f) = self.native_restored {
             f(self);
         }
@@ -1165,7 +1168,7 @@ impl Machine {
                 0
             };
             let m = if k == 0 { 0 } else if a == stacked { mine as u8 } else { (mine >> 8) as u8 };
-            self.hw.mem[a as usize] = v & !k | m & k;
+            self.hw.poke(a, v & !k | m & k);
         }
     }
 
@@ -2002,6 +2005,7 @@ impl Machine {
         // Without the interrupts.
         let r_cpu = std::mem::replace(&mut self.cpu, d.cpu.clone());
         let r_mem = std::mem::replace(&mut self.hw.mem, d.mem.clone());
+        self.hw.absorb();
         let r_log = std::mem::replace(&mut self.hw.io_log.replay, d.log);
         let mut ok = now >= start;
         while ok && self.cpu.instructions < now {
@@ -2035,12 +2039,14 @@ impl Machine {
         if self.hw.io_log.mismatch.is_some() {
             self.cpu = r_cpu;
             self.hw.mem = r_mem;
+            self.hw.absorb();
             self.hw.io_log.replay = r_log;
             return Err(Bail);
         }
         // With them: the original.
         self.cpu = d.cpu;
         self.hw.mem = d.mem;
+        self.hw.absorb();
         self.hw.io_log.replay = d.log;
         let pure_n = now - start;
         let mut own = 0u64;

@@ -1855,13 +1855,14 @@ impl Ctx<'_> {
     fn update_sentence(&mut self, f: impl FnOnce(&mut sentence::Sentence)) {
         record_table::update_single(self, f)
     }
-    /// The events waiting to be told (Rust state, see [`events`]), in step with the memory.
+    /// The events waiting to be told (Rust state that owns its memory,
+    /// see [`events`]).
     fn events(&mut self) -> events::Events {
-        record_table::single(self)
+        events::get(self)
     }
-    /// The events waiting to be told changed by `f` (written through).
+    /// The events waiting to be told changed by `f`.
     fn update_events(&mut self, f: impl FnOnce(&mut events::Events)) {
-        record_table::update_single(self, f)
+        events::update(self, f)
     }
     /// The messages kept (Rust state, see [`messages`]), in step with the memory.
     fn messages(&mut self) -> messages::Messages {

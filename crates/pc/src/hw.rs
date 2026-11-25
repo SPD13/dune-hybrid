@@ -298,6 +298,105 @@ pub struct Hardware {
     /// [`WHO_GENERATED`]) << 32 | CS << 16 | IP (the instruction, the hand
     /// port's entry, the generated block).
     pub watch_who: u64,
+    /// Memory the recompiled code's subsystems own ([`Owned`]): the bus
+    /// serves those addresses from them. `owned_lo..owned_hi` spans them
+    /// all (one compare on the bus's path).
+    owned: Vec<Box<dyn Owned>>,
+    owned_lo: u32,
+    owned_hi: u32,
+}
+
+/// Memory a subsystem owns (Stage B): its bytes live in the subsystem's
+/// Rust state, and every read and write of them on the bus, by any code
+/// (the interpreter, the generated code, the drivers, the ports), goes
+/// to it. `mem` keeps a copy, written through, for the tools that look
+/// at the memory whole (snapshots, state hashes, the shadow check's
+/// compare); where the tools replace `mem` ([`Hardware::absorb`]) the
+/// subsystem takes its bytes from it again.
+pub trait Owned: std::any::Any + Send {
+    /// Its first linear address.
+    fn base(&self) -> u32;
+    /// Its size in bytes.
+    fn len(&self) -> u32;
+    /// Byte `i` (from `base`).
+    fn read(&self, i: u32) -> u8;
+    /// Byte `i` set to `v`.
+    fn write(&mut self, i: u32, v: u8);
+    fn as_any(&self) -> &dyn std::any::Any;
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
+}
+
+impl Hardware {
+    /// `r` owns its addresses from now on, taking their bytes from `mem`.
+    pub fn own(&mut self, mut r: Box<dyn Owned>) {
+        let (b, n) = (r.base(), r.len());
+        for i in 0..n {
+            r.write(i, self.mem[(b + i) as usize]);
+        }
+        self.owned_lo = if self.owned.is_empty() { b } else { self.owned_lo.min(b) };
+        self.owned_hi = self.owned_hi.max(b + n);
+        self.owned.push(r);
+    }
+
+    /// The owned memory of type `T`, if one is.
+    pub fn owned<T: Owned>(&self) -> Option<&T> {
+        self.owned.iter().find_map(|r| r.as_any().downcast_ref::<T>())
+    }
+
+    /// The owned memory of type `T`, if one is, to change. Its copy in
+    /// `mem` is the caller's to keep (write the changed bytes through the
+    /// bus, or [`Hardware::copy_owned`]).
+    pub fn owned_mut<T: Owned>(&mut self) -> Option<&mut T> {
+        self.owned.iter_mut().find_map(|r| r.as_any_mut().downcast_mut::<T>())
+    }
+
+    /// `mem` replaced (a snapshot loaded, the shadow check's swaps): each
+    /// owner takes its bytes from it.
+    pub fn absorb(&mut self) {
+        for r in &mut self.owned {
+            let b = r.base();
+            for i in 0..r.len() {
+                r.write(i, self.mem[(b + i) as usize]);
+            }
+        }
+    }
+
+    /// The owners' bytes copied into `mem` (where it may have fallen
+    /// behind).
+    pub fn copy_owned(&mut self) {
+        for r in &self.owned {
+            let b = r.base();
+            for i in 0..r.len() {
+                self.mem[(b + i) as usize] = r.read(i);
+            }
+        }
+    }
+
+    /// Whether `addr` is owned (the bytes counted by the save image).
+    pub fn is_owned(&self, addr: u32) -> bool {
+        addr >= self.owned_lo && addr < self.owned_hi && self.owned.iter().any(|r| addr.wrapping_sub(r.base()) < r.len())
+    }
+
+    /// A direct write (the BIOS's and DOS's services): `mem` and the owner.
+    pub(crate) fn poke(&mut self, addr: u32, v: u8) {
+        self.mem[addr as usize] = v;
+        if addr >= self.owned_lo && addr < self.owned_hi {
+            self.owned_write(addr, v);
+        }
+    }
+
+    #[inline(never)]
+    fn owned_read(&self, addr: u32) -> Option<u8> {
+        self.owned.iter().find(|r| addr.wrapping_sub(r.base()) < r.len()).map(|r| r.read(addr - r.base()))
+    }
+
+    #[inline(never)]
+    fn owned_write(&mut self, addr: u32, v: u8) {
+        if let Some(r) = self.owned.iter_mut().find(|r| addr.wrapping_sub(r.base()) < r.len()) {
+            let b = r.base();
+            r.write(addr - b, v);
+        }
+    }
 }
 
 /// [`Hardware::watch_who`]'s kinds: the interpreter,
@@ -348,6 +447,9 @@ impl Hardware {
             trace_pc: (0, 0),
             watch: None,
             watch_who: 0,
+            owned: Vec::new(),
+            owned_lo: 0,
+            owned_hi: 0,
         }
     }
 
@@ -457,6 +559,12 @@ impl Bus for Hardware {
         {
             *w.hits.entry((self.watch_who, addr, false)).or_default() += 1;
         }
+        if addr >= self.owned_lo
+            && addr < self.owned_hi
+            && let Some(v) = self.owned_read(addr)
+        {
+            return v;
+        }
         self.mem[addr as usize]
     }
 
@@ -474,6 +582,9 @@ impl Bus for Hardware {
                 *w.hits.entry((self.watch_who, addr, true)).or_default() += 1;
             }
             self.mem[addr as usize] = value;
+            if addr >= self.owned_lo && addr < self.owned_hi {
+                self.owned_write(addr, value);
+            }
         }
     }
 
@@ -794,6 +905,7 @@ impl Hardware {
             return Err("snapshot memory size mismatch".into());
         }
         self.mem.copy_from_slice(mem);
+        self.absorb();
         self.pic[0].load(r)?;
         self.pic[1].load(r)?;
         self.pit.load(r)?;

@@ -47,7 +47,9 @@ pub(super) fn story_part(c: &mut Ctx, len: u16) -> Vec<u8> {
         })
         .collect();
     let mut img = mem.clone();
-    let owned = super::record_table::lay_over(c.m, 0, &mut img) + super::clock::lay_over(c.m, 0, &mut img);
+    let owned = super::record_table::lay_over(c.m, 0, &mut img)
+        + super::clock::lay_over(c.m, 0, &mut img)
+        + (0..len).filter(|&k| c.m.hw.is_owned(c.m.cpu.phys(g::GAME_DS, k))).count();
     let differing = img.iter().zip(&mem).filter(|(a, b)| a != b).count();
     if differing > 0 && std::env::var_os("SAVE_TRACE").is_some() {
         let at: Vec<String> = (0..len as usize).filter(|&k| img[k] != mem[k]).take(20).map(|k| format!("{k:04x}:{:02x}>{:02x}", mem[k], img[k])).collect();

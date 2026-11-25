@@ -38,7 +38,6 @@ pub struct Native {
     pub sequence: super::record_table::RecordTable,
     pub phrase: super::record_table::RecordTable,
     pub sentence: super::record_table::RecordTable,
-    pub events: super::record_table::RecordTable,
     pub messages: super::record_table::RecordTable,
     pub phrase_args: super::record_table::RecordTable,
 }

@@ -889,6 +889,38 @@ interrupt and the generated code copies the memory, so only the
 `shadow.sh` takes `GAMES="start12 day1 ..."` to run some of its games
 (each two in about 7 minutes), like `validate.sh`'s `STEPS`.
 
+### Memory owned by Rust (the pilot: the events, 2026-11-24)
+
+Ownership turned around: instead of the Rust state following the
+memory (a cache checked against it), the bus serves a subsystem's
+addresses from its Rust state. A subsystem registers its range with
+the bus (`pc::hw::Owned`, `Hardware::own`): every read and write of
+those addresses on the bus, by any code (the interpreter, the generated
+code, the drivers' lifted code, the ports, their string instructions),
+goes to it; the BIOS's and DOS's direct writes too (`Hardware::poke`).
+`mem` keeps a copy, written through, for what looks at the memory
+whole: snapshots, the state hashes, the shadow check's entry and
+compare, the in-place interrupts' scratch stepping (`state_at`), the
+services' reads (`mem_read`). Where the tools replace `mem` (a snapshot
+loaded, the shadow check's swaps and the stretch checks through an
+interrupt) each owner takes its bytes back from it (`Hardware::absorb`).
+The bus's cost is one range compare per access (`owned_lo..owned_hi`):
+the suite's games run at the same speed (day 23: about 60 MIPS).
+
+The pilot is the events waiting (`hand/events.rs`): `EventsMemory`
+holds the typed `Events` and is the owner of DS:118Fh-11B8h (registered
+on first use); `c.events()` reads the struct, `c.update_events(..)`
+writes the bytes that changed on the bus. The events left the generic
+record tables (no cache, no compare, no sync-ins: nothing can write
+them behind the struct's back). The save image's story part counts the
+owned bytes as from the Rust state (4488, as before).
+
+To drop `mem`'s copy for an owned range, its readers there must go
+through the owners too: `mem_read` (the services' string and buffer
+reads), `state_at`'s overlay, the shadow check's `Pending::mem` and
+`compare`, the snapshots and the hashes (which would copy the owners'
+bytes in first, `Hardware::copy_owned`).
+
 ### The troops and the locations (in Rust with a mirror)
 
 `hand/record_table.rs`: the game's record tables, the troops (43h of

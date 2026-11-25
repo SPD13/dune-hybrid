@@ -103,8 +103,6 @@ pub enum Which {
     Phrase,
     /// The sentence being said, 0Ch bytes at DS:47DCh.
     Sentence,
-    /// The events waiting to be told (`hand/events.rs`).
-    Events,
     /// The messages kept (`hand/messages.rs`).
     Messages,
     /// The phrases a phrase's codes 80h..8Fh stand for (`hand/phrase_args.rs`).
@@ -112,7 +110,7 @@ pub enum Which {
 }
 
 impl Which {
-    pub const ALL: [Which; 31] = [
+    pub const ALL: [Which; 30] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
@@ -141,7 +139,6 @@ impl Which {
         Which::Sequence,
         Which::Phrase,
         Which::Sentence,
-        Which::Events,
         Which::Messages,
         Which::PhraseArgs,
     ];
@@ -176,7 +173,6 @@ impl Which {
             Which::Sequence => "sequence",
             Which::Phrase => "phrase",
             Which::Sentence => "sentence",
-            Which::Events => "events",
             Which::Messages => "messages",
             Which::PhraseArgs => "phrase args",
         }
@@ -212,7 +208,6 @@ impl Which {
             Which::Sequence => 0x4774,
             Which::Phrase => 0x477c,
             Which::Sentence => 0x47dc,
-            Which::Events => 0x118f,
             Which::Messages => 0x1179,
             Which::PhraseArgs => 0x11eb,
         }
@@ -247,7 +242,6 @@ impl Which {
             Which::Sequence => 0x8,
             Which::Phrase => 0x8,
             Which::Sentence => 0xc,
-            Which::Events => 0x2a,
             Which::Messages => 0x14,
             Which::PhraseArgs => 0x20,
         }
@@ -282,7 +276,6 @@ impl Which {
             Which::Sequence => 1,
             Which::Phrase => 1,
             Which::Sentence => 1,
-            Which::Events => 1,
             Which::Messages => 1,
             Which::PhraseArgs => 1,
         }
@@ -343,7 +336,6 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::Sequence => &mut n.sequence,
         Which::Phrase => &mut n.phrase,
         Which::Sentence => &mut n.sentence,
-        Which::Events => &mut n.events,
         Which::Messages => &mut n.messages,
         Which::PhraseArgs => &mut n.phrase_args,
     };
