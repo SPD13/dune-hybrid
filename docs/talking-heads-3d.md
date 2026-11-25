@@ -34,8 +34,10 @@ Commands run from `Cryogenic-Web/portrait-proto/studio/tripo/` with `PY=%LOCALAP
 2. Bust: `tripo.py img2img/<CODE>-tripo.png <name>`.
 
 **B. The fit (§4)**
-1. Landmarks: render with `view_tripo.py`, write `<dir>/picks-raw.json`. Check each eye corner on a close render.
-2. `prescale.py`, `prep_tripo.py`, `fit.py`. Look at `fit_front.png` / `fit_side.png`; the median error should be about 0.13 mm.
+0. Look at the bust from all sides first: `bust-views.html?glb=<name>/model.glb&az=0,-35,-70,-110` (a click reports the model point under it). Faults in the bust (a tuft of hair standing off the forehead, say) are best fixed in the HD portrait and the bust regenerated: editing Tripo's mesh is hard, since it comes in hundreds of pieces split along its texture seams. A small fix by hand in the portrait (fill a tuft or a patch with the background or the fabric, e.g. `cv2.inpaint` over a mask) keeps the rest of it, such as closed lips.
+1. **A head turned far from the viewer** (Thufir, almost in profile): find the angle that shows the face front-on (`view_tripo.py … --yaw DEG`, Thufir −73°), then `turn_bust.py <name>/model.glb <name>/model-t.glb DEG` turns the mesh face-on in its own coordinates and gives its node the opposite turn, so the page still shows the game's view. Work on `model-t.glb` from here.
+2. Landmarks: render with `view_tripo.py`, write `<dir>/picks-raw.json`. Check each eye corner on a close render.
+3. `prescale.py`, `prep_tripo.py`, `fit.py`. Look at `fit_front.png` / `fit_side.png`; the median error should be about 0.13 mm.
 
 **C. The eyes (§5a, §5b)**
 1. Measure each eye opening on a close render (3 cm tall) and write `<dir>/eyes.json`. Corners where the white ends; `l` is the eye on the viewer's left. One `radius_abs` for both eyes (0.0255 so far), `iris` = asin(iris radius / 0.0255), `pupil` = 0.4 × `iris`, hand-set `iris_rgb` (and `iris_inner_rgb` for a two-tone iris).
@@ -46,6 +48,7 @@ Commands run from `Cryogenic-Web/portrait-proto/studio/tripo/` with `PY=%LOCALAP
 2. `cd flame-fit && $PY build.py $F/flame2023_Open.pkl $F/FLAME_masks.pkl ../<name>/model-n.glb <dir> ../<name>/<name>-flame.glb`.
 3. Read the build's report lines:
    - `build settings from …`: your `build.json` was read;
+   - `texture lip line`: the dark line between the lips, column by column; a run of columns jumping a centimetre away (dark-stained lips, Thufir) needs `SEAM_OUTLIER_MM` (Thufir 2: columns further than that from a line fitted through them take its value);
    - `lip crease vs texture line`: values beyond about ±2.5 mm mean the cut may sit in the other lip;
    - `round corners: … the opening closes at …`: 6–12 mm inside the corner landmarks so far;
    - `eye … DIAG`: the two eyes' widths close, the ball standing out by a similar amount;
