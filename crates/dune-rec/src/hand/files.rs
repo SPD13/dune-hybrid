@@ -1098,6 +1098,7 @@ pub fn initialize_resources(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_word(g::MAP_GFX_DATA, a);
     let es = c.sreg(ES);
     c.set_word(g::MAP_GFX_SEGMENT, es);
+    super::map_cells::own(&mut c); // the map loaded: its cells owned from here on
     let ds = c.sreg(DS);
     c.push(ds);
     let v = c.pop();

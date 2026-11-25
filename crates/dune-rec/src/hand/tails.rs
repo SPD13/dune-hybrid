@@ -2342,6 +2342,7 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{CS, DS, ES};
     entered(start, 0xb427)?;
     let mut c = Ctx::new(m);
+    super::map_cells::own(&mut c);
     c.run(0xb427, 2)?;
     files::make_room(&mut c, 0x578, 0xb42d)?;
     c.run(0xb42d, 9)?;
@@ -2378,6 +2379,8 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.stos(B);
         c.set_reg(CX, n - 1 - k);
     }
+    let es = c.sreg(ES);
+    super::save_image::check_map_part(&mut c, es, 0x100);
     c.run(0xb452, 5 + 0xa2 + 4 + 0x11f8 + 3 + 0x1261 + 4)?; // the `rep` iterations too
     let cs = c.sreg(CS);
     c.push(cs);

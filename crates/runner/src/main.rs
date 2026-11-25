@@ -904,6 +904,17 @@ fn main() -> ExitCode {
         let (saves, owned, differing) = dune_rec::hand::save_image::counts(&mut m);
         if saves > 0 {
             println!("save image: {saves} built, {owned} bytes of DS:0-1260h from the Rust state in the last, {differing} differing from the memory");
+            let (map, map_differing) = dune_rec::hand::save_image::map_counts(&mut m);
+            println!("save image: the map's {map} bytes from its cells' Rust state, {map_differing} differing from their packing");
+        }
+        // The map's cells (dune_rec::hand::map_cells): owned from the
+        // game's start or the first save made or restored.
+        match dune_rec::hand::map_cells::get(&m) {
+            Some(mc) => {
+                let used = mc.packed().iter().filter(|&&b| b != 0).count();
+                println!("map cells: owned at {:04x}:0, {} cells, {used} of the save's packed bytes non-zero", mc.segment(), dune_rec::hand::map_cells::CELLS);
+            }
+            None => println!("map cells: not owned"),
         }
         let mut entries: Vec<(u16, &str)> = dune_rec::names().to_vec();
         entries.sort();

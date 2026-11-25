@@ -115,6 +115,7 @@ fn finish(c: &mut Ctx) -> Result<(), Bail> {
 pub fn restore_from_save_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb473)?;
     let mut c = Ctx::new(m);
+    super::map_cells::own(&mut c);
     c.run(start, 5)?;
     let map = c.word_in(SS, g::MAP_GFX_DATA + 2);
     c.set_sreg(ES, map);

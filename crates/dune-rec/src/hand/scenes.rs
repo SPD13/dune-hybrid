@@ -280,6 +280,7 @@ pub fn animate_result_bars(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn map_func(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xbfe3)?;
     let mut c = Ctx::new(m);
+    super::map_cells::own(&mut c);
     c.run(start, 6)?;
     let ds = c.sreg(DS);
     c.push(ds);

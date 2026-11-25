@@ -974,6 +974,26 @@ capture of the 27 rooms), copy against no copy: the trace (63602
 lines), the 134 files written and the logs are identical, and the
 driver check has no mismatch.
 
+**The map's cells own their memory** (2026-11-25, `hand/map_cells.rs`):
+the planet's C5FCh cells, a byte each at [DD00h]:0 (the map resource;
+bits 4..5 the state the game changes and the save keeps, packed four to
+a byte, the rest the drawing's), are a `MapCells` owner, registered
+where [DD00h] is surely the map's (the game's start in
+`initialize_resources`, a save made or restored, the map's statistics;
+the zoomed globe repoints [DD00h] at the sprite sheet while it draws).
+The globe's and the map's drawing read them on the bus tens of
+thousands of times a frame, so the bus got two changes, kept for the
+owners to come: the span compare became a table by 256-byte page
+(`owned_pages`, 8 KB: none, some, or all of one owner's), and an owner
+whose bytes are one array (`Owned::direct`) is read and written
+directly where a page is all its (no owner map, no call). Day 23's 200
+s of play: 62 MIPS before, 64 with the page table, 55 with the map
+through the owner map, 64.5 with the direct pages. Each save the
+harness makes checks the map's block (3 17Fh bytes, read on the bus)
+against the cells' own packing (`MapCells::packed`): 0 differing in
+the eight of validate's run c. All checks equal (the three suites, the
+view check, 258947 shadow calls, validate).
+
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
 (`pc::gfx::GfxEvent`: each call's registers, the marks a room, a

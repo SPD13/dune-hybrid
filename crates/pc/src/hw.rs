@@ -299,14 +299,16 @@ pub struct Hardware {
     /// port's entry, the generated block).
     pub watch_who: u64,
     /// Memory the recompiled code's subsystems own ([`Owned`]): the bus
-    /// serves those addresses from them. `owned_lo..owned_hi` spans them
-    /// all (one compare on the bus's path).
+    /// serves those addresses from them. `owned_pages`, by 256-byte page
+    /// (one load on the bus's path, whatever the owners and wherever they
+    /// are): 0 none owned, [`MIXED`] some (the owner map says which), else
+    /// all of it one owner's array ([`Owned::direct`], `direct[k - 1]`).
     owned: Vec<Box<dyn Owned>>,
     /// By linear address: its owner in `owned` + 1 (0 none; empty until
     /// the first).
     owner_map: Vec<u8>,
-    owned_lo: u32,
-    owned_hi: u32,
+    owned_pages: Box<[u8; PAGES]>,
+    direct: Vec<Direct>,
     /// No copy of the owned bytes in `mem` ([`Hardware::keep_copy`]; the
     /// default of `--rec on` runs, `OWN_POISON=1` anywhere): `mem` holds
     /// CCh at the owned addresses, so code reading them other than
@@ -319,10 +321,10 @@ pub struct Hardware {
 /// Memory a subsystem owns (Stage B): its bytes live in the subsystem's
 /// Rust state, and every read and write of them on the bus, by any code
 /// (the interpreter, the generated code, the drivers, the ports), goes
-/// to it. `mem` keeps a copy, written through, for the tools that look
-/// at the memory whole (snapshots, state hashes, the shadow check's
-/// compare); where the tools replace `mem` ([`Hardware::absorb`]) the
-/// subsystem takes its bytes from it again.
+/// to it. `mem` holds CCh there, or a copy written through where the
+/// runner keeps one ([`Hardware::keep_copy`]: the shadow check's
+/// snapshots are raw memory); where the tools replace `mem`
+/// ([`Hardware::absorb`]) the subsystem takes its bytes from it again.
 pub trait Owned: std::any::Any + Send {
     /// Its linear address ranges (start, length).
     fn ranges(&self) -> Vec<(u32, u32)>;
@@ -330,9 +332,32 @@ pub trait Owned: std::any::Any + Send {
     fn read(&self, addr: u32) -> u8;
     /// The byte at linear `addr` set to `v`.
     fn write(&mut self, addr: u32, v: u8);
+    /// For an owner of one range whose bytes are one array in address
+    /// order: the array, which the bus then reads and writes directly
+    /// where a page is all the owner's (no call). It must not move while
+    /// owned (a boxed slice, never resized).
+    fn direct(&mut self) -> Option<&mut [u8]> {
+        None
+    }
     fn as_any(&self) -> &dyn std::any::Any;
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
+
+/// 256-byte pages of the bus's addresses (1 MB and the HMA's 64 KB,
+/// rounded up to a power of two).
+const PAGES: usize = 0x2000;
+/// An [`Hardware::owned_pages`] entry: some of the page owned.
+const MIXED: u8 = 0xff;
+
+/// An owner's array the bus reads directly ([`Owned::direct`]).
+struct Direct {
+    base: u32,
+    ptr: *mut u8,
+}
+
+// SAFETY: the pointer is into an owner's array, which the owner (Send)
+// holds with the Hardware.
+unsafe impl Send for Direct {}
 
 impl Hardware {
     /// `r` owns its addresses from now on, taking their bytes from `mem`.
@@ -349,12 +374,54 @@ impl Hardware {
                 self.owner_map[a as usize] = id;
                 r.write(a, self.mem[a as usize]);
             }
-            self.owned_lo = if self.owned.is_empty() && self.owned_hi == 0 { b } else { self.owned_lo.min(b) };
-            self.owned_hi = self.owned_hi.max(b + n);
         }
+        // The array the bus may read directly, and the pages.
+        let ranges = r.ranges();
+        let d = match (&ranges[..], r.direct()) {
+            ([(b, n)], Some(a)) if a.len() == *n as usize => Some(Direct { base: *b, ptr: a.as_mut_ptr() }),
+            _ => None,
+        };
+        for &(b, n) in &ranges {
+            for p in b >> 8..=(b + n - 1) >> 8 {
+                let whole = p << 8 >= b && (p + 1) << 8 <= b + n;
+                let page = &mut self.owned_pages[p as usize];
+                *page = if whole && d.is_some() && *page == 0 { id } else { MIXED };
+            }
+        }
+        self.direct.push(d.unwrap_or(Direct { base: 0, ptr: std::ptr::null_mut() }));
         self.owned.push(r);
         self.poison_owned();
         self.owned.len() - 1
+    }
+
+    /// An owned byte, if `addr` is owned.
+    #[inline(always)]
+    fn owned_byte(&self, addr: u32) -> Option<u8> {
+        match self.owned_pages[(addr >> 8) as usize & (PAGES - 1)] {
+            0 => None,
+            MIXED => self.owned_read(addr),
+            k => {
+                let d = &self.direct[k as usize - 1];
+                // SAFETY: the page is all inside the owner's array
+                // (`own`), which stays where it is while owned.
+                Some(unsafe { *d.ptr.add((addr - d.base) as usize) })
+            }
+        }
+    }
+
+    /// An owned byte set, if `addr` is owned (true then).
+    #[inline(always)]
+    fn owned_set(&mut self, addr: u32, v: u8) -> bool {
+        match self.owned_pages[(addr >> 8) as usize & (PAGES - 1)] {
+            0 => false,
+            MIXED => self.owned_write(addr, v),
+            k => {
+                let d = &self.direct[k as usize - 1];
+                // SAFETY: as in `owned_byte`.
+                unsafe { *d.ptr.add((addr - d.base) as usize) = v };
+                true
+            }
+        }
     }
 
     /// Owner `i` ([`Hardware::own`]'s index), as a `T`.
@@ -377,10 +444,7 @@ impl Hardware {
     /// A byte as the bus would read it, without a bus's side effects
     /// (the services' reads, the scratch stepping's).
     pub fn peek(&self, addr: u32) -> u8 {
-        if addr >= self.owned_lo
-            && addr < self.owned_hi
-            && let Some(v) = self.owned_read(addr)
-        {
+        if let Some(v) = self.owned_byte(addr) {
             return v;
         }
         self.mem[addr as usize]
@@ -441,12 +505,12 @@ impl Hardware {
 
     /// Whether `addr` is owned (the bytes counted by the save image).
     pub fn is_owned(&self, addr: u32) -> bool {
-        addr >= self.owned_lo && addr < self.owned_hi && self.owner_map[addr as usize] != 0
+        self.owned_pages[(addr >> 8) as usize & (PAGES - 1)] != 0 && self.owner_map[addr as usize] != 0
     }
 
     /// A direct write (the BIOS's and DOS's services): `mem` and the owner.
     pub fn poke(&mut self, addr: u32, v: u8) {
-        if addr >= self.owned_lo && addr < self.owned_hi && self.owned_write(addr, v) && self.owned_poison {
+        if self.owned_set(addr, v) && self.owned_poison {
             return;
         }
         self.mem[addr as usize] = v;
@@ -523,8 +587,8 @@ impl Hardware {
             watch_who: 0,
             owned: Vec::new(),
             owner_map: Vec::new(),
-            owned_lo: 0,
-            owned_hi: 0,
+            owned_pages: Box::new([0; PAGES]),
+            direct: Vec::new(),
             owned_poison: std::env::var_os("OWN_POISON").is_some(),
         }
     }
@@ -635,10 +699,7 @@ impl Bus for Hardware {
         {
             *w.hits.entry((self.watch_who, addr, false)).or_default() += 1;
         }
-        if addr >= self.owned_lo
-            && addr < self.owned_hi
-            && let Some(v) = self.owned_read(addr)
-        {
+        if let Some(v) = self.owned_byte(addr) {
             return v;
         }
         self.mem[addr as usize]
@@ -657,7 +718,7 @@ impl Bus for Hardware {
             {
                 *w.hits.entry((self.watch_who, addr, true)).or_default() += 1;
             }
-            if addr >= self.owned_lo && addr < self.owned_hi && self.owned_write(addr, value) && self.owned_poison {
+            if self.owned_set(addr, value) && self.owned_poison {
                 return;
             }
             self.mem[addr as usize] = value;
@@ -1007,6 +1068,6 @@ impl Hardware {
 impl gfx::Overlay for Hardware {
     #[inline]
     fn byte(&self, addr: u32) -> Option<u8> {
-        if addr >= self.owned_lo && addr < self.owned_hi { self.owned_read(addr) } else { None }
+        self.owned_byte(addr)
     }
 }

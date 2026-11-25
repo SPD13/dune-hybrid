@@ -24,6 +24,11 @@ pub struct SaveImageState {
     owned: u64,
     /// In all: bytes where the Rust state and the memory differed.
     differing: u64,
+    /// The map's block in the last image: its bytes (0 with the cells not
+    /// owned), and in all the bytes where it differed from the cells'
+    /// packing ([`super::map_cells::MapCells::packed`]).
+    map_bytes: u64,
+    map_differing: u64,
 }
 
 fn state(m: &mut Machine) -> &mut SaveImageState {
@@ -35,6 +40,25 @@ fn state(m: &mut Machine) -> &mut SaveImageState {
 pub fn counts(m: &mut Machine) -> (u64, u64, u64) {
     let s = state(m);
     (s.saves, s.owned, s.differing)
+}
+
+/// The map's block, and where it differed from the Rust state's packing.
+pub fn map_counts(m: &mut Machine) -> (u64, u64) {
+    let s = state(m);
+    (s.map_bytes, s.map_differing)
+}
+
+/// The map's block as written at `seg:at` (the cells read on the bus,
+/// so from the Rust state when they own their memory) checked against
+/// the cells' own packing.
+pub(super) fn check_map_part(c: &mut Ctx, seg: u16, at: u16) {
+    let Some(packed) = super::map_cells::get(c.m).map(|mc| mc.packed()) else { return };
+    let differing = (0..packed.len())
+        .filter(|&k| c.m.hw.peek(c.m.cpu.phys(seg, at.wrapping_add(k as u16))) != packed[k])
+        .count();
+    let s = state(c.m);
+    s.map_bytes = packed.len() as u64;
+    s.map_differing += differing as u64;
 }
 
 /// DS:0 on, `len` bytes, as the save image has them (see the module's
