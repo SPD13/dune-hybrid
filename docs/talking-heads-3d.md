@@ -2,7 +2,7 @@
 
 **For:** a person or a Claude instance building, fixing or extending the 3D talking heads. Written 2026-11-24, updated 2026-11-25 (eyelids, lash strips, rounded mouth corners, per-head build settings, lip-sync to the game's voice). To build a new head, follow the [playbook](#1a-playbook-a-new-head-step-by-step). This is an experiment next to the 2D studio work described in [generative-portraits.md](generative-portraits.md) and [hd-studio-plan.md](hd-studio-plan.md).
 
-**Preview page:** [http://127.0.0.1:8790/tripo/preview.html](http://127.0.0.1:8790/tripo/preview.html) lists every character with a talking head in the game; the ones with a green **3D** badge open their talking page, the 1992 head on the left and the 3D head talking in sync on the right. Serve it first (see [§8](#8-files-environment-and-rules)).
+**Preview page:** [http://127.0.0.1:8790/tripo/preview.html](http://127.0.0.1:8790/tripo/preview.html) lists every character with a talking head in the game; the ones with a green **3D** badge open their talking page, the 1992 head on the left and the 3D head talking in sync on the right. Serve it first (see [§8](#8-files-environment-and-rules)). The page has a top menu: **Portraits** (the talking heads, and below each one the character's small full-body figure: the `PERS.HSQ` sprite on the left, the rigged 3D figure on the right where one exists, listed in `BODIES_3D` with its render in `tripo/bodies/`) and **Rooms** (every room of the game, its sprite on the left and its rebuilt version on the right where one exists; `#room97` opens a room directly, and a rebuilt room is added to `REBUILT` in `preview.html`).
 
 ## 1. What it makes
 
