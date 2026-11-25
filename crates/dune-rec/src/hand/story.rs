@@ -1219,14 +1219,14 @@ pub fn drop_oldest_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn drop_oldest_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2a34)?;
     let mut c = Ctx::new(m);
-    let v = c.byte(g::PENDING_EVENTS).wrapping_sub(1);
+    let v = c.events().count.wrapping_sub(1);
     c.run(start, (3 + (v == 0) as u32 + 7) + 0x12)?; // the `rep` iterations too
     c.set_reg(SI, g::PENDING_EVENTS);
-    let b = c.byte(g::PENDING_EVENTS);
+    let b = c.events().count;
     let v = pure::dec(B, b as u16);
-    c.set_byte(g::PENDING_EVENTS, v as u8);
+    c.update_events(|t| t.count = v as u8);
     if v == 0 {
-        c.set_byte(g::PENDING_EVENTS_FLAG, 0);
+        c.update_events(|t| t.flag = 0);
     }
     let si = pure::inc(W, g::PENDING_EVENTS);
     c.set_reg(DI, si);
@@ -1312,7 +1312,7 @@ pub fn speak_event_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn drop_told_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2a7f)?;
     let mut c = Ctx::new(m);
-    let n = c.byte(g::PENDING_EVENTS) as u16;
+    let n = c.events().count as u16;
     if n == 0 {
         c.run(start, 7)?;
         c.set_reg(SI, g::PENDING_EVENTS);
@@ -1324,7 +1324,7 @@ pub fn drop_told_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut kept = 0u16;
     let mut count = 9;
     for i in 0..n {
-        let k = c.byte(g::PENDING_EVENTS + 1 + 4 * i);
+        let k = super::events::entry(&mut c, i).kind;
         if k == 1 {
             count += 6;
         } else {
@@ -1362,8 +1362,8 @@ pub fn drop_told_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(CX, n - 1 - i);
     }
     c.set_reg(CX, bp);
-    let old = c.byte(g::PENDING_EVENTS);
-    c.set_byte(g::PENDING_EVENTS, bp as u8);
+    let old = c.events().count;
+    c.update_events(|t| t.count = bp as u8);
     c.set_reg(CX, (bp & 0xff) << 8 | old as u16);
     if shrank {
         c.set_reg(AX, 0);
@@ -1378,7 +1378,7 @@ pub fn drop_told_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn find_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2aaf)?;
     let mut c = Ctx::new(m);
-    let n = c.byte(g::PENDING_EVENTS) as u16;
+    let n = c.events().count as u16;
     let (al, di) = (c.reg8(r8::AL), c.reg(DI));
     let mut count = 5;
     let mut found = None;
@@ -1387,8 +1387,8 @@ pub fn find_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     } else {
         count += 1;
         for i in 0..n {
-            let e = g::PENDING_EVENTS + 1 + 4 * i;
-            let k = c.byte(e.wrapping_add(1));
+            let e = super::events::entry(&mut c, i);
+            let k = e.teller;
             count += 2;
             if k == al {
                 count += 2;
@@ -1397,7 +1397,7 @@ pub fn find_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     break;
                 }
                 count += 2;
-                if c.word(e.wrapping_add(2)) == di {
+                if e.place == di {
                     found = Some(i);
                     break;
                 }
@@ -1424,7 +1424,8 @@ pub fn find_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         Some(i) => {
             let e = g::PENDING_EVENTS + 1 + 4 * i;
-            let (event, place) = (c.word(e), c.word(e.wrapping_add(2)));
+            let ev = super::events::entry(&mut c, i);
+            let (event, place) = (ev.word(), ev.place);
             c.set_reg(SI, e);
             c.set_reg(CX, n - i);
             if al != 0x0f {
@@ -2628,7 +2629,7 @@ fn add_message_in(c: &mut Ctx) -> Result<(), Bail> {
     let mut found = false;
     let mut k = 0u16;
     while k < n0 {
-        if c.word(g::MESSAGES + 2 * k) == ax {
+        if super::messages::entry(c, k) == ax {
             found = true;
             break;
         }
@@ -2647,7 +2648,7 @@ fn add_message_in(c: &mut Ctx) -> Result<(), Bail> {
         c.set_reg(SI, g::MESSAGES);
         for i in 0..=k.min(n0.saturating_sub(1)) {
             let p = g::MESSAGES + 2 * i;
-            let w = c.word(p);
+            let w = super::messages::entry(c, i);
             c.cmp(W, ax, w);
             if found && i == k {
                 c.set_reg(SI, p);
@@ -2688,7 +2689,7 @@ fn add_message_in(c: &mut Ctx) -> Result<(), Bail> {
     let si = c.add(W, g::MESSAGES, d);
     c.set_reg(SI, si);
     let ax = c.reg(AX);
-    c.set_word(si, ax);
+    super::messages::set_entry(c, d / 2, ax);
     let v = c.economy().message_count;
     let v = c.inc(B, v as u16);
     c.update_economy(|t| t.message_count = v as u8);
@@ -2754,18 +2755,17 @@ pub fn add_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let (ax, di) = (c.reg(AX), c.reg(DI));
-    let n0 = c.byte(g::PENDING_EVENTS) as u16;
+    let n0 = c.events().count as u16;
     let mut n = 2 + 4;
     let mut found = None;
     if n0 != 0 {
         n += 1;
         for i in 0..n0 {
-            let p = g::NEXT_EVENT + 4 * i;
-            let w = c.word(p);
+            let e = super::events::entry(&mut c, i);
             n += 2;
-            if w == ax {
+            if e.word() == ax {
                 n += 2;
-                if c.word(p + 2) == di {
+                if e.place == di {
                     found = Some(i);
                     n += 1;
                     break;
@@ -2812,13 +2812,12 @@ pub fn add_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // Added at the end.
     let at = (if full { 9 } else { n0 }) * 4;
     c.run(0x2a25, 8)?;
-    let count = c.byte(g::PENDING_EVENTS).wrapping_add(1);
-    c.set_byte(g::PENDING_EVENTS, count);
+    let count = c.events().count.wrapping_add(1);
+    c.update_events(|t| t.count = count);
     c.set_reg(CX, at);
     c.set_reg(SI, g::NEXT_EVENT + at);
     let (ax, di) = (c.reg(AX), c.reg(DI));
-    c.set_word(g::NEXT_EVENT + at, ax);
-    c.set_word(g::NEXT_EVENT_PLACE + at, di);
+    c.update_events(|t| t.list[at as usize / 4] = super::events::Event::from_word(ax, di));
     c.ret()
 }
 
@@ -2830,12 +2829,12 @@ pub fn add_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2ad8)?;
     let mut c = Ctx::new(m);
-    let ev = c.word(g::NEXT_EVENT);
+    let ev = c.events().list[0].word();
     let present = c.progress().present;
     let cl = (ev >> 8) as u8;
     let sh = (cl & 0x1f) as u32;
     let bit = sh < 16 && (present >> sh) & 1 != 0;
-    let di = c.word(g::NEXT_EVENT_PLACE);
+    let di = c.events().list[0].place;
     let here = c.word(g::PLACE);
     let tell = bit && (cl != 0x0f || di == here);
     let n = 7 + if bit { 3 + if cl == 0x0f { 2 } else { 0 } } else { 0 };
@@ -2903,7 +2902,7 @@ pub fn drop_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let dl = c.reg8(r8::AL);
     let bx = c.reg(DI);
-    let cnt = c.byte(g::PENDING_EVENTS);
+    let cnt = c.events().count;
     if cnt == 0 {
         c.run(start, 9)?;
         c.set_reg(SI, g::NEXT_EVENT);
@@ -2917,9 +2916,8 @@ pub fn drop_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut n = 8 + 3;
     let mut kept = 0u16;
     for i in 0..cnt as u16 {
-        let p = g::NEXT_EVENT + 4 * i;
-        let ev = c.word(p);
-        let place = c.word(p + 2);
+        let e = super::events::entry(&mut c, i);
+        let (ev, place) = (e.word(), e.place);
         n += 3;
         let drop = if (ev >> 8) as u8 == dl {
             n += 2;
@@ -2968,7 +2966,7 @@ pub fn drop_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.set_reg(BP, left);
-    c.set_byte(g::PENDING_EVENTS, left as u8);
+    c.update_events(|t| t.count = left as u8);
     c.set_reg(CX, (left & 0xff) << 8 | cnt as u16);
     if !changed {
         return c.ret();
@@ -6691,7 +6689,7 @@ pub fn clock_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
         }
     }
-    let ev = c.byte(g::PENDING_EVENTS);
+    let ev = c.events().count;
     if ev == 0 {
         c.run(0x2b4a, 6)?;
         return c.ret();
@@ -6756,7 +6754,7 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
     c.call(entry::CALL_RESTORE_CURSOR, 0x2bd5)?;
     c.run(0x2bd5, 1)?;
     c.call(entry::PICK_MUSIC, 0x2bd8)?;
-    let di = c.word(g::NEXT_EVENT_PLACE);
+    let di = c.events().list[0].place;
     if di == 0 {
         c.run(0x2bd8, 3)?;
         c.set_reg(DI, 0);
@@ -6772,14 +6770,14 @@ fn next_event_2bd2(c: &mut Ctx) -> Result<(), Bail> {
         c.set_reg(AX, a);
         c.cmp(W, a, 0x7aa);
         if far {
-            c.set_byte(g::NEXT_EVENT_PLACE, 0);
+            c.update_events(|t| t.list[0].place &= 0xff00);
         } else {
             c.call(entry::DESCRIBE_PLACE, 0x2bf4)?;
         }
     }
-    let ev = c.word(g::NEXT_EVENT);
+    let ev = c.events().list[0].word();
     let (al, ah) = (ev as u8, (ev >> 8) as u8);
-    let di = c.word(g::NEXT_EVENT_PLACE);
+    let di = c.events().list[0].place;
     let skip = ah >= 0x10 || (ah == 0x0e && di == 0);
     let n = 4 + (al == 1) as u32 + 5 + if ah >= 0x10 { 0 } else if ah != 0x0e { 2 } else { 4 };
     c.run(0x2bf4, n + if skip { 1 } else if di != 0 { 4 } else { 3 })?;

@@ -103,10 +103,14 @@ pub enum Which {
     Phrase,
     /// The sentence being said, 0Ch bytes at DS:47DCh.
     Sentence,
+    /// The events waiting to be told (`hand/events.rs`).
+    Events,
+    /// The messages kept (`hand/messages.rs`).
+    Messages,
 }
 
 impl Which {
-    pub const ALL: [Which; 28] = [
+    pub const ALL: [Which; 30] = [
         Which::Troops,
         Which::Locations,
         Which::TextBox,
@@ -135,6 +139,8 @@ impl Which {
         Which::Sequence,
         Which::Phrase,
         Which::Sentence,
+        Which::Events,
+        Which::Messages,
     ];
 
     pub fn name(self) -> &'static str {
@@ -167,6 +173,8 @@ impl Which {
             Which::Sequence => "sequence",
             Which::Phrase => "phrase",
             Which::Sentence => "sentence",
+            Which::Events => "events",
+            Which::Messages => "messages",
         }
     }
     /// Where the table starts in the game's data segment.
@@ -200,6 +208,8 @@ impl Which {
             Which::Sequence => 0x4774,
             Which::Phrase => 0x477c,
             Which::Sentence => 0x47dc,
+            Which::Events => 0x118f,
+            Which::Messages => 0x1179,
         }
     }
     pub const fn size(self) -> u16 {
@@ -232,6 +242,8 @@ impl Which {
             Which::Sequence => 0x8,
             Which::Phrase => 0x8,
             Which::Sentence => 0xc,
+            Which::Events => 0x2a,
+            Which::Messages => 0x14,
         }
     }
     pub const fn count(self) -> usize {
@@ -264,6 +276,8 @@ impl Which {
             Which::Sequence => 1,
             Which::Phrase => 1,
             Which::Sentence => 1,
+            Which::Events => 1,
+            Which::Messages => 1,
         }
     }
     fn end(self) -> u16 {
@@ -322,6 +336,8 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::Sequence => &mut n.sequence,
         Which::Phrase => &mut n.phrase,
         Which::Sentence => &mut n.sentence,
+        Which::Events => &mut n.events,
+        Which::Messages => &mut n.messages,
     };
     if t.records.is_empty() {
         t.records = vec![None; w.count()];

@@ -60,6 +60,8 @@ pub mod situation;
 pub mod sequence;
 pub mod phrase;
 pub mod sentence;
+pub mod events;
+pub mod messages;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
@@ -1850,6 +1852,22 @@ impl Ctx<'_> {
     }
     /// The sentence being said changed by `f` (written through).
     fn update_sentence(&mut self, f: impl FnOnce(&mut sentence::Sentence)) {
+        record_table::update_single(self, f)
+    }
+    /// The events waiting to be told (Rust state, see [`events`]), in step with the memory.
+    fn events(&mut self) -> events::Events {
+        record_table::single(self)
+    }
+    /// The events waiting to be told changed by `f` (written through).
+    fn update_events(&mut self, f: impl FnOnce(&mut events::Events)) {
+        record_table::update_single(self, f)
+    }
+    /// The messages kept (Rust state, see [`messages`]), in step with the memory.
+    fn messages(&mut self) -> messages::Messages {
+        record_table::single(self)
+    }
+    /// The messages kept changed by `f` (written through).
+    fn update_messages(&mut self, f: impl FnOnce(&mut messages::Messages)) {
         record_table::update_single(self, f)
     }
     /// The game time ([2]).

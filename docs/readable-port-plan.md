@@ -867,6 +867,19 @@ bytes from Rust. Now:
   points. Without it the harness's calls of `create_save_in_memory` built
   the image from records of a later state (run `c`, 6 of 7 calls).
 
+Two more tables of one cover part of the gaps (2026-11-24): the events
+waiting to be told (`hand/events.rs`, `Which::Events`, 2Ah bytes at
+118Fh: the flag, the count and ten entries of kind, teller and place;
+`events::entry` reads one, the words in the memory past the tenth) and
+the messages kept (`hand/messages.rs`, `Which::Messages`, ten words at
+1179h; their count is the economy's). The ports' accesses go through
+them (the plain ones by `add_table.py`, the computed `NEXT_EVENT + 4 *
+i` by hand); the moves with string instructions stay in the memory and
+the tables follow them. The image now has 4456 bytes from Rust (249
+left). Without `REC_INPLACE` the save's long copy stretch bails at an
+interrupt and the generated code copies the memory, so only the
+`REC_INPLACE` games build it from Rust.
+
 `shadow.sh` takes `GAMES="start12 day1 ..."` to run some of its games
 (each two in about 7 minutes), like `validate.sh`'s `STEPS`.
 
