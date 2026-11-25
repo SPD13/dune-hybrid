@@ -336,7 +336,8 @@ pub trait Owned: std::any::Any + Send {
 
 impl Hardware {
     /// `r` owns its addresses from now on, taking their bytes from `mem`.
-    pub fn own(&mut self, mut r: Box<dyn Owned>) {
+    /// Returns its index ([`Hardware::owned_at`]).
+    pub fn own(&mut self, mut r: Box<dyn Owned>) -> usize {
         if self.owner_map.is_empty() {
             self.owner_map = vec![0; 0x11_0000];
         }
@@ -353,6 +354,12 @@ impl Hardware {
         }
         self.owned.push(r);
         self.poison_owned();
+        self.owned.len() - 1
+    }
+
+    /// Owner `i` ([`Hardware::own`]'s index), as a `T`.
+    pub fn owned_at<T: Owned>(&self, i: usize) -> Option<&T> {
+        self.owned.get(i)?.as_any().downcast_ref::<T>()
     }
 
     /// With `OWN_POISON`, CCh in `mem` at every owned address.

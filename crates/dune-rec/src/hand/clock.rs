@@ -242,7 +242,7 @@ impl pc::hw::Owned for ClockMemory {
 /// The clock owns its words from now on (once).
 fn own(m: &mut Machine) {
     if m.hw.owned::<ClockMemory>().is_none() {
-        m.hw.own(Box::new(ClockMemory(Clock::default())));
+        let _ = m.hw.own(Box::new(ClockMemory(Clock::default())));
         native(m).started = true;
     }
 }

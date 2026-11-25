@@ -148,7 +148,7 @@ impl pc::hw::Owned for EventsMemory {
 /// The events (their memory owned from the first use on).
 pub(super) fn get(c: &mut Ctx) -> Events {
     if c.m.hw.owned::<EventsMemory>().is_none() {
-        c.m.hw.own(Box::new(EventsMemory(Events::default())));
+        let _ = c.m.hw.own(Box::new(EventsMemory(Events::default())));
     }
     c.m.hw.owned::<EventsMemory>().expect("the events' memory").0
 }

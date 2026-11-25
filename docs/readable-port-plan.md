@@ -938,6 +938,23 @@ and compare (`Clock::mirror`, the sync-ins, the ticks counted outside)
 and its `outside`/`loaded` work are gone: nothing can write the words
 behind the clock. Day 23 with the poison: 65 MIPS.
 
+**Every record table owns its memory** (2026-11-24): each of the 30
+tables (the troops, the locations, the characters, the smugglers, the
+story state's tables, the text box, the mouse, the sound, the video,
+the messages, the phrase arguments, ...) is a `TableMemory` registered
+with the bus, all at the first use of any. `record_table::get` and
+`set` read and write it (set: the changed bytes on the bus); the cache,
+its compare with the memory, `follow`'s refresh, the work at the stops
+and at a load, and `lay_over` are gone. The generated code's writes
+(the voice buffers' 376 a game) and the interpreter's at the stops (the
+sound's) now land in the tables themselves. With `OWN_POISON` all seven
+suite games are equal (70 MIPS on day 23), and the save image's story
+part has 4488 bytes from the owners in every game, the new games too
+(4301 before: tables not used yet were not cached). The image reads
+the block on the bus (`save_image::story_part`), so it is the owners'
+bytes; it counts where the memory's own copy differs (0, but CCh with
+the poison).
+
 ### The troops and the locations (in Rust with a mirror)
 
 `hand/record_table.rs`: the game's record tables, the troops (43h of

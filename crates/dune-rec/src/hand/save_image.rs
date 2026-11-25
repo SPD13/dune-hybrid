@@ -5,11 +5,11 @@
 //! its last block is the story's part of the data segment, DS:0-1260h:
 //! the game time and the clock's words there, the locations, the troops,
 //! the characters, the smugglers and the story state's tables. That block
-//! now comes from the subsystems kept in Rust ([`super::clock`], the
-//! cached records of [`super::record_table`]), laid over the memory for
-//! the bytes no subsystem holds yet. The memory is their mirror, so the
-//! two agree; where they don't, a byte is counted ([`differing`]): the
-//! save then has the Rust state's.
+//! comes from the subsystems that own their memory ([`super::clock`], the
+//! tables of [`super::record_table`], the events): read on the bus, which
+//! serves their bytes from them, and the memory for the bytes no
+//! subsystem owns yet. The bytes where the memory's own copy differs are
+//! counted (none, but with `OWN_POISON`, where it is CCh).
 
 use super::{Ctx, globals as g};
 use pc::Machine;
@@ -40,19 +40,23 @@ pub fn counts(m: &mut Machine) -> (u64, u64, u64) {
 /// DS:0 on, `len` bytes, as the save image has them (see the module's
 /// notes).
 pub(super) fn story_part(c: &mut Ctx, len: u16) -> Vec<u8> {
-    let mem: Vec<u8> = (0..len)
+    // On the bus: the owners' bytes where the subsystems own the memory.
+    let img: Vec<u8> = (0..len)
         .map(|k| {
             let a = c.m.cpu.phys(g::GAME_DS, k);
             c.m.hw.read8(a)
         })
         .collect();
-    let mut img = mem.clone();
-    let owned = super::record_table::lay_over(c.m, 0, &mut img)
-        + (0..len).filter(|&k| c.m.hw.is_owned(c.m.cpu.phys(g::GAME_DS, k))).count();
-    let differing = img.iter().zip(&mem).filter(|(a, b)| a != b).count();
+    let owned = (0..len).filter(|&k| c.m.hw.is_owned(c.m.cpu.phys(g::GAME_DS, k))).count();
+    // The memory's own copy (written through; CCh with OWN_POISON).
+    let differing = (0..len).filter(|&k| img[k as usize] != c.m.hw.mem[c.m.cpu.phys(g::GAME_DS, k) as usize]).count();
     if differing > 0 && std::env::var_os("SAVE_TRACE").is_some() {
-        let at: Vec<String> = (0..len as usize).filter(|&k| img[k] != mem[k]).take(20).map(|k| format!("{k:04x}:{:02x}>{:02x}", mem[k], img[k])).collect();
-        eprintln!("save image: {differing} bytes differ from the memory: {}", at.join(" "));
+        let at: Vec<String> = (0..len as usize)
+            .filter(|&k| img[k] != c.m.hw.mem[c.m.cpu.phys(g::GAME_DS, k as u16) as usize])
+            .take(20)
+            .map(|k| format!("{k:04x}:{:02x}", img[k]))
+            .collect();
+        eprintln!("save image: {differing} bytes differ from the memory's copy: {}", at.join(" "));
     }
     let s = state(c.m);
     s.saves += 1;

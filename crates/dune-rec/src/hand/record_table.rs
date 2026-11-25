@@ -14,28 +14,20 @@
 //! (`hand/characters.rs`),
 //! kept with the machine ([`super::native`]).
 //!
-//! Each record is cached the first time it is used. The views
-//! (`hand/game.rs`'s `Troop`, `Location`) read and write through the
-//! cache; every change is written through to the memory, which stays the
-//! mirror (the suite compares it, the save image copies it, and code that
-//! doesn't use a view reads it), and every access first compares the
-//! record with its bytes there. A difference is a write the view didn't
-//! make, and the record takes the memory's bytes:
-//! - a port's writes that don't use a view yet are followed (`Ctx`'s
-//!   writes tell the table, [`follow`]), not counted;
-//! - a save loaded or a snapshot restored fills every record from the
-//!   memory ([`loaded`]); at the tools' own stops each kept record is
-//!   checked and one that changed takes the memory's bytes, counted
-//!   ([`outside`], [`at_stops`]);
-//! - the generated code (the original's code in Rust, finishing a port
-//!   that gave up at a stop) and the interpreter (the drivers, loaded at
-//!   run time, and what the ports leave to it) are counted apart
-//!   ([`after_generated`]) when they ran since the record was last
-//!   verified (`Rec::generated_runs`);
-//! - anything else is unforeseen ([`syncs`]; the suite wants none).
+//! Each table owns its memory (Stage B's ownership): its records live in
+//! a [`TableMemory`] registered with the bus (`pc::hw::Owned`; all the
+//! tables at the first use of any). Every read and write of their bytes
+//! by any code goes to it: the views (`hand/game.rs`'s `Troop`,
+//! `Location`, the typed tables of one), a port's plain accesses, the
+//! generated code, the interpreter, the drivers. The memory keeps a copy
+//! written through for the tools (snapshots, state hashes, the shadow
+//! check), which the tables take back where the tools replace the
+//! memory. So nothing writes them behind their back: the sync-in counts
+//! (`syncs`, `after_generated`, `at_stops`) stay 0, and the tools' stops
+//! and a save loaded need nothing ([`outside`], [`loaded`]).
 //!
-//! `TROOPS_TRACE=1` prints each sync-in with the offsets that differed,
-//! and each write a port makes into a table without its view.
+//! `TROOPS_TRACE=1` prints each write a port makes into a table without
+//! its view.
 
 use super::{Ctx, globals as g};
 use pc::cpu::DS;
@@ -291,11 +283,9 @@ pub type Bytes = [u8; MAX];
 /// One table's part of the Rust state kept with a machine.
 #[derive(Default)]
 pub struct RecordTable {
-    /// By record; none until first used (or after a boundary).
-    records: Vec<Option<Bytes>>,
-    /// By record: the count of the generated code's runs when it last
-    /// matched.
-    verified_at: Vec<u64>,
+    /// Its owner on the bus ([`TableMemory`], registered on the first
+    /// use): the index `Hardware::own` gave.
+    owner: Option<usize>,
     /// Unforeseen writes (see the module's notes).
     syncs: u64,
     /// Writes of the generated code.
@@ -339,10 +329,6 @@ fn table(m: &mut Machine, w: Which) -> &mut RecordTable {
         Which::Messages => &mut n.messages,
         Which::PhraseArgs => &mut n.phrase_args,
     };
-    if t.records.is_empty() {
-        t.records = vec![None; w.count()];
-        t.verified_at = vec![0; w.count()];
-    }
     t
 }
 
@@ -357,10 +343,6 @@ pub fn after_generated(m: &mut Machine, w: Which) -> u64 {
     table(m, w).after_generated
 }
 
-fn generated_runs(m: &Machine) -> u64 {
-    m.rec.as_ref().map_or(0, |r| r.generated_runs)
-}
-
 /// The record of `w` at `offset` in the data segment, if it starts one.
 pub fn index(w: Which, offset: u16) -> Option<usize> {
     let k = offset.checked_sub(w.base())?;
@@ -371,51 +353,69 @@ fn record_offset(w: Which, i: usize) -> u16 {
     w.base() + i as u16 * w.size()
 }
 
-/// The record's bytes in the memory.
-fn mirror(m: &mut Machine, w: Which, i: usize) -> Bytes {
-    let mut b = [0u8; MAX];
-    for (k, v) in b.iter_mut().enumerate().take(w.size() as usize) {
-        let a = m.cpu.phys(g::GAME_DS, record_offset(w, i) + k as u16);
-        *v = m.hw.read8(a);
+/// A table's records as the memory the bus serves from them: they live
+/// here, every read and write of their bytes by any code goes here, and
+/// the memory keeps a copy for the tools (`pc::hw::Owned`).
+pub struct TableMemory {
+    which: Which,
+    bytes: Vec<u8>,
+}
+
+impl TableMemory {
+    fn base(&self) -> u32 {
+        ((g::GAME_DS as u32) << 4) + self.which.base() as u32
     }
+}
+
+impl pc::hw::Owned for TableMemory {
+    fn ranges(&self) -> Vec<(u32, u32)> {
+        vec![(self.base(), self.bytes.len() as u32)]
+    }
+    fn read(&self, addr: u32) -> u8 {
+        self.bytes[(addr - self.base()) as usize]
+    }
+    fn write(&mut self, addr: u32, v: u8) {
+        let i = (addr - self.base()) as usize;
+        self.bytes[i] = v;
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+/// The owner of `w`'s memory. At the first use of any table, every table
+/// is registered (taking the memory's bytes).
+fn owner(m: &mut Machine, w: Which) -> usize {
+    if let Some(i) = table(m, w).owner {
+        return i;
+    }
+    for v in Which::ALL {
+        if table(m, v).owner.is_none() {
+            let len = v.size() as usize * v.count();
+            let i = m.hw.own(Box::new(TableMemory { which: v, bytes: vec![0; len] }));
+            table(m, v).owner = Some(i);
+        }
+    }
+    table(m, w).owner.expect("registered")
+}
+
+/// Record `i` of `w`.
+pub(super) fn get(c: &mut Ctx, w: Which, i: usize) -> Bytes {
+    let k = owner(c.m, w);
+    let t = c.m.hw.owned_at::<TableMemory>(k).expect("a table's memory");
+    let n = w.size() as usize;
+    let mut b = [0u8; MAX];
+    b[..n].copy_from_slice(&t.bytes[i * n..i * n + n]);
     b
 }
 
-/// Record `i` of `w`, in step with the memory.
-pub(super) fn get(c: &mut Ctx, w: Which, i: usize) -> Bytes {
-    let mem = mirror(c.m, w, i);
-    let now = generated_runs(c.m);
-    let t = table(c.m, w);
-    let since = t.verified_at[i];
-    t.verified_at[i] = now;
-    match t.records[i] {
-        Some(r) if r == mem => r,
-        Some(r) => {
-            if now > since {
-                t.after_generated += 1;
-            } else {
-                t.syncs += 1;
-            }
-            t.records[i] = Some(mem);
-            if std::env::var_os("TROOPS_TRACE").is_some() {
-                let at: Vec<String> = (0..w.size() as usize).filter(|&k| r[k] != mem[k]).map(|k| format!("{k:02x}:{:02x}>{:02x}", r[k], mem[k])).collect();
-                let why = if now > since { "after the generated code ran" } else { "UNFORESEEN" };
-                eprintln!("{} sync-in ({why}), record {} at insn {} ({:04x}): {}", w.name(), i + 1, c.m.cpu.instructions, c.m.cpu.ip, at.join(" "));
-            }
-            mem
-        }
-        None => {
-            t.records[i] = Some(mem);
-            mem
-        }
-    }
-}
-
-/// Record `i` of `w` changed to `r`: kept, and its changed bytes written
-/// through.
+/// Record `i` of `w` changed to `r`: its bytes that changed written on
+/// the bus (to the table, and the memory's copy).
 pub(super) fn set(c: &mut Ctx, w: Which, i: usize, r: Bytes) {
     let old = get(c, w, i);
-    table(c.m, w).records[i] = Some(r);
     for k in 0..w.size() as usize {
         if r[k] != old[k] {
             let a = c.m.cpu.phys(g::GAME_DS, record_offset(w, i) + k as u16);
@@ -503,22 +503,14 @@ pub(super) fn set_byte(c: &mut Ctx, w: Which, i: usize, field: u16, v: u8) {
 }
 
 /// A port wrote `len` bytes at the linear address `at` other than through
-/// a view: a table's records there that are cached take the memory's
-/// bytes (not counted). True when it hit one (for the trace).
+/// a view: the table and record it hit, if any (for the trace; the write
+/// went to the table's memory on the bus already).
 pub(super) fn follow(m: &mut Machine, at: u32, len: u32) -> Option<(Which, usize, u16)> {
     let mut hit = None;
     for w in Which::ALL {
         let t0 = m.cpu.phys(g::GAME_DS, w.base());
         let t1 = m.cpu.phys(g::GAME_DS, w.end());
         if at + len > t0 && at < t1 {
-            let first = (at.max(t0) - t0) as usize / w.size() as usize;
-            let last = ((at + len - 1).min(t1 - 1) - t0) as usize / w.size() as usize;
-            for i in first..=last {
-                if table(m, w).records[i].is_some() {
-                    let mem = mirror(m, w, i);
-                    table(m, w).records[i] = Some(mem);
-                }
-            }
             let k = (at.max(t0) - t0) as usize;
             hit = Some((w, k / w.size() as usize, (k % w.size() as usize) as u16));
         }
@@ -526,59 +518,13 @@ pub(super) fn follow(m: &mut Machine, at: u32, len: u32) -> Option<(Which, usize
     hit
 }
 
-/// The records kept in Rust (those cached) that lie in DS:`from` on,
-/// laid over `out` (its first byte at `from`): the bytes laid.
-pub(super) fn lay_over(m: &mut Machine, from: u16, out: &mut [u8]) -> usize {
-    let mut n = 0;
-    for w in Which::ALL {
-        let t = table(m, w);
-        for (i, r) in t.records.iter().enumerate() {
-            let Some(r) = r else { continue };
-            for k in 0..w.size() {
-                let off = record_offset(w, i) + k;
-                if let Some(at) = off.checked_sub(from).map(|d| d as usize)
-                    && at < out.len()
-                {
-                    out[at] = r[k as usize];
-                    n += 1;
-                }
-            }
-        }
-    }
-    n
-}
-
 /// The machine ran outside the recompiled code on purpose (a tool
-/// stepping it in the interpreter to a stop): each record kept is
-/// checked against the memory, and one that changed takes the memory's
-/// bytes (counted, [`at_stops`]); the others stay as kept.
-pub fn outside(m: &mut Machine) {
-    for w in Which::ALL {
-        for i in 0..w.count() {
-            let Some(r) = table(m, w).records[i] else { continue };
-            let mem = mirror(m, w, i);
-            if mem != r {
-                let t = table(m, w);
-                t.records[i] = Some(mem);
-                t.at_stops += 1;
-                if std::env::var_os("TROOPS_TRACE").is_some() {
-                    eprintln!("{} record {} changed at a stop", w.name(), i + 1);
-                }
-            }
-        }
-    }
-}
+/// stepping it to a stop): nothing to do, the tables own their memory.
+pub fn outside(_m: &mut Machine) {}
 
-/// A save loaded or a snapshot restored: every record of every table is
-/// the memory's (the Rust state taken from it whole).
-pub fn loaded(m: &mut Machine) {
-    for w in Which::ALL {
-        for i in 0..w.count() {
-            let mem = mirror(m, w, i);
-            table(m, w).records[i] = Some(mem);
-        }
-    }
-}
+/// A save loaded or a snapshot restored: nothing to do (the restore
+/// wrote the tables on the bus; a restored memory was absorbed).
+pub fn loaded(_m: &mut Machine) {}
 
 /// How often a record of `w` had changed at the tools' stops.
 pub fn at_stops(m: &mut Machine, w: Which) -> u64 {
