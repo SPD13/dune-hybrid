@@ -1951,7 +1951,7 @@ impl Machine {
         #[cfg(feature = "interp")]
         {
             let mut c = start.clone();
-            let mut bus = Overlay { mem: &self.hw.mem, writes: std::collections::HashMap::new(), io: false };
+            let mut bus = Overlay { hw: &self.hw, writes: std::collections::HashMap::new(), io: false };
             let end = start.instructions + j;
             while c.instructions < end {
                 if !matches!(c.step(&mut bus), Step::Ok) || bus.io {
@@ -2227,7 +2227,7 @@ pub fn dead_stack(cpu: &Cpu) -> std::ops::Range<usize> {
 /// aside, no I/O.
 #[cfg(feature = "interp")]
 struct Overlay<'a> {
-    mem: &'a [u8],
+    hw: &'a crate::hw::Hardware,
     writes: std::collections::HashMap<u32, u8>,
     io: bool,
 }
@@ -2235,7 +2235,7 @@ struct Overlay<'a> {
 #[cfg(feature = "interp")]
 impl cpu::Bus for Overlay<'_> {
     fn read8(&mut self, addr: u32) -> u8 {
-        self.writes.get(&addr).copied().unwrap_or(self.mem[addr as usize & 0xf_ffff])
+        self.writes.get(&addr).copied().unwrap_or_else(|| self.hw.peek(addr & 0xf_ffff))
     }
     fn write8(&mut self, addr: u32, value: u8) {
         self.writes.insert(addr, value);

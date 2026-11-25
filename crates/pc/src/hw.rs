@@ -302,8 +302,18 @@ pub struct Hardware {
     /// serves those addresses from them. `owned_lo..owned_hi` spans them
     /// all (one compare on the bus's path).
     owned: Vec<Box<dyn Owned>>,
+    /// By linear address: its owner in `owned` + 1 (0 none; empty until
+    /// the first).
+    owner_map: Vec<u8>,
     owned_lo: u32,
     owned_hi: u32,
+    /// `OWN_POISON=1` (a test of the ownership, `--rec on` only: the
+    /// shadow check's copies of `mem` would be poisoned): `mem` holds CCh
+    /// at the owned addresses instead of a copy, so code reading them
+    /// other than through the owners reads garbage; the snapshots and
+    /// hashes copy the owners' bytes in first ([`Hardware::copy_owned`],
+    /// then [`Hardware::poison_owned`]).
+    owned_poison: bool,
 }
 
 /// Memory a subsystem owns (Stage B): its bytes live in the subsystem's
@@ -314,14 +324,12 @@ pub struct Hardware {
 /// compare); where the tools replace `mem` ([`Hardware::absorb`]) the
 /// subsystem takes its bytes from it again.
 pub trait Owned: std::any::Any + Send {
-    /// Its first linear address.
-    fn base(&self) -> u32;
-    /// Its size in bytes.
-    fn len(&self) -> u32;
-    /// Byte `i` (from `base`).
-    fn read(&self, i: u32) -> u8;
-    /// Byte `i` set to `v`.
-    fn write(&mut self, i: u32, v: u8);
+    /// Its linear address ranges (start, length).
+    fn ranges(&self) -> Vec<(u32, u32)>;
+    /// The byte at linear `addr` (one of its own).
+    fn read(&self, addr: u32) -> u8;
+    /// The byte at linear `addr` set to `v`.
+    fn write(&mut self, addr: u32, v: u8);
     fn as_any(&self) -> &dyn std::any::Any;
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
@@ -329,13 +337,46 @@ pub trait Owned: std::any::Any + Send {
 impl Hardware {
     /// `r` owns its addresses from now on, taking their bytes from `mem`.
     pub fn own(&mut self, mut r: Box<dyn Owned>) {
-        let (b, n) = (r.base(), r.len());
-        for i in 0..n {
-            r.write(i, self.mem[(b + i) as usize]);
+        if self.owner_map.is_empty() {
+            self.owner_map = vec![0; 0x11_0000];
         }
-        self.owned_lo = if self.owned.is_empty() { b } else { self.owned_lo.min(b) };
-        self.owned_hi = self.owned_hi.max(b + n);
+        let id = self.owned.len() as u8 + 1;
+        assert!(id < 0xff, "too many owners");
+        for (b, n) in r.ranges() {
+            for a in b..b + n {
+                assert_eq!(self.owner_map[a as usize], 0, "{a:05x} owned twice");
+                self.owner_map[a as usize] = id;
+                r.write(a, self.mem[a as usize]);
+            }
+            self.owned_lo = if self.owned.is_empty() && self.owned_hi == 0 { b } else { self.owned_lo.min(b) };
+            self.owned_hi = self.owned_hi.max(b + n);
+        }
         self.owned.push(r);
+        self.poison_owned();
+    }
+
+    /// With `OWN_POISON`, CCh in `mem` at every owned address.
+    pub fn poison_owned(&mut self) {
+        if !self.owned_poison {
+            return;
+        }
+        for r in &self.owned {
+            for (b, n) in r.ranges() {
+                self.mem[b as usize..(b + n) as usize].fill(0xcc);
+            }
+        }
+    }
+
+    /// A byte as the bus would read it, without a bus's side effects
+    /// (the services' reads, the scratch stepping's).
+    pub fn peek(&self, addr: u32) -> u8 {
+        if addr >= self.owned_lo
+            && addr < self.owned_hi
+            && let Some(v) = self.owned_read(addr)
+        {
+            return v;
+        }
+        self.mem[addr as usize]
     }
 
     /// The owned memory of type `T`, if one is.
@@ -354,47 +395,57 @@ impl Hardware {
     /// owner takes its bytes from it.
     pub fn absorb(&mut self) {
         for r in &mut self.owned {
-            let b = r.base();
-            for i in 0..r.len() {
-                r.write(i, self.mem[(b + i) as usize]);
+            for (b, n) in r.ranges() {
+                for a in b..b + n {
+                    r.write(a, self.mem[a as usize]);
+                }
             }
         }
+        self.poison_owned();
     }
 
     /// The owners' bytes copied into `mem` (where it may have fallen
     /// behind).
     pub fn copy_owned(&mut self) {
         for r in &self.owned {
-            let b = r.base();
-            for i in 0..r.len() {
-                self.mem[(b + i) as usize] = r.read(i);
+            for (b, n) in r.ranges() {
+                for a in b..b + n {
+                    self.mem[a as usize] = r.read(a);
+                }
             }
         }
     }
 
     /// Whether `addr` is owned (the bytes counted by the save image).
     pub fn is_owned(&self, addr: u32) -> bool {
-        addr >= self.owned_lo && addr < self.owned_hi && self.owned.iter().any(|r| addr.wrapping_sub(r.base()) < r.len())
+        addr >= self.owned_lo && addr < self.owned_hi && self.owner_map[addr as usize] != 0
     }
 
     /// A direct write (the BIOS's and DOS's services): `mem` and the owner.
     pub(crate) fn poke(&mut self, addr: u32, v: u8) {
-        self.mem[addr as usize] = v;
-        if addr >= self.owned_lo && addr < self.owned_hi {
-            self.owned_write(addr, v);
+        if addr >= self.owned_lo && addr < self.owned_hi && self.owned_write(addr, v) && self.owned_poison {
+            return;
         }
+        self.mem[addr as usize] = v;
     }
 
     #[inline(never)]
     fn owned_read(&self, addr: u32) -> Option<u8> {
-        self.owned.iter().find(|r| addr.wrapping_sub(r.base()) < r.len()).map(|r| r.read(addr - r.base()))
+        match self.owner_map[addr as usize] {
+            0 => None,
+            k => Some(self.owned[k as usize - 1].read(addr)),
+        }
     }
 
+    /// True when `addr` is owned (written to its owner).
     #[inline(never)]
-    fn owned_write(&mut self, addr: u32, v: u8) {
-        if let Some(r) = self.owned.iter_mut().find(|r| addr.wrapping_sub(r.base()) < r.len()) {
-            let b = r.base();
-            r.write(addr - b, v);
+    fn owned_write(&mut self, addr: u32, v: u8) -> bool {
+        match self.owner_map[addr as usize] {
+            0 => false,
+            k => {
+                self.owned[k as usize - 1].write(addr, v);
+                true
+            }
         }
     }
 }
@@ -448,8 +499,10 @@ impl Hardware {
             watch: None,
             watch_who: 0,
             owned: Vec::new(),
+            owner_map: Vec::new(),
             owned_lo: 0,
             owned_hi: 0,
+            owned_poison: std::env::var_os("OWN_POISON").is_some(),
         }
     }
 
@@ -581,10 +634,10 @@ impl Bus for Hardware {
             {
                 *w.hits.entry((self.watch_who, addr, true)).or_default() += 1;
             }
-            self.mem[addr as usize] = value;
-            if addr >= self.owned_lo && addr < self.owned_hi {
-                self.owned_write(addr, value);
+            if addr >= self.owned_lo && addr < self.owned_hi && self.owned_write(addr, value) && self.owned_poison {
+                return;
             }
+            self.mem[addr as usize] = value;
         }
     }
 

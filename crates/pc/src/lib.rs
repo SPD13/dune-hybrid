@@ -578,7 +578,7 @@ impl Machine {
         self.cpu.set_flag(cpu::CF, on);
     }
     pub(crate) fn mem_read(&self, seg: u16, off: u16) -> u8 {
-        self.hw.mem[(cpu::linear(seg, off) & cpu::A20_OFF) as usize]
+        self.hw.peek(cpu::linear(seg, off) & cpu::A20_OFF)
     }
     pub(crate) fn mem_write(&mut self, seg: u16, off: u16, v: u8) {
         let a = cpu::linear(seg, off) & cpu::A20_OFF;
@@ -751,6 +751,13 @@ impl Machine {
 impl Machine {
     /// Snapshot the whole machine (compressed). Call between `run_until` calls.
     pub fn save_state(&mut self) -> Vec<u8> {
+        self.hw.copy_owned();
+        let s = self.save_state_inner();
+        self.hw.poison_owned();
+        s
+    }
+
+    fn save_state_inner(&mut self) -> Vec<u8> {
         use std::io::Seek;
         let mut w = state::Writer::default();
         let c = &self.cpu;

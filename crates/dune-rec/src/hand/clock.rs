@@ -5,16 +5,17 @@
 //! logic (the timer's tick, a step of the game time, stopping and
 //! starting) is its methods.
 //!
-//! The 8086 memory stays a mirror: every change is written through to
-//! the original's words (the suite compares the memory, the game's save
-//! routine copies them), and every access first compares the struct
-//! with them. A difference means code outside the clock wrote them: the
-//! interpreter (a port that gave up partway, the timer's interrupt
-//! included, runs on as the original), a save loaded, the shadow check
-//! putting the original's memory back. The struct then takes the
-//! memory's values: a sync-in, counted ([`syncs`]; `CLOCK_TRACE=1`
-//! prints each with the fields that differed). That is the boundary
-//! where the clock and the rest are kept in step.
+//! The clock owns its memory (Stage B's ownership): its words in the data
+//! segment live in [`ClockMemory`], registered with the bus
+//! (`pc::hw::Owned`) on the first use. Every read and write of them by
+//! any code goes to it: the graphics driver polling the ticks through
+//! the pointer it was given, the interpreter's tick when an event falls
+//! inside the tick's stretch, a save's restore, the original's reads
+//! through null pointers. The memory keeps a copy written through for
+//! the tools (snapshots, state hashes, the shadow check), which the clock
+//! takes back where they replace the memory. So there is nothing to sync
+//! in: `syncs` and `ticks_outside` stay 0 (the runner's `clock:` line,
+//! the suite's gate).
 
 use super::Ctx;
 use super::globals as g;
@@ -45,7 +46,6 @@ pub struct Clock {
 /// ([`super::native`]).
 #[derive(Default)]
 pub struct ClockState {
-    clock: Clock,
     /// The clock has been read from the memory once.
     started: bool,
     /// Sync-ins after the first (see the module's notes).
@@ -72,85 +72,63 @@ pub fn ticks_outside(m: &mut Machine) -> u64 {
 }
 
 impl Clock {
-    /// The clock as the memory has it.
-    fn mirror(c: &mut Ctx) -> Clock {
-        let _q = Quiet::new(c.m);
-        let w = |c: &mut Ctx, off| c.word_at(g::GAME_DS, off);
-        let b = |c: &mut Ctx, off| c.byte_at_seg(g::GAME_DS, off);
-        Clock {
-            ticks: (w(c, g::TIMER_HIGH) as u32) << 16 | w(c, g::TIMER) as u32,
-            held: b(c, g::CLOCK_HELD),
-            stopped: b(c, g::CLOCK_STOPPED),
-            countdown: w(c, g::CLOCK_COUNTDOWN),
-            period: w(c, g::CLOCK_PERIOD),
-            steps_pending: b(c, g::CLOCK_STEPS_PENDING),
-            time: w(c, g::GAME_TIME),
-        }
-    }
-
-    /// The clock's words in the memory set to `self` (those that changed).
-    fn write_mirror(&self, old: &Clock, c: &mut Ctx) {
-        let _q = Quiet::new(c.m);
-        let w = |c: &mut Ctx, off, v: u16| c.set_word_at(g::GAME_DS, off, v);
-        let b = |c: &mut Ctx, off, v: u8| c.set_byte_at_seg(g::GAME_DS, off, v);
-        if self.ticks as u16 != old.ticks as u16 {
-            w(c, g::TIMER, self.ticks as u16);
-        }
-        if self.ticks >> 16 != old.ticks >> 16 {
-            w(c, g::TIMER_HIGH, (self.ticks >> 16) as u16);
-        }
-        if self.held != old.held {
-            b(c, g::CLOCK_HELD, self.held);
-        }
-        if self.stopped != old.stopped {
-            b(c, g::CLOCK_STOPPED, self.stopped);
-        }
-        if self.countdown != old.countdown {
-            w(c, g::CLOCK_COUNTDOWN, self.countdown);
-        }
-        if self.period != old.period {
-            w(c, g::CLOCK_PERIOD, self.period);
-        }
-        if self.steps_pending != old.steps_pending {
-            b(c, g::CLOCK_STEPS_PENDING, self.steps_pending);
-        }
-        if self.time != old.time {
-            w(c, g::GAME_TIME, self.time);
-        }
-    }
-
-    /// The clock, kept in step with the memory (see the module's notes).
+    /// The clock (its memory owned from the first use on, [`ClockMemory`]).
     pub(super) fn get(c: &mut Ctx) -> Clock {
-        let mem = Clock::mirror(c);
-        let n = native(c.m);
-        if !n.started || n.clock != mem {
-            // The interpreter ran the timer's tick (an event fell inside
-            // its stretch): the memory is what the clock's own tick makes.
-            let mut ticked = n.clock;
-            if !ticked.is_held() {
-                ticked.tick();
-            }
-            if n.started && ticked == mem {
-                n.ticks_outside += 1;
-            } else if n.started {
-                n.clock_syncs += 1;
-                let was = n.clock;
-                if std::env::var_os("CLOCK_TRACE").is_some() {
-                    eprintln!("clock sync-in at insn {} ({:04x}): {was:?} -> {mem:?}", c.m.cpu.instructions, c.m.cpu.ip);
-                }
-            }
-            let n = native(c.m);
-            n.started = true;
-            n.clock = mem;
-        }
-        mem
+        own(c.m);
+        c.m.hw.owned::<ClockMemory>().expect("the clock's memory").0
     }
 
-    /// The clock changed to `self`: kept, and written through.
+    /// The clock changed to `self`: the bytes that changed written on the
+    /// bus (to the clock, and the memory's copy).
     pub(super) fn set(self, c: &mut Ctx) {
         let old = Clock::get(c);
-        native(c.m).clock = self;
-        self.write_mirror(&old, c);
+        let _q = Quiet::new(c.m);
+        for &(off, size) in &WORDS {
+            for i in 0..size {
+                let (a, b) = (old.byte_at(off + i), self.byte_at(off + i));
+                if a != b {
+                    let at = c.m.cpu.phys(g::GAME_DS, off + i);
+                    c.m.hw.write8(at, b);
+                }
+            }
+        }
+    }
+
+    /// The byte at DS:`off`, one of the clock's words.
+    fn byte_at(&self, off: u16) -> u8 {
+        let (word, i) = WORDS.iter().find(|&&(o, n)| off >= o && off < o + n).map(|&(o, _)| (o, off - o)).expect("a clock word");
+        (self.word(word) >> (8 * i)) as u8
+    }
+
+    /// The byte at DS:`off` set to `v`.
+    fn set_byte_at(&mut self, off: u16, v: u8) {
+        let (word, i) = WORDS.iter().find(|&&(o, n)| off >= o && off < o + n).map(|&(o, _)| (o, off - o)).expect("a clock word");
+        let mask = 0xffu16 << (8 * i);
+        let w = self.word(word) & !mask | (v as u16) << (8 * i);
+        match word {
+            g::TIMER => self.ticks = self.ticks & 0xffff_0000 | w as u32,
+            g::TIMER_HIGH => self.ticks = self.ticks & 0xffff | (w as u32) << 16,
+            g::CLOCK_HELD => self.held = w as u8,
+            g::CLOCK_STOPPED => self.stopped = w as u8,
+            g::CLOCK_COUNTDOWN => self.countdown = w,
+            g::CLOCK_PERIOD => self.period = w,
+            g::CLOCK_STEPS_PENDING => self.steps_pending = w as u8,
+            _ => self.time = w,
+        }
+    }
+
+    /// The word (or byte) at DS:`word`, one of the clock's.
+    fn word(&self, word: u16) -> u16 {
+        match word {
+            g::TIMER => self.ticks as u16,
+            g::TIMER_HIGH => (self.ticks >> 16) as u16,
+            g::CLOCK_HELD => self.held as u16,
+            g::CLOCK_STOPPED => self.stopped as u16,
+            g::CLOCK_COUNTDOWN => self.countdown,
+            g::CLOCK_PERIOD => self.period,
+            g::CLOCK_STEPS_PENDING => self.steps_pending as u16,
+            _ => self.time,
+        }
     }
 
     /// The interrupt holds the clock.
@@ -225,44 +203,48 @@ impl Clock {
 /// A save was loaded into the memory: the clock takes its values there
 /// (a sync-in at the boundary, not counted).
 pub(super) fn loaded(c: &mut Ctx) {
-    let mem = Clock::mirror(c);
-    if std::env::var_os("CLOCK_TRACE").is_some() {
-        eprintln!("clock loaded at insn {}: {mem:?}", c.m.cpu.instructions);
-    }
-    let n = native(c.m);
-    n.started = true;
-    n.clock = mem;
+    // The restore wrote the words on the bus: the clock has them.
+    own(c.m);
 }
 
 /// The machine ran outside the recompiled code on purpose (a tool
-/// stepping it in the interpreter, a snapshot restored): the clock takes
-/// the memory's values (a sync-in at the boundary, not counted).
-pub fn outside(m: &mut Machine) {
-    let quiet = m.hw.watch.as_ref().is_some_and(|w| w.quiet);
-    if let Some(w) = &mut m.hw.watch {
-        w.quiet = true;
+/// stepping it in the interpreter, a snapshot restored): nothing to do,
+/// the clock owns its memory (whatever ran wrote the clock, and a
+/// restored memory was absorbed).
+pub fn outside(_m: &mut Machine) {}
+
+/// The clock as the memory the bus serves from it: its words in the data
+/// segment ([`WORDS`]) live in it.
+pub struct ClockMemory(Clock);
+
+fn ds_base() -> u32 {
+    (g::GAME_DS as u32) << 4
+}
+
+impl pc::hw::Owned for ClockMemory {
+    fn ranges(&self) -> Vec<(u32, u32)> {
+        WORDS.iter().map(|&(o, n)| (ds_base() + o as u32, n as u32)).collect()
     }
-    let a = |m: &Machine, off: u16| m.cpu.phys(g::GAME_DS, off);
-    let b = |m: &mut Machine, off: u16| {
-        let p = a(m, off);
-        m.hw.read8(p)
-    };
-    let w = |m: &mut Machine, off: u16| b(m, off) as u16 | (b(m, off.wrapping_add(1)) as u16) << 8;
-    let mem = Clock {
-        ticks: (w(m, g::TIMER_HIGH) as u32) << 16 | w(m, g::TIMER) as u32,
-        held: b(m, g::CLOCK_HELD),
-        stopped: b(m, g::CLOCK_STOPPED),
-        countdown: w(m, g::CLOCK_COUNTDOWN),
-        period: w(m, g::CLOCK_PERIOD),
-        steps_pending: b(m, g::CLOCK_STEPS_PENDING),
-        time: w(m, g::GAME_TIME),
-    };
-    if let Some(w) = &mut m.hw.watch {
-        w.quiet = quiet;
+    fn read(&self, addr: u32) -> u8 {
+        self.0.byte_at((addr - ds_base()) as u16)
     }
-    let n = native(m);
-    n.started = true;
-    n.clock = mem;
+    fn write(&mut self, addr: u32, v: u8) {
+        self.0.set_byte_at((addr - ds_base()) as u16, v);
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+/// The clock owns its words from now on (once).
+fn own(m: &mut Machine) {
+    if m.hw.owned::<ClockMemory>().is_none() {
+        m.hw.own(Box::new(ClockMemory(Clock::default())));
+        native(m).started = true;
+    }
 }
 
 /// The clock's words in the memory: DS offset and size.
@@ -303,42 +285,6 @@ impl Drop for Quiet {
             w.quiet = self.was;
         }
     }
-}
-
-/// The clock's words that lie in DS:`from` on, laid over `out` (its
-/// first byte at `from`) from the clock kept in Rust: the bytes laid (none
-/// before it was first read).
-pub(super) fn lay_over(m: &mut Machine, from: u16, out: &mut [u8]) -> usize {
-    let n = native(m);
-    if !n.started {
-        return 0;
-    }
-    let k = n.clock;
-    let value = |off: u16| -> u16 {
-        match off {
-            g::TIMER => k.ticks as u16,
-            g::TIMER_HIGH => (k.ticks >> 16) as u16,
-            g::CLOCK_HELD => k.held as u16,
-            g::CLOCK_STOPPED => k.stopped as u16,
-            g::CLOCK_COUNTDOWN => k.countdown,
-            g::CLOCK_PERIOD => k.period,
-            g::CLOCK_STEPS_PENDING => k.steps_pending as u16,
-            _ => k.time,
-        }
-    };
-    let mut laid = 0;
-    for &(off, size) in &WORDS {
-        let v = value(off);
-        for i in 0..size {
-            if let Some(at) = (off + i).checked_sub(from).map(|d| d as usize)
-                && at < out.len()
-            {
-                out[at] = (v >> (8 * i)) as u8;
-                laid += 1;
-            }
-        }
-    }
-    laid
 }
 
 /// `CLOCK_WATCH=1` (the runner): watch the clock's words for accesses

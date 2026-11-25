@@ -123,19 +123,18 @@ const _: () = assert!(AT == g::PENDING_EVENTS_FLAG && AT as usize + LEN == g::NE
 /// The events as the memory the bus serves from them.
 pub struct EventsMemory(Events);
 
+const BASE: u32 = ((g::GAME_DS as u32) << 4) + AT as u32;
+
 impl pc::hw::Owned for EventsMemory {
-    fn base(&self) -> u32 {
-        ((g::GAME_DS as u32) << 4) + AT as u32
+    fn ranges(&self) -> Vec<(u32, u32)> {
+        vec![(BASE, LEN as u32)]
     }
-    fn len(&self) -> u32 {
-        LEN as u32
+    fn read(&self, addr: u32) -> u8 {
+        self.0.to_bytes()[(addr - BASE) as usize]
     }
-    fn read(&self, i: u32) -> u8 {
-        self.0.to_bytes()[i as usize]
-    }
-    fn write(&mut self, i: u32, v: u8) {
+    fn write(&mut self, addr: u32, v: u8) {
         let mut b = self.0.to_bytes();
-        b[i as usize] = v;
+        b[(addr - BASE) as usize] = v;
         self.0 = Events::from_bytes(&b);
     }
     fn as_any(&self) -> &dyn std::any::Any {

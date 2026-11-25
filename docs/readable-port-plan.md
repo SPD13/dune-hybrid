@@ -915,11 +915,28 @@ record tables (no cache, no compare, no sync-ins: nothing can write
 them behind the struct's back). The save image's story part counts the
 owned bytes as from the Rust state (4488, as before).
 
-To drop `mem`'s copy for an owned range, its readers there must go
-through the owners too: `mem_read` (the services' string and buffer
-reads), `state_at`'s overlay, the shadow check's `Pending::mem` and
-`compare`, the snapshots and the hashes (which would copy the owners'
-bytes in first, `Hardware::copy_owned`).
+An owner can hold several ranges (`Owned::ranges`); the bus finds it
+by a map of owners by address (`owner_map`, one array access behind the
+span compare). The services' reads and `state_at`'s overlay read
+through the owners too (`Hardware::peek`).
+
+**The proof, `OWN_POISON=1`** (`--rec on` only): `mem` holds CCh at the
+owned addresses instead of a copy, never written; the snapshots and
+the state hashes copy the owners' bytes in first and poison again
+(`copy_owned`, `poison_owned`). Code that read an owned address other
+than through its owner would read CCh. With it all seven suite games
+are equal (states, saves, screens), and the memory dumps
+(`STATE_DUMP`) show CCh there: the owners' bytes exist only in Rust.
+
+**The clock owns its memory** (2026-11-24): `ClockMemory` over the
+`Clock` holds its eight words ([2], 146Eh, 2788h, 46DBh, 46DDh,
+0CE7Ah, 0CE7Ch, 0CEEAh). The graphics driver's polling of the ticks
+(through the pointer the game gives it), the interpreter's tick when an
+event falls inside the tick's stretch, a save's restore and the
+original's reads through null pointers all go to it. The mirror's read
+and compare (`Clock::mirror`, the sync-ins, the ticks counted outside)
+and its `outside`/`loaded` work are gone: nothing can write the words
+behind the clock. Day 23 with the poison: 65 MIPS.
 
 ### The troops and the locations (in Rust with a mirror)
 
