@@ -81,17 +81,21 @@ Tripo paints the eyes onto the face's surface: there is no eyeball to turn, and 
 | `shift_z` | moves the ball (and where its pupil shows) along the face, for fine placement; leave unset when the corners are right |
 | `margin`, `margin_low` | how far outside the lid lines painted-eye colour is also cut (default 2.5 mm; `margin_low` below the lower lid, 0 where lashes there are mistaken for eye) |
 
+Measure each corner where the **white ends**: lashes, the dark crease at the inner corner and the shadow at the outer one all look like part of the eye at a glance. Jessica's inner corner first sat 1 cm into the crease: the ball centred in that opening sat off towards the nose, and no nudge fixed it until the corner was re-measured. An outer corner past the white shows a sliver of eyeball beyond the lid.
+
 The early lesson: corners measured out on the lashes made one opening 70 % too wide, so the eyeballs came out different sizes and every later nudge just compensated. Measure carefully once, use one radius for both eyes.
 
 **2. The build**, per eye:
 - the lids are two parabolas through the corners and the middle points;
 - every surface point inside the opening, plus painted-eye colour just outside it (not skin-coloured), is removed, and any small flake around the eye left unattached to the face goes too (no floating lash or lid pieces);
 - a sphere of `radius_abs` is centred on the opening's middle, just behind the lid surface, with a painted iris texture (pupil, radial streaks, darker limbal ring, toned-down white);
+- the build prints a `DIAG` line per eye: the lid surface, the upper and lower rim depth, the ball's front and how far it stands out past each rim, the opening's width and height, and the ball's position against the opening's middle. Compare the two eyes there: the widths should be close, and the ball should stand out by about the same average amount (Jessica: 5.2 / 5.7 and 3.4 / 7.4, a heavier upper lid on one side); match them with `behind`;
 - the GLB gets a node `eyes` (the bust's transform) with `eye_l` / `eye_r` children; each carries `extras.fwd` (the ball's rest axis) and `extras.open` (the opening's middle).
 
 **3. Gaze on the page** (`index-flame.html`, every frame):
 - *neutral*: the direction that puts the pupil in the middle of the opening seen from the page's default camera;
-- *look at the viewer*: by default (`window.lookAtCamera = true`) each eye turns from neutral towards the camera, clamped to a human range of about 15° sideways and 10° up or down (`window.EYE_LIMIT = [0.26, 0.17]` radians), so orbiting round the bust the eyes follow and then stop instead of rolling into the corners;
+- *look at the viewer*: by default (`window.lookAtCamera = true`) each eye turns from neutral towards the camera, clamped to a human range of about 25° sideways and 12° up or down (`window.EYE_LIMIT = [0.44, 0.21]` radians; the busts are turned ~22° from the viewer, and a tighter limit left the eyes short of the viewer, focused somewhere behind them: the blank stare), so orbiting round the bust the eyes follow and then stop instead of rolling into the corners;
+- *focus*: the eyes aim at a point on the line from between them to the camera, `window.EYE_FOCUS` (default 4) times farther than the camera. At the camera's true distance (about 1 m at the head's scale) they converge ~3.8° and look cross-eyed; at 4× the lines of sight converge under 1°, like someone looking at you from across a table;
 - *saccades*: small quick glances off the viewer and back (on their own clock, so they continue when talking is paused);
 - the eyes follow the head sway and tuck back behind the closing lids; with `lookAtCamera = false`, `window.gaze = [yaw, pitch]` sets them directly.
 
