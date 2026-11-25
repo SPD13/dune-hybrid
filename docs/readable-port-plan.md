@@ -989,7 +989,7 @@ whose bytes are one array (`Owned::direct`) is read and written
 directly where a page is all its (no owner map, no call). Day 23's 200
 s of play: 62 MIPS before, 64 with the page table, 55 with the map
 through the owner map, 64.5 with the direct pages. Each save the
-harness makes checks the map's block (3 17Fh bytes, read on the bus)
+harness makes checks the map's block (317Fh bytes, read on the bus)
 against the cells' own packing (`MapCells::packed`): 0 differing in
 the eight of validate's run c. All checks equal (the three suites, the
 view check, 258947 shadow calls, validate).
