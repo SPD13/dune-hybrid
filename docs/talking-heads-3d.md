@@ -61,8 +61,43 @@ Tripo has no pose parameter: what the picture shows is what you get. For bodies 
 6. **Inner lips.** A two-row strip curls from each lip edge into the mouth so open lips look rounded. The upper strip tucks up steeply (`UPPER_STRIP`, default 0.6× back, 2.2× curl) so it never hangs in front of the teeth.
 7. **The inside.** A mouth bag (a dark cup), a tongue, and upper and lower rows of teeth on a dental arch; the lower parts ride the jaw. Side teeth darken towards the back.
 8. **Shading.** The lip edges and the skin next to them darken as the mouth opens (a colour morph on `open`), so a closed mouth has no smudge.
-9. **Eyeballs (optional).** With `DIR/eyes.json` (per eye: `inner` and `outer` corner `[z, y]`, the middle `mid` z, the upper and lower lid `top` / `bottom` y; optional `iris_rgb`, `sclera_rgb`, `iris` and `pupil` angles, `radius`), the painted eye inside the lid opening is pushed back into a socket and a real eyeball is added: a sphere behind the opening with a painted iris texture, turned at rest towards the painted iris. By default the page turns them to look at the camera (`window.lookAtCamera`, each eyeball's rest axis is stored in its node's `extras.fwd`); with it off, `window.gaze = [yaw, pitch]` radians sets them. They follow the head sway and tuck back behind the closing lids. Each iris is sized in model units (`iris` angle per eye), so eyeballs of different sizes still get irises of the same size. Measure the opening on a close `view_tripo.py` render; corners set too far out show a white sliver past the lid, a lid line moved into the skin leaves a jagged rim.
+9. **Eyeballs (optional).** With `DIR/eyes.json` the painted eyes are replaced by real eyeballs that the page can turn: see [§5a](#5a-eyeballs-and-gaze).
 10. **Output.** A GLB with sparse morph targets on the Tripo mesh and separate meshes for the bag, tongue and teeth, each with an `open` target.
+
+## 5a. Eyeballs and gaze
+
+Tripo paints the eyes onto the face's surface: there is no eyeball to turn, and sliding the texture to move the iris distorts it. `build.py` therefore cuts a socket and puts a real eyeball in each eye.
+
+**1. Measure each eye opening** on a close front render (`view_tripo.py MODEL-n.glb OUT.png front y0 y1 z0 z1 900`, about 3 cm tall around the eye) and write `DIR/eyes.json`, one entry per eye. `l` is the eye at positive z, on the **viewer's left** (the character's right); `r` is on the viewer's right (the character's left). Say which one you mean as seen by the viewer, to avoid moving the wrong eye.
+
+| Key | Meaning |
+|---|---|
+| `inner`, `outer` | the two corners `[z, y]`, **where the white of the eye ends**, not on the lashes |
+| `mid`, `top`, `bottom` | the middle's z, the upper lid's y and the lower lid's y there |
+| `radius_abs` | the eyeball's radius in model units: give **both eyes the same value** (Leto and Jessica photo: 0.0255) |
+| `iris`, `pupil` | their angular radius on the ball (radians); pick `iris` = asin(iris radius / `radius_abs`) so both irises match |
+| `iris_rgb`, `sclera_rgb` | colours (otherwise sampled from the painted eye; a hand-set value is safer: Leto `[78, 88, 96]`, Jessica `[96, 62, 34]`, sclera `[138, 126, 110]`) |
+| `behind` | how far behind the lid surface the ball sits (m): negative brings it forward, against the lids (Jessica −0.002 and −0.0035) |
+| `shift_z` | moves the ball (and where its pupil shows) along the face, for fine placement; leave unset when the corners are right |
+| `margin`, `margin_low` | how far outside the lid lines painted-eye colour is also cut (default 2.5 mm; `margin_low` below the lower lid, 0 where lashes there are mistaken for eye) |
+
+The early lesson: corners measured out on the lashes made one opening 70 % too wide, so the eyeballs came out different sizes and every later nudge just compensated. Measure carefully once, use one radius for both eyes.
+
+**2. The build**, per eye:
+- the lids are two parabolas through the corners and the middle points;
+- every surface point inside the opening, plus painted-eye colour just outside it (not skin-coloured), is removed, and any small flake around the eye left unattached to the face goes too (no floating lash or lid pieces);
+- a sphere of `radius_abs` is centred on the opening's middle, just behind the lid surface, with a painted iris texture (pupil, radial streaks, darker limbal ring, toned-down white);
+- the GLB gets a node `eyes` (the bust's transform) with `eye_l` / `eye_r` children; each carries `extras.fwd` (the ball's rest axis) and `extras.open` (the opening's middle).
+
+**3. Gaze on the page** (`index-flame.html`, every frame):
+- *neutral*: the direction that puts the pupil in the middle of the opening seen from the page's default camera;
+- *look at the viewer*: by default (`window.lookAtCamera = true`) each eye turns from neutral towards the camera, clamped to a human range of about 15° sideways and 10° up or down (`window.EYE_LIMIT = [0.26, 0.17]` radians), so orbiting round the bust the eyes follow and then stop instead of rolling into the corners;
+- *saccades*: small quick glances off the viewer and back (on their own clock, so they continue when talking is paused);
+- the eyes follow the head sway and tuck back behind the closing lids; with `lookAtCamera = false`, `window.gaze = [yaw, pitch]` sets them directly.
+
+**Expression around the eyes.** `build.py` also adds three morph targets solved in FLAME's expression space with the mouth, nose and scalp held still: `brow_down` (brows lowered, the inner ends more and drawn together), `brow_up` and `squint` (lower lids raised). The page keeps a resting level of lowered brows and squint, presses both harder on stressed (wide-open) syllables and lifts the brows briefly at some phrase starts. Strengths per character in `CHAR.json` `expr` (`brow`, `squint`, `emph`, `lift`; Leto 0.4 / 0.35 / 0.4 / 0.35, Jessica 0.25 / 0.25 / 0.3 / 0.45). The pupils are 40 % of the iris width: smaller pupils read as a blank stare.
+
+**4. Check** with the mouth closed and `window.force = {open: 0, blink: 0}`: a close view of each eye (white sliver past a corner = corner too far out; gap round the ball = `behind` too far back; missing lid piece = lower lid line too low or `margin_low`), a full blink (`blink: 1`), and an orbit.
 
 ## 6. Stage 5: the talking page
 
@@ -75,7 +110,7 @@ Tripo has no pose parameter: what the picture shows is what you get. For bodies 
 | `shapes` | per mouth group: `[open, wide, round, upper]`, read by eye from the pixel art |
 | `blink`, `half_blink`, `eye_box` | the game's eye groups and where they draw |
 | `blink_w`, `blink_h` | the blink area's width and height × the default (Jessica photo: 0.85, 1.0) |
-| `eyes_gaze` | default `[yaw, pitch]` of the eyeballs, when the model has them |
+| `eyes_gaze` | the eyeballs' `[yaw, pitch]` when `lookAtCamera` is off |
 | `lids` | per eye three `[z, y]` points on the lower lid (inner, middle, outer): the blink shuts on that curve (Jessica photo) |
 | `yaw` | the whole bust turned (radians), no deformation; unset keeps the portrait's own turn, which matches the sprite |
 | `teeth` | `[r, g, b, env]` tint for the teeth, for a darker portrait (Leto photo: `[0.36, 0.3, 0.24, 0.12]`) |
@@ -96,6 +131,9 @@ To add a character to the preview page, add a line to `PAGES` in `tripo/preview.
 | Spikes or holes in the lips when open | neighbouring vertices bound to different FLAME parts | already handled by the per-lip smoothing; check the landmarks |
 | White specks at the corners | teeth seen through holes in the lip | already handled by the closed corners; check the mouth corner picks |
 | Teeth too bright | the portrait's light is dimmer than the template's | `teeth` in the config |
+| Eyes of different sizes, or the pupils off-centre | eye corners measured on the lashes | re-measure the openings, one `radius_abs` for both (§5a) |
+| Floating pieces round an eye | painted lash or lid left in front of the ball | handled by the socket clean-up; widen `margin` |
+| A notch in the lower lid | lower lid line too low, or lashes cut as eye | raise `bottom`; `margin_low` 0 |
 | The blink closes only part of the eye | eye corners picked too close together | re-pick on a close render; then `blink_w` |
 | The blink drags a wide band of skin | blink area too wide | `blink_w` below 1 |
 | A ragged band along the jaw | uneven binding under the chin | handled by the far-field smoothing |
