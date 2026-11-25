@@ -64,6 +64,7 @@ pub mod events;
 pub mod messages;
 pub mod phrase_args;
 pub mod map_cells;
+pub mod variables;
 pub mod flags_read;
 mod cursor;
 mod dialogue;

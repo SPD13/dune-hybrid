@@ -378,6 +378,10 @@ impl pc::hw::Owned for TableMemory {
         let i = (addr - self.base()) as usize;
         self.bytes[i] = v;
     }
+    fn direct(&mut self) -> Option<&mut [u8]> {
+        // One range, never resized while owned.
+        Some(&mut self.bytes)
+    }
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -387,7 +391,8 @@ impl pc::hw::Owned for TableMemory {
 }
 
 /// The owner of `w`'s memory. At the first use of any table, every table
-/// is registered (taking the memory's bytes).
+/// is registered (taking the memory's bytes), and the loose variables
+/// between them (`hand/variables.rs`).
 fn owner(m: &mut Machine, w: Which) -> usize {
     if let Some(i) = table(m, w).owner {
         return i;
@@ -399,6 +404,7 @@ fn owner(m: &mut Machine, w: Which) -> usize {
             table(m, v).owner = Some(i);
         }
     }
+    super::variables::own(m);
     table(m, w).owner.expect("registered")
 }
 

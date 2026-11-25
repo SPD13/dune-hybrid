@@ -109,7 +109,7 @@ pub fn reset_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// The location of a reset troop (`reset_troop`): just past the troops.
-const NOWHERE: u16 = 0x0fbc;
+const NOWHERE: u16 = super::variables::NOWHERE;
 
 /// `loc_06757`: for troop AX (`troop_ptr`), unless `troop_screen_place`
 /// sets CF (off screen): its sprite list (`troop_sprite_list`), and with

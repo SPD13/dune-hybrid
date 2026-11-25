@@ -72,6 +72,20 @@ pub(super) fn story_part(c: &mut Ctx, len: u16) -> Vec<u8> {
         })
         .collect();
     let owned = (0..len).filter(|&k| c.m.hw.is_owned(c.m.cpu.phys(g::GAME_DS, k))).count();
+    if std::env::var_os("SAVE_UNOWNED").is_some() {
+        // The bytes no subsystem owns yet, as ranges.
+        let mut runs: Vec<(u16, u16)> = Vec::new();
+        for k in 0..len {
+            if !c.m.hw.is_owned(c.m.cpu.phys(g::GAME_DS, k)) {
+                match runs.last_mut() {
+                    Some(r) if r.1 == k => r.1 = k + 1,
+                    _ => runs.push((k, k + 1)),
+                }
+            }
+        }
+        let list: Vec<String> = runs.iter().map(|&(a, b)| format!("{a:04x}+{:x}", b - a)).collect();
+        eprintln!("save image: not owned: {}", list.join(" "));
+    }
     // The memory's own copy (written through; CCh with OWN_POISON).
     let differing = (0..len).filter(|&k| img[k as usize] != c.m.hw.mem[c.m.cpu.phys(g::GAME_DS, k) as usize]).count();
     if differing > 0 && std::env::var_os("SAVE_TRACE").is_some() {

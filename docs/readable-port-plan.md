@@ -994,6 +994,22 @@ against the cells' own packing (`MapCells::packed`): 0 differing in
 the eight of validate's run c. All checks equal (the three suites, the
 view check, 258947 shadow calls, validate).
 
+**The loose variables own their memory: the whole story block is Rust
+state** (2026-11-25, `hand/variables.rs`): the 217 bytes of DS:0-1260h
+no table owned (`SAVE_UNOWNED=1` lists the runs of such bytes at each
+save image) are 37 named variables and small tables in `VARS` (name,
+offset, size): the random word, the player's place and last place, the
+spice's accounts of the day, the shipment, the two people in the frieze,
+the attack planned, the followed troop's note, the "nowhere" location
+record reset troops point at (0FBCh), the statistics' text buffers, the
+palace plan's sprite list (120Bh) and the palace's room list (1225h),
+... `Variables` holds their bytes and owns them (registered with the
+record tables); the ports keep `c.word(g::PLACE)`, which the bus serves
+from it. The record tables' owners became direct arrays too
+(`Owned::direct`). Every save image's story block is now 4705 of 4705
+bytes from the Rust state. Day 23: 63.6 MIPS. All checks equal (the
+three suites, the view check, 258947 shadow calls, validate).
+
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
 (`pc::gfx::GfxEvent`: each call's registers, the marks a room, a
