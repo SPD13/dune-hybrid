@@ -83,7 +83,7 @@ Tripo's **image-to-image** endpoint repaints the pixel art at 2048 px while keep
   - **Painted:** "semi-realistic digital painting with visible soft brushwork …, slightly stylized forms like 1980s science-fiction book cover illustration and the original game art … not a photograph, and not a cartoon". Sits between the game art and the photo.
 - Keep the size's aspect to the frame's (Jessica's 173×150 frame → `2208x1920`).
 
-Alternatively, stage 2 can start from an approved 2D studio portrait (`versions/head__<CODE>__f00/…png`), as the first Leto and Jessica heads did.
+Stage 2 could also start from an approved 2D studio portrait (`versions/head__<CODE>__f00/…png`), as the first Leto and Jessica heads did; those heads are retired, and the work continues on the photographic heads.
 
 ## 3. Stage 2: the 3D bust
 
@@ -158,6 +158,24 @@ The early lesson: corners measured out on the lashes made one opening 70 % too w
 
 **Expression around the eyes.** `build.py` also adds three morph targets solved in FLAME's expression space with the mouth, nose and scalp held still: `brow_down` (brows lowered, the inner ends more and drawn together), `brow_up` and `squint` (lower lids raised). The page keeps a resting level of lowered brows and squint, presses both harder on stressed (wide-open) syllables and lifts the brows briefly at some phrase starts. Strengths per character in `CHAR.json` `expr` (`brow`, `squint`, `emph`, `lift`; Leto 0.4 / 0.35 / 0.4 / 0.35, Jessica 0.25 / 0.25 / 0.3 / 0.45, Paul 0.3 / 0.3 / 0.35 / 0.4). The pupils are 40 % of the iris width: smaller pupils read as a blank stare.
 
+**The spice stages (eyes of the Ibad).** As the game goes on, the spice turns Paul's eyes blue. His head file is the only one with a series of eye stages: 9 of them, each its own eye sprite, each also with the tired face, so 18 frames (`f00`, `f02` … `f16`; odd frames are tired). The game picks the stage from the game time (1000:917A): the time (16 slots a day) shifted right by 6, so one stage every 4 days, capped at 8 from day 33 on. The head frame is twice the stage, plus 1 when the desert fatigue ([F4h]) has reached 10h. No other head changes: Leto, Jessica and the rest keep one set of eyes, and Stilgar's and the Fremen's are blue from the start.
+
+The colours, averaged from Paul's frames by what each pixel is at stage 0 (`[white, iris, pupil]`, RGB):
+
+| Stage | Days | White | Iris | Pupil |
+|---|---|---|---|---|
+| 0 | 1–4 | 151, 153, 139 (grey) | 74, 67, 54 (brown) | black |
+| 1 | 5–8 | 137, 154, 155 (blue-grey) | brown | black |
+| 2 | 9–12 | 85, 118, 176 (blue) | brown | black |
+| 3 | 13–16 | 78, 117, 185 | brown | black |
+| 4 | 17–20 | 78, 117, 185 | 59, 70, 86 (grey-blue) | black |
+| 5 | 21–24 | 68, 106, 182 | 42, 73, 181 (blue) | 11, 22, 140 |
+| 6 | 25–28 | 74, 117, 189 | 27, 51, 176 | 0, 0, 97 (dark blue) |
+| 7 | 29–32 | 65, 115, 201 | 21, 40, 174 | 0, 0, 97 |
+| 8 | 33 on | 55, 104, 202 | 11, 22, 152 | 0, 0, 97 |
+
+The page's **eyes** menu shows any stage: `EYE_STAGES` in `index-flame.html` holds the table. The eyeballs' shader recolours each part of the 3D eye by its change from stage 0, telling the white, iris and pupil apart by the angle from the eye's axis (`iris`, `pupil` from `eyes.json`, put in by `make_page.py`): the white and iris as a ratio, the pupil as the colour itself once it turns blue. So a head's own iris colour carries through (Jessica's hazel turns a deeper blue than Paul's grey). With `"eye_frames": true` in the config (Paul), the 2D head shows the game's own frame for the stage. The menu is offered only for heads whose game frames have eye stages (`eye_frames`, Paul so far); every other head keeps its own single set of eyes, stage 0, with no menu. `setEyeStage(k)` sets the stage from the console.
+
 **4. Check** with the mouth closed and `window.force = {open: 0, blink: 0}`: a close view of each eye (white sliver past a corner = corner too far out; gap round the ball = `behind` too far back; missing lid piece = lower lid line too low or `margin_low`), a full blink (`blink: 1`), and an orbit.
 
 ## 5b. Eyelids
@@ -182,7 +200,7 @@ The scripts and models from before the strip are kept in `tripo/backup-lids-v1/`
 
 **The texture.** The lid takes its skin from the band 3 mm above the strip's top (under the brow), stretched over the shell. Anything in that band that is not skin-coloured takes the band's skin colour. `lash` darkens the shell's edge (default 1: none, since the strip carries the real lashes). The whole lid is shaded down for the brow's shadow (`lid_shade`, default 0.88; Leto 1.08, whose band is the dark crease).
 
-**The page.** The lid nodes carry their per-column data in `extras.lid` (`zs`, `yu`, `yl`, `tu`, `tl`, `al`, `H`, …). Every frame `moveLids` follows the head sway like the eyeballs. On a change of blink value, `shapeLid` recomputes the shell's points (the edge turned by `al` × blink about the ball's centre, the radius dipping outside `tl`…`tu`) and its normals, and `shapeLash` turns the strip. The blink is smooth: about 70 ms closing, a short hold, about 130 ms opening, at the same times as the game's own blink frames on the 2D side. `window.LID_REST` (0 by default) lowers the lids a little at rest. With lid meshes the skin no longer folds (the shader's blink stays at 0). Models without them (the older Leto and Jessica pages) keep the folding blink.
+**The page.** The lid nodes carry their per-column data in `extras.lid` (`zs`, `yu`, `yl`, `tu`, `tl`, `al`, `H`, …). Every frame `moveLids` follows the head sway like the eyeballs. On a change of blink value, `shapeLid` recomputes the shell's points (the edge turned by `al` × blink about the ball's centre, the radius dipping outside `tl`…`tu`) and its normals, and `shapeLash` turns the strip. The blink is smooth: about 70 ms closing, a short hold, about 130 ms opening, at the same times as the game's own blink frames on the 2D side. `window.LID_REST` (0 by default) lowers the lids a little at rest. With lid meshes the skin no longer folds (the shader's blink stays at 0). Models without them keep the folding blink.
 
 The build prints a `LID` line per eye: the gap, the shell's height, where the open edge hides above the upper lid line, where the closed edge rests against the lower lid, and how many columns found no skin under the lower edge (the lid then rests over that skin).
 
@@ -207,6 +225,7 @@ Black left in the opening is a gap in the lid. White still showing is painted ey
 | `eyes_gaze` | the eyeballs' `[yaw, pitch]` when `lookAtCamera` is off |
 | `lids`, `lids_top` | for the folding blink only: per eye three `[z, y]` points on the lower lid (inner, middle, outer) to shut on, and where the fold fades out above the eye (`[from, to]` m over the corners, default `[0.0135, 0.0335]`) |
 | `yaw` | the whole bust turned (radians), no deformation; unset keeps the portrait's own turn, which matches the sprite |
+| `mouth_scale` | the mouth's range of motion, `[open, wide, round, upper]` factors on every shape (the loop, voice lines and `window.force` alike); for a head whose mouth opens too far or too wide (Paul photo: `[0.72, 0.7, 1, 0.8]`); `window.MOUTH_SCALE` tries values live |
 | `teeth` | `[r, g, b, env]` tint for the teeth, for a darker portrait (Leto photo: `[0.36, 0.3, 0.24, 0.12]`) |
 | `camera_distance`, `target_dy` | framing |
 | `intro` | the paragraph under the title |
@@ -219,13 +238,13 @@ To add a character to the preview page, add a line to `PAGES` in `tripo/preview.
 
 ## 6a. Lip-sync to the game's voice (prototype)
 
-**Where the voice is.** The CD version's speech is inside `DUNE.DAT`, 2,288 Creative Voice files in one folder per talking head: `PA` (Duke Leto, 110 clips), `PB`, … `PO` and `PZ`. A line has two clips, `PAnnnI.VOC` and `PAnnnO.VOC`, for phrase nnn (hex). They share the same mouth track; `O` is the shorter take. `I` is the one used so far. Which folder belongs to which character after `PA` is still to be checked: the talker numbers (the list of characters in `dune-hybrid-decompile/docs/readable-port-plan.md`) suggest `PB` Jessica, `PC` Thufir Hawat and so on. Confirm by listening before building a head's lines.
+**Where the voice is.** The CD version's speech is inside `DUNE.DAT`, 2,288 Creative Voice files in one folder per talking head: `PA` (Duke Leto, 110 clips), `PB`, … `PO` and `PZ`. A line has two clips, `PAnnnI.VOC` and `PAnnnO.VOC`, for phrase nnn (hex). They share the same mouth track; `O` is the shorter take. `I` is the one used so far. `PB` is Jessica (199 clips; her clip `PB005` begins "I'm your mother, Jessica."). The other folders probably follow the talker numbers (the list of characters in `dune-hybrid-decompile/docs/readable-port-plan.md`: `PC` Thufir Hawat, `PD` Duncan Idaho and so on); confirm each by its text before building a head's lines.
 
 **The clip format.** A clip is a Creative Voice File: a 26-byte header, then blocks (type, 24-bit length, data):
 - block 5 (text) holds **the game's own mouth track**: the phrase number, 0, then one mouth-frame byte per step, ending in FFh. The engine plays it alongside the sound (`load_voc_and_lipsync_data`, `lip_sync_frame_task` in the decompile worktree's `hand/voice.rs`). A later step can use it to drive the 2D head exactly as the game does;
 - block 1 is the sound: a rate byte (256 − 1,000,000 / rate: 22,222 Hz) and uncompressed 8-bit mono samples.
 
-**The text.** The English phrases are in `PHRASE11.HSQ` (HSQ-compressed; a table of 16-bit offsets, each string ending in FFh; FEh breaks the text into pages; bytes 80h and up stand for names and numbers the game fills in). Leto's clip `PAnnn` says phrase nnn − 1 of that file: `PA001` "I am the Duke Leto Atreides, your father." Other heads' phrases may start elsewhere in the file (the engine makes a phrase number relative to the head's first), so check the text of their first clips by ear.
+**The text.** The English phrases are in `PHRASE11.HSQ` (HSQ-compressed; a table of 16-bit offsets, each string ending in FFh; FEh breaks the text into pages; bytes 80h and up stand for names and numbers the game fills in). A clip `<folder>nnn` says phrase *first* + nnn − 1 of that file, *first* being the head's first phrase (the engine makes a phrase number relative to it, from a table it builds at start-up). Leto's first is 0 (`PA001` "I am the Duke Leto Atreides, your father."), Jessica's 49, right after Leto's 49 lines. To find a new head's first, match its clips' lengths to the phrases' text lengths: the true start correlates clearly best (Leto 0.65 at 0, Jessica 0.62 at 49, the next candidates below 0.48). Then check the texts against the clips. `lipsync.py` knows `PA` and `PB`; give another folder as `PC:<first>`.
 
 **The scripts** (`tripo/voice/`):
 - `dunedat.py`: reads `DUNE.DAT`'s table of contents and decompresses HSQ (a port of `crates/gfx/src/dat.rs` and `hsq.rs`).
@@ -255,12 +274,16 @@ The table is `VIS` in `index-flame.html`; tune a shape there and regenerate the 
 - the expressions around the eyes follow the mouth as on the loop (stressed open syllables press the brows), and blinks go on;
 - the line overrides the made-up syllable loop, which takes over again when the line ends.
 
-**Checking it.** Listen in a real browser window: an automated tab can draw only one or two frames a second, too few to judge motion. Offline, compare the cues with the voice's loudness (20 ms steps): on Leto's first lines the mouth never opens in a silence, and it is shut while the voice is loud on 1–7 % of steps (closed consonants).
+**Checking it.** Listen in a real browser window: an automated tab can draw only one or two frames a second, too few to judge motion. Offline, compare the cues with the voice's loudness (20 ms steps): on Leto's first lines the mouth never opens in a silence, and it is shut while the voice is loud on 1–7 % of steps (closed consonants). Jessica's lines: open in a silence on 0–4 % of steps, except the hidden-door line (10 %, the pause in mid-line), shut while loud on 1–7 %.
+
+**The test lines:**
+- Leto (`PA001I`–`PA005I`): "I am the Duke Leto Atreides, your father." / "What have you done with Gurney? …" / "Where is Gurney?" / "We don't have enough people working for us. …" / "My son, we must mine the spice as soon as possible …".
+- Jessica (`PB004I`, `PB008I`, `PB00AI`, `PB00BI`, `PB00DI`): "Why did you leave me in the desert? Sometimes you frighten me." / "Paul, I tell you these Harkonnens are beasts. They are completely without mercy!" / "I think there is a hidden door on the left. Yes, let's have a look." / "Your friend Duncan is an expert on spice production." / "I wonder what the proximity of so much spice will do to you Paul." Picked for their variety of mouth shapes, and none has a filled-in name.
 
 **Rules.** The clips, WAVs and cues are game-derived: they stay on this machine, in neither repo.
 
 **Not done yet:**
-- the other characters' folders and phrase ranges;
+- the other characters' folders and first phrases (find them as above);
 - phrases with names filled in (their codes are dropped from the text, so Rhubarb hears a word it wasn't told);
 - the French and German voices (Rhubarb's `--recognizer phonetic` mode, without English text);
 - the game's own mouth track for the 2D head;
@@ -323,7 +346,7 @@ The tools:
 
 ## 8. Files, environment and rules
 
-- **Where things are.** Everything lives **outside the repo**, under `Cryogenic-Web/portrait-proto/studio/tripo/`: the scripts (`tripo.py`, `tripo_img.py`, `tripo_rig.py`, `flame-fit/*.py`, `voice/*.py`), the per-character work (`flame-fit/<dir>/`, with `eyes.json` and `build.json`), the models (`leto-hd/`, `jess-hd/`, `leto-photo/`, `jess-photo/`, `paul-photo/`, …), the voice clips and cues (`voice/<short>/`) and the pages. Backups from before the eyelids and the lash strips: `backup-before-lids/`, `backup-lids-v1/`. Rhubarb Lip Sync: `Cryogenic-Web/portrait-proto/tools/rhubarb-1.14.0/`. The FLAME files are in `Cryogenic-Web/portrait-proto/flame/model/` (`flame2023_Open.pkl`, `FLAME_masks.pkl`), downloaded by the user from the FLAME site.
+- **Where things are.** Everything lives **outside the repo**, under `Cryogenic-Web/portrait-proto/studio/tripo/`: the scripts (`tripo.py`, `tripo_img.py`, `tripo_rig.py`, `flame-fit/*.py`, `voice/*.py`), the per-character work (`flame-fit/<dir>/`, with `eyes.json` and `build.json`), the models (`leto-photo/`, `jess-photo/`, `paul-photo/`; `leto-hd/model.glb` stays only for the throne-room scene), the voice clips and cues (`voice/<short>/`) and the pages. Backups from before the eyelids and the lash strips: `backup-before-lids/`, `backup-lids-v1/`. Work continues on the **photographic heads only** (2026-11-25): the earlier studio-portrait heads' pages and configs (`index-leto.html`, `index-jess.html`, `leto.json`, `jess.json`) were removed (they are in the private repo's history), and their rigged models moved to `archive-studio-heads/`. Rhubarb Lip Sync: `Cryogenic-Web/portrait-proto/tools/rhubarb-1.14.0/`. The FLAME files are in `Cryogenic-Web/portrait-proto/flame/model/` (`flame2023_Open.pkl`, `FLAME_masks.pkl`), downloaded by the user from the FLAME site.
 - **Environment.** The Windows NVIDIA machine; Python `%LOCALAPPDATA%\DuneHD\env\Scripts\python.exe` (torch with CUDA). The FLAME loader in `flame.py` needs neither chumpy nor scipy. Tripo needs `TRIPO_API_KEY`.
 - **Serving the pages.** From `portrait-proto/studio`: `python -m http.server 8790 --bind 127.0.0.1`, then open the [preview page](http://127.0.0.1:8790/tripo/preview.html).
 - **Never commit or share game-derived files:** the portraits, busts, GLBs, renders, pages and voice clips all come from the game. They stay on the user's machine. Only this description belongs in the repo. The private repo `SPD13/dune-talking-heads` (git root `tripo/`) holds the pipeline through a whitelist `.gitignore`; the voice clips are not in it.
