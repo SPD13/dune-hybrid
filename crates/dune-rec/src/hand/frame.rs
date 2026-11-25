@@ -634,6 +634,7 @@ pub fn handle_ctrl_v_once(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return Err(Bail); // patched otherwise: not this code
     }
     c.run(start, 5)?;
+    super::book::own(&mut c);
     c.set_reg(SI, 0x242a);
     let di = c.word(g::CTRL_V_TABLE_END);
     c.set_reg(DI, di);

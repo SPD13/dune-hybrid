@@ -2343,6 +2343,7 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb427)?;
     let mut c = Ctx::new(m);
     super::map_cells::own(&mut c);
+    super::book::own(&mut c);
     c.run(0xb427, 2)?;
     files::make_room(&mut c, 0x578, 0xb42d)?;
     c.run(0xb42d, 9)?;
@@ -2394,6 +2395,7 @@ pub fn create_save_in_memory(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.set_reg(SI, 0xaa76);
     c.set_reg(CX, 0x11f8);
     c.rep_counted(0xa4);
+    super::save_image::count_blocks(&mut c);
     // DS:0-1260h, the story's part, from the Rust state
     // (`save_image::story_part`), as the `rep movsb` leaves it.
     c.set_reg(SI, 0);

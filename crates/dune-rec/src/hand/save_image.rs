@@ -29,6 +29,10 @@ pub struct SaveImageState {
     /// packing ([`super::map_cells::MapCells::packed`]).
     map_bytes: u64,
     map_differing: u64,
+    /// In the last image: the bytes of the book's block (CS:AAh, A2h)
+    /// and of the dialogue table's (DS:AA76h, 11F8h) from the Rust state.
+    book_owned: u64,
+    dialogue_owned: u64,
 }
 
 fn state(m: &mut Machine) -> &mut SaveImageState {
@@ -40,6 +44,25 @@ fn state(m: &mut Machine) -> &mut SaveImageState {
 pub fn counts(m: &mut Machine) -> (u64, u64, u64) {
     let s = state(m);
     (s.saves, s.owned, s.differing)
+}
+
+/// The book's and the dialogue table's blocks: their bytes from the
+/// Rust state in the last image.
+pub fn block_counts(m: &mut Machine) -> (u64, u64) {
+    let s = state(m);
+    (s.book_owned, s.dialogue_owned)
+}
+
+/// The book's and the dialogue table's blocks counted (their bytes owned).
+pub(super) fn count_blocks(c: &mut Ctx) {
+    let owned = |c: &mut Ctx, seg: u16, at: u16, n: usize| {
+        (0..n).filter(|&k| c.m.hw.is_owned(c.m.cpu.phys(seg, at.wrapping_add(k as u16)))).count() as u64
+    };
+    let book = owned(c, pc::LOAD_SEG, super::book::AT, super::book::LEN);
+    let dialogue = owned(c, g::GAME_DS, super::dialogue_table::AT, super::dialogue_table::LEN);
+    let s = state(c.m);
+    s.book_owned = book;
+    s.dialogue_owned = dialogue;
 }
 
 /// The map's block, and where it differed from the Rust state's packing.

@@ -2635,6 +2635,7 @@ pub(super) fn entry_said_a03f(c: &mut Ctx) -> Result<(), Bail> {
             c.set_reg8(r8::BL, talker);
             let number = entry.wrapping_sub(DIALOGUES) >> 2 | (talker as u16) << 8;
             c.set_reg(AX, number);
+            super::book::own(c);
             let noted = c.word(NOTED);
             c.set_reg(BP, noted);
             c.set_word_in(CS, noted, number);

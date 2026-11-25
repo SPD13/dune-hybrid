@@ -392,7 +392,8 @@ impl pc::hw::Owned for TableMemory {
 
 /// The owner of `w`'s memory. At the first use of any table, every table
 /// is registered (taking the memory's bytes), and the loose variables
-/// between them (`hand/variables.rs`).
+/// between them (`hand/variables.rs`), and the dialogue table
+/// (`hand/dialogue_table.rs`).
 fn owner(m: &mut Machine, w: Which) -> usize {
     if let Some(i) = table(m, w).owner {
         return i;
@@ -405,6 +406,7 @@ fn owner(m: &mut Machine, w: Which) -> usize {
         }
     }
     super::variables::own(m);
+    super::dialogue_table::own(m);
     table(m, w).owner.expect("registered")
 }
 

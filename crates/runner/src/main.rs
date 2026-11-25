@@ -906,6 +906,8 @@ fn main() -> ExitCode {
             println!("save image: {saves} built, {owned} bytes of DS:0-1260h from the Rust state in the last, {differing} differing from the memory");
             let (map, map_differing) = dune_rec::hand::save_image::map_counts(&mut m);
             println!("save image: the map's {map} bytes from its cells' Rust state, {map_differing} differing from their packing");
+            let (book, dialogue) = dune_rec::hand::save_image::block_counts(&mut m);
+            println!("save image: the book's {book} of A2h bytes and the dialogue table's {dialogue} of 11F8h from the Rust state");
         }
         // The map's cells (dune_rec::hand::map_cells): owned from the
         // game's start or the first save made or restored.
@@ -915,6 +917,11 @@ fn main() -> ExitCode {
                 println!("map cells: owned at {:04x}:0, {} cells, {used} of the save's packed bytes non-zero", mc.segment(), dune_rec::hand::map_cells::CELLS);
             }
             None => println!("map cells: not owned"),
+        }
+        if let Some(d) = dune_rec::hand::dialogue_table::get(&m) {
+            let lines = dune_rec::hand::book::get(&m).map_or(0, |b| b.lines().len());
+            let (said, all) = d.said();
+            println!("dialogue: {said} of {all} entries said, {} lists, {lines} lines in the book", d.lists());
         }
         let mut entries: Vec<(u16, &str)> = dune_rec::names().to_vec();
         entries.sort();

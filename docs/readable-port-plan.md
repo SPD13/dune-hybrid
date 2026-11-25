@@ -1010,6 +1010,34 @@ from it. The record tables' owners became direct arrays too
 bytes from the Rust state. Day 23: 63.6 MIPS. All checks equal (the
 three suites, the view check, 258947 shadow calls, validate).
 
+**The dialogue table and the book own their memory: the whole save is
+made from the Rust state** (2026-11-25). A save image is the map's
+packed cells, then three blocks: A2h bytes at CS:00AAh, 11F8h at
+DS:AA76h and the story block (DS:0-1260h, owned since the loose
+variables). The two others are now owned too:
+- `hand/dialogue_table.rs`: DS:AA76h is resource BDh, loaded at start-up:
+  a head of 136 words (17 groups of 8 lists) pointing at the dialogue
+  lists' 4-byte entries (flags, condition, phrase; FFFFh ends a list).
+  The state the game changes is bit 7 of an entry's flags, set once it
+  was said. `DialogueTable` (a direct array) is registered with the
+  record tables; the resource's load writes into it through the bus (the
+  DOS reads through `poke`). Day 23: 253 of the 988 entries said.
+- `hand/book.rs`: the book, the dialogue lines kept for the player's
+  journal, is a list of words in the code segment from CS:00AAh, the
+  space of the start-up code (`initialize_resources`' calls at 00B0h),
+  which runs once: each the entry's number and the speaker (bits 11..15),
+  0 ending it; [11BDh] the next free word, [11BFh] the book's page.
+  `Book` is registered only where the start-up code is surely past (a
+  line noted, the Ctrl-V lines, a save made or restored), so that code is
+  never read from it. Day 23: 19 lines.
+
+Every image the harness builds now has all of its blocks from the Rust
+state: the story's 4705 bytes, the dialogue table's 4600, the book's 162
+and the map's 12671 (checked against the cells' packing). The runner
+reports `dialogue: N of 988 entries said, 136 lists, M lines in the
+book`. Day 23: 62.7 MIPS. All checks equal (the three suites, the view
+check, 258947 shadow calls, validate).
+
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
 (`pc::gfx::GfxEvent`: each call's registers, the marks a room, a
