@@ -70,6 +70,8 @@ pub mod book;
 pub mod save_file;
 pub mod ecology;
 pub mod troop_day;
+pub mod troop_work;
+pub mod spice_accounts;
 pub mod flags_read;
 mod cursor;
 mod dialogue;

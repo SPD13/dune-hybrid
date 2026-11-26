@@ -4,6 +4,7 @@
 use super::game::{Particle, particle_flag};
 use super::ui;
 use super::troop_day;
+use super::troop_work;
 use super::story;
 use super::gfx;
 use super::globe;
@@ -1169,51 +1170,31 @@ pub fn troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
     let job = troop.job(&mut c);
-    let mut v = troop.motivation(&mut c);
-    let bonus = c.situation().troops_recheck != 0;
-    let mut cost = 7;
-    if bonus {
-        v = v.wrapping_add(20);
-        cost += 1;
-    }
-    let mut ah = job;
-    if job == troop_job::ATTACKS {
-        let home = troop.location(&mut c) == game::here(&mut c);
-        cost += 5;
-        if home {
-            v = v.wrapping_add(30);
-            cost += 4;
-            if v >= 100 {
-                v = 100;
-                cost += 1;
-            }
-        }
-    } else {
-        ah = job & 0xfe;
-        if ah == 8 {
-            v = 100;
-            cost += 4;
-        } else {
-            cost += 5;
-            if v >= 100 {
-                v = 100;
-                cost += 1;
-            }
-        }
-    }
+    let motivation = troop.motivation(&mut c);
+    let encouraged = c.situation().troops_recheck != 0;
+    let at_home = job == troop_job::ATTACKS && troop.location(&mut c) == game::here(&mut c);
     let phase = c.progress().phase;
-    if phase < 0x64 {
-        cost += 3;
-    } else if phase >= 0x68 {
-        cost += 5;
+    // The rule ([`troop_work::effective_motivation`]), then the original's
+    // path: 7, 1 encouraged; attacking 5 (4 more at home, 1 capped),
+    // jobs 8/9 4, others 5 (1 capped); the phase 3 early, 5 past 67h,
+    // else 8 (1 floored).
+    let w = troop_work::effective_motivation(motivation, job, encouraged, at_home, phase);
+    let (v, ah) = (w.value, w.job);
+    let mut cost = 7 + encouraged as u32;
+    cost += if job == troop_job::ATTACKS {
+        5 + if at_home { 4 + w.capped as u32 } else { 0 }
+    } else if ah == troop_job::IRRIGATION {
+        4
     } else {
-        v = v.wrapping_sub(40);
-        cost += 8;
-        if (v as i8) < 10 {
-            v = 10;
-            cost += 1;
-        }
-    }
+        5 + w.capped as u32
+    };
+    cost += if phase < 0x64 {
+        3
+    } else if phase >= 0x68 {
+        5
+    } else {
+        8 + w.floored as u32
+    };
     c.run(start, cost)?;
     if job == troop_job::ATTACKS {
         // The location compared through DI (saved and given back).
@@ -2381,19 +2362,13 @@ pub fn troop_rate(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(start, 1)?;
     let motivation = effective_motivation(&mut c, 0x708d)?;
     let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
-    let base = motivation.wrapping_add(troop.skill(&mut c, 0) & 0xf0);
-    let mut product = base as u16 * troop.size(&mut c) as u16;
-    let quartered = troop.equipment(&mut c) & 0x80 == 0;
-    if quartered {
-        product >>= 2;
-    }
-    // `inc ax` over (product's high byte, the location's top bits), then
-    // `mul ah`: those two bytes multiplied.
-    let pair = (product & 0xff00 | (place.spice(&mut c) & 0xf0) as u16).wrapping_add(1);
-    let rate = ((pair & 0xff) * (pair >> 8)).swap_bytes().rotate_left(1) & 0x01ff;
+    // The rules ([`troop_work::production_rate`], [`troop_work::rate_trend`]).
+    let armed = troop.equipment(&mut c) & 0x80 != 0;
+    let (rate, quartered) =
+        troop_work::production_rate(motivation, troop.skill(&mut c, 0), troop.size(&mut c), armed, place.spice(&mut c));
     let old = troop.rate(&mut c);
-    let changed = old != rate;
-    let up = old < rate;
+    let trend = troop_work::rate_trend(old, rate);
+    let (changed, up) = (trend.is_some(), trend == Some(8));
     c.run(0x708d, 18 + if quartered { 2 } else { 0 } + if changed { 6 + !up as u32 } else { 0 })?;
     c.set_reg(AX, rate);
     troop.set_rate(&mut c, rate);
@@ -2402,7 +2377,7 @@ pub fn troop_rate(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if !changed {
         return c.ret();
     }
-    let way: u8 = if up { 8 } else { 4 };
+    let way = trend.expect("changed");
     c.set_reg8(r8::BL, way);
     let w = troop.word_10(&mut c);
     let low = pure::or(B, w & 0xf3, way as u16);

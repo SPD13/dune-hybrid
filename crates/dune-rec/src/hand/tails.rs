@@ -946,15 +946,11 @@ pub fn update_totals(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0xc02e, 1)?;
     c.call(0xbfe3, 0xc031)?;
     let (spice, shipped, at_start, gained) = (c.economy().spice, c.word(g::SPICE_PAID), c.word(g::SPICE_YESTERDAY), c.economy().income);
-    let s = spice.wrapping_add(shipped);
-    let (d, borrow) = s.overflowing_sub(at_start);
-    let cap = if borrow { 0 } else { d };
-    let below = cap < gained;
+    let (now, borrow) = super::spice_accounts::day_income(spice, shipped, at_start);
+    let below = super::spice_accounts::raised_income(gained, now).is_none();
     c.run(0xc031, 4 + borrow as u32 + 2 + (!below) as u32 + 4)?;
     c.set_reg(AX, spice);
-    let v = pure::add(W, spice, shipped);
-    let v = pure::sub(W, v, at_start);
-    let v = if borrow { pure::xor(W, v, v) } else { v };
+    let v = now;
     c.set_reg(AX, v);
     if !below {
         c.update_economy(|t| t.income = v);
@@ -1666,10 +1662,9 @@ pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::PICK_ATTACK_LOCATION, 0x1c62)?;
     let d = c.situation().jessica_days.wrapping_add(1);
     let (shipped, spice, at_start, before) = (c.word(g::SPICE_PAID), c.economy().spice, c.word(g::SPICE_YESTERDAY), c.economy().income_before);
-    let s = shipped.wrapping_add(spice);
-    let (stock, borrow) = s.overflowing_sub(at_start);
-    let stock = if borrow { 0 } else { stock };
-    let (diff, loss) = before.overflowing_sub(stock);
+    let (stock, borrow) = super::spice_accounts::day_income(spice, shipped, at_start);
+    let (fell, rose) = super::spice_accounts::income_change(before, stock);
+    let loss = rose != 0;
     c.run(0x1c62, 4 + (d >= 2) as u32 + 7 + borrow as u32 + 5 + if loss { 2 } else { 0 } + 3)?;
     c.set_reg8(r8::AL, d.wrapping_sub(1));
     let a = pure::inc(B, d.wrapping_sub(1) as u16);
@@ -1679,20 +1674,11 @@ pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_word(g::SPICE_PAID, 0);
     c.set_reg(BX, spice);
-    let v = pure::add(W, shipped, spice);
     c.set_word(g::SPICE_YESTERDAY, spice);
-    let v = pure::sub(W, v, at_start);
-    let v = if borrow { pure::xor(W, v, v) } else { v };
+    let v = stock;
     c.update_economy(|t| t.income = v);
     c.update_economy(|t| t.income_before = v);
-    let r = pure::sub(W, before, v);
-    let (gain, lost) = if loss {
-        let n = pure::neg(W, r);
-        (0u16, n)
-    } else {
-        (r, 0)
-    };
-    let _ = diff;
+    let (gain, lost) = (fell, rose);
     c.set_reg(AX, gain);
     c.set_reg(BX, lost);
     c.update_economy(|t| t.income_fall = gain);

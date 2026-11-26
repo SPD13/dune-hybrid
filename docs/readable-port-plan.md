@@ -1104,6 +1104,25 @@ shadow check of all seven games (258947 ok, 0 diff) and validate (0 with
 differences: 75 calls of 6E20h, 188 of 1B0Dh, 79 of 1B23h checked
 equal).
 
+**A troop's work and the spice's accounts as rules** (2026-11-25):
+- `hand/troop_work.rs`: a troop's effective motivation (20 more while
+  encouraged; attacking at the player's place 30 more, at most 100;
+  jobs 8 and 9 always 100; others at most 100; in the phases 64h-67h 40
+  less, at least 10) and its production rate (the motivation plus its
+  first skill's top bits, times its size, a quarter unarmed, times the
+  place's spice as the original's `inc ax` / `mul ah` computes it, 9
+  bits), with the trend bits of its word 10h (8 up, 4 down).
+  `troop_motivation` (6EFDh) and `troop_rate` (708Ah) are their frame.
+- `hand/spice_accounts.rs`: the day's income (the stock plus what was
+  paid out less the stock at the day's start, 0 below), its fall or rise
+  against the day before, and `update_totals` raising it during the day.
+  `new_day` (1C46h) and `update_totals` (C02Eh) are their frame.
+
+Checked: the rules' unit tests (9 over the rule modules), the three
+suites, the view check, the shadow check of all seven games (258947 ok,
+0 diff) and validate (0 with differences; 142 calls of 6EFDh, 37 of
+708Ah, 64 of 1C46h, 75 of C02Eh checked equal).
+
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
 (`pc::gfx::GfxEvent`: each call's registers, the marks a room, a
