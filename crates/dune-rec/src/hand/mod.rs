@@ -52,6 +52,7 @@ pub mod characters;
 pub mod player;
 pub mod smugglers;
 pub mod smuggler_trade;
+pub mod troop_moves;
 pub mod progress;
 pub mod topic_troop;
 pub mod topic_place;

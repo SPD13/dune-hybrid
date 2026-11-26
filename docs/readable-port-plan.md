@@ -1180,6 +1180,37 @@ interrupts there leave parts of it interpreted). Checked: unit tests,
 the three suites, the view check, the shadow check (258947 ok, 0
 diff), validate (0 with differences).
 
+**The troops' movement and job changes as rules** (2026-11-26,
+`hand/troop_moves.rs`): the tick's choice for each troop (it waits,
+bits 430h of word 12h, or a small one, below 14h, is offered to merge;
+then by its state: skipped, travelling, or its job's handler), the
+steps a tick (8 with the ornithopter, bit 40h, else 4; 7 on setting
+out), a step toward its place (along the larger of the x distance in
+the row's scale units and the y one; close below 7; the step across
+only when the seed's top bit is set; the seed turned when the larger
+distance halves to more than 0), the arrival (a place the Harkonnens
+hold is always found; a spy shows a place not found before; meeting the
+place's own troop; else the troops there told; not found, a spy or an
+attacker drops its figure and a search for equipment, jobs 3, 7, 0Bh,
+goes on to its next place, taking the equipment it came for where one
+is spare), setting out (on its way, only the target changes and a
+search ends; an attacker leaving a Harkonnen place where it was the
+last of the player's leaves it to them; for a place below kind 28h it
+stays when the Harkonnens hold it, else loses 3 motivation) and a job
+given (irrigation at 7C8h is bulb growing while its byte 1Ah is 0; a
+job other than 2 marks the activity, 2000h shifted left by it, in word
+12h). `troops_tick` (6C6Fh), `troop_move` (8308h), `troop_step`
+(8604h), `troop_arrived` (8357h, with its next place, 841Fh),
+`troop_set_out` (84A6h) and `set_troop_job` (6AD4h) are their frame.
+Validate's run k reaches 26 of the 28 paths with chosen inputs, all
+shadow-equal but one: meeting the place's own troop goes on into
+7429h (not ported), which runs past the call's 20 s, so that call is
+counted but not compared. Not reached: a troop merged (the partner is
+picked from the troops linked at the place) and a place abandoned to
+the Harkonnens (it needs one of their troops there); no game reaches
+either. Checked: unit tests, the three suites, the view check, the
+shadow check (258947 ok, 0 diff), validate (0 with differences).
+
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
 (`pc::gfx::GfxEvent`: each call's registers, the marks a room, a

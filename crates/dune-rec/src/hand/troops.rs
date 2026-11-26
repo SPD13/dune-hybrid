@@ -5,6 +5,7 @@ use super::game::{Particle, particle_flag};
 use super::ui;
 use super::troop_day;
 use super::troop_work;
+use super::troop_moves;
 use super::harkonnen;
 use super::story;
 use super::gfx;
@@ -3312,32 +3313,39 @@ pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let troop = Troop(c.reg(SI));
         step = match step {
             Step::Start => {
-                if troop.word_12(&mut c) & 0x430 != 0 {
+                if troop_moves::waits(troop.word_12(&mut c)) {
                     c.run(0x6c92, 2)?;
+                    super::rule_paths::hit(c.m, "tick: waits", true);
                     Step::Waiting
-                } else if troop.size(&mut c) >= 0x14 {
+                } else if !troop_moves::may_merge(troop.size(&mut c)) {
                     c.run(0x6c92, 4)?;
                     Step::Act
                 } else {
                     c.run(0x6c92, 5)?;
                     let merged = troop_merged(&mut c, 0x6ca2)?;
                     c.run(0x6ca2, 1)?;
+                    super::rule_paths::hit(c.m, "tick: merged", merged);
                     if merged { Step::Next } else { Step::Act }
                 }
             }
             Step::Act => {
                 let state = troop.state(&mut c);
-                if state & (troop_state::NOT_A_TROOP | troop_state::STARTED) != 0 {
+                let action = troop_moves::tick_action(state);
+                super::rule_paths::hit(c.m, "tick: skipped", action == troop_moves::TickAction::Skip);
+                super::rule_paths::hit(c.m, "tick: travels", action == troop_moves::TickAction::Travel);
+                super::rule_paths::hit(c.m, "tick: works", matches!(action, troop_moves::TickAction::Work(_)));
+                if action == troop_moves::TickAction::Skip {
                     c.run(0x6ca4, 3)?;
                     c.set_reg8(r8::AL, state);
                     Step::Next
-                } else if state & troop_state::TRAVELLING != 0 {
+                } else if action == troop_moves::TickAction::Travel {
                     c.run(0x6ca4, 5)?;
                     c.set_reg8(r8::AL, state);
                     Step::AtOwn
                 } else {
                     c.run(0x6ca4, 11)?;
-                    let job = (state & 0x0f) as u16;
+                    let troop_moves::TickAction::Work(job) = action else { unreachable!() };
+                    let job = job as u16;
                     c.set_reg(AX, job);
                     c.set_reg(BX, job * 2);
                     c.save(&[SI]);
@@ -3360,7 +3368,7 @@ pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
                     c.run(0x6cd3, 4)?;
                     Step::Next
                 } else {
-                    let held = troop.word_12(&mut c) & 0x400 != 0;
+                    let held = troop.word_12(&mut c) & troop_moves::HELD != 0;
                     c.run(0x6cd3, if held { 7 } else { 8 })?;
                     let b = troop.byte_12(&mut c);
                     troop.set_byte_12(&mut c, b & !0x30);
@@ -3528,55 +3536,23 @@ pub fn troop_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let dy = ly.wrapping_sub(ty);
     let dx = lx.wrapping_sub(tx);
-    let y_dir: u16 = if neg(dy) { 0xffff } else { 1 };
-    let across = abs(dx) / scale;
-    let down = abs(dy);
-    let x_step = if neg(dx) { scale.wrapping_neg() } else { scale };
     let seed = c.word(SEED_0);
     let carry = neg(seed);
-    let mut cost = 22 + neg(row) as u32 + 2 * neg(dy) as u32 + neg(dx) as u32;
-    // The results: AX, DI, DX, BX, BP, and whether the seed turns.
-    let (mut ax, mut di, mut out_dx, mut bx, mut bp, mut turns) = (across, down, dx, y_dir, scale, false);
-    if across >= down {
-        if across < 7 {
-            cost += 6;
-            (out_dx, bx) = (0, 0);
-        } else {
-            cost += 8 + (down == 0) as u32 + neg(dx) as u32;
-            if down == 0 {
-                bx = 0;
-            }
-            bp = x_step;
-            ax = across >> 1;
-            if ax == 0 {
-                cost += 2;
-            } else {
-                cost += 5 + !carry as u32;
-                out_dx = x_step;
-                turns = true;
-                if !carry {
-                    bx = 0;
-                }
-            }
-        }
-    } else if down < 7 {
-        cost += 6;
-        (out_dx, bx) = (0, 0);
-    } else if across == 0 {
-        cost += 6;
-    } else {
-        cost += 8 + neg(dx) as u32;
-        bp = x_step;
-        di = down >> 1;
-        if di == 0 {
-            cost += 2;
-        } else {
-            cost += 3 + if carry { 2 } else { 3 };
-            out_dx = if carry { x_step } else { 0 };
-            turns = true;
-        }
-    }
+    let s = troop_moves::step(dx, dy, scale, carry);
+    let down0 = abs(dy) == 0;
+    use troop_moves::Along;
+    let cost = 22 + neg(row) as u32 + 2 * neg(dy) as u32 + neg(dx) as u32 + match s.along {
+        Along::Close { .. } | Along::StraightDown => 6,
+        Along::X { half_zero } => 8 + down0 as u32 + neg(dx) as u32 + if half_zero { 2 } else { 5 + !carry as u32 },
+        Along::Y { half_zero } => 8 + neg(dx) as u32 + if half_zero { 2 } else { 3 + if carry { 2 } else { 3 } },
+    };
+    let (ax, di, out_dx, bx, bp, turns) = (s.ax, s.di, s.dx, s.dy, s.bp, s.turns);
     c.run(start, cost)?;
+    super::rule_paths::hit(c.m, "step: arrived", s.still());
+    super::rule_paths::hit(c.m, "step: along x", matches!(s.along, Along::X { .. }));
+    super::rule_paths::hit(c.m, "step: along y", matches!(s.along, Along::Y { .. }));
+    super::rule_paths::hit(c.m, "step: straight down", s.along == Along::StraightDown);
+    super::rule_paths::hit(c.m, "step: seed turns", turns);
     c.save(&[SI]);
     if turns {
         c.set_word(SEED_0, seed.rotate_left(1));
@@ -4006,9 +3982,11 @@ fn skills_79bc(c: &mut Ctx) -> Result<(), Bail> {
 pub fn troop_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8308)?;
     let mut c = Ctx::new(m);
-    let fast = Troop(c.reg(SI)).equipment(&mut c) & 0x40 != 0;
+    let steps = troop_moves::steps_per_tick(Troop(c.reg(SI)).equipment(&mut c));
+    let fast = steps == 8;
     c.run(start, if fast { 4 } else { 3 })?;
-    c.set_reg(CX, if fast { 8 } else { 4 });
+    super::rule_paths::hit(c.m, "move: fast", fast);
+    c.set_reg(CX, steps);
     steps_8313(&mut c)
 }
 
@@ -4107,12 +4085,12 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
     c.set_reg(DX, x);
     c.set_reg(BX, y);
     troop.set_position(c, x, y);
-    let mut found = true;
+    let mut skipped = false;
     if not_harkonnen {
-        let location_skipped = map::location_skipped(c, 0x8385)?;
-        found = !location_skipped;
+        skipped = map::location_skipped(c, 0x8385)?;
         c.run(0x8385, 1)?;
     }
+    let found = troop_moves::place_found(!not_harkonnen, || skipped);
     if found {
         c.run(0x8387, 2)?;
         c.save(&[AX]);
@@ -4120,10 +4098,16 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
         let ax = c.word_in(SS, c.reg(SP));
         let job = ax as u8;
         let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
+        let flags = place.flags(c);
+        let own = troop.id(c);
+        let meets = own == place.first_troop(c);
+        let a = troop_moves::arrival(job, flags, meets);
+        super::rule_paths::hit(c.m, "arrival: discovered", a == troop_moves::Arrival::Discovered);
+        super::rule_paths::hit(c.m, "arrival: meets", a == troop_moves::Arrival::Meets);
+        super::rule_paths::hit(c.m, "arrival: tells", a == troop_moves::Arrival::Tell);
         if job == troop_job::ESPIONAGE {
             // Espionage: a place newly found is shown.
-            let flags = place.flags(c);
-            let new = flags & location_flag::UNDISCOVERED != 0;
+            let new = a == troop_moves::Arrival::Discovered;
             c.run(0x838b, if new { 7 } else { 5 })?;
             c.restore(&[AX]);
             if new {
@@ -4132,8 +4116,6 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
             }
             return tell_troops_83fd(c);
         }
-        let own = troop.id(c);
-        let meets = own == place.first_troop(c);
         c.run(0x838b, if meets { 7 } else { 6 })?;
         c.restore(&[AX]);
         c.set_reg8(r8::AL, own);
@@ -4145,7 +4127,10 @@ fn troop_arrived_at(c: &mut Ctx) -> Result<(), Bail> {
     // Not found: orders 5 and 6 drop their figure (`set_troop_activity`;
     // DI kept, AL 0); a move (job bits 3) goes on to its next place.
     let job = c.reg8(r8::AL);
-    let drop = (5..=6).contains(&job);
+    let (drop, moves_on) = troop_moves::not_found(job);
+    super::rule_paths::hit(c.m, "arrival: not found", true);
+    super::rule_paths::hit(c.m, "arrival: figure dropped", drop);
+    super::rule_paths::hit(c.m, "arrival: on to the next place", moves_on);
     c.run(0x83a7, 2 + if job < 5 { 0 } else { 2 } + if drop { 2 } else { 0 })?;
     if drop {
         c.save(&[DI]);
@@ -4186,7 +4171,8 @@ fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
     let next = troop.destination(c);
     c.run(0x841f, 5)?;
     c.set_reg(DI, place);
-    if place == next {
+    if troop_moves::at_destination(place, next) {
+        super::rule_paths::hit(c.m, "search: last place", true);
         let s = troop.state(c);
         troop.set_state(c, s & !3);
         return settle_arrived_troop(c.m, 0x83bc);
@@ -4201,13 +4187,15 @@ fn next_place_841f(c: &mut Ctx) -> Result<(), Bail> {
     c.restore(&[SI]);
     c.set_reg(BX, kind);
     let mut carried = carried;
-    if spare {
+    let taken = troop_moves::take_carried(carried, spare, troop.equipment(c));
+    super::rule_paths::hit(c.m, "search: equipment taken", taken.is_some());
+    super::rule_paths::hit(c.m, "search: none spare", taken.is_none());
+    if let Some((bits, kept)) = taken {
         let old = Location(c.reg(DI));
         let v = old.equipment(c, kind).wrapping_sub(1);
         old.set_equipment(c, kind, v);
-        let bits = troop.equipment(c) | (carried >> 8) as u8;
         troop.set_equipment(c, bits);
-        carried = kind;
+        carried = kept;
     }
     c.set_reg(CX, carried);
     troop.set_carried(c, carried);
@@ -4292,8 +4280,10 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let troop = Troop(c.reg(SI));
     let state = troop.state(&mut c);
-    if state & troop_state::TRAVELLING != 0 {
-        let moving = state & 3 == 3;
+    let out = troop_moves::set_out(state);
+    super::rule_paths::hit(c.m, "set out: retargeted", out != troop_moves::SetOut::Leaves);
+    super::rule_paths::hit(c.m, "set out: leaves", out == troop_moves::SetOut::Leaves);
+    if let troop_moves::SetOut::Retarget { move_ends: moving } = out {
         c.run(0x84b2, 8 + moving as u32)?;
         let target = c.reg(DI);
         troop.set_location(&mut c, target);
@@ -4320,7 +4310,8 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg(DI, home.offset());
         if harkonnen {
             let (count, dx) = troop_sides(&mut c, 0x84e5)?;
-            let last = count != 0 && dx.wrapping_sub(1) as i16 <= 0;
+            let last = troop_moves::abandons(count, dx);
+            super::rule_paths::hit(c.m, "set out: place abandoned", last);
             c.run(0x84e5, if count == 0 { 1 } else if last { 5 } else { 3 })?;
             if count != 0 {
                 c.set_reg(DX, dx.wrapping_sub(1));
@@ -4335,14 +4326,18 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let target = Location(c.word_in(SS, c.reg(SP)));
         let kind = target.kind(&mut c);
         let flags = target.flags(&mut c);
-        let stays = kind < 0x28 && flags & location_flag::HARKONNEN != 0;
-        c.run(0x84ef, if kind >= 0x28 { 3 } else if stays { 6 } else { 7 })?;
+        let goes = troop_moves::attacker_goes(kind, flags);
+        super::rule_paths::hit(c.m, "set out: attacker stays", goes == troop_moves::AttackerGoes::Stays);
+        super::rule_paths::hit(c.m, "set out: attacker loses motivation", goes == troop_moves::AttackerGoes::LosesMotivation);
+        let far = goes == troop_moves::AttackerGoes::Goes;
+        let stays = goes == troop_moves::AttackerGoes::Stays;
+        c.run(0x84ef, if far { 3 } else if stays { 6 } else { 7 })?;
         c.restore(&[DI]);
         if stays {
             return c.ret();
         }
-        if kind < 0x28 {
-            ui::lower_motivation(&mut c, 3, 0x8501)?;
+        if !far {
+            ui::lower_motivation(&mut c, troop_moves::NEAR_MOTIVATION_LOSS, 0x8501)?;
         }
     }
     c.run(0x8501, 4)?;
@@ -4363,7 +4358,7 @@ pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     c.run(0x8512, 4)?;
-    c.set_reg(CX, 7);
+    c.set_reg(CX, troop_moves::FIRST_STEPS);
     steps_8313(&mut c)
 }
 
@@ -4753,7 +4748,11 @@ pub(super) fn set_job_at_6ad4(c: &mut Ctx) -> Result<(), Bail> {
     };
     c.run(0x6ad4, n + 4)?;
     c.set_reg(DI, place);
-    let job = if quiet { 0x0a } else { job };
+    let given = troop_moves::job_given(job, place, || if quiet { 0 } else { 1 });
+    debug_assert_eq!(given, if quiet { 0x0a } else { job });
+    super::rule_paths::hit(c.m, "job: given", true);
+    super::rule_paths::hit(c.m, "job: bulb growing instead", given != job);
+    let job = given;
     c.set_reg8(r8::CL, job);
     troop.set_state(c, job);
     let b = troop.byte_12(c);
@@ -4781,7 +4780,9 @@ pub(super) fn set_job_at_6ad4(c: &mut Ctx) -> Result<(), Bail> {
         let troop = Troop(c.reg(SI));
         let activity = c.reg8(r8::AL);
         c.set_reg8(r8::CL, activity);
-        let bit = (0x2000u32 << (activity & 0x1f)) as u16;
+        let state = troop.state(c);
+        let bit = troop_moves::activity_mark(state, activity).unwrap_or(0);
+        super::rule_paths::hit(c.m, "job: activity marked", true);
         c.set_reg(AX, bit);
         let w = troop.word_12(c);
         troop.set_word_12(c, w | bit);
