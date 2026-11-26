@@ -93,6 +93,9 @@ pub const PATHS: &[&str] = &[
     "job: given",
     "job: bulb growing instead",
     "job: activity marked",
+    "meeting: away",
+    "meeting: raid",
+    "meeting: sietch freed",
 ];
 
 /// The counts.

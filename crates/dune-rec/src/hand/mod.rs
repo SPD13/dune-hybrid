@@ -769,6 +769,7 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x2318, story::visit_smuggler, "loc_02318"),
     (0x23e6, story::buy_from_smuggler_on_credit, "loc_023e6"),
     (0x2388, story::open_deal, "loc_02388"),
+    (0x7429, map::troops_meet, "loc_07429"),
     (0x241a, story::answer_buy, "loc_0241a"),
     (0x2431, story::answer_refuse, "loc_02431"),
     (0x2453, story::answer_haggle, "loc_02453"),

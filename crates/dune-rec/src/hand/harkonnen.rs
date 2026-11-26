@@ -138,6 +138,13 @@ pub fn region_mark(region: u8) -> u16 {
     0x8000u16.rotate_left((region & 0x1f) as u32)
 }
 
+/// The player's troops meeting a place's own troop raid it when it is
+/// of [`UNATTACKED_KIND`] or more; a sietch is only freed of its
+/// Harkonnen mark.
+pub fn meeting_raids(kind: u8) -> bool {
+    kind >= UNATTACKED_KIND
+}
+
 /// How many Harkonnen troops a raid leaves garrisoned at most: 1 on a
 /// quarter of the random word's values (its low two bits 0), else 0.
 pub fn garrison_bound(random: u16) -> u16 {

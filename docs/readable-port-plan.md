@@ -1202,14 +1202,26 @@ job other than 2 marks the activity, 2000h shifted left by it, in word
 12h). `troops_tick` (6C6Fh), `troop_move` (8308h), `troop_step`
 (8604h), `troop_arrived` (8357h, with its next place, 841Fh),
 `troop_set_out` (84A6h) and `set_troop_job` (6AD4h) are their frame.
-Validate's run k reaches 26 of the 28 paths with chosen inputs, all
-shadow-equal but one: meeting the place's own troop goes on into
-7429h (not ported), which runs past the call's 20 s, so that call is
-counted but not compared. Not reached: a troop merged (the partner is
-picked from the troops linked at the place) and a place abandoned to
-the Harkonnens (it needs one of their troops there); no game reaches
-either. Checked: unit tests, the three suites, the view check, the
-shadow check (258947 ok, 0 diff), validate (0 with differences).
+Validate's run k reaches every path with chosen inputs, all
+shadow-equal.
+
+**Every rule path reached** (2026-11-26). `troops_meet` (7429h, in
+`hand/map.rs`) is ported: the player's troops meeting a place's own
+troop (an arrival where the troop is the place's first, the attack
+jobs): away from the player's place `loc_071b2` with AL 7; a place of
+kind 28h or more raided (on into `location_raided`), a sietch only
+freed of its Harkonnen mark, then the garrison and the end of the raid
+(`location_raided`'s tail from 747Ch, shared). The meeting at an
+arrival is an arrival at an empty place (the troop linked first): run
+k's earlier input made the troop the place's first before linking,
+which looped the chain. Run k now also sets up the three paths no game
+reaches: a chain of two troops at 3A0h (troop 1 first, troop 2 after
+it) for a merge in the tick, an attacker leaving a Harkonnen place
+where a Harkonnen troop stays (abandoned), and a new day with both
+troops idle and unmotivated, one with bit 80h of byte 12h (DL 3: the
+idle report). Every path of every rule is now reached in run k (only
+"time: stopped" stays 0 there: play reaches it constantly), all
+shadow-equal.
 
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls

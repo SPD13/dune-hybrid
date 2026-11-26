@@ -4562,6 +4562,50 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     troops::run_for_each_troop(&mut c, entry::RAID_RALLY_OWN_TROOP, 0x7476)?;
     c.run(0x7476, 2)?;
     troops::run_for_each_troop(&mut c, entry::RAID_RENEW_HARKONNEN_TROOP, 0x747c)?;
+    raid_from_747c(&mut c)
+}
+
+/// `loc_07429`: the player's troops meet the place DI's own troop (a
+/// troop arriving there, `troop_arrived`, or the attack jobs). Away from
+/// the player's place ([`g::PLACE`]) `loc_071b2` with AL 7 first. A place
+/// of kind 28h or more is raided ([`location_raided`]); a sietch only
+/// loses its Harkonnen mark (bit 2 of byte 0Ah), its troops rallied
+/// (`loc_075af`), then the garrison and the end of
+/// [`location_raided`] (from 747Ch).
+pub fn troops_meet(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x7429)?;
+    let mut c = Ctx::new(m);
+    let away = c.reg(DI) != c.word(g::PLACE);
+    if away {
+        c.run(start, 4)?;
+        c.set_reg8(r8::AL, 7);
+        c.call(entry::CALL_29F0_F, 0x7434)?;
+    } else {
+        c.run(start, 2)?;
+    }
+    let di = c.reg(DI);
+    let kind = Location(di).kind(&mut c);
+    let raided = harkonnen::meeting_raids(kind);
+    super::rule_paths::hit(c.m, "meeting: away", away);
+    super::rule_paths::hit(c.m, "meeting: raid", raided);
+    super::rule_paths::hit(c.m, "meeting: sietch freed", !raided);
+    if raided {
+        c.run(0x7434, 2)?;
+        return location_raided(c.m, 0x7443);
+    }
+    // To 7479h and its call.
+    c.run(0x7434, 5 + 1)?;
+    let f = Location(di).flags(&mut c);
+    let f = c.and(B, f as u16, !(location_flag::HARKONNEN as u16));
+    Location(di).set_flags(&mut c, f as u8);
+    troops::run_for_each_troop(&mut c, entry::RAID_RALLY_OWN_TROOP, 0x747c)?;
+    raid_from_747c(&mut c)
+}
+
+/// `loc_07443` from 747Ch: the garrison left (`loc_0762a` until CX is at
+/// most DX), the endgame's check, [`count_shown_location`].
+fn raid_from_747c(c: &mut Ctx) -> Result<(), Bail> {
+    let mut c = c;
     let dx = harkonnen::garrison_bound(c.word(0));
     super::rule_paths::hit(c.m, if dx == 1 { "raid: garrison 1" } else { "raid: garrison 0" }, true);
     c.run(0x747c, 3 + dx as u32)?;
