@@ -1086,6 +1086,24 @@ watering). In every check run the growth found no cell of kind 10h to
 turn (0 cells grown in 16 days): that path of the rule is covered by its
 unit test only so far.
 
+**The troops' new day and the time step as rules** (2026-11-25):
+- `hand/troop_day.rs`: a raided location's raid over (`today - ends`
+  below FEh), the location freed (the raid bit off, a sietch again, its
+  byte 0Bh 5, one more sietch held), a troop restless after more than 8
+  days at its job, the location's first troop reporting when exactly 3
+  idle troops are elsewhere. `troop_day_update` (6E20h) is their frame.
+- `hand/clock.rs` (the clock's tick, advance, day and slot were already
+  its methods): whether the time moves (no voice, not stopped, the phase
+  below C8h), the change of day between two times (the high nibbles of
+  their low bytes), the desert's fatigue after a slot (one less, 0 below
+  10h and the remarks over). `time_step` (1B0Dh) and the new slot
+  (1B23h) are their frame.
+
+Checked: the rules' unit tests, the three suites, the view check, the
+shadow check of all seven games (258947 ok, 0 diff) and validate (0 with
+differences: 75 calls of 6E20h, 188 of 1B0Dh, 79 of 1B23h checked
+equal).
+
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
 (`pc::gfx::GfxEvent`: each call's registers, the marks a room, a

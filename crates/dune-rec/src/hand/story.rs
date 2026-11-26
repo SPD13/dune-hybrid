@@ -1,5 +1,6 @@
 //! Story progress, the intro script, and one-line flag setters.
 
+use super::clock;
 use super::characters::character_id as who;
 use super::smugglers::{self, SmugglerAt, smuggler_flag};
 use super::characters::{CharacterAt, character_flag};
@@ -6345,12 +6346,9 @@ pub fn time_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let k = c.clock().stopped;
     let t = c.progress().phase;
-    if k != 0 {
-        c.run(0x1b10, 4)?;
-        return c.ret();
-    }
-    if t >= 0xc8 {
-        c.run(0x1b10, 6)?;
+    if !clock::time_moves(false, k, t) {
+        // Stopped, or past the last phase: the second test's two more.
+        c.run(0x1b10, if k != 0 { 4 } else { 6 })?;
         return c.ret();
     }
     c.run(0x1b10, 6)?;
@@ -6382,19 +6380,16 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x1b28, 1)?;
     c.run(0x1b2a, 1)?;
     c.update_clock(|k| k.steps_pending = 0);
-    let a = c.situation().desert_fatigue.wrapping_sub(1);
-    let low = (a as i8) < 0x10;
+    let (after, low) = clock::fatigue_after(c.situation().desert_fatigue);
     c.run(0x1b2f, 4 + if low { 2 } else { 0 } + 2)?;
     let f4 = c.situation().desert_fatigue;
     let a = c.dec(B, f4 as u16) as u8;
     c.cmp(B, a as u16, 0x10);
-    let a = if low {
+    if low {
         c.xor(B, a as u16, a as u16);
         c.update_situation(|t| t.desert_remarks = 0);
-        0
-    } else {
-        a
-    };
+    }
+    let a = after;
     c.set_reg8(r8::AL, a);
     c.update_situation(|t| t.desert_fatigue = a);
     c.call(entry::REDRAW_DATE_PANEL, 0x1b43)?;
@@ -6402,7 +6397,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     c.call(entry::SKY_IF_CHANGED, 0x1b46)?;
     let now = c.game_time();
     let old = c.word(g::LAST_TIME);
-    let d = (old as u8 & 0xf0).wrapping_sub(now as u8 & 0xf0);
+    let d = clock::day_change(old, now);
     c.run(0x1b46, 8 + (d != 0) as u32)?;
     c.set_word(g::LAST_TIME, now);
     c.and(B, old & 0xff, 0xf0);

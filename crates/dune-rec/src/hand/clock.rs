@@ -200,6 +200,32 @@ impl Clock {
     }
 }
 
+/// The time step's rules (`time_step`, `new_time_1b23` in `hand/story.rs`,
+/// their 8086 frame).
+///
+/// The story phase from which the time no longer moves.
+pub const TIME_STOPS_AT_PHASE: u8 = 0xc8;
+
+/// Whether the clock's step moves the time: no voice playing, the clock
+/// not stopped, the story's phase below [`TIME_STOPS_AT_PHASE`].
+pub fn time_moves(voice: bool, stopped: u8, phase: u8) -> bool {
+    !voice && stopped == 0 && phase < TIME_STOPS_AT_PHASE
+}
+
+/// The change of day between the time `old` (at the last slot) and
+/// `now`, as the game tests it: the high nibbles of the times' low bytes
+/// (the day's low four bits) subtracted, a byte; 0 for the same day.
+pub fn day_change(old: u16, now: u16) -> u8 {
+    (old as u8 & 0xf0).wrapping_sub(now as u8 & 0xf0)
+}
+
+/// The desert's fatigue ([0F4h]) after a time slot: one less; below 10h
+/// (or wrapped) 0, and then the desert's remarks start over too (true).
+pub fn fatigue_after(f: u8) -> (u8, bool) {
+    let a = f.wrapping_sub(1);
+    if (a as i8) < 0x10 { (0, true) } else { (a, false) }
+}
+
 /// A save was loaded into the memory: the clock takes its values there
 /// (a sync-in at the boundary, not counted).
 pub(super) fn loaded(c: &mut Ctx) {
@@ -356,4 +382,23 @@ pub(super) fn update(c: &mut Ctx, f: impl FnOnce(&mut Clock)) {
     let mut k = Clock::get(c);
     f(&mut k);
     k.set(c);
+}
+
+#[cfg(test)]
+mod time_step_tests {
+    use super::*;
+
+    #[test]
+    fn rules() {
+        assert!(time_moves(false, 0, 0x50));
+        assert!(!time_moves(true, 0, 0x50));
+        assert!(!time_moves(false, 1, 0x50));
+        assert!(!time_moves(false, 0, 0xc8));
+        // Day 3 slot 15 to day 4 slot 0: the nibble moves.
+        assert_eq!(day_change(0x003f, 0x0040), 0xf0);
+        assert_eq!(day_change(0x0041, 0x0042), 0);
+        assert_eq!(fatigue_after(0x20), (0x1f, false));
+        assert_eq!(fatigue_after(0x10), (0, true));
+        assert_eq!(fatigue_after(0), (0, true));
+    }
 }

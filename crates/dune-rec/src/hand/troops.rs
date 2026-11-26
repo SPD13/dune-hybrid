@@ -3,6 +3,7 @@
 
 use super::game::{Particle, particle_flag};
 use super::ui;
+use super::troop_day;
 use super::story;
 use super::gfx;
 use super::globe;
@@ -2835,7 +2836,8 @@ const PLACE_2C0: u16 = 0x02c0;
 /// `grow_location`; after 8 days with its job (byte 14h) a motivation
 /// loss (`loc_06f93`, AL 1); and for the location's first troop, when
 /// `loc_06e82` counts 3 of its troops, `loc_06ea8` for each and the
-/// message pair 302h (`loc_029f0`; SI, DI kept).
+/// message pair 302h (`loc_029f0`; SI, DI kept). The decisions are the
+/// rules of [`troop_day`](super::troop_day); this is their 8086 frame.
 pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6e20)?;
     let mut c = Ctx::new(m);
@@ -2848,29 +2850,29 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     if taken {
         let day_ = time::game_day(&mut c, 0x6e31)?;
         let place = Location(c.reg(DI));
-        let since = (day_ as u8).wrapping_sub(place.raid_ends(&mut c));
-        c.set_reg8(r8::AL, since);
-        if since >= 0xfe {
+        let ends = place.raid_ends(&mut c);
+        c.set_reg8(r8::AL, (day_ as u8).wrapping_sub(ends));
+        if !troop_day::raid_over(day_ as u8, ends) {
             c.run(0x6e31, 4)?;
             return c.ret();
         }
         c.run(0x6e31, 7)?;
-        let b = place.flags(&mut c);
-        place.set_flags(&mut c, b & !location_flag::RAIDED);
-        let b = place.kind(&mut c);
-        place.set_kind(&mut c, b & 7);
+        let (flags, kind) = troop_day::freed(place.flags(&mut c), place.kind(&mut c));
+        place.set_flags(&mut c, flags);
+        place.set_kind(&mut c, kind);
         bump(&mut c, g::SIETCHES_HELD);
         c.call(entry::SET_PEOPLE_STATE_AT_PLACE, 0x6e47)?;
         c.run(0x6e47, 2)?;
-        Location(c.reg(DI)).set_radius(&mut c, 5);
+        Location(c.reg(DI)).set_radius(&mut c, troop_day::FREED_RADIUS);
     }
     c.call(entry::GROW_LOCATION, 0x6e4e)?;
     c.run(0x6e4e, 1)?;
     let day_ = time::game_day(&mut c, 0x6e51)?;
-    let days = (day_ as u8).wrapping_sub(Troop(c.reg(SI)).day(&mut c));
-    c.set_reg8(r8::AL, days);
-    c.run(0x6e51, if days > 8 { 5 } else { 3 })?;
-    if days > 8 {
+    let since = Troop(c.reg(SI)).day(&mut c);
+    let restless = troop_day::restless(day_ as u8, since);
+    c.set_reg8(r8::AL, (day_ as u8).wrapping_sub(since));
+    c.run(0x6e51, if restless { 5 } else { 3 })?;
+    if restless {
         ui::lower_motivation(&mut c, 1, 0x6e5d)?;
     }
     let id = Troop(c.reg(SI)).id(&mut c);
@@ -2882,7 +2884,7 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg(DX, 0);
     run_for_your_troops(&mut c, entry::MARK_IDLE_TROOP_ELSEWHERE, 0x6e6c)?;
-    if c.reg8(r8::DL) != 3 {
+    if !troop_day::idle_report(c.reg8(r8::DL)) {
         c.run(0x6e6c, 3)?;
         return c.ret();
     }
