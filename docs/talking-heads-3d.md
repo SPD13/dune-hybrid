@@ -481,7 +481,11 @@ Emptying after generating, when a take is already liked, is deliberate. `img2img
 
 **The recipe** (`img2img/room-recipes.json`). Per room: `key` (the room's capture, `studio/rooms/<key>.png`), `model`, `size`, `style` (one of `styles`: the rendering sentence), `style_ref`, `erase`, `guide`, `look_ref`, `scene` (what is in the room), `remove` (what the empty step takes out), `fix_blur`, `fix` (the instruction of a `fix` step: a change to a liked take that leaves the rest alone, such as replacing a piece of furniture, which the model does well; it does not change a room's geometry), `plate` and `placed` (the files), `light`, `guards` (`cx`, `top`, `feet` as fractions of the picture, `pose`, `turn`, `flip`, `centre`), `grade` (`bright`, `warm` or `tint`), `shadow`, `emblems` (`name`, `box` in 1992 pixels, `flip`), `emblem_colour`. `prompts` holds the sentences around a room's own text. The file's `_doc` describes every field.
 
-**State (2026-11-25).** Ten palace rooms, all on `banana_pro`, 20 credits a picture:
+**Banana Pro from Google directly (since 2026-11-25).** The recipe's `banana_via: gemini` sends the banana models to Google's own API in place of Tripo; the other models stay on Tripo. `gemini_img.py` has the arguments of `tripo_img.py` (a picture, a prompt, `--ref` pictures, `--size 1K|2K|4K`) and calls the Interactions endpoint with model `gemini-3-pro-image`; `room_gen.py` uses it for every step. The key is `GEMINI_API_KEY` (the script also reads it from the Windows user environment, for a shell opened before it was set). What differs from Tripo: no credits and no 1800 character prompt limit; Google bills about $0.24 a 4K picture; a room comes back 5928 x 2816 in about half a minute; the API returns JPEG only, which the script saves as PNG; with no aspect ratio given the picture keeps the input's shape. Only the plain generate step has run through it so far: the empty, fix, style-reference and guide steps use the same call but are untested on Google. The reason for the change: on 2026-11-25 Tripo's large Banana Pro size failed for a few hours (error 1001, "Failed to generate image", never charged) while its 2K size still worked.
+
+**Batches, at half price.** `gemini_batch.py submit ROOM ...` sends one generate request per room to Google's Batch API (`models/gemini-3-pro-image:batchGenerateContent`, the generateContent request shape: `contents`, `inline_data`, `generation_config` with `imageConfig.imageSize: 4K`) and writes `img2img/batch-<time>.json`; `collect` that file (`--wait MINUTES` to poll) saves each picture as the room's plate; `now ROOM` sends the same request directly at full price, to check a request before a batch. Google's stated turnaround is a day; the five batches of 2026-11-25 each took two to four minutes. A batch cannot be added to once sent, and submitting twice makes two batches. Rooms with an erase, a guide or reference pictures are not handled in a batch yet.
+
+**State (2026-11-25).** Eleven palace rooms on `banana_pro` through Tripo (20 credits a picture), the garden's plate through Google:
 
 | Room | Plate | Guards and emblems | State |
 |---|---|---|---|
@@ -495,6 +499,23 @@ Emptying after generating, when a take is already liked, is deliberate. `img2img
 | Girder hall (`room94`) | first take, dark style | none in this room | To review. The grated band of the floor glows more than in 1992, and a faint door shows behind the central post |
 | Bedchamber with library (`room99`) | first take with the throne room and dining hall as style references, then the desk and chair replaced by a `fix` step | none in this room | To review. The desk and chair are modern, in wood and bronze with thin copper trim and no rivets (user; a first steel and glass console was too futuristic). The walls came out riveted copper where 1992 has lavender, pulled by the references; ceiling cloth and carpet stayed lavender |
 | Empty hall (`room100`) | first take with the throne room as style reference; doors left as open doorways (user); the carpet redone locally | none in this room | To review. The carpet has a deep pile and a soft mottled colour, not a woven pattern of motifs |
+| Garden under the dome (`room207`) | full-size take through Google directly, garden style, no reference (user: a room of its own) | none in this room | Kept by the user. More painted and illustrated than the interiors. A first take through Tripo at 2K (3008 x 1408) is kept as `room207-banana_pro-2k.png` |
+
+The sietch and the Harkonnen fortress, all first takes, through Google (room 114 through Tripo), nobody placed in them yet:
+
+| Room | Described as (user) | Result |
+|---|---|---|
+| Sietch 114 | a stone cave | Good: the lamp on its ledge, the carved hollow in the back wall, sand floor |
+| Sietch 115 | a stone cave | Fair: layout right, the golden rock at the sides banded |
+| Sietch 116, 118, 122, 124 | a stone cave | Good, photographic |
+| Sietch 117, 120, 121 | a stone cave | Weak: still read as enlarged pixel art (117: the sand floor is pixel noise) |
+| Sietch 119, 123 | a stone cave | Mixed: the tunnels and arches are good, floors and some textures blocky |
+| Sietch 125 | a dark cave with stones and a vast area of water | Good: black water to a level horizon, the stones mirrored in it |
+| Sietch 222 | a vast stone quarry with a lush area and futuristic buildings | Good, but the cliff tops are stair-stepped against the sky |
+| Harkonnen 166, 167 | military concrete fortresses | Good: a hall of slanting concrete slabs with rings and chains; a bunker gun post |
+| Harkonnen 168 | a marble palace throne room | Good. The red banners are the model's own (no vector master): straight, where 1992's taper to a point |
+
+The small figures in the sietch pixel art (116, 118, 120, 121, 124) were asked to be left out; that has not been checked at full size. The weak sietch rooms have the cause of the empty hall's carpet: a dithered or noisy surface in the pixel art is kept. Flatten it before generating, or take another take (about $0.12 a room in a batch).
 
 The other takes of the throne room (the other models, the three style variants from `img2img/room97-variants.py`) are set aside in `img2img/room97-archive/`, the corridor's earlier takes in `img2img/room93-archive/`; the earlier SDXL rooms with 3D guards are still at `room-guards.html`, `leto-throne.html` and `dining.html`.
 
@@ -502,5 +523,7 @@ The other takes of the throne room (the other models, the three style variants f
 - **The plates are the masters.** Nothing regenerates them: the pictures are game-derived and are in no repo, so `img2img/room*-banana_pro*.png` must be kept with the studio folder's backups.
 - The throne room: keep the approved guards or the relit ones.
 - The folded-arms pose for the dining hall and armoury guards (the game's own pose there), and feet that sit on the floor when he is seen three-quarter.
-- The remaining rooms. A guard standing behind furniture will need the depth occlusion of `dining.html`; none of these rooms did.
+- The weak sietch rooms (117, 119, 120, 121, 123), and the cliff tops of 222.
+- The Google route for the empty, fix, style-reference and guide steps, and batches for rooms with an erase, a guide or references.
+- A guard standing behind furniture will need the depth occlusion of `dining.html`; none of these rooms did.
 - Getting a plate into an HD pack: a plate redesigns details, so it cannot be colour-anchored to the 1992 palette like the SDXL rooms; it needs the true-colour room plates of pack v4.
