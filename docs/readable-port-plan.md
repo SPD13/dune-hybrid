@@ -1136,6 +1136,23 @@ map's cells) and shadow-checks them: every path is reached and equal but
 the idle troops' report (exactly 3 idle troops elsewhere; not set up
 yet) and the time stopped (which play reaches all the time).
 
+**The Harkonnens' attacks as rules** (2026-11-26, `hand/harkonnen.rs`):
+whether a target is picked today (from the attack day [1156h], in phase
+5Ch, not with the player at the palace 7C8h) and which places can be one
+(below kind 28h, discovered, not 2C0h; the one with the most of the
+player's troops is picked by the frame's calls); whether the Harkonnens
+may take a place (from phase 3Ch, or 70h after [1154h]), the quiet days
+(the time's bit 10h) and the draw (the random word's top bit, rotated
+left); a raid's end (the day + 2), its radius 5, its region mark (8000h
+rotated left by the place's region) and the garrison's bound (1 on a
+quarter of the random word). `pick_attack_location` (1E43h),
+`harkonnen_take` (1DD7h) and `location_raided` (7443h) are their frame.
+The games reach almost none of these paths (one takeover window on day
+23): validate's run k calls the three ports with chosen inputs for each
+(17 more paths), all reached and shadow-equal. Checked: unit tests, the
+three suites, the view check, the shadow check (258947 ok, 0 diff),
+validate (0 with differences).
+
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
 (`pc::gfx::GfxEvent`: each call's registers, the marks a room, a

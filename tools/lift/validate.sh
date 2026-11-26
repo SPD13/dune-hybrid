@@ -91,9 +91,14 @@ if [ -f $DAY23 ]; then
   # raised; a wind-trap's place full (2A4h, water FAh); a new day ([1174h]
   # 0); and the growth with the seed 2000h (first cell 1000h) over two
   # cells of kind 10h at the map's 6613:1000h (the map's segment in these
-  # runs). The runner's `rule paths:` line counts them.
-  RULES="6e20:SI=08aa:DI=03a0:[46de]=0001:[03aa]=145c;6e20:SI=08aa:DI=03a0:[46de]=0001:[03aa]=175c;6efd:SI=08aa:[08be]=6e0c;6efd:SI=08aa:[08ac]=0801;6efd:SI=08aa:[08ac]=0601:[114e]=03a0;6efd:SI=08aa:[002a]=0065;708a:SI=08aa:DI=03a0:[08c3]=be00;1c46:[1170]=ffff;1c46:[1170]=0000:[00ae]=0000;c02e:[00a6]=0000;63f0:[46de]=0001:[02be]=fa00;1b23:[46dd]=0001:[1174]=0000;65b6:[1000:65b4]=2000:[6613:1000]=1010"
-  want k && REC_ONLY=6e20,6efd,708a,1c46,c02e,63f0,65b6,1b23,642e REC_BUDGET=4000000000 REC_EVENTS=50000000   $B --dir "$GAME" --cmd "ADP220 SBP2227 ENG" --events "61.5:key:1:1,61.6:key:1:0,68:load:1"     --save $DAY23 --seconds 75 --rec shadow --call-with "$RULES" --call-ms 20000     --rec-report $S/v-$T-k.tsv --out $S/v-$T-k > $S/v-$T-k.log 2>&1
+  # runs). The Harkonnens' attacks: the pick with the attack day set
+  # after or before today, outside or in phase 5Ch, the player at the
+  # palace; the takeover late, before, too soon or waited after [1154h],
+  # on a quiet day, its draw both ways (the skip flag [11BCh] cleared);
+  # a raid on 3A0h with both garrison bounds. The runner's `rule paths:`
+  # line counts them.
+  RULES="6e20:SI=08aa:DI=03a0:[46de]=0001:[03aa]=145c;6e20:SI=08aa:DI=03a0:[46de]=0001:[03aa]=175c;6efd:SI=08aa:[08be]=6e0c;6efd:SI=08aa:[08ac]=0801;6efd:SI=08aa:[08ac]=0601:[114e]=03a0;6efd:SI=08aa:[002a]=0065;708a:SI=08aa:DI=03a0:[08c3]=be00;1c46:[1170]=ffff;1c46:[1170]=0000:[00ae]=0000;c02e:[00a6]=0000;63f0:[46de]=0001:[02be]=fa00;1b23:[46dd]=0001:[1174]=0000;65b6:[1000:65b4]=2000:[6613:1000]=1010;1e43:[1156]=ffff;1e43:[1156]=0000;1e43:[1156]=0000:[002a]=005c:[114e]=07c8;1e43:[1156]=0000:[002a]=005c;1dd7:[002a]=003c:[0000]=0001;1dd7:[1154]=ffff;1dd7:[1154]=0160;1dd7:[1154]=0000:[0002]=0172;1dd7:[1154]=0000:[11bb]=0000:[0000]=8000;1dd7:[1154]=0000:[11bb]=0000:[0000]=0001;7443:SI=08aa:DI=03a0:[0000]=0004;7443:SI=08aa:DI=03a0:[0000]=0001"
+  want k && REC_ONLY=6e20,6efd,708a,1c46,c02e,63f0,65b6,1b23,642e,1e43,1dd7,7443 REC_BUDGET=4000000000 REC_EVENTS=50000000   $B --dir "$GAME" --cmd "ADP220 SBP2227 ENG" --events "61.5:key:1:1,61.6:key:1:0,68:load:1"     --save $DAY23 --seconds 75 --rec shadow --call-with "$RULES" --call-ms 20000     --rec-report $S/v-$T-k.tsv --out $S/v-$T-k > $S/v-$T-k.log 2>&1
 else
   for x in h j k; do echo "no save for the scripted runs" > $S/v-$T-$x.log; : > $S/v-$T-$x.tsv; done
 fi

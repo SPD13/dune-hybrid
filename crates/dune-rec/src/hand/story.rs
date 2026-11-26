@@ -1,6 +1,7 @@
 //! Story progress, the intro script, and one-line flag setters.
 
 use super::clock;
+use super::harkonnen;
 use super::characters::character_id as who;
 use super::smugglers::{self, SmugglerAt, smuggler_flag};
 use super::characters::{CharacterAt, character_flag};
@@ -4770,24 +4771,31 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     let ph = c.progress().phase;
-    if ph < 0x3c {
-        let d = c.game_time();
-        let t = c.word(g::WORD_1154);
-        let a = d.wrapping_sub(t);
-        if d < t || a < 0x70 {
-            c.run(0x1f64, if d < t { 6 } else { 8 })?;
-            let a = pure::sub(W, d, t);
-            c.set_reg(AX, a);
-            return c.ret();
-        }
-        c.run(0x1f64, 7)?;
-        let a = pure::sub(W, d, t);
-        c.set_reg(AX, a);
-    } else {
-        c.run(0x1f64, 2)?;
+    let (now, since) = (c.game_time(), c.word(g::WORD_1154));
+    // The rules ([`harkonnen::take_window`], [`harkonnen::quiet_day`],
+    // [`harkonnen::take_draw`]).
+    let window = harkonnen::take_window(ph, now, since);
+    c.run(0x1f64, match window {
+        harkonnen::TakeWindow::Late => 2,
+        harkonnen::TakeWindow::Before => 6,
+        harkonnen::TakeWindow::TooSoon => 8,
+        harkonnen::TakeWindow::Waited => 7,
+    })?;
+    super::rule_paths::hit(c.m, match window {
+        harkonnen::TakeWindow::Late => "take: late",
+        harkonnen::TakeWindow::Before => "take: before",
+        harkonnen::TakeWindow::TooSoon => "take: too soon",
+        harkonnen::TakeWindow::Waited => "take: waited",
+    }, true);
+    if window != harkonnen::TakeWindow::Late {
+        c.set_reg(AX, pure::sub(W, now, since));
+    }
+    if !window.open() {
+        return c.ret();
     }
     let d = c.game_time();
-    if d & 0x10 != 0 {
+    super::rule_paths::hit(c.m, "take: quiet day", harkonnen::quiet_day(d));
+    if harkonnen::quiet_day(d) {
         c.run(0x1f79, 3)?;
         return c.ret();
     }
@@ -4798,12 +4806,11 @@ pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.set_reg8(r8::AL, k);
         return c.ret();
     }
-    let w = c.word(0);
-    let carry = w & 0x8000 != 0;
-    c.run(0x1f79, if carry { 9 } else { 9 })?;
+    let (carry, r) = harkonnen::take_draw(c.word(0));
+    super::rule_paths::hit(c.m, if carry { "take: drawn" } else { "take: not drawn" }, true);
+    c.run(0x1f79, 9)?;
     c.set_byte(g::SKIP_HARKONNEN_TAKE, 0);
     c.set_reg8(r8::AL, 0);
-    let r = pure::rol1(W, w);
     c.set_word(0, r);
     if !carry {
         return c.ret();

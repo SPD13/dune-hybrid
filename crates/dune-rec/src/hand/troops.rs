@@ -5,6 +5,7 @@ use super::game::{Particle, particle_flag};
 use super::ui;
 use super::troop_day;
 use super::troop_work;
+use super::harkonnen;
 use super::story;
 use super::gfx;
 use super::globe;
@@ -2739,8 +2740,8 @@ pub(super) fn troop_on_screen(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
 const SLOT_OFFSETS: u16 = 0x1672;
 
 /// `loc_01e43`: in phase 5Ch, once the day reaches [`g::ATTACK_DAY`], unless
-/// the player is at [`PALACE_7C8`]: of the locations below kind 28h
-/// (byte 8), without bit 80h of byte 0Ah and other than [`PLACE_2C0`],
+/// the player is at [`harkonnen::PALACE`]: of the locations below kind 28h
+/// (byte 8), without bit 80h of byte 0Ah and other than [`harkonnen::NEVER_ATTACKED`],
 /// the one where `loc_01ea1` counts the most troops (DX, over its chain)
 /// becomes [`g::ATTACK_TARGET`] ([`g::ATTACKS_PENDING`] one more), then `loc_01ea9` for
 /// its troops and the message pair 0F08h (`call_29f0_f`). CX the count,
@@ -2750,29 +2751,40 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
     let day = time::game_day(&mut c, 0x1e46)?;
-    let cost = if day < c.word(g::ATTACK_DAY) {
-        3
-    } else if c.progress().phase != 0x5c {
-        5
-    } else if game::here(&mut c) == PALACE_7C8 {
-        7
-    } else {
-        8
-    };
-    c.run(0x1e46, cost)?;
-    if cost != 8 {
+    let (from, phase, here) = (c.word(g::ATTACK_DAY), c.progress().phase, game::here(&mut c));
+    // The rules ([`harkonnen::attack_due`], [`harkonnen::not_a_target`]).
+    let due = harkonnen::attack_due(day, from, phase, here);
+    c.run(0x1e46, match due {
+        harkonnen::AttackDue::NotYet => 3,
+        harkonnen::AttackDue::OtherPhase => 5,
+        harkonnen::AttackDue::PlayerAtPalace => 7,
+        harkonnen::AttackDue::Due => 8,
+    })?;
+    super::rule_paths::hit(c.m, match due {
+        harkonnen::AttackDue::NotYet => "attack: not yet",
+        harkonnen::AttackDue::OtherPhase => "attack: other phase",
+        harkonnen::AttackDue::PlayerAtPalace => "attack: player at the palace",
+        harkonnen::AttackDue::Due => "attack: due",
+    }, true);
+    if due != harkonnen::AttackDue::Due {
         return c.ret();
     }
     c.set_reg(DI, Location::FIRST);
     c.set_reg(CX, 0);
     let mut place = Location(Location::FIRST);
     loop {
-        if place.kind(&mut c) >= 0x28 {
-            c.run(0x1e60, 2)?;
-        } else if place.flags(&mut c) & location_flag::UNDISCOVERED != 0 {
-            c.run(0x1e60, 4)?;
-        } else if place.offset() == PLACE_2C0 {
-            c.run(0x1e60, 6)?;
+        let (kind, flags) = (place.kind(&mut c), place.flags(&mut c));
+        if let Some(why) = harkonnen::not_a_target(kind, flags, place.offset()) {
+            super::rule_paths::hit(c.m, match why {
+                harkonnen::NotATarget::Kind => "target: kind",
+                harkonnen::NotATarget::Undiscovered => "target: undiscovered",
+                harkonnen::NotATarget::Spared => "target: spared",
+            }, true);
+            c.run(0x1e60, match why {
+                harkonnen::NotATarget::Kind => 2,
+                harkonnen::NotATarget::Undiscovered => 4,
+                harkonnen::NotATarget::Spared => 6,
+            })?;
         } else {
             c.run(0x1e60, 9)?;
             c.set_reg(DX, 0);
@@ -2800,6 +2812,7 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
     }
     c.run(0x1e8c, 5)?;
+    super::rule_paths::hit(c.m, "attack: target picked", true);
     let target = c.reg(BX);
     c.set_reg(DI, target);
     c.set_word(g::ATTACK_TARGET, target);
@@ -2811,11 +2824,6 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
     call_29f0_f(c.m, 0x71b2)
 }
 
-/// Location 63 (7C8h): no attack picked while the player is there; job 8
-/// there can become 0Ah (`set_troop_job`).
-const PALACE_7C8: u16 = 0x07c8;
-/// Location 17 (2C0h), never picked by `pick_attack_location`.
-const PLACE_2C0: u16 = 0x02c0;
 
 /// `loc_06e20`: with [`g::DAY_CHANGED`] set, for the troop SI at the location
 /// DI: a taken location (bit 8 of byte 0Ah) whose day (byte 0Bh) is past

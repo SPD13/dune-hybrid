@@ -32,6 +32,23 @@ pub const PATHS: &[&str] = &[
     "income: fell",
     "income: rose",
     "income: raised",
+    "attack: not yet",
+    "attack: other phase",
+    "attack: player at the palace",
+    "attack: due",
+    "attack: target picked",
+    "target: kind",
+    "target: undiscovered",
+    "target: spared",
+    "take: late",
+    "take: before",
+    "take: too soon",
+    "take: waited",
+    "take: quiet day",
+    "take: drawn",
+    "take: not drawn",
+    "raid: garrison 1",
+    "raid: garrison 0",
 ];
 
 /// The counts.

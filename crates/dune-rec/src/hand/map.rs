@@ -4,6 +4,7 @@
 use super::game::{Particle, Troop, particle_flag};
 use super::draw;
 use super::ecology;
+use super::harkonnen;
 use super::text;
 use super::tasks;
 use super::screens;
@@ -4527,7 +4528,7 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (si, di) = (c.reg(SI), c.reg(DI));
     c.push(si);
     c.push(di);
-    Location(di).set_radius(&mut c, 5);
+    Location(di).set_radius(&mut c, harkonnen::RAID_RADIUS);
     c.call(entry::LOCATION_CIRCLE, 0x744c)?;
     c.run(0x744c, 3)?;
     let di = c.pop();
@@ -4537,9 +4538,8 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::GET_INGAME_DAY_Q, 0x7451)?;
     c.run(0x7451, 4)?;
     let al = c.reg8(r8::AL);
-    let a = pure::add(B, al as u16, 2);
     let di = c.reg(DI);
-    Location(di).set_raid_ends(&mut c, a as u8);
+    Location(di).set_raid_ends(&mut c, harkonnen::raid_ends(al));
     story::raise_charisma(&mut c, 4, 0x745b)?;
     c.run(0x745b, 2)?;
     troops::raise_all_motivation(&mut c, 1, 0x7460)?;
@@ -4552,7 +4552,9 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.push(cx);
     let cl = c.byte(di);
     c.set_reg8(r8::CL, cl);
-    let r = c.m.cpu.shift(0, W, 0x8000, (cl & 0x1f) as u32) as u16;
+    // `rol` for its flags; the mark is the rule's.
+    let _ = c.m.cpu.shift(0, W, 0x8000, (cl & 0x1f) as u32);
+    let r = harkonnen::region_mark(cl);
     c.set_reg(AX, r);
     c.set_word(g::REGIONS_TO_UNMARK, r);
     let x = c.pop();
@@ -4560,13 +4562,9 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
     troops::run_for_each_troop(&mut c, entry::RAID_RALLY_OWN_TROOP, 0x7476)?;
     c.run(0x7476, 2)?;
     troops::run_for_each_troop(&mut c, entry::RAID_RENEW_HARKONNEN_TROOP, 0x747c)?;
-    let seed = c.word(0);
-    let z = seed & 3 == 0;
-    c.run(0x747c, 3 + z as u32)?;
-    let mut dx = 0u16;
-    if z {
-        dx = pure::inc(W, 0);
-    }
+    let dx = harkonnen::garrison_bound(c.word(0));
+    super::rule_paths::hit(c.m, if dx == 1 { "raid: garrison 1" } else { "raid: garrison 0" }, true);
+    c.run(0x747c, 3 + dx as u32)?;
     c.set_reg(DX, dx);
     loop {
         c.run(0x7487, 3)?;
