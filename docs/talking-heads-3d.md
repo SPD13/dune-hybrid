@@ -572,15 +572,19 @@ A pilot on the room screen's bottom panel (2026-11-26). Everything is in `tripo/
 | Open book (`ICONES` 9), globe (6) | The left block only changed; the open book overhangs the room by 6 rows, with alpha |
 | Arrows open (1Dh to 20h) | One edit, four overlays of glowing gold; the master's dull copper arrows are the closed state. The engine draws an overlay where a button is live, in place of the palette offset |
 | Palace plan button (24h) | Cut from the master with alpha; the base has an empty frame |
-| The head (10h to 1Ah) | Three flat layers in place of 11 sprites (`hud_head.py`), below |
+| The head (10h to 1Ah) | Three flat layers in place of 11 sprites (`hud_head.py`), below. `hud_cut.py` also composes them into the 11 sprites themselves (`ICONES-016` to `026`, 20 x 23 at (150,137), alpha over the room), for an engine that still draws sprite 16 + step |
+| The people of the two slots (41h to 49h, `ICONES` 65 to 73) | No generation: the head of each character's HD portrait (`img2img/NAME-tripo.png`), cut by a box in the recipe (`faces`), fitted to the slot, shaded like the recess (`hud_faces.py`). In the engine's order: Leto, Jessica, Thufir, Duncan, Gurney, Stilgar, Kynes, Chani, Harah (matched by eye). Thufir is in profile as his portrait is; Duncan comes from his full-body picture |
+| The Atreides hawks (`ICONES` 53 and 76) | No generation: drawn from the vector master the rooms use (`studio/emblems/atreides-hawk.svg`) as red enamel (`hud_insignia.py`): 53 the hawk alone (the map screen's middle button), 76 with its bar and a dark outline (the pointer on the map) |
 
 **The head as layers.** The engine holds one number, the head step ([E8h], 0 down, 10 up), raised by `ui_head_animate_up` when the player has the hand (after a scene refresh outside a place, back from the map, after a dialogue) and lowered by `ui_head_animate_down` when a talk or a film takes over. A trace of it rising shows sprites 16, 17, 17, 16, 20 ... 26, 0.04 s apart (18 and 19 are the pictures of 17 and 16): it dips one pixel, then rises, 7 or 8 game pixels in all. `head_blink` shows step 9 then 8: a dip of two pixels, not closed eyes. So no 3D is needed: a back layer (the collar and the stone hump with the head taken out, one edit), the head as the master shows it, moved down by the step, and the collar's front rim drawn over it. The head's layer needs nothing below the chin, since it only moves down (a free-standing head was tried and came back smeared). The recipe's `head.rows` has the original height per step, `rest` and `seconds` the values for a smooth eased slide, which the layers allow and the sprites do not. The model redrew the collar as a wider open hood than the master's.
+
+**The slots.** The engine keeps two bytes ([1152h], [1153h]: a character 0 to 8, FFh nobody); `draw_gauges` draws the empty slot 40h and then 41h + the character in the elements 1C0Ch (35,182)-(55,197) and 1C1Ah (58,182)-(78,197); a filled slot is a hot spot (`dialogue_click`). While a counter runs ([2222h], `blink_gauges`, a step every 64 timer ticks), the face is left out on every other step. The preview's blink uses 0.32 s a step, an estimate.
 
 **Cost.** Eleven calls to Google at about $0.24: the master, six state edits, two green copies, and two that were not kept.
 
 **Not done.**
 - The engine side: marks at the HUD routines (the panel, the side set, the button set, the people slots, the head, the date, the command labels) and a renderer that draws the base, the overlays that are on, and the text with an HD font. Until then these are pictures and mock-ups; nothing is drawn by the engine or stored in a pack.
-- States: the map and travel button sets, the nine people faces and their blink, the sun and moon, the day number's place, the book's page turn, the three-frame "nudge" of the side blocks.
+- States: the map and travel button sets, the sun and moon, the day number's place, the book's page turn, the three-frame "nudge" of the side blocks.
 - The map screen recolours the whole panel blue through the palette: a tint or a second master.
 - Time of day: a colour grade from the F0h to FFh ramp.
 - The other interface sheets (`ONMAP`, `ATTACK`, `PALPLAN`, `STARS`, `MIXR`), and the font.
