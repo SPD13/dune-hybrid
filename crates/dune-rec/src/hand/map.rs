@@ -4631,6 +4631,7 @@ pub fn grow_water(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 break 'one;
             }
             if ecology::wind_trap_water(bl, 0).is_none() {
+                super::rule_paths::hit(c.m, "ecology: wind-trap full", true);
                 c.run(0x63fe, 7)?;
                 c.set_reg8(r8::AL, al);
                 c.set_reg(BX, 0xfa00 | bl as u16);
@@ -4652,6 +4653,7 @@ pub fn grow_water(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let di = c.reg(DI);
             Location(di).set_water(&mut c, v);
             ecology::count(c.m, 0, 0, 1);
+            super::rule_paths::hit(c.m, "ecology: wind-trap watered", true);
         }
         di = c.reg(DI);
         let nd = di.wrapping_add(0x1c);
@@ -4705,6 +4707,8 @@ fn spread_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
     let di = grown.after;
     c.run(at, n)?;
     ecology::count(c.m, 1, writes.len() as u64, 0);
+    super::rule_paths::hit(c.m, "ecology: day grown", true);
+    super::rule_paths::hit_n(c.m, "ecology: cell grown", writes.len() as u64);
     c.set_sreg(ES, seg);
     for (p, v) in writes {
         c.m.cpu.write8(&mut c.m.hw, ES, p, v);

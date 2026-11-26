@@ -6347,6 +6347,7 @@ pub fn time_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let k = c.clock().stopped;
     let t = c.progress().phase;
     if !clock::time_moves(false, k, t) {
+        super::rule_paths::hit(c.m, "time: stopped", true);
         // Stopped, or past the last phase: the second test's two more.
         c.run(0x1b10, if k != 0 { 4 } else { 6 })?;
         return c.ret();
@@ -6381,6 +6382,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     c.run(0x1b2a, 1)?;
     c.update_clock(|k| k.steps_pending = 0);
     let (after, low) = clock::fatigue_after(c.situation().desert_fatigue);
+    super::rule_paths::hit(c.m, "time: fatigue to 0", low);
     c.run(0x1b2f, 4 + if low { 2 } else { 0 } + 2)?;
     let f4 = c.situation().desert_fatigue;
     let a = c.dec(B, f4 as u16) as u8;
@@ -6398,6 +6400,7 @@ fn new_time_1b23(c: &mut Ctx) -> Result<(), Bail> {
     let now = c.game_time();
     let old = c.word(g::LAST_TIME);
     let d = clock::day_change(old, now);
+    super::rule_paths::hit(c.m, "time: new day", d != 0);
     c.run(0x1b46, 8 + (d != 0) as u32)?;
     c.set_word(g::LAST_TIME, now);
     c.and(B, old & 0xff, 0xf0);

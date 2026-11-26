@@ -1180,6 +1180,16 @@ pub fn troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail> {
     // else 8 (1 floored).
     let w = troop_work::effective_motivation(motivation, job, encouraged, at_home, phase);
     let (v, ah) = (w.value, w.job);
+    let late = (0x64..0x68).contains(&phase);
+    for (path, taken) in [
+        ("motivation: capped", w.capped),
+        ("motivation: irrigation", job != troop_job::ATTACKS && ah == troop_job::IRRIGATION),
+        ("motivation: attack at home", at_home),
+        ("motivation: late floor", w.floored),
+        ("motivation: late penalty", late),
+    ] {
+        super::rule_paths::hit(c.m, path, taken);
+    }
     let mut cost = 7 + encouraged as u32;
     cost += if job == troop_job::ATTACKS {
         5 + if at_home { 4 + w.capped as u32 } else { 0 }
@@ -2369,6 +2379,9 @@ pub fn troop_rate(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let old = troop.rate(&mut c);
     let trend = troop_work::rate_trend(old, rate);
     let (changed, up) = (trend.is_some(), trend == Some(8));
+    super::rule_paths::hit(c.m, "rate: unarmed", quartered);
+    super::rule_paths::hit(c.m, "rate: up", up);
+    super::rule_paths::hit(c.m, "rate: down", changed && !up);
     c.run(0x708d, 18 + if quartered { 2 } else { 0 } + if changed { 6 + !up as u32 } else { 0 })?;
     c.set_reg(AX, rate);
     troop.set_rate(&mut c, rate);
@@ -2827,7 +2840,10 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let place = Location(c.reg(DI));
         let ends = place.raid_ends(&mut c);
         c.set_reg8(r8::AL, (day_ as u8).wrapping_sub(ends));
-        if !troop_day::raid_over(day_ as u8, ends) {
+        let over = troop_day::raid_over(day_ as u8, ends);
+        super::rule_paths::hit(c.m, "troop day: raid over", over);
+        super::rule_paths::hit(c.m, "troop day: raid going on", !over);
+        if !over {
             c.run(0x6e31, 4)?;
             return c.ret();
         }
@@ -2846,6 +2862,7 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let since = Troop(c.reg(SI)).day(&mut c);
     let restless = troop_day::restless(day_ as u8, since);
     c.set_reg8(r8::AL, (day_ as u8).wrapping_sub(since));
+    super::rule_paths::hit(c.m, "troop day: restless", restless);
     c.run(0x6e51, if restless { 5 } else { 3 })?;
     if restless {
         ui::lower_motivation(&mut c, 1, 0x6e5d)?;
@@ -2859,7 +2876,9 @@ pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.set_reg(DX, 0);
     run_for_your_troops(&mut c, entry::MARK_IDLE_TROOP_ELSEWHERE, 0x6e6c)?;
-    if !troop_day::idle_report(c.reg8(r8::DL)) {
+    let report = troop_day::idle_report(c.reg8(r8::DL));
+    super::rule_paths::hit(c.m, "troop day: idle report", report);
+    if !report {
         c.run(0x6e6c, 3)?;
         return c.ret();
     }

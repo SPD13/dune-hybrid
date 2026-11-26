@@ -1123,6 +1123,19 @@ suites, the view check, the shadow check of all seven games (258947 ok,
 0 diff) and validate (0 with differences; 142 calls of 6EFDh, 37 of
 708Ah, 64 of 1C46h, 75 of C02Eh checked equal).
 
+**The rules' paths** (2026-11-25, `hand/rule_paths.rs`): the frames
+count each path of the rules they take (`rule paths: ecology: cell grown
+N, troop day: raid over N, ...`, every path listed, 0 included). The
+suite's games reach few of them: the time is stopped most of the time
+(the monkey's clicks open dialogues), and no save holds a cell of kind
+10h (days 3 to 354 decoded: kinds 0, 20h, 30h only), so a day's growth
+never turns one. Validate's new run **k** calls the rules' ports with
+chosen inputs from day 23's state (`--call-with`, which now also takes
+`[seg:off]=hex` words outside DS: the growth's seed at CS:65B4h, the
+map's cells) and shadow-checks them: every path is reached and equal but
+the idle troops' report (exactly 3 idle troops elsewhere; not set up
+yet) and the time stopped (which play reaches all the time).
+
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
 (`pc::gfx::GfxEvent`: each call's registers, the marks a room, a

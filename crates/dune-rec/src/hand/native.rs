@@ -12,6 +12,7 @@ pub struct Native {
     pub save_image: super::save_image::SaveImageState,
     pub save_file: super::save_file::SaveFileState,
     pub ecology: super::ecology::EcologyState,
+    pub rule_paths: super::rule_paths::RulePaths,
     pub troops: super::record_table::RecordTable,
     pub locations: super::record_table::RecordTable,
     pub text_box: super::record_table::RecordTable,

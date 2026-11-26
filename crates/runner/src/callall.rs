@@ -31,21 +31,43 @@ struct Outcome {
 pub struct Call {
     entry: u16,
     regs: Vec<(usize, u16)>,
-    words: Vec<(u16, u16)>,
+    /// (segment, offset, value): `[addr]` in the game's DS, `[seg:off]`
+    /// anywhere (the map's cells, the code segment's words).
+    words: Vec<(u16, u16, u16)>,
 }
 
 impl Call {
-    /// `ENTRY:REG=hex:[addr]=hex...`, all hex; REG a general register.
+    /// `ENTRY:REG=hex:[addr]=hex:[seg:off]=hex...`, all hex; REG a
+    /// general register, `[addr]` a word in the game's DS.
     pub fn parse(spec: &str) -> Result<Call, String> {
-        let bad = || format!("--call-with ENTRY:REG=hex:[addr]=hex..., got {spec}");
+        let bad = || format!("--call-with ENTRY:REG=hex:[addr]=hex:[seg:off]=hex..., got {spec}");
         let hex = |s: &str| u16::from_str_radix(s, 16).map_err(|_| bad());
-        let mut parts = spec.split(':');
+        // Split on the colons outside the brackets.
+        let mut fields = Vec::new();
+        let (mut depth, mut from) = (0, 0);
+        for (i, ch) in spec.char_indices() {
+            match ch {
+                '[' => depth += 1,
+                ']' => depth -= 1,
+                ':' if depth == 0 => {
+                    fields.push(&spec[from..i]);
+                    from = i + 1;
+                }
+                _ => {}
+            }
+        }
+        fields.push(&spec[from..]);
+        let mut parts = fields.into_iter();
         let entry = hex(parts.next().ok_or_else(bad)?)?;
         let (mut regs, mut words) = (Vec::new(), Vec::new());
         for set in parts {
             let (k, v) = set.split_once('=').ok_or_else(bad)?;
             if let Some(addr) = k.strip_prefix('[').and_then(|k| k.strip_suffix(']')) {
-                words.push((hex(addr)?, hex(v)?));
+                let (seg, off) = match addr.split_once(':') {
+                    Some((s, o)) => (hex(s)?, hex(o)?),
+                    None => (pc::GAME_DS, hex(addr)?),
+                };
+                words.push((seg, off, hex(v)?));
             } else {
                 let names = ["AX", "CX", "DX", "BX", "SP", "BP", "SI", "DI"];
                 let r = names.iter().position(|n| n.eq_ignore_ascii_case(k)).ok_or_else(bad)?;
@@ -76,9 +98,9 @@ pub fn run_with(m: &mut Machine, main_loop: u16, calls: &[Call], call_ns: u64) {
         for &(r, v) in &c.regs {
             m.cpu.regs[r] = v;
         }
-        for &(addr, v) in &c.words {
+        for &(seg, off, v) in &c.words {
             // On the bus: an owned word goes to its owner.
-            let at = pc::GAME_DS as u32 * 16 + addr as u32;
+            let at = (seg as u32 * 16 + off as u32) & 0xf_ffff;
             m.hw.poke(at, v as u8);
             m.hw.poke(at + 1, (v >> 8) as u8);
         }

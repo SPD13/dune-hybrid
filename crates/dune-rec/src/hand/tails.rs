@@ -948,6 +948,7 @@ pub fn update_totals(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (spice, shipped, at_start, gained) = (c.economy().spice, c.word(g::SPICE_PAID), c.word(g::SPICE_YESTERDAY), c.economy().income);
     let (now, borrow) = super::spice_accounts::day_income(spice, shipped, at_start);
     let below = super::spice_accounts::raised_income(gained, now).is_none();
+    super::rule_paths::hit(c.m, "income: raised", !below);
     c.run(0xc031, 4 + borrow as u32 + 2 + (!below) as u32 + 4)?;
     c.set_reg(AX, spice);
     let v = now;
@@ -1665,6 +1666,9 @@ pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let (stock, borrow) = super::spice_accounts::day_income(spice, shipped, at_start);
     let (fell, rose) = super::spice_accounts::income_change(before, stock);
     let loss = rose != 0;
+    super::rule_paths::hit(c.m, "income: negative", borrow);
+    super::rule_paths::hit(c.m, "income: fell", fell != 0);
+    super::rule_paths::hit(c.m, "income: rose", rose != 0);
     c.run(0x1c62, 4 + (d >= 2) as u32 + 7 + borrow as u32 + 5 + if loss { 2 } else { 0 } + 3)?;
     c.set_reg8(r8::AL, d.wrapping_sub(1));
     let a = pure::inc(B, d.wrapping_sub(1) as u16);

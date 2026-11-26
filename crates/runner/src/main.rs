@@ -923,6 +923,8 @@ fn main() -> ExitCode {
         if w + r + rs + rsm > 0 {
             println!("save files: {w} written by the game, {wd} differing from the Rust state's; {r} read, {rd} not packing back to themselves; {rs} restores, {rsd} bytes the Rust load would change after them ({rsm} not checked: their image changed under them)");
         }
+        let paths: Vec<String> = dune_rec::hand::rule_paths::counts(&mut m).iter().map(|(p, n)| format!("{p} {n}")).collect();
+        println!("rule paths: {}", paths.join(", "));
         let (days, grown, watered) = dune_rec::hand::ecology::counts(&mut m);
         if days + watered > 0 {
             println!("ecology: {days} days grown by the rules ({grown} cells), {watered} wind-traps watered");

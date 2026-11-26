@@ -11,7 +11,7 @@ T=$1
 cd "$REPO"
 B=$RUN_HAND
 run() { $B --dir "$GAME" --cmd "ADP220 SBP2227 ENG" --events "61.5:key:1:1,61.6:key:1:0" "$@"; }
-# STEPS="d e ..." runs only those runs (a..j, on), keeping the others'
+# STEPS="d e ..." runs only those runs (a..k, on), keeping the others'
 # files, then the summary; STEPS=report only the summary.
 want() { [ -z "$STEPS" ] || case " $STEPS " in *" $1 "*) return 0;; *) return 1;; esac; }
 [ -n "$STEPS" ] || rm -rf $S/v-$T-*
@@ -81,12 +81,25 @@ if [ -f $DAY23 ]; then
     --save $DAY23 --seconds 75 --rec shadow \
     --call-with "0e6c:AX=000d;c8fb:AX=000d:BP=c4cd;b1ee:[243e]=0019;13c8:SI=1322" --call-ms 120000 \
     --rec-report $S/v-$T-j.tsv --out $S/v-$T-j > $S/v-$T-j.log 2>&1
+  # The rules' paths no game reaches (docs/readable-port-plan.md, "The
+  # rules' paths"): calls with chosen inputs from day 23's state. Troop 0
+  # (8AAh, at its job since day 12, today 22) at its place 3A0h with a
+  # raid ending on day 20 (over) or 23 (on); its motivation 110 (capped),
+  # its job 8 (irrigation) or 6 at the player's place, the phase 65h (the
+  # late penalty and floor); unarmed (its rate quartered); the day's
+  # income from a stock of FFFFh (negative) or 0 (risen); the income
+  # raised; a wind-trap's place full (2A4h, water FAh); a new day ([1174h]
+  # 0); and the growth with the seed 2000h (first cell 1000h) over two
+  # cells of kind 10h at the map's 6613:1000h (the map's segment in these
+  # runs). The runner's `rule paths:` line counts them.
+  RULES="6e20:SI=08aa:DI=03a0:[46de]=0001:[03aa]=145c;6e20:SI=08aa:DI=03a0:[46de]=0001:[03aa]=175c;6efd:SI=08aa:[08be]=6e0c;6efd:SI=08aa:[08ac]=0801;6efd:SI=08aa:[08ac]=0601:[114e]=03a0;6efd:SI=08aa:[002a]=0065;708a:SI=08aa:DI=03a0:[08c3]=be00;1c46:[1170]=ffff;1c46:[1170]=0000:[00ae]=0000;c02e:[00a6]=0000;63f0:[46de]=0001:[02be]=fa00;1b23:[46dd]=0001:[1174]=0000;65b6:[1000:65b4]=2000:[6613:1000]=1010"
+  want k && REC_ONLY=6e20,6efd,708a,1c46,c02e,63f0,65b6,1b23,642e REC_BUDGET=4000000000 REC_EVENTS=50000000   $B --dir "$GAME" --cmd "ADP220 SBP2227 ENG" --events "61.5:key:1:1,61.6:key:1:0,68:load:1"     --save $DAY23 --seconds 75 --rec shadow --call-with "$RULES" --call-ms 20000     --rec-report $S/v-$T-k.tsv --out $S/v-$T-k > $S/v-$T-k.log 2>&1
 else
-  for x in h j; do echo "no save for the scripted runs" > $S/v-$T-$x.log; : > $S/v-$T-$x.tsv; done
+  for x in h j k; do echo "no save for the scripted runs" > $S/v-$T-$x.log; : > $S/v-$T-$x.tsv; done
 fi
 
-for x in a b c d e f g h i j on; do echo "== $x"; grep -E "^rec|^call-each:.*calls|^call-with|^exit" $S/v-$T-$x.log; done
-for x in a b c d e f g h i j; do awk -F'\t' 'NR>1 && $4>0' $S/v-$T-$x.tsv; done
+for x in a b c d e f g h i j k on; do echo "== $x"; grep -E "^rec|^call-each:.*calls|^call-with|^exit" $S/v-$T-$x.log; done
+for x in a b c d e f g h i j k; do awk -F'\t' 'NR>1 && $4>0' $S/v-$T-$x.tsv; done
 python - "$LIFT_DATA/ref/off" "$S/v-$T-on" <<'PY'
 import sys,os,filecmp
 a,b=sys.argv[1:]
@@ -94,5 +107,5 @@ fs=sorted(f for f in os.listdir(a) if f.endswith('.png'))
 print('shots:', sum(filecmp.cmp(os.path.join(a,f),os.path.join(b,f),shallow=False) for f in fs if os.path.exists(os.path.join(b,f))),'/',len(fs),'identical')
 PY
 echo "hand ports (entry name ok diff bailed skipped), summed:"
-cat $S/v-$T-a.tsv $S/v-$T-b.tsv $S/v-$T-c.tsv $S/v-$T-d.tsv $S/v-$T-e.tsv $S/v-$T-f.tsv $S/v-$T-g.tsv $S/v-$T-h.tsv $S/v-$T-i.tsv $S/v-$T-j.tsv | grep "\[hand\]" | awk -F'	' '{k=$1" "$2; ok[k]+=$3; d[k]+=$4; b[k]+=$5; r[k]+=$8; f[k]+=$9} END {for (k in ok) print k"	"ok[k]"	"d[k]"	"b[k]"	"r[k]"	"f[k]}' | sort > $S/v-$T-hand.txt
+cat $S/v-$T-a.tsv $S/v-$T-b.tsv $S/v-$T-c.tsv $S/v-$T-d.tsv $S/v-$T-e.tsv $S/v-$T-f.tsv $S/v-$T-g.tsv $S/v-$T-h.tsv $S/v-$T-i.tsv $S/v-$T-j.tsv $S/v-$T-k.tsv | grep "\[hand\]" | awk -F'	' '{k=$1" "$2; ok[k]+=$3; d[k]+=$4; b[k]+=$5; r[k]+=$8; f[k]+=$9} END {for (k in ok) print k"	"ok[k]"	"d[k]"	"b[k]"	"r[k]"	"f[k]}' | sort > $S/v-$T-hand.txt
 awk -F'	' '{n++; if ($3>0) {bad++; print "DIFF", $0}; if ($2+$4==0) un++; if ($2==0 && $5==0) {nr++}; if ($6>0) fo++} END {print n" hand ports, "bad+0" with differences, "un+0" never checked, "nr+0" never ran their own code to the end, "fo+0" with harness calls running other code than the lifted"}' $S/v-$T-hand.txt
