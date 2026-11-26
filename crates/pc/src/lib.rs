@@ -182,6 +182,10 @@ pub struct Machine {
     /// restored): the Rust state in `native` takes it from the memory,
     /// its mirror at those points (dune-rec's `native::restored`).
     pub native_restored: Option<fn(&mut Machine)>,
+    /// A file written or read by the program (DOS's 40h and 3Fh): its
+    /// name, whether written, and the bytes (dune-rec's save checks,
+    /// `save_file::on_file`).
+    pub file_hook: Option<fn(&mut Machine, &str, bool, &[u8])>,
 }
 
 /// Detects the game's busy-wait: back-to-back INT 33h/3 polls with nothing
@@ -240,6 +244,7 @@ impl Machine {
             rec: None,
             native: None,
             native_restored: None,
+            file_hook: None,
         };
         for _ in 0..5 {
             m.files.push(None);

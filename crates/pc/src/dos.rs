@@ -222,10 +222,14 @@ pub(crate) fn int21(m: &mut Machine) {
                     Err(_) => break,
                 }
             }
+            let name = name.clone();
             for (i, &b) in buf[..n].iter().enumerate() {
                 m.mem_write(seg, off.wrapping_add(i as u16), b);
             }
             m.cpu.regs[AX] = n as u16;
+            if let Some(hook) = m.file_hook {
+                hook(m, &name, false, &buf[..n]);
+            }
         }
         0x40 => {
             let (h, count) = (m.cpu.regs[BX] as usize, m.cpu.regs[CX] as usize);
@@ -237,9 +241,13 @@ pub(crate) fn int21(m: &mut Machine) {
                 return;
             }
             match m.files.get_mut(h) {
-                Some(Some(crate::OpenFile { f, .. })) => {
+                Some(Some(crate::OpenFile { f, name })) => {
                     let n = f.write(&data).unwrap_or(0);
                     m.cpu.regs[AX] = n as u16;
+                    let name = name.clone();
+                    if let Some(hook) = m.file_hook {
+                        hook(m, &name, true, &data);
+                    }
                 }
                 _ => error(m, 6),
             }

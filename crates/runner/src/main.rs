@@ -592,6 +592,7 @@ fn main() -> ExitCode {
         // memory wherever the memory is put back (the shadow check, the
         // harness's calls).
         m.native_restored = Some(dune_rec::hand::native::restored);
+        m.file_hook = Some(dune_rec::hand::save_file::on_file);
         rec.late_events = args.rec_native;
         // REC_SAMPLES=N: check the first N calls of each routine (default 20).
         if let Some(n) = std::env::var("REC_SAMPLES").ok().and_then(|v| v.parse().ok()) {
@@ -917,6 +918,10 @@ fn main() -> ExitCode {
                 println!("map cells: owned at {:04x}:0, {} cells, {used} of the save's packed bytes non-zero", mc.segment(), dune_rec::hand::map_cells::CELLS);
             }
             None => println!("map cells: not owned"),
+        }
+        let [w, wd, r, rd, rs, rsd, rsm] = dune_rec::hand::save_file::counts(&mut m);
+        if w + r + rs + rsm > 0 {
+            println!("save files: {w} written by the game, {wd} differing from the Rust state's; {r} read, {rd} not packing back to themselves; {rs} restores, {rsd} bytes the Rust load would change after them ({rsm} not checked: their image changed under them)");
         }
         if let Some(d) = dune_rec::hand::dialogue_table::get(&m) {
             let lines = dune_rec::hand::book::get(&m).map_or(0, |b| b.lines().len());

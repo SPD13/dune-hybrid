@@ -67,6 +67,7 @@ pub mod map_cells;
 pub mod variables;
 pub mod dialogue_table;
 pub mod book;
+pub mod save_file;
 pub mod flags_read;
 mod cursor;
 mod dialogue;

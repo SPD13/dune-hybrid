@@ -117,6 +117,9 @@ pub fn restore_from_save_memory(m: &mut Machine, start: u16) -> Result<(), Bail>
     let mut c = Ctx::new(m);
     super::map_cells::own(&mut c);
     super::book::own(&mut c);
+    // The image's place, for the check at the end.
+    let (src_seg, src_at) = (c.sreg(DS), c.reg(SI));
+    let before = super::save_file::image_at(c.m, src_seg, src_at);
     c.run(start, 5)?;
     let map = c.word_in(SS, g::MAP_GFX_DATA + 2);
     c.set_sreg(ES, map);
@@ -169,6 +172,7 @@ pub fn restore_from_save_memory(m: &mut Machine, start: u16) -> Result<(), Bail>
         c.rep_counted(0xa4); // rep movsb
     }
     c.run(0xb4ba, 1)?;
+    super::save_file::check_restored(c.m, src_seg, src_at, &before);
     c.ret()
 }
 

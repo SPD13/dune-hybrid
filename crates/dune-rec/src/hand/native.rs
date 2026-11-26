@@ -10,6 +10,7 @@ use pc::Machine;
 pub struct Native {
     pub clock: super::clock::ClockState,
     pub save_image: super::save_image::SaveImageState,
+    pub save_file: super::save_file::SaveFileState,
     pub troops: super::record_table::RecordTable,
     pub locations: super::record_table::RecordTable,
     pub text_box: super::record_table::RecordTable,

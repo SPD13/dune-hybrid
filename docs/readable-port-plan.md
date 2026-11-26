@@ -1038,6 +1038,37 @@ reports `dialogue: N of 988 entries said, 136 lists, M lines in the
 book`. Day 23: 62.7 MIPS. All checks equal (the three suites, the view
 check, 258947 shadow calls, validate).
 
+**The save file written and read in Rust** (2026-11-25,
+`hand/save_file.rs`): `SaveImage` is a save by block (the day, the
+map's packed states, the book, the dialogue table, the story block):
+made from the machine (`from_machine`, the blocks on the bus, so from
+their owners), written as the file (`to_file`: the day word, the
+header F7h / the last run's count / the size, the image packed as
+`compress_sav` packs it), read from one (`from_file`) and laid into
+the machine (`apply`, as `restore_from_save_memory`: the map's states
+into bits 4..5 of the cells, the other blocks whole). The game's own
+save and load still run, checked against it:
+- each file the game writes (a new `pc::Machine::file_hook` on DOS's
+  40h and 3Fh, set by the runner) must equal the one made from the Rust
+  state at that moment, whichever code made it (the generated code in
+  the suite, the ports in the shadow check);
+- each save the game reads whole must pack back to itself (the load
+  menu's 2-byte reads of a slot's day are not checked);
+- after each restore by the port, the image applied again must change
+  nothing (not checked when the image itself changed while the restore
+  ran: the harness's calls from any state, with the source over the
+  stack).
+
+The runner reports `save files: W written by the game, 0 differing from
+the Rust state's; R read, 0 not packing back to themselves; N restores,
+0 bytes the Rust load would change after them`. In the full check: 22
+files written in the suite, 27 in validate, all equal; every file read
+packs back; 12 restores in the shadow games and 18 in validate's runs
+a and b, all 0 (8 not checked, the source over the stack). Writing the
+file natively in place of the game's routines (the instruction counts
+then no longer the original's) belongs to the native subsystems that
+come next.
+
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
 (`pc::gfx::GfxEvent`: each call's registers, the marks a room, a
