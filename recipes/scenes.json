@@ -1,20 +1,39 @@
 {
-  "_doc": "Scene recipes (full-screen pictures). Pilot-approved settings; see docs/hd-studio-plan.md, phase 0 pilot results.",
+  "_doc": "Scene recipes (full-screen pictures). Pilot-approved settings; see docs/hd-studio-plan.md, phase 0 pilot results. master: the route in use for a view since 2026-11-25, one daytime picture from an image model (tripo/scene_batch.py; here the text sent with the daytime picture enlarged 6 times: prompt with {scene} and {style} filled in). times: how the other hours are made from it, without generating them (tripo/scene_times.py). The older keys (prompt, negative, palette and the defaults) are the local diffusion route of hdgen.py, kept for comparison.",
   "defaults": {
     "scale": 4,
     "strength": 0.85,
     "cond": 0.6,
     "soften": 4.0,
     "anchor": 8,
-    "store": "palette"
+    "store": "palette",
+    "master": {
+      "model": "banana_pro",
+      "route": "google batch",
+      "size": "4K",
+      "enlarge": 6,
+      "prompt": "Redo this 1992 pixel-art game background in high definition. Keep exactly the same camera, perspective, composition, horizon line, the place and overall shape of every dune, ridge and shadow, and the same colours. The staircase steps and square blocks along the outlines are only an artefact of the low resolution: draw every outline as the natural form it stands for. {scene} {style}"
+    },
+    "times": {
+      "method": "local affine colour transfer",
+      "guide": "master",
+      "radius": 6,
+      "eps": 0.0004,
+      "palettes": "SKYDN sub-resources 8 dawn, 9 day, 10 dusk, 11 night (+ 4 x palette group)"
+    }
   },
   "scenes": {
     "DN20": {
-      "status": "approved 2026-10-14",
+      "status": "master by Banana Pro 2026-11-25 (second take: natural mountain outlines), dawn, dusk and night made from it; in review. Local route approved 2026-10-14",
       "palette": "SKYDN:0",
       "prompt": "landscape photograph, vast rolling sand dunes of a desert planet stretching to the horizon, fine wind ripples on the sand, sharp dune crests, soft shadows, hazy sky, high detail, 8k",
       "negative": "people, buildings, vehicles, plants, text, watermark, cartoon, anime, painting, illustration, pixel art, blurry, noise",
-      "todo": "sharper foreground (photo depth of field)"
+      "todo": "some summits of the far range are still flat-topped; faint patches in the night sand where the pixel art is dithered; local route: sharper foreground (photo depth of field)",
+      "master": {
+        "sprite": "DN20-000",
+        "scene": "The deep desert of Arrakis: rolling dunes of pink-orange sand with sharp crests, one steep slip face in deep maroon shadow at the left, and a cloudless sky, deep blue at the top fading to pale near the horizon. Along the horizon runs a distant range of low violet mountains in haze: real weathered mountains with rounded, irregular, eroded ridgelines and soft slopes, at the same place and height as in the picture, never flat-topped mesas, terraces, steps or rectangular blocks.",
+        "style": "Vast, empty and silent, hard clear midday light with crisp shadows, like David Lynch's Dune (1984). Render it as a photorealistic film still: real sand with fine wind ripples, real light, deep focus, everything sharp. No people, no vehicles, no buildings, no clouds. No pixels, no text, no border."
+      }
     }
   }
 }
