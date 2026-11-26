@@ -3,6 +3,7 @@
 
 use super::game::{Particle, Troop, particle_flag};
 use super::draw;
+use super::ecology;
 use super::text;
 use super::tasks;
 use super::screens;
@@ -1313,20 +1314,20 @@ pub fn scan_row_both_ways(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// `loc_0642e`: DX = how many of the 6 bytes from ES:SI - 1 have bits
-/// 30h = 10h.
+/// 30h = 10h (the rule: [`ecology::spreading_around`]).
 pub fn count_10_bytes(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x642e)?;
     let mut c = Ctx::new(m);
-    let si = c.reg(SI).wrapping_sub(1);
+    let at = c.reg(SI);
+    let si = at.wrapping_sub(1);
     let step = c.string_step(W);
-    let mut n = 3;
-    let mut p = si;
-    for _ in 0..3 {
-        let w = c.word_in(ES, p);
-        n += 4 + ((w >> 8) & 0x30 == 0x10) as u32 + 2 + (w & 0x30 == 0x10) as u32 + 1;
-        p = p.wrapping_add(step);
-    }
-    c.run(start, n + 1)?;
+    let es = c.sreg(ES);
+    let around = {
+        let m = &*c.m;
+        ecology::spreading_around(|o| m.hw.peek(m.cpu.phys(es, o)), at, step)
+    };
+    // 3 + 7 a word + 1 a cell counted, then the `ret`.
+    c.run(start, 3 + 3 * 7 + around as u32 + 1)?;
     c.set_reg(CX, 3);
     c.set_reg(SI, si);
     let mut dx = 0u16;
@@ -4629,7 +4630,7 @@ pub fn grow_water(m: &mut Machine, start: u16) -> Result<(), Bail> {
                 c.set_reg8(r8::AL, al);
                 break 'one;
             }
-            if bl >= 0xfa {
+            if ecology::wind_trap_water(bl, 0).is_none() {
                 c.run(0x63fe, 7)?;
                 c.set_reg8(r8::AL, al);
                 c.set_reg(BX, 0xfa00 | bl as u16);
@@ -4641,18 +4642,16 @@ pub fn grow_water(m: &mut Machine, start: u16) -> Result<(), Bail> {
             let si = Location(di).cell(&mut c);
             c.set_reg(SI, si);
             let count = bytes_with_10(&mut c, 0x6414)?;
-            let d = (count >> 1).wrapping_add(1);
-            let v = bl.wrapping_add(d as u8);
-            let cap = v >= 0xfa;
+            let v = ecology::wind_trap_water(bl, count).expect("below the most");
+            let cap = v == ecology::MAX_WATER;
             c.run(0x6414, 5 + cap as u32 + 1)?;
             let d = pure::shr1(W, count, 1);
             let d = pure::inc(W, d);
             c.set_reg(DX, d);
-            let v = pure::add(B, bl as u16, d & 0xff);
-            let v = if cap { 0xfa } else { v as u8 };
             c.set_reg(BX, 0xfa00 | v as u16);
             let di = c.reg(DI);
             Location(di).set_water(&mut c, v);
+            ecology::count(c.m, 0, 0, 1);
         }
         di = c.reg(DI);
         let nd = di.wrapping_add(0x1c);
@@ -4685,51 +4684,27 @@ fn spread_at(c: &mut Ctx, at: u16, pre: u32) -> Result<(), Bail> {
         return Err(Bail);
     }
     let seg = c.word(g::MAP_GFX_SEGMENT);
-    let mut si = c.code_word(0x65b4);
-    let mut bp = 0u16;
-    let mut n = pre + 4;
-    let mut writes: Vec<(u16, u8)> = Vec::new();
-    let mut ax = c.reg(AX);
-    let mut di = 0u16;
-    for _ in 0..0x46 {
-        let cf = si & 1 != 0;
-        si >>= 1;
-        n += 2;
-        if cf {
-            si ^= 0x402;
-            n += 1;
-        }
-        di = si;
-        n += 1;
-        loop {
-            let mut al = match writes.iter().rev().find(|w| w.0 == di) {
-                Some(w) => w.1,
-                None => c.byte_at_seg(seg, di),
-            };
-            let ah = al & 0x30;
-            n += 5;
-            if ah == 0x10 {
-                al = al & 0xcf | 0x20;
-                writes.push((di, al));
-                bp = bp.wrapping_add(1);
-                n += 5;
-            }
-            ax = (ah as u16) << 8 | al as u16;
-            di = di.wrapping_add(0x7ff);
-            n += 3;
-            if di >= 0xc5f9 {
-                break;
-            }
-        }
-        n += 1;
-    }
+    let seed = c.code_word(0x65b4);
+    // The rule ([`ecology::grow`]) over the cells as the bus serves them.
+    let grown = {
+        let m = &*c.m;
+        ecology::grow(|o| m.hw.peek(m.cpu.phys(seg, o)), seed)
+    };
+    let bp = grown.grown.len() as u16;
     let mode = c.map_view().mode;
-    n += 3 + if bp == 0 { 1 } else { 2 + if mode & 0x80 != 0 { 2 } else { 1 } };
+    // The original's path: 4 a seed step (1 more with the taps), 8 a
+    // cell looked at (5 more when it grows), then the end.
+    let n = pre + 4 + 4 * ecology::GROW_STEPS + grown.taps + 8 * grown.looked + 5 * bp as u32
+        + 3 + if bp == 0 { 1 } else { 2 + if mode & 0x80 != 0 { 2 } else { 1 } };
     if n > 300_000 {
         c.m.cpu.ip = at;
         return Err(Bail);
     }
+    let (writes, si) = (grown.grown, grown.seed);
+    let ax = (grown.last_kind as u16) << 8 | grown.last as u16;
+    let di = grown.after;
     c.run(at, n)?;
+    ecology::count(c.m, 1, writes.len() as u64, 0);
     c.set_sreg(ES, seg);
     for (p, v) in writes {
         c.m.cpu.write8(&mut c.m.hw, ES, p, v);

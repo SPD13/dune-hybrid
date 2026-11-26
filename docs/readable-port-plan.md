@@ -1069,6 +1069,20 @@ file natively in place of the game's routines (the instruction counts
 then no longer the original's) belongs to the native subsystems that
 come next.
 
+**The first rules in Rust: the planet's day** (2026-11-25,
+`hand/ecology.rs`): pure functions of the typed state (the cells of kind
+10h around a place, a wind-trap's water after a day, the day's growth of
+kind-10h cells into 20h by the shift-register seed), returning the
+outcome and how it was found; `grow_water`, `spread_spice` and
+`count_10_bytes` are now their 8086 frame (the outcome applied through
+the owners, the original's instruction count charged by path, its
+registers set). The runner reports `ecology: N days grown by the rules
+(M cells), K wind-traps watered`. Checked: the rules' unit tests, the
+three suites, the view check, the shadow check of start12/start21 and of
+the three entries on day13/day23 (0 diff); **still to run: the shadow
+check of the day games and validate** (validate's runs reach these
+entries: run a 8 growths, 132 counts).
+
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
 (`pc::gfx::GfxEvent`: each call's registers, the marks a room, a

@@ -923,6 +923,10 @@ fn main() -> ExitCode {
         if w + r + rs + rsm > 0 {
             println!("save files: {w} written by the game, {wd} differing from the Rust state's; {r} read, {rd} not packing back to themselves; {rs} restores, {rsd} bytes the Rust load would change after them ({rsm} not checked: their image changed under them)");
         }
+        let (days, grown, watered) = dune_rec::hand::ecology::counts(&mut m);
+        if days + watered > 0 {
+            println!("ecology: {days} days grown by the rules ({grown} cells), {watered} wind-traps watered");
+        }
         if let Some(d) = dune_rec::hand::dialogue_table::get(&m) {
             let lines = dune_rec::hand::book::get(&m).map_or(0, |b| b.lines().len());
             let (said, all) = d.said();

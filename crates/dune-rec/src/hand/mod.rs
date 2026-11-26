@@ -68,6 +68,7 @@ pub mod variables;
 pub mod dialogue_table;
 pub mod book;
 pub mod save_file;
+pub mod ecology;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
