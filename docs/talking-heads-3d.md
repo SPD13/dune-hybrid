@@ -443,3 +443,39 @@ The tools:
 ## 9. Related experiments
 
 The same Tripo account built rigged full-body figures placed on the HD rooms: an Atreides guard and rifle (`guard-pose.html`, rigged with Tripo's auto-rig, 25 credits; posed in code with arm IK and hand contacts), the throne room with the guards and Leto (`leto-throne.html`), and the dining hall with depth-based occlusion from Depth Anything V2 (`dining.html`).
+
+## 10. Rooms: a photographic plate from Tripo's image models
+
+Rooms stay flat pictures: the camera never moves, so a room is one generated plate with our own guards, characters and emblems placed on it. Building the room itself as a Tripo 3D model was tried on the throne room and dropped (`room97.html`: Tripo turns the room into a free-standing object, the throne on a patch of floor, with the walls and the rest of the hall missing).
+
+**The models.** `tripo_img.py` (`/generation/image-to-image`) takes `--model`; the list is fixed, and Tripo accepts no custom model or LoRA. The same photographic prompt on the throne room, 2026-11-25:
+
+| Model | Credits (as run) | Result |
+|---|---|---|
+| `seedream_v5` (the script's default) | 5 | Keeps the layout; guards and emblems stay pixel art |
+| `banana_pro` | 20 (comes back about 6000 wide whatever `--size` says) | The most photographic, a real built set. Redesigns details (the throne's carving, a carpet runner, the banners' shape) while keeping where things are. **The user's choice.** |
+| `chat_image_2` (`--quality medium`) | 15 at 2816 wide, 10 at 2048 | Keeps the layout closely, dark and moody |
+| `chat_image_2.5_sunburst` | 15 | Keeps the layout, bright and glossy |
+
+Limits that shape the method: no seed, no strength and no negative prompt (a second run is a new take, and how far the picture departs from the original is steered by the prompt alone); an input of at most 6000 pixels a side and 20 MB; requests one at a time (parallel ones are refused with HTTP 429). Several input images are possible (`inputs`, named `image[1]`, `image[2]` in the prompt; up to 10 for the banana models): that is how an approved room would be given as the style reference for the next rooms. `tripo_img.py` does not send them yet.
+
+**The steps** (from `tripo/`; the recipe is `img2img/room-recipes.json`):
+
+1. **Generate** the room from the 1992 picture, enlarged 6 times without smoothing, people and emblems still in it: `python img2img/room_gen.py room97 generate`. Look at the take; run it again under another name for a new one.
+2. **Empty** the take that is kept: `python img2img/room_gen.py room97 empty img2img/room97-banana_pro.png`. The same model edits its own picture and removes what the recipe's `remove` names (the guards, the wall emblems), leaving everything else as it is. The result is the **plate**.
+3. **The guard's render**: open `guard-render.html` with `save_server.py` running (port 8791). It poses the rigged guard as in the game, renders him from the front on a transparent background, 1500 x 2500, and saves `out/guard-game-front.png`. Once is enough for every room.
+4. **Place** the guards and the emblems: `%LOCALAPPDATA%\DuneHD\env\Scripts\python.exe img2img/room_place.py room97` (it needs OpenCV and this repo's `hdgen.py`, for `render_emblem`). The guard goes at each place in the recipe, mirrored where the game mirrors him, graded to the room (brightness, then a warm multiply), with a contact shadow and a faint reflection in the floor. Each emblem is drawn from its vector master (`studio/emblems/atreides-hawk.svg`) in the 1992 picture's box, as low painted relief: a soft shadow under it, the upper edges lit.
+5. **Preview**: add the pictures to `REBUILT` in `preview.html` (a 2816-wide copy; the full pictures are 18 MB each).
+
+Emptying after generating, not before, is deliberate. `img2img/room_clean.py` paints the guards, their reflections and the emblems out of the pixel art first (boxes from `recipes/rooms.json`), and the model then draws the empty room in one step; that works, but with no seed it is a different room every time, and the user preferred the first take's throne, doors and light. Editing the chosen take keeps it.
+
+**The recipe** (`img2img/room-recipes.json`), per room: `key` (the room's capture, `studio/rooms/<key>.png`), `model`, `size`, `style` (one of `styles`: the rendering sentence, to be the same for the whole game), `scene` (what is in the room), `remove` (what the empty step takes out), `plate` and `placed` (the files), `guards` (`cx`, `top`, `feet` as fractions of the picture, `flip`), `grade` (`bright`, `warm`), `emblems` (`name`, `box` in 1992 pixels, `flip`), `emblem_colour`. `prompts` holds the sentences around a room's own text.
+
+**State (2026-11-25).** The throne room (`room97`): plate `img2img/room97-banana_pro-empty.png` (6080 x 2816), with guards and emblems `img2img/room97-banana_pro-placed.png`; in the preview under **Banana Pro + our guards**. Three style variants on `chat_image_2` (film set, matte painting, remaster; `img2img/room97-variants.py`) are there for comparison.
+
+**Open.**
+- **The plate is the master.** Nothing regenerates it: the pictures are game-derived and are in no repo, so `img2img/room97-banana_pro*.png` must be kept with the studio folder's backups.
+- The guard is a little crisper and brighter than the room, and his contact shadow is light: `grade` in the recipe, the shadow in `room_place.py`.
+- The other palace rooms, with the throne room's plate as the style reference (needs `inputs` in `tripo_img.py`).
+- Getting a plate into an HD pack: a plate redesigns details, so it cannot be colour-anchored to the 1992 palette like the SDXL rooms; it needs the true-colour room plates of pack v4.
+- `room_gen.py` was written after the pictures were made, from the commands that made them; its `generate` prompt is checked to be the same text, but the script itself has not been run against Tripo.
