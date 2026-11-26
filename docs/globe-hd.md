@@ -39,6 +39,8 @@ Read from the decompile worktree (`crates/dune-rec/src/hand/globe.rs`, `map.rs`,
 | The globe screen without its globe | recipe `plate` | `plate-hd.png`: the Harkonnen and Atreides panels as marble bas-reliefs on the blue field |
 | The panels with our own characters | recipe `plate_people`, `globe_plate.py` | `plate-people.png`: Leto, Jessica and our hawk on the Atreides panel, the Emperor and the floating Baron on the Harkonnen one, in the same marble |
 | The map's icons and the globe's arrow | recipe `icons`, `globe_icons.py` | `icons/ONMAP-NNN.png`, `hud/pieces/ICONES-054.png` |
+| Every place of the game | read out of `DNCDPRG.EXE` | `locations.json`: 70 records |
+| The HUD panel in marble | recipe `panel_marble`, `globe_assets.py` | `panel-marble-frame.png`, `web/panel-marble.png` |
 | The page's pictures | `globe_assets.py` | `web/` (surface, plate, the HUD panel in its globe state with the head) |
 | The prototype | `globe.html` | the globe and the map, live |
 
@@ -53,7 +55,7 @@ Read from the decompile worktree (`crates/dune-rec/src/hand/globe.rs`, `map.rs`,
 **The prototype** (checked in Chrome by reading its state and saving its renders):
 - The disc at the game's place and size, drawn at 8 times the game's resolution, on the HD plate, over the HUD panel in its globe state.
 - Drag to turn and tilt; four buttons move by the game's steps (32 cells, 8 rows); it turns slowly by itself. On the map, dragging or the buttons scroll.
-- The blue arrow at the palace, hidden when it is behind the planet. On the map: the palace, the three sietches and the hawk pointer. The map shows about 78 cells by 36, so they are in view only near the player's place: **Map at my position** (or `#map`) opens it there, as the game's SEE DUNE MAP does.
+- The blue arrow at the palace, hidden when it is behind the planet. On the map: every place of the game's table with its icon, and the hawk pointer. The map shows about 78 cells by 36, so they are in view only near the player's place: **Map at my position** (or `#map`) opens it there, as the game's SEE DUNE MAP does.
 - Over the disc the command list becomes SEE MAP OF THIS AREA; a click opens the flat map at that point, drawn from the same picture at 4 pixels a cell; EXIT MAPS comes back.
 - A readout of the map position under the pointer, in the game's units.
 - Switches: the game's own cells in place of the HD surface; the game's resolution; shading towards the rim with a thin atmosphere (not in the game).
@@ -65,12 +67,25 @@ Saved renders: `globe/shots/compare.jpg` (the game's frame; HD; the game's cells
 
 **The icons.**
 - **On the globe the game draws only the blue arrow** (`ICONES` 54, 10 x 16, its lower left corner on the place). It is redrawn from the sprite's outline as a polygon in its two blues, not generated.
-- **On the flat map** the game draws the places from `ONMAP` (122 + kind when zoomed: 122 dome, 123 palace, 124 hut, 125 bunker, 126 fortress, 127 sietch), then markers and troops. A draw trace of the map at the start of the game gives the palace at (142,61) and three sietches at (223,69), (228,125), (194,9) (top left corners, the mark on the palace). The prototype works their map positions back from those and places the HD icons with the same projection, so they scroll with the map. The pointer on the player's place (sprite 4Ch, 13 pixels above it) is our hawk.
-- **How they are made:** sprites enlarged on a flat key colour in one sheet (green; magenta for what is green itself), one Banana Pro call a sheet, each cut out by the key's hue and fitted in a box of its sprite's proportions. They came out as painted miniatures.
-- **The palace and the sietch were redone alone, with our own scenes as the style** (user): the palace as in scene DP 2 (the cluster of rounded towers on its stepped base), its stone tinted red for the Atreides; the sietch with the entrance of scene DS 0 (the layered golden rock with its low arched mouth).
-- **Made:** the six places, the harvester, two ornithopters, three plants. **Not made:** the troop figures (user: not for now; they walk and work in many frames, so a rigged 3D figure per kind, as for the palace guard, is the likely way). The small maps' place icons (`ICONES` 58 to 63) are not made either.
+- **On the flat map** the game draws each place of its location table with an icon chosen by its kind (`location_icon`: sprite 7Ah on this map, plus one for each of 20h, 21h, 28h, 30h that the kind reaches), centred on the place, then markers and troops. The pointer on the player's place (sprite 4Ch, 13 pixels above it) is our hawk.
 
-**Cost:** twelve calls to Google, about $2.70 (three surface takes, the plate, four for the panels of which two were unusable, two icon sheets, and the palace and the sietch at 2K).
+  | Kind (byte 8) | Place | `ONMAP` sprite | Size | Our icon |
+  |---|---|---|---|---|
+  | below 20h | sietch (42) | 122 | 27 x 14 | the entrance of scene DS 0 |
+  | 20h | the palace of the Atreides | 123 | 36 x 30 | the palace of scene DP 2, tinted red |
+  | 21h to 27h | village (5) | 124 | 17 x 17 | the houses of scene VIL 3 |
+  | 28h to 2Fh | fortress (21) | 125 | 17 x 15 | the fort of scene DF 3, tinted blue |
+  | 30h and up | the Harkonnen palace | 126 | 36 x 30 | the citadel of scene DH 0, tinted blue |
+
+  Sprite 127 is 122's picture in another palette (the trace names it 127; the inventory's 122 is the sietch in the wrong colours).
+- **The location table** is in the executable's data, 70 records of 1Ch bytes from DS:0100h (file offset F7B0h in `DNCDPRG.EXE`): word 2 the x (a fraction of the turn), word 4 the y (a row), byte 8 the kind, byte 0Ah the flags (80h: not yet found, 65 of the 70 at the start). The prototype places all of them, with a switch for those known at the start only. Checked against a draw trace of the map at the start of the game: the palace at (142,61) and three sietches at (223,69), (228,125), (194,9) come out within a pixel.
+- **How they are made:** sprites enlarged on a flat key colour in one sheet (green; magenta for what is green itself), one Banana Pro call a sheet, each cut out by the key's hue and fitted in a box of its sprite's proportions. They came out as painted miniatures.
+- **The five places were each redone alone, with one of our own scenes as the style** (user): one call each at 2K, the sprite enlarged on green as the first picture and the scene as the second, asked for the scene's architecture as a compact map marker. The Harkonnen ones are tinted blue afterwards, keeping their light and dark (`tint` in the recipe), as the game's own icons are blue; the palace's red was asked of the model.
+- **Made:** the five places, the harvester, two ornithopters, three plants. **Not made:** the troop figures (user: not for now; they walk and work in many frames, so a rigged 3D figure per kind, as for the palace guard, is the likely way). The small maps' place icons (`ICONES` 58 to 63) are not made either.
+
+**The HUD panel in marble (user).** The game turns its panel blue-grey on the globe and map screens. Ours is an edit of the whole frame (the HUD base with the globe block and the head up, `hud/globe-frame.png`): only the material changes, to pale veined blue-grey marble with steel fittings and a dark blue slate; the geometry is kept, so the panel is cut as before and takes the sandstone panel's alpha. The frame of the command panel and the arrow cross stayed copper. Given the side panels' plate as a second picture, the model drew those panels into the frame and shrank the console; the marble is described in words instead. The prototype shows the marble panel, with a switch back to the sandstone one. The panel's overlays (lit arrows, button, book) exist in sandstone only.
+
+**Cost:** seventeen calls to Google, about $3.60 (three surface takes, the plate, four for the panels of which two were unusable, two icon sheets, five place icons at 2K, two for the marble panel of which one was unusable). All of it through Google directly (`gemini_img.py`); nothing here uses Tripo.
 
 ## 4. Known limits
 
@@ -78,12 +93,12 @@ Saved renders: `globe/shots/compare.jpg` (the game's frame; HD; the game's cells
 - **The sand reads soft and a little glowing**, since most of its detail is the smoothed game shade. The dark rock is better.
 - **The poles** are stretched in a flat map and pinch on the globe. They want two small round pictures of their own.
 - **The screen's shape.** The page shows 320 x 200 on a 4:3 screen, as the game was seen, so the disc is round. The HUD mock-ups were made with square pixels; the panel is simply stretched here.
-- **The panel is our sandstone one**; the game recolours it blue on this screen. Its left block shows the globe without the four small arrows the game draws there.
+- **The panel's left block** shows the globe without the four small arrows the game draws there, and the marble panel has no overlays of its own yet.
 - **Speed of the turning** is an estimate (the driver's tick was not measured).
 
 ## 5. Next
 
-1. **The rest of the map's icons**: the troops (probably rigged 3D figures), the small maps' place icons, and the places of a later game (the location table at DS:0100h, 1Ch bytes a record, gives every place's position and kind; the prototype has only the four of the start).
+1. **The rest of the map's icons**: the troops (probably rigged 3D figures) and the small maps' place icons. The places' state in a running game (found or not, taken by the Harkonnens) comes from the same records in a save.
 2. **The game's changes over the skin**: the state bits as soft masks (their meaning in game terms is not named in the code; a late save will show them), the results view's tints, the place view's region colours from `MAP2.HSQ`.
 3. **A larger skin in tiles**, and the two polar pictures.
 4. **In the engine:** the driver's globe and map slots replaced by this renderer in the HD layer, using the driver's own tables for an exact match; the side panels' sliding and the results bars.
