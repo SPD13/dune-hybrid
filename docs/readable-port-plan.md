@@ -1079,9 +1079,12 @@ the owners, the original's instruction count charged by path, its
 registers set). The runner reports `ecology: N days grown by the rules
 (M cells), K wind-traps watered`. Checked: the rules' unit tests, the
 three suites, the view check, the shadow check of start12/start21 and of
-the three entries on day13/day23 (0 diff); **still to run: the shadow
-check of the day games and validate** (validate's runs reach these
-entries: run a 8 growths, 132 counts).
+the three entries on day13/day23 (0 diff), then the whole full check: the
+shadow check of all seven games (258947 ok, 0 diff) and validate (0 with
+differences; run a alone checks 4 growths, 24 counts and 24 days'
+watering). In every check run the growth found no cell of kind 10h to
+turn (0 cells grown in 16 days): that path of the rule is covered by its
+unit test only so far.
 
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
