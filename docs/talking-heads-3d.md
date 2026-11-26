@@ -479,7 +479,7 @@ Emptying after generating, when a take is already liked, is deliberate. `img2img
 
 **The recipe** (`img2img/room-recipes.json`). Per room: `key` (the room's capture, `studio/rooms/<key>.png`), `model`, `size`, `style` (one of `styles`: the rendering sentence), `style_ref`, `erase`, `guide`, `look_ref`, `scene` (what is in the room), `remove` (what the empty step takes out), `fix` (the instruction of a `fix` step, kept for small corrections; it does not change geometry), `plate` and `placed` (the files), `light`, `guards` (`cx`, `top`, `feet` as fractions of the picture, `pose`, `turn`, `flip`, `centre`), `grade` (`bright`, `warm` or `tint`), `shadow`, `emblems` (`name`, `box` in 1992 pixels, `flip`), `emblem_colour`. `prompts` holds the sentences around a room's own text. The file's `_doc` describes every field.
 
-**State (2026-11-25).** Seven palace rooms, all on `banana_pro`, 20 credits a picture:
+**State (2026-11-25).** Eight palace rooms, all on `banana_pro`, 20 credits a picture:
 
 | Room | Plate | Guards and emblems | State |
 |---|---|---|---|
@@ -490,6 +490,7 @@ Emptying after generating, when a take is already liked, is deliberate. `img2img
 | Corridor (`room93`) | from the drawn guide, throne room and dining hall as style references, the first take as look reference | none in this room | To review. Straight and on one level, as the user asked; darker than the first take (marble floor, little purple left in the ceiling); pier spacing and banner places are the guide's reading of the 1992 picture |
 | Entry with the stillsuit bays (`room58`) | first take, green style | none in this room | To review. The three recessed bays on each side are what matters here (user: they hold the stillsuits later); the prompt names them first and asks for them empty. All six are there with their consoles and ceiling lights; the nearest one on each side is cut by the picture's edge, as in 1992, and the bays are fairly shallow |
 | Terrace over the desert (`room75`) | first take, daylight style, the ornithopter erased from the 1992 picture first | none; the landing pad is left empty for our own ornithopter model | To review. The two bird statues by the stair came out as hawks and were kept |
+| Girder hall (`room94`) | first take, dark style | none in this room | To review. The grated band of the floor glows more than in 1992, and a faint door shows behind the central post |
 
 The other takes of the throne room (the other models, the three style variants from `img2img/room97-variants.py`) are set aside in `img2img/room97-archive/`, the corridor's earlier takes in `img2img/room93-archive/`; the earlier SDXL rooms with 3D guards are still at `room-guards.html`, `leto-throne.html` and `dining.html`.
 
