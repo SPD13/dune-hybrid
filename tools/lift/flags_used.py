@@ -172,8 +172,11 @@ for f in sorted(os.listdir(cov_dir)) if os.path.isdir(cov_dir) else []:
 # Call tables the coverage runs don't cover fully: `troops_tick`'s call
 # through the job handlers (CS:6C26h, 16 words: the code addresses below;
 # job 6, 739Eh, has no generated code, no run reached it). The saves reach
-# only some of the jobs.
-for site, targets in {0x6cba: [0x6fe5, 0x70cc, 0x0f66, 0x71ef, 0x72b0, 0x7693, 0x7711, 0x767d]}.items():
+# only some of the jobs. The answer list's click handlers (UI list 1FFEh,
+# set up at A24Ah: buy, refuse, haggle), jumped to from D451h: no coverage
+# run answers a smuggler.
+for site, targets in {0x6cba: [0x6fe5, 0x70cc, 0x0f66, 0x71ef, 0x72b0, 0x7693, 0x7711, 0x767d],
+                      0xd451: [0x241a, 0x2431, 0x2453]}.items():
     IND.setdefault(site, set()).update(targets)
 
 

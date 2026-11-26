@@ -49,6 +49,22 @@ pub const PATHS: &[&str] = &[
     "take: not drawn",
     "raid: garrison 1",
     "raid: garrison 0",
+    "restock: refilled",
+    "visit: first",
+    "visit: again",
+    "deal: offered",
+    "deal: nothing left",
+    "deal: bought",
+    "deal: new debt",
+    "refusal: offended",
+    "refusal: dropped",
+    "haggle: offended",
+    "haggle: out of patience",
+    "haggle: lowered",
+    "talk end: offer taken",
+    "talk end: debt paid",
+    "talk end: refused",
+    "talk end: haggled",
 ];
 
 /// The counts.

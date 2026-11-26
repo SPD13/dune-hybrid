@@ -1153,6 +1153,33 @@ The games reach almost none of these paths (one takeover window on day
 three suites, the view check, the shadow check (258947 ok, 0 diff),
 validate (0 with differences).
 
+**The smugglers' trade as rules** (2026-11-26, `hand/smuggler_trade.rs`):
+the day's restock (a kind none left of and sold there, bit 80h of its
+price, gets 0 to 3 from the random word rotated left two), a visit (the
+days away, 1 the first time; the kind first offered, the random word's
+low three bits modulo the kinds offered), the debt's days, the next
+offer (the next kind in stock after the last one, wrapping round the
+kinds at most twice, at twice its price's low seven bits), the answers
+(a refusal offends on 1 draw in 8, else drops the offer; a haggle
+offends on 1 in 4, runs out of patience when the answers so far plus
+the draw's bit 0 reach the smuggler's patience, else takes an eighth
+off the price; the mood one on, 0 to 3, or marked 10h when offended),
+a purchase on credit (a new debt when there was none), and the talk's
+end (the debt paid; how the talk ended, 40h refused or 20h haggled, in
+the smuggler's flags; or Duncan Idaho's shipment offer taken by the
+answers given). New ports: `open_deal` (2388h), `answer_buy` (241Ah),
+`answer_refuse` (2431h), `answer_haggle` (2453h), `end_of_talk` (24EEh);
+the visit, the selection, the purchase, the haggle's price and the
+restock in `new_day` now use the rules. The three answers are the
+answer list's click handlers, reached by `jmp bx` at D451h, whose
+callers read no flags: `flags_used.py` lists them with that site (no
+coverage run answers a smuggler). No game reaches the trade: validate's
+run k calls the ports with chosen inputs (16 more paths, all reached
+and shadow-equal; the answers go on into the dialogue's next line,
+interrupts there leave parts of it interpreted). Checked: unit tests,
+the three suites, the view check, the shadow check (258947 ok, 0
+diff), validate (0 with differences).
+
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
 (`pc::gfx::GfxEvent`: each call's registers, the marks a room, a

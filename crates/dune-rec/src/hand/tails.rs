@@ -1708,14 +1708,15 @@ pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
             loop {
                 let v = c.byte_in(SS, bp.wrapping_add(si).wrapping_add(4));
                 let w = c.byte_in(SS, bp.wrapping_add(si).wrapping_add(9));
-                let fill = v == 0 && w & 0x80 != 0;
+                let fill = super::smuggler_trade::restocks(v, w);
+                super::rule_paths::hit(c.m, "restock: refilled", fill);
                 let n = 2 + if v == 0 { 2 } else { 0 } + if fill { 5 } else { 0 } + 2;
                 c.run(0x1cb7, n)?;
                 if fill {
-                    bx = pure::rol1(W, bx);
-                    bx = pure::rol1(W, bx);
+                    let (a, after) = super::smuggler_trade::restock_draw(bx);
+                    bx = after;
                     c.set_reg(BX, bx);
-                    let a = pure::and(B, bx & 0xff, 3);
+                    let a = a as u16;
                     c.set_reg8(r8::AL, a as u8);
                     // SS is DS here: the smuggler's stock of kind BP.
                     match super::smugglers::index(si) {

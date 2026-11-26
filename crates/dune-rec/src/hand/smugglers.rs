@@ -161,9 +161,16 @@ impl SmugglerAt {
     pub(super) fn visited_on(self, c: &mut Ctx) -> u8 {
         self.byte(c, 3)
     }
+    pub(super) fn set_visited_on(self, c: &mut Ctx, v: u8) {
+        self.set_byte(c, 3, v)
+    }
+    /// Byte 9 + `kind`: [`Smuggler::prices`].
+    pub(super) fn price(self, c: &mut Ctx, kind: u16) -> u8 {
+        self.byte(c, 9u16.wrapping_add(kind))
+    }
     /// Byte 4 + `kind`: [`Smuggler::stock`].
     pub(super) fn stock(self, c: &mut Ctx, kind: u16) -> u8 {
-        self.byte(c, 4 + kind)
+        self.byte(c, 4u16.wrapping_add(kind))
     }
     pub(super) fn set_stock(self, c: &mut Ctx, kind: u16, v: u8) {
         self.set_byte(c, 4 + kind, v)

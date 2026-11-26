@@ -51,6 +51,7 @@ pub mod voice_buffers;
 pub mod characters;
 pub mod player;
 pub mod smugglers;
+pub mod smuggler_trade;
 pub mod progress;
 pub mod topic_troop;
 pub mod topic_place;
@@ -766,6 +767,11 @@ pub static ROUTINES: &[(u16, Routine, &str)] = &[
     (0x235f, story::select_smuggler, "loc_0235f"),
     (0x2318, story::visit_smuggler, "loc_02318"),
     (0x23e6, story::buy_from_smuggler_on_credit, "loc_023e6"),
+    (0x2388, story::open_deal, "loc_02388"),
+    (0x241a, story::answer_buy, "loc_0241a"),
+    (0x2431, story::answer_refuse, "loc_02431"),
+    (0x2453, story::answer_haggle, "loc_02453"),
+    (0x24ee, story::end_of_talk, "loc_024ee"),
     (0x24d2, story::grade_be, "loc_024d2"),
     (0x272f, story::drop_oldest_message, "loc_0272f"),
     (0x2a34, story::drop_oldest_event, "loc_02a34"),

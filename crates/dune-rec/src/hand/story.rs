@@ -4,6 +4,7 @@ use super::clock;
 use super::harkonnen;
 use super::characters::character_id as who;
 use super::smugglers::{self, SmugglerAt, smuggler_flag};
+use super::smuggler_trade;
 use super::characters::{CharacterAt, character_flag};
 use super::dialogue;
 use super::waits;
@@ -573,6 +574,7 @@ pub fn haggle_smuggler_price(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let v = c.economy().smuggler_price as u16;
     let e = pure::shr1(B, v, 3);
     let v = pure::sub(B, v, e);
+    debug_assert_eq!(v as u8, smuggler_trade::haggled(c.economy().smuggler_price));
     c.set_reg(AX, e << 8 | v);
     c.update_economy(|t| t.smuggler_price = v as u8);
     c.ret()
@@ -1030,7 +1032,7 @@ pub fn select_smuggler(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let al = c.reg8(r8::AL);
         let si = c.reg(SI);
         let b = SmugglerAt(si).debt_since(&mut c);
-        let d = pure::sub(B, al as u16, b as u16) as u8;
+        let d = smuggler_trade::debt_days(al, b, w);
         c.set_reg8(r8::AL, d);
         c.update_progress(|t| t.debt_days = d);
     }
@@ -1079,40 +1081,25 @@ pub fn visit_smuggler(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let si = c.reg(SI);
     let f = SmugglerAt(si).flags(&mut c);
     let first = f & smuggler_flag::MET == 0;
-    let m0 = c.word(0) & 7;
-    let modulus = c.byte(g::ITEMS_OFFERED) as u16;
-    if modulus == 0 {
+    let modulus = c.byte(g::ITEMS_OFFERED);
+    let Some((offered, rounds)) = smuggler_trade::first_offer(c.word(0), modulus) else {
         c.m.cpu.ip = 0x232a;
         return Err(Bail);
-    }
-    let mut v = m0;
-    let mut rounds = 0;
-    while v >= modulus {
-        v -= modulus;
-        rounds += 1;
-    }
+    };
+    super::rule_paths::hit(c.m, "visit: first", first);
+    super::rule_paths::hit(c.m, "visit: again", !first);
     c.run(0x232a, 3 + if first { 2 } else { 0 } + 4 + 4 * rounds + 2 + 4)?;
     let al = c.reg8(r8::AL);
     let b3 = SmugglerAt(si).visited_on(&mut c);
-    let mut d = pure::sub(B, al as u16, b3 as u16) as u8;
+    let d = smuggler_trade::days_away(al, b3, !first);
     if first {
-        d = 1;
         let f = pure::or(B, f as u16, smuggler_flag::MET as u16);
         SmugglerAt(si).set_flags(&mut c, f as u8);
     }
     c.set_reg8(r8::AL, d);
     c.update_progress(|t| t.smuggler_days_away = d);
     c.update_economy(|t| t.smuggler_price = 0);
-    let w = c.word(0);
-    let mut ax = pure::and(W, w, 7);
-    loop {
-        if ax & 0xff < modulus {
-            break;
-        }
-        let a = pure::sub(B, ax & 0xff, modulus);
-        ax = ax & 0xff00 | a;
-    }
-    let ax = pure::add(W, ax, 0xe8);
+    let ax = offered;
     c.set_reg(AX, ax);
     c.update_phrase_args(|t| t.slots[super::phrase_args::SMUGGLER_ITEM] = ax);
     c.update_economy(|t| t.answer = 0);
@@ -1130,8 +1117,8 @@ pub fn buy_from_smuggler_on_credit(m: &mut Machine, start: u16) -> Result<(), Ba
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
     let price = c.economy().smuggler_price as u16;
-    let w = SmugglerAt(di).debt(&mut c).wrapping_add(price);
-    let new = w == price;
+    let (_, new) = smuggler_trade::bought_on_credit(SmugglerAt(di).debt(&mut c), price as u8);
+    super::rule_paths::hit(c.m, "deal: new debt", new);
     c.run(start, 7 + new as u32 + 1)?;
     let f = SmugglerAt(di).flags(&mut c);
     let f = pure::and(B, f as u16, !smuggler_flag::TALK_ENDED as u16);
@@ -1167,6 +1154,247 @@ pub fn buy_from_smuggler_on_credit(m: &mut Machine, start: u16) -> Result<(), Ba
     let b = c.byte(at);
     let b = pure::inc(B, b as u16);
     c.set_byte(at, b as u8);
+    c.ret()
+}
+
+/// The smuggler talked to: its record ([10B4h], character 13's word
+/// 0Ch).
+fn current_smuggler(c: &mut Ctx) -> u16 {
+    c.character(who::SMUGGLER as usize).word_0c
+}
+
+/// `loc_02388`: a deal with the smuggler opened: the phase raised to
+/// 3Ch, its mood [`g::SMUGGLER_MOOD`] drawn (0..3), its byte 3 the day,
+/// [`g::ANSWER_COUNT`] 0; then the next kind it has in stock after
+/// [`g::SMUGGLER_ITEM`] offered at its price
+/// ([`smuggler_trade::next_offer`]; none left: nothing offered).
+pub fn open_deal(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2388)?;
+    let mut c = Ctx::new(m);
+    c.run(start, 2)?;
+    raise_phase(&mut c, 0x3c, 0x238d)?;
+    c.run(0x238d, 2)?;
+    let mood = math::random_masked(&mut c, 3, 0x2393)?;
+    c.run(0x2393, 2)?;
+    c.update_economy(|t| t.smuggler_mood = mood as u8);
+    c.call(code::GET_INGAME_DAY_Q, 0x2399)?;
+    let di = current_smuggler(&mut c);
+    let item = c.phrase_args().slots[super::phrase_args::SMUGGLER_ITEM];
+    let kinds = c.byte(g::ITEMS_OFFERED);
+    let mut bx = None;
+    let o = smuggler_trade::next_offer(item, kinds, |k| {
+        bx = Some(k);
+        SmugglerAt(di).stock(&mut c, k) != 0
+    });
+    let ended = o.kind.is_none() as u32;
+    // A check after each step and after each wrap but the last one.
+    let checks = o.steps + o.wraps - ended;
+    let tail = if o.kind.is_some() { 7 } else { 1 };
+    c.run(0x2399, 6 + o.steps + 2 * checks + 2 * o.wraps + 3 * o.looked + tail)?;
+    let day = c.reg8(r8::AL);
+    c.set_reg(DI, di);
+    SmugglerAt(di).set_visited_on(&mut c, day);
+    c.update_progress(|t| t.answer_count = 0);
+    c.set_reg(CX, o.cx);
+    if let Some(b) = bx {
+        c.set_reg(BX, b);
+    }
+    super::rule_paths::hit(c.m, "deal: offered", o.kind.is_some());
+    super::rule_paths::hit(c.m, "deal: nothing left", o.kind.is_none());
+    match o.kind {
+        Some(k) => {
+            let phrase = pure::add(W, k, smuggler_trade::FIRST_ITEM_PHRASE);
+            c.update_phrase_args(|t| t.slots[super::phrase_args::SMUGGLER_ITEM] = phrase);
+            let p = SmugglerAt(di).price(&mut c, k);
+            let a = c.and(B, p as u16, 0x7f);
+            let asked = c.shl(B, a, 1);
+            c.set_reg(AX, phrase & 0xff00 | asked);
+            c.update_economy(|t| t.smuggler_price = asked as u8);
+        }
+        None => {
+            // The flags of the last `sub al, [1141h]`.
+            let before = (o.ax as u8).wrapping_add(kinds);
+            c.sub(B, before as u16, kinds as u16);
+            c.set_reg(AX, o.ax);
+        }
+    }
+    c.ret()
+}
+
+/// 2496h, the answers' common end: [`g::ANSWER`] = `answer`, one more
+/// of [`g::ANSWER_COUNT`], `loc_0d2e2`, then the dialogue's next line
+/// (`jmp 9472h`).
+fn answered(c: &mut Ctx, answer: u8) -> Result<(), Bail> {
+    c.set_reg8(r8::AL, answer);
+    c.update_economy(|t| t.answer = answer);
+    let n = pure::inc(B, c.progress().answer_count as u16) as u8;
+    c.update_progress(|t| t.answer_count = n);
+    c.call(entry::LEAVE_AND_FADE, 0x24a0)?;
+    c.run(0x24a0, 1)?;
+    dialogue::next_line_from_9472(c)
+}
+
+/// `loc_0241a`: the answer "buy" (1): from the smuggler, bought on
+/// credit (`loc_023e6`).
+pub fn answer_buy(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x241a)?;
+    let mut c = Ctx::new(m);
+    if c.conversation().talker != who::SMUGGLER {
+        c.run(start, 2 + 2 + 3)?;
+        return answered(&mut c, smuggler_trade::answer::BUY);
+    }
+    c.run(start, 2 + 2)?;
+    let di = current_smuggler(&mut c);
+    c.set_reg(DI, di);
+    super::rule_paths::hit(c.m, "deal: bought", true);
+    c.call(0x23e6, 0x242d)?;
+    c.run(0x242d, 2 + 3)?;
+    answered(&mut c, smuggler_trade::answer::BUY)
+}
+
+/// `loc_02431`: the answer "refuse" (2): the smuggler takes offence
+/// ([`smuggler_trade::refusal`]; answer 3), or drops the price.
+pub fn answer_refuse(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2431)?;
+    let mut c = Ctx::new(m);
+    if c.conversation().talker != who::SMUGGLER {
+        c.run(start, 3 + 2 + 3)?;
+        return answered(&mut c, smuggler_trade::answer::REFUSE);
+    }
+    c.run(start, 3 + 3)?;
+    let di = current_smuggler(&mut c);
+    c.set_reg(DI, di);
+    math::rand_masked_zero(&mut c, 7, 0x2448)?;
+    let draw = c.reg(AX);
+    let r = smuggler_trade::refusal(draw);
+    super::rule_paths::hit(c.m, "refusal: offended", r == smuggler_trade::Refusal::Offended);
+    super::rule_paths::hit(c.m, "refusal: dropped", r == smuggler_trade::Refusal::Dropped);
+    c.run(0x2448, 1 + 3 + 3)?;
+    match r {
+        smuggler_trade::Refusal::Offended => {
+            offended(&mut c);
+            answered(&mut c, smuggler_trade::answer::HAGGLE)
+        }
+        smuggler_trade::Refusal::Dropped => {
+            c.update_economy(|t| t.smuggler_price = 0);
+            answered(&mut c, smuggler_trade::answer::REFUSE)
+        }
+    }
+}
+
+/// 246Bh: the smuggler's mood marked [`smuggler_trade::OFFENDED`].
+fn offended(c: &mut Ctx) {
+    let v = pure::or(B, c.economy().smuggler_mood as u16, smuggler_trade::OFFENDED as u16) as u8;
+    c.update_economy(|t| t.smuggler_mood = v);
+}
+
+/// `loc_02453`: the answer "haggle" (3): the smuggler takes offence,
+/// runs out of patience (the price dropped), or lowers the price by an
+/// eighth (`loc_023d5`); [`smuggler_trade::haggle`].
+pub fn answer_haggle(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x2453)?;
+    let mut c = Ctx::new(m);
+    if c.conversation().talker != who::SMUGGLER {
+        c.run(start, 2 + 2 + 3)?;
+        return answered(&mut c, smuggler_trade::answer::HAGGLE);
+    }
+    c.run(start, 2 + 3)?;
+    let di = current_smuggler(&mut c);
+    c.set_reg(DI, di);
+    math::rand_masked_zero(&mut c, 3, 0x2469)?;
+    let draw = c.reg(AX);
+    let answers = c.progress().answer_count;
+    let patience = SmugglerAt(di).patience(&mut c);
+    let h = smuggler_trade::haggle(draw, answers, patience);
+    super::rule_paths::hit(c.m, "haggle: offended", h == smuggler_trade::Haggle::Offended);
+    super::rule_paths::hit(c.m, "haggle: out of patience", h == smuggler_trade::Haggle::OutOfPatience);
+    super::rule_paths::hit(c.m, "haggle: lowered", h == smuggler_trade::Haggle::Lowered);
+    match h {
+        smuggler_trade::Haggle::Offended => {
+            c.run(0x2469, 1 + 3 + 3)?;
+            offended(&mut c);
+            answered(&mut c, smuggler_trade::answer::HAGGLE)
+        }
+        smuggler_trade::Haggle::OutOfPatience => {
+            c.run(0x2469, 1 + 6 + 3 + 3)?;
+            let mood = smuggler_trade::mood_after_haggle(c.economy().smuggler_mood);
+            c.update_economy(|t| t.smuggler_mood = mood);
+            c.update_economy(|t| t.smuggler_price = 0);
+            c.set_reg(AX, draw & 0xff00);
+            answered(&mut c, smuggler_trade::answer::HAGGLE)
+        }
+        smuggler_trade::Haggle::Lowered => {
+            c.run(0x2469, 1 + 6 + 1)?;
+            let mood = smuggler_trade::mood_after_haggle(c.economy().smuggler_mood);
+            c.update_economy(|t| t.smuggler_mood = mood);
+            let al = (draw as u8 & 1).wrapping_add(answers).wrapping_sub(patience);
+            c.set_reg(AX, draw & 0xff00 | al as u16);
+            c.call(0x23d5, 0x2494)?;
+            c.run(0x2494, 1 + 3)?;
+            answered(&mut c, smuggler_trade::answer::HAGGLE)
+        }
+    }
+}
+
+/// `loc_024ee`: a talk's end, by [`g::ANSWER`]: below 2 (none, or
+/// bought), with [`g::ANSWER_MODE`] 0 Duncan Idaho's shipment offer taken
+/// ([`smuggler_trade::offer_taken`]: [0C0h], [1158h] FFFFh), else the
+/// smuggler's debt paid (cleared, one debt less, the spice paid as
+/// `loc_02524`); 2 or more, with [`g::ANSWER_MODE`], how the talk ended
+/// kept in the smuggler's flags ([`smuggler_trade::talk_ended`]).
+pub fn end_of_talk(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    entered(start, 0x24ee)?;
+    let mut c = Ctx::new(m);
+    let a = c.economy().answer;
+    let mode = c.byte(g::ANSWER_MODE);
+    if a < smuggler_trade::answer::REFUSE {
+        if mode == 0 {
+            c.run(start, 3 + 2 + 9)?;
+            let n = c.progress().answer_count;
+            let ax = c.reg(AX) & 0xff00 | n as u16;
+            let i = pure::dec(W, ax) & 3;
+            debug_assert_eq!(i, smuggler_trade::offer_taken(n));
+            let bx = c.shl(W, i, 1);
+            c.set_reg(BX, bx);
+            let offer = c.economy().shipment_offers[i as usize];
+            c.set_reg(AX, offer);
+            c.update_economy(|t| t.shipment_chosen = offer);
+            c.set_word(g::SHIPMENT_READY, 0xffff);
+            super::rule_paths::hit(c.m, "talk end: offer taken", true);
+            return c.ret();
+        }
+        c.run(start, 3 + 2 + 4 + 3)?;
+        let di = current_smuggler(&mut c);
+        c.set_reg(DI, di);
+        let debt = SmugglerAt(di).debt(&mut c);
+        SmugglerAt(di).set_debt(&mut c, 0);
+        c.set_reg(AX, debt);
+        let d = pure::dec(B, c.progress().debts as u16) as u8;
+        c.update_progress(|t| t.debts = d);
+        let spice = pure::sub(W, c.economy().spice, debt);
+        c.update_economy(|t| t.spice = spice);
+        let paid = c.word(g::SPICE_PAID);
+        let paid = c.add(W, paid, debt);
+        c.set_word(g::SPICE_PAID, paid);
+        super::rule_paths::hit(c.m, "talk end: debt paid", true);
+        return c.ret();
+    }
+    let n = if a == smuggler_trade::answer::REFUSE { 2 } else { 3 };
+    if mode == 0 {
+        c.run(start, n + 2 + 1)?;
+        c.cmp(B, mode as u16, 0);
+        return c.ret();
+    }
+    c.run(start, n + 2 + 3 + 1)?;
+    let di = current_smuggler(&mut c);
+    c.set_reg(DI, di);
+    let f = SmugglerAt(di).flags(&mut c);
+    let f = smuggler_trade::talk_ended(f, a);
+    // The flags of the `or`.
+    c.or(B, f as u16, 0);
+    SmugglerAt(di).set_flags(&mut c, f);
+    super::rule_paths::hit(c.m, "talk end: refused", a == smuggler_trade::answer::REFUSE);
+    super::rule_paths::hit(c.m, "talk end: haggled", a != smuggler_trade::answer::REFUSE);
     c.ret()
 }
 
