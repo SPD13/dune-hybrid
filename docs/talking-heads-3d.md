@@ -540,3 +540,47 @@ The other takes of the throne room (the other models, the three style variants f
 - The Google route for the empty, fix, style-reference and guide steps, and batches for rooms with an erase, a guide or references.
 - A guard standing behind furniture will need the depth occlusion of `dining.html`; none of these rooms did.
 - Getting a plate into an HD pack: a plate redesigns details, so it cannot be colour-anchored to the 1992 palette like the SDXL rooms; it needs the true-colour room plates of pack v4.
+
+## 11. The HUD: one master picture, states as edits, cut along the engine's rectangles
+
+A pilot on the room screen's bottom panel (2026-11-26). Everything is in `tripo/hud/`; the pictures are game-derived and are in no repo. The preview shows it step by step: [preview.html#hud-process](http://127.0.0.1:8790/tripo/preview.html#hud-process) (HUD tab, **Process: the HD panel**), and each piece beside its sprite in the HUD list.
+
+**How the engine builds the panel** (read from the decompile worktree's `hand/*.rs`, the listing's data tables and a draw trace, `dune-run --gfx-trace`):
+
+- One table drives it: the frieze list at DS:1AE4h, 18 elements of 0Eh bytes (rectangle, flags, press byte, sprite, handler), all sprites from `ICONES`, drawn by `redraw_frieze_screen`. The room view is 320 x 152; the panel is y 152 to 199: a left block 92 x 48 at x 0, a strip 136 x 7 at (92,152), one row sprite 136 x 9 drawn five times at (92,159+8k) as the command list's background, a right block 92 x 48 at x 228.
+- Screens swap parts: four side sets change the left block (closed book `ICONES` 0, globe and map 6 with the globe icon 0Dh, open book 9), and button sets are copied into the right block (default 1C76h: the frame 21h at (255,162), four arrows 1Dh to 20h, the palace plan button 24h; map 1CCAh; travel 1D72h; book 1E1Ah).
+- Pieces stand over the room view: the head 10h + step (20 x 23) at (150,137) and its shoulders 0Fh (68 x 4) at (126,148).
+- Text is not sprites: the commands are glyphs of the bitmap font (slot 7), live or not by colour, hover by swapping colours. The day number likewise.
+- Colour is not fixed: every draw adds a palette offset (an arrow that cannot be used is the same sprite with another offset), colours F0h to FFh are rewritten with the time of day and faded, and opening `ONMAP`, `ATTACK` or `GENERIC` rewrites parts of that range (the map screen's panel is the same sprites in blue). The studio inventory's `ICONES` pictures are blue and red for that reason, and `recipes/assets.json`'s "game palette from a room capture" is not right for them.
+- Nothing marks a draw as HUD: the HD layer knows a sprite only by the hash of its pixels, and has plates for rooms and heads only.
+
+**Why not sprite by sprite.** Most of the 74 `ICONES` pieces are under 40 pixels and mean nothing alone (a 136 x 9 strip is one row of a console); pieces made apart do not join; the pack wants exactly 4 times the sprite with on-or-off alpha. The earlier pilot's "bottom panel" (`ICONES-000`) was the left third only.
+
+**The method.**
+
+1. **Frames**, not sprites: `dune-run` to the room screen (`--events` with the cursor moved off the panel), kept in `hud/frames/`.
+2. **Input** (`hud_input.py`): the frame enlarged 6 times, the room replaced by its approved HD plate (so the panel is designed under the HD rooms), the command text taken off.
+3. **Master** (`hud-recipes.json`, `master`): one Banana Pro call through Google, "redo only the control panel", every part named with its place. 5224 x 3264, about 16 pixels to one of the game. It lines up with the engine's rectangles (checked by drawing them over it); the arrows are a little larger than their hit rectangles.
+4. **States as edits of the master** (`hud_state.py NAME`): the model is asked to change one thing and nothing else; the overlay is the shape, inside the state's box, where the result differs from the master, with alpha. `parts` gives several overlays from one edit (four arrows); `inverse` cuts from the master instead (a thing the master has, by asking for the picture without it); `whole` takes the whole box (a patch of the base); `base` lists the overlays pasted into the master to make the base picture.
+5. **What stands over the room needs a true outline.** A difference from the master cannot tell a shaded page from a brown floor behind it (the open book came out with a notch at its crease; a lower threshold let scraps of floor in). `hud_state.py NAME --key` asks for the same picture with the room replaced by flat green; above the panel the outline is then whatever is not green, and the colours still come from the state. A state's box may start above the panel (the open book's starts at y 146).
+6. **Cut** (`hud_cut.py`): `hud/base.png`, the pieces in `hud/pieces/` named after the sprite they replace, and mock-ups of whole frames with the text drawn by a stand-in font (Garamond).
+
+**States made.**
+
+| State | Result |
+|---|---|
+| Open book (`ICONES` 9), globe (6) | The left block only changed; the open book overhangs the room by 6 rows, with alpha |
+| Arrows open (1Dh to 20h) | One edit, four overlays of glowing gold; the master's dull copper arrows are the closed state. The engine draws an overlay where a button is live, in place of the palette offset |
+| Palace plan button (24h) | Cut from the master with alpha; the base has an empty frame |
+| The head (10h to 1Ah) | Three flat layers in place of 11 sprites (`hud_head.py`), below |
+
+**The head as layers.** The engine holds one number, the head step ([E8h], 0 down, 10 up), raised by `ui_head_animate_up` when the player has the hand (after a scene refresh outside a place, back from the map, after a dialogue) and lowered by `ui_head_animate_down` when a talk or a film takes over. A trace of it rising shows sprites 16, 17, 17, 16, 20 ... 26, 0.04 s apart (18 and 19 are the pictures of 17 and 16): it dips one pixel, then rises, 7 or 8 game pixels in all. `head_blink` shows step 9 then 8: a dip of two pixels, not closed eyes. So no 3D is needed: a back layer (the collar and the stone hump with the head taken out, one edit), the head as the master shows it, moved down by the step, and the collar's front rim drawn over it. The head's layer needs nothing below the chin, since it only moves down (a free-standing head was tried and came back smeared). The recipe's `head.rows` has the original height per step, `rest` and `seconds` the values for a smooth eased slide, which the layers allow and the sprites do not. The model redrew the collar as a wider open hood than the master's.
+
+**Cost.** Eleven calls to Google at about $0.24: the master, six state edits, two green copies, and two that were not kept.
+
+**Not done.**
+- The engine side: marks at the HUD routines (the panel, the side set, the button set, the people slots, the head, the date, the command labels) and a renderer that draws the base, the overlays that are on, and the text with an HD font. Until then these are pictures and mock-ups; nothing is drawn by the engine or stored in a pack.
+- States: the map and travel button sets, the nine people faces and their blink, the sun and moon, the day number's place, the book's page turn, the three-frame "nudge" of the side blocks.
+- The map screen recolours the whole panel blue through the palette: a tint or a second master.
+- Time of day: a colour grade from the F0h to FFh ramp.
+- The other interface sheets (`ONMAP`, `ATTACK`, `PALPLAN`, `STARS`, `MIXR`), and the font.
