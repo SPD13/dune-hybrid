@@ -6611,9 +6611,16 @@ fn checked_new_time(c: &mut Ctx) -> Result<(), Bail> {
     if !super::world::checking() || c.clock().steps_pending == 0 {
         return new_time_1b23(c);
     }
+    let sim = super::world::simulating();
+    if sim {
+        super::world::sim_before(c.m);
+    }
     super::world::before(c.m, "time step", super::native_step::time_step);
     let r = new_time_1b23(c);
     super::world::after(c.m, r.is_ok());
+    if sim {
+        super::world::sim_after(c.m, r.is_ok());
+    }
     r
 }
 

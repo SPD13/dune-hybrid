@@ -928,6 +928,11 @@ fn main() -> ExitCode {
         for (piece, checked, equal, skipped) in dune_rec::hand::world::counts(&mut m) {
             println!("native: {piece}: {checked} checked against the original, {equal} equal, {skipped} not checked");
         }
+        let (steps, equal, not_run, fed, resynced) = dune_rec::hand::world::sim_counts(&mut m);
+        if steps > 0 {
+            let r: Vec<String> = resynced.iter().map(|(w, n)| format!("{w} {n}")).collect();
+            println!("native sim: {steps} time steps, {equal} carried on equal, {not_run} not run by the rules, the seeds fed {fed} times; taken from the machine after: {}", r.join(", "));
+        }
         for ((piece, why), n) in dune_rec::hand::world::reasons(&mut m) {
             println!("native not modelled: {piece}: {why} {n}");
         }

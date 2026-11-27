@@ -324,6 +324,8 @@ pub struct NativeChecks {
     /// The worlds the rules made, waiting for the original's to compare
     /// (a stack: a checked piece may call another).
     pub pending: Vec<Option<(&'static str, World)>>,
+    /// The native simulation's state (`NATIVE_SIM`).
+    pub sim: Sim,
 }
 
 /// The registers a piece is entered with (its arguments).
@@ -453,4 +455,100 @@ pub fn reasons(m: &mut Machine) -> Vec<((&'static str, &'static str), u64)> {
 /// checked).
 pub fn counts(m: &mut Machine) -> Vec<(&'static str, u64, u64, u64)> {
     super::native::native(m).native_checks.pieces.clone()
+}
+
+/// The native simulation (`NATIVE_SIM=1`, with `NATIVE_CHECK`): from the
+/// first time step on, the rules carry their own world from step to step,
+/// never taking the machine's again while they agree. Fed from outside
+/// are only the clock's words the step reads ([2], the steps waiting) and
+/// the random seeds and the random bits [0] (the main loop draws them at
+/// each pass and the frame tasks' animations between steps: they follow
+/// the frames, which a simulator without the display doesn't have). After
+/// each of the original's steps, the carried world must equal the
+/// machine's: a difference is something outside the time step that
+/// changed the state (the player, a dialogue, an event told); it is
+/// counted by what differed, and the carried world takes the machine's.
+#[derive(Default)]
+pub struct Sim {
+    world: Option<World>,
+    pending: Option<World>,
+    pub steps: u64,
+    pub equal: u64,
+    pub not_run: u64,
+    pub seeds_fed: u64,
+    pub resynced: Vec<(String, u64)>,
+}
+
+/// Whether `NATIVE_SIM` is on.
+pub fn simulating() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("NATIVE_SIM").is_ok_and(|v| v != "0"))
+}
+
+/// Before the original's time step: the carried world (or the machine's
+/// at the first, or after a step not run) fed the clock and the seeds,
+/// and stepped by the rules.
+pub fn sim_before(m: &mut Machine) {
+    let fresh = World::from_machine(m);
+    let s = &mut super::native::native(m).native_checks.sim;
+    let mut w = s.world.take().unwrap_or_else(|| fresh.clone());
+    w.save.story[2] = fresh.save.story[2];
+    w.save.story[3] = fresh.save.story[3];
+    w.save.day = fresh.save.day;
+    let k = extra(0x46dd);
+    w.extras[k] = fresh.extras[k];
+    if (w.rand_seed, w.rand_masked_seed, w.rand_below_seed) != (fresh.rand_seed, fresh.rand_masked_seed, fresh.rand_below_seed) {
+        s.seeds_fed += 1;
+    }
+    (w.rand_seed, w.rand_masked_seed, w.rand_below_seed) = (fresh.rand_seed, fresh.rand_masked_seed, fresh.rand_below_seed);
+    // The random bits [0]: the main loop draws them from `rand` at each
+    // pass (D84Bh, the input's wait at DDA3h), so they follow the frames.
+    w.save.story[0] = fresh.save.story[0];
+    w.save.story[1] = fresh.save.story[1];
+    s.steps += 1;
+    if super::native_step::time_step(&mut w).is_some() {
+        s.pending = Some(w);
+    } else {
+        s.not_run += 1;
+        s.pending = None;
+    }
+}
+
+/// After the original's time step (`done`: whole): the carried world
+/// compared with the machine's.
+pub fn sim_after(m: &mut Machine, done: bool) {
+    let got = World::from_machine(m);
+    let s = &mut super::native::native(m).native_checks.sim;
+    let Some(w) = s.pending.take() else {
+        s.world = None;
+        return;
+    };
+    if !done {
+        s.world = None;
+        return;
+    }
+    let d = w.differences(&got, 6);
+    if d.is_empty() {
+        s.equal += 1;
+        s.world = Some(w);
+        return;
+    }
+    let what = d[0].split([' ', '(']).next().unwrap_or("?").to_string();
+    match s.resynced.iter_mut().find(|e| e.0 == what) {
+        Some(e) => e.1 += 1,
+        None => s.resynced.push((what, 1)),
+    }
+    let n: u64 = s.resynced.iter().map(|e| e.1).sum();
+    if n <= 20 || std::env::var("NATIVE_TRACE").is_ok() {
+        eprintln!("native sim at time {:04x}: the carried world vs the machine's: {}", got.time(), d.join("; "));
+    }
+    s.world = Some(got);
+}
+
+/// The simulation's counts: (steps, equal, not run, seeds fed, resynced
+/// by what).
+pub fn sim_counts(m: &mut Machine) -> (u64, u64, u64, u64, Vec<(String, u64)>) {
+    let s = &super::native::native(m).native_checks.sim;
+    (s.steps, s.equal, s.not_run, s.seeds_fed, s.resynced.clone())
 }

@@ -1749,12 +1749,44 @@ started (espionage), water spread on the map (irrigation, `loc_06515`'s
 trail), a troop setting out (`loc_084a6`), troops meeting (the raids,
 `loc_07429`), the attack job (6, no port yet), the phase 30h check.
 
-Next: the rest of the time step (`loc_01b23`): the character 7 check
-(`loc_01d9f`), the time-of-day handlers (`loc_020a4`, the Harkonnens'
-take, the shipments, the Harkonnens' growth), the place talked about
-(`loc_0331e`), the Harkonnens' revisit (`loc_01bec`); the display parts
-(the date panel, the sky, the map's overlays, the room drawn) stay the
-frame's.
+**The whole time step natively** (2026-11-27, `hand/native_step.rs`,
+`native_raids.rs`): `loc_01b23` and all it calls: the fatigue, the day
+change and new day, the character 7 check, the troops' tick, the water,
+the time of day's handlers (the Emperor's demand counting down, the
+Harkonnens' take of a sietch with its picker `ui_comm`, the shipment's
+event, the Harkonnens' growth), the place talked about described again
+(its forces, troops, spare kinds, characters, the nearest places and
+their octants); the raids (troops meeting, a place raided, rallied and
+garrisoned), abandonment, revolts and the charisma, the irrigation's
+water spread (the circle walk's trail span). The world keeps the map's
+whole cells (`World::cells`: the terrain and marks the trail reads). The
+time step is checked at each call with a step waiting (the others do
+nothing: skipped, the world's copy being costly). Run k and the suite:
+every check equal; left not modelled: the Emperor's next demand and
+calls, the attack job (6, no port), the phase 30h check talking, phase
+60h.
+
+**The native simulation** (`NATIVE_SIM=1`, with `NATIVE_CHECK`): the
+first step towards the simulator without the emulator. From the first
+time step on, the rules carry their own world from step to step and
+never take the machine's while they agree; after each of the original's
+steps the carried world must equal the machine's, else what differed is
+counted (`native sim: ...`, the first 20 printed) and the machine's world
+taken. Fed from outside are the clock's words the step reads ([2], the
+steps waiting) and the random state: the three seeds and the random bits
+[0]. The latter is a finding: the main loop draws [0] from `rand` at
+each pass (D84Bh, and the input's wait at DDA3h) and the frame tasks'
+animations draw too, so the random state between two steps follows the
+number of frames, the display's pace. A simulator without the display
+can be exact step by step given the same random inputs, not over a long
+run by itself, unless it counts the frames as the original does.
+
+With the random state fed, in the suite's 7 games (52 steps, 26 carried
+on equal) every difference is the player's: the save loaded after the
+first step, the rooms walked into and the talks the monkey input starts
+(the progress record's scene and speaker bytes, the troop talked about,
+the player's place), the globe's view in the latitude table's other
+words. No difference points at a rule the time step lacks.
 
 ## Tools in place
 
