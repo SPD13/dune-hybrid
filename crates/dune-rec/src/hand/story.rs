@@ -6583,7 +6583,7 @@ pub fn show_place_view(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn time_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let mut c = Ctx::new(m);
     if start == 0x1b23 {
-        return new_time_1b23(&mut c);
+        return checked_new_time(&mut c);
     }
     entered(start, 0x1b0d)?;
     c.run(0x1b0d, 1)?;
@@ -6601,7 +6601,19 @@ pub fn time_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     c.run(0x1b10, 6)?;
     c.call(entry::CLOCK_STEP, 0x1b23)?;
-    new_time_1b23(&mut c)
+    checked_new_time(&mut c)
+}
+
+/// `NATIVE_CHECK`: the native time step (`hand/native_step.rs`) on the
+/// world before `loc_01b23`, against the world after.
+fn checked_new_time(c: &mut Ctx) -> Result<(), Bail> {
+    if !super::world::checking() {
+        return new_time_1b23(c);
+    }
+    super::world::before(c.m, "time step", super::native_step::time_step);
+    let r = new_time_1b23(c);
+    super::world::after(c.m, r.is_ok());
+    r
 }
 
 /// `loc_01b23`: on a new time slot ([46DDh], cleared): [0F4h] counts

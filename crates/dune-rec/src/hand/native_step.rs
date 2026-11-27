@@ -431,3 +431,50 @@ pub fn describe_place(w: &mut World, p: u16) -> Option<()> {
     }
     nearest_places(w, p)
 }
+
+/// The steps of the clock waiting (46DDh, the clock's).
+const STEPS_PENDING: u16 = 0x46dd;
+
+/// `loc_01b23`: the time step, when the clock has stepped: the desert's
+/// fatigue ([`super::clock::fatigue_after`]), the day changed
+/// ([`super::clock::day_change`]: the new day), and unless the endgame is
+/// past stage 6: the character 7 check, the troops' tick, the water's
+/// growth, the time of day's handler, the place talked about described
+/// again (the phrase of the skills kept), the Harkonnens' place revisited
+/// (not modelled). The date panel, the sky, the map's overlays and the
+/// room redrawn are display.
+pub fn time_step(w: &mut World) -> Option<()> {
+    if w.byte(STEPS_PENDING) == 0 {
+        return Some(());
+    }
+    w.set_byte(STEPS_PENDING, 0);
+    let (after, low) = super::clock::fatigue_after(w.get::<Situation>().desert_fatigue);
+    w.update::<Situation>(|s| {
+        if low {
+            s.desert_remarks = 0;
+        }
+        s.desert_fatigue = after;
+    });
+    let (now, old) = (w.time(), w.word(g::LAST_TIME));
+    let d = super::clock::day_change(old, now);
+    w.set_word(g::LAST_TIME, now);
+    w.set_byte(g::DAY_CHANGED, d);
+    if d != 0 {
+        super::native_day::new_day(w)?;
+    }
+    if w.get::<Economy>().endgame_stage >= 7 {
+        return Some(());
+    }
+    character_7_check(w)?;
+    let skills = w.get::<super::phrase_args::PhraseArgs>().slots[super::phrase_args::SKILLS];
+    let topic = w.word(g::TOPIC_PLACE_RECORD);
+    super::native_moves::tick(w)?;
+    super::native_day::grow_water(w)?;
+    time_of_day(w)?;
+    describe_place(w, topic)?;
+    w.update::<super::phrase_args::PhraseArgs>(|t| t.slots[super::phrase_args::SKILLS] = skills);
+    if w.get::<Progress>().harkonnen_place != 0 {
+        return nm("the Harkonnens' place revisited");
+    }
+    Some(())
+}
