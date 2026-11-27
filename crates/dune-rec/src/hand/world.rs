@@ -482,6 +482,8 @@ pub struct Sim {
     deferred: Option<World>,
     pub steps: u64,
     pub deferred_equal: u64,
+    /// The carried world dropped at a jump in time (a save loaded).
+    pub restarts: u64,
     pub equal: u64,
     pub not_run: u64,
     pub seeds_fed: u64,
@@ -501,6 +503,10 @@ pub fn simulating() -> bool {
 pub fn sim_before(m: &mut Machine) {
     let fresh = World::from_machine(m);
     let s = &mut super::native::native(m).native_checks.sim;
+    // A step's deferred world from before a jump in time is no measure.
+    if s.deferred.as_ref().is_some_and(|w| fresh.time().wrapping_sub(w.time()) > 1) {
+        s.deferred = None;
+    }
     if let Some(mut p) = s.deferred.take() {
         // What the frames and the clock change between steps, fed.
         p.save.story[0..4].copy_from_slice(&fresh.save.story[0..4]);
@@ -521,6 +527,11 @@ pub fn sim_before(m: &mut Machine) {
             eprintln!("native sim (deferred) at time {:04x}: the carried world vs the machine's: {}", fresh.time(), d.join("; "));
             s.world = None;
         }
+    }
+    // A jump in time (a save loaded): the carried world starts over.
+    if s.world.as_ref().is_some_and(|w| fresh.time().wrapping_sub(w.time()) > 1) {
+        s.world = None;
+        s.restarts += 1;
     }
     let mut w = s.world.take().unwrap_or_else(|| fresh.clone());
     w.save.story[2] = fresh.save.story[2];
