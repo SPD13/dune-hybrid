@@ -315,7 +315,7 @@ pub fn lose_all_harkonnen(w: &mut World, p: u16) -> Option<()> {
 
 /// `loc_05098`'s counts at the place `p`: the Harkonnen troops (CX) and
 /// your attackers (state 6, DX), of the troops not started.
-fn sides(w: &World, p: u16) -> Option<(u16, u16)> {
+pub fn sides(w: &World, p: u16) -> Option<(u16, u16)> {
     let (mut cx, mut dx) = (0u16, 0u16);
     let mut n = w.byte(p + place::FIRST_TROOP);
     let mut k = 0;

@@ -374,6 +374,38 @@ fn phase_handler(w: &mut World, p: u8) -> Option<()> {
         }
         // `loc_011cb`: phase 60h's start.
         0x60 => super::native_step::go_to_phase_60(w),
+        // `loc_01f13`: of the places from 138h (while the next's byte 0 is
+        // below 8), the one furthest down (its y, signed, above -64h) not
+        // skipped and without an attacker of yours; none: 100h. Character
+        // 7 there in room 3, its name the event's place ([0F2h]), message
+        // 2B0Ah.
+        0x64 => {
+            let (mut bx, mut si) = (0xff9cu16, 0u16);
+            let mut di = 0x138u16;
+            loop {
+                if di + 2 * 0x1c > super::world::STORY_END {
+                    return nm("a walk past the tables");
+                }
+                let y = w.word(di + 4);
+                if (y as i16) > (bx as i16) && !super::native_day::skipped(w, di) && super::native_raids::sides(w, di)?.1 == 0 {
+                    bx = y;
+                    si = di;
+                }
+                di += 0x1c;
+                if w.byte(di) >= 8 {
+                    break;
+                }
+            }
+            if bx == 0xff9c {
+                si = 0x100;
+            }
+            let n = ((si.wrapping_sub(0x100) / 0x1c + 1) & 0xff) << 8 | 0x80;
+            let dx = (w.byte(si + 8) as u16) << 8 | 3;
+            w.set_word(0x1048, dx);
+            w.set_word(0x104a, n);
+            w.set_word(0xf2, (w.byte(si) as u16) << 8 | w.byte(si + 1) as u16);
+            add_message(w, 0x2b0a);
+        }
         _ => return nm("a phase's handler"),
     }
     Some(())
