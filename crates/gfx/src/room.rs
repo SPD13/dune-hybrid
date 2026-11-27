@@ -121,6 +121,10 @@ pub struct RoomTrack {
     pub owner: Vec<u16>,
     /// Bytes characters were drawn over.
     pub overdrawn: Vec<bool>,
+    /// Per byte, the HD texels (one bit each) a character's art covers where
+    /// it passed over the byte without writing it (its smoothed outline):
+    /// filled by the HD compositor, left alone by the room's plate.
+    pub spilled: Vec<u32>,
     characters: u32,
 }
 
@@ -133,6 +137,7 @@ impl Default for RoomTrack {
             drawn: vec![false; 0x10000],
             owner: vec![0; 0x10000],
             overdrawn: vec![false; 0x10000],
+            spilled: vec![0; 0x10000],
             characters: 0,
         }
     }
@@ -142,6 +147,11 @@ impl RoomTrack {
     /// A character standing in the room starts (`true`) or ends being drawn.
     pub fn character(&mut self, begin: bool) {
         self.characters = if begin { self.characters + 1 } else { self.characters.saturating_sub(1) };
+    }
+
+    /// Whether a character standing in the room is being drawn.
+    pub fn in_character(&self) -> bool {
+        self.characters > 0
     }
 
     /// A drawing call during the room (`mem` as at the call). The mouse

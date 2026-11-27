@@ -25,9 +25,8 @@
       ],
       "size_gb": 6.9,
       "licence": "CreativeML OpenRAIL-M (check before a public release)",
-      "role": "alternative base model: photoreal, cinematic (A/B 2026-10-14: good fit)",
+      "role": "base model for talking heads and the palace (2026-10-14)",
       "base": true,
-      "optional": true,
       "label": "Juggernaut XL v9 (cinematic)"
     },
     {
@@ -78,6 +77,25 @@
       "realvisxl5",
       "tile-cn",
       "vae-fp16"
+    ]
+  },
+  "use": {
+    "_doc": "Base model by item, first match wins (hdgen.py): class keys and/or groups (fnmatch); else classes.portrait. Talking heads with a recipe take theirs from heads.json.",
+    "rules": [
+      {
+        "classes": [
+          "heads"
+        ],
+        "model": "juggernautxl9",
+        "why": "user's choice 2026-10-14: finer detail (Leto)"
+      },
+      {
+        "groups": [
+          "PALACE"
+        ],
+        "model": "juggernautxl9",
+        "why": "user's choice 2026-10-14: crisper palace"
+      }
     ]
   }
 }

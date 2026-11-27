@@ -1,10 +1,10 @@
 {
-  "_doc": "Room recipes, by room key (dune-run --rooms). defaults apply to every room, with or without its own recipe (the look comes from style.json: game, then location). parts: people and objects painted into the room, redone in close-up (box in low-res pixels). A part may name a character (recipes/cast.json), set its own strength, cond, soften, zoom, seed, margin (crop height / box height, default 1.4) darken (areas [x0, y0, x1, y1, factor] darkened in the close-up's guide only, e.g. a grey rifle beside a grey leg) and feather (soft edge of the paste-back, HD pixels; wide for a patch of floor) and close (fills warm gaps such as faces and hands inside the selected outline, in pixels). context (false: the part is drawn from the pixel art alone, not over the room's rendering); same_as copies another part's recipe; copy_of reuses another part's HD result for the same sprite drawn again (same box size; flip for a mirrored copy). An emblem part (emblem: NAME, a vector master NAME.svg in WORK/emblems or recipes/emblems) paints out the room's own version (red pixels in the box) and draws the master in the box in the original's colour (flip for a mirrored one); material adds an optional light pass describing the surface. detail: a pass over the whole room after the close-up parts (enlarged by scale, repainted in tiles at low strength), so the room is as crisp as the parts and they do not pop out; emblems come after it.",
+  "_doc": "Room recipes, by room key (dune-run --rooms). defaults apply to every room, with or without its own recipe (the look comes from style.json: game, then location). parts: people and objects painted into the room, redone in close-up (box in low-res pixels). A part with select (a sprite cut out by its colours, such as a guard) is pasted within its outline. A part without select is an area (the user's box: a rough indication, not a cut line): drawn with the room's description and look under its own text, blended with a wide soft edge, then its surroundings are repainted gently with the room's settings (harmonize: strength, default in defaults.part; false to skip) so it matches the room's detail and light. A part may name a character (recipes/cast.json), set its own strength, cond, soften, zoom, seed, margin (crop height / box height, default 1.4) darken (areas [x0, y0, x1, y1, factor] darkened in the close-up's guide only, e.g. a grey rifle beside a grey leg) and feather (soft edge of the paste-back, HD pixels; wide for a patch of floor) and close (fills warm gaps such as faces and hands inside the selected outline, in pixels). select (cool: cool-coloured pixels in the box, warm: strongly warm ones; default the whole box); context (false: the part is drawn from the pixel art alone, not over the room's rendering); same_as copies another part's recipe; copy_of reuses another part's HD result for the same sprite drawn again (flip for a mirrored copy; a box of another size scales it, e.g. the same statue nearer the camera; a box past the picture's edge is cut off). select: cool, warm or dark pixels in the box; grow widens that outline (low-res pixels) for small sprites. erase: true paints the part's pixels out of the pixel art, so the room is generated without it. An emblem part (emblem: NAME, a vector master NAME.svg in WORK/emblems or recipes/emblems) paints out the room's own version (red pixels in the box) and draws the master in the box in the original's colour (flip for a mirrored one); material adds an optional light pass describing the surface. A banner part (banner: NAME, a vector master like emblems; quad: its four corners TL, TR, BR, BL in low-res pixel edges; flip: the mirrored banner on the other side) is taken out before generation and drawn back last, warped onto the quad: clean edges, the same design everywhere. lights: small lamps of one colour (select blue|red|green) drawn back as glowing points after the colour anchoring, which would average them away (core, glow, gain). detail: a pass over the whole room after the close-up parts (enlarged by scale, repainted in tiles at low strength), so the room is as crisp as the parts and they do not pop out; emblems come after it.",
   "defaults": {
     "scale": 4,
     "strength": 0.95,
     "cond": 0.4,
-    "soften": 5.0,
+    "soften": 3.0,
     "anchor": 8,
     "store": "palette",
     "negative": "person, people, human figure, statue, out of focus, depth of field, bokeh, blurry, soft focus, haze, cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, deformed, text, watermark, frame, noise",
@@ -12,11 +12,12 @@
       "strength": 0.85,
       "cond": 0.5,
       "soften": 1.5,
-      "zoom": 12
+      "zoom": 12,
+      "harmonize": 0.4
     },
     "detail": {
       "scale": 3,
-      "strength": 0.35,
+      "strength": 0.45,
       "cond": 0.6,
       "tile": 1024,
       "overlap": 256
@@ -127,6 +128,380 @@
           "soften": 2.0,
           "feather": 6,
           "margin": 1.3
+        }
+      ]
+    },
+    "d86d06147a8ada11": {
+      "title": "Palace dining hall (room 98)",
+      "status": "in review 2026-10-15 (seventh round): as v2 (the user's reference) with banners and hawks drawn over; the far guards left to the model (user: boxes are pointers)",
+      "prompt": "a long banquet hall of the palace: one single long dark wooden dining table running down the middle towards the far door, a row of tall high-backed carved wooden chairs along each side of the table, bare polished table top, tall fluted copper columns, long flat matte green cloth banners hanging from the ceiling, guards standing at attention, highly detailed",
+      "negative": "tablecloth, buffet, small tables, wine glasses, flowers, neon, glowing tube, light tube, glass, person, people, human figure, statue, out of focus, depth of field, bokeh, blurry, soft focus, haze, cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, deformed, text, watermark, frame, noise",
+      "parts": [
+        {
+          "box": [
+            40,
+            55,
+            64,
+            113
+          ],
+          "character": "atreides-guard",
+          "pose": "arms folded across his chest, a long rifle slung over his shoulder, the barrel rising above his shoulder"
+        },
+        {
+          "box": [
+            271,
+            58,
+            295,
+            116
+          ],
+          "select": "cool",
+          "close": 7,
+          "copy_of": 0,
+          "flip": true
+        },
+        {
+          "banner": "atreides-banner",
+          "quad": [
+            [
+              38,
+              0
+            ],
+            [
+              47,
+              0
+            ],
+            [
+              47,
+              40
+            ],
+            [
+              38,
+              38
+            ]
+          ]
+        },
+        {
+          "banner": "atreides-banner",
+          "quad": [
+            [
+              287,
+              0
+            ],
+            [
+              296,
+              0
+            ],
+            [
+              296,
+              38
+            ],
+            [
+              287,
+              40
+            ]
+          ]
+        },
+        {
+          "box": [
+            143,
+            12,
+            188,
+            26
+          ],
+          "emblem": "atreides-hawk-pair"
+        }
+      ],
+      "soften": 5.0,
+      "detail": {
+        "scale": 3,
+        "strength": 0.35,
+        "cond": 0.6,
+        "tile": 1024,
+        "overlap": 256
+      },
+      "keep_in_guide": true
+    },
+    "c0fc3c739cd9a8a3": {
+      "title": "Palace empty hall (room 100)",
+      "status": "in review 2026-10-15 (from the user's annotations)",
+      "prompt": "an empty palace hall: dark wood-panelled walls, two arched doorways at the far end, lavender stone walkways along the walls, the floor covered by a large richly patterned orange and brown woven carpet, intricate sharp carpet pattern, highly detailed",
+      "soften": 3.0,
+      "cond": 0.5
+    },
+    "b16d6815852827e3": {
+      "title": "Palace bedchamber with library (room 99)",
+      "status": "in review 2026-10-15 (from the user's annotations)",
+      "prompt": "a palace bedchamber: a large low bed on a dais before a carved semicircular headboard, a library wall of bookshelves on the left, a writing desk on the right, lavender walls and a draped ceiling, highly detailed",
+      "parts": [
+        {
+          "box": [
+            0,
+            14,
+            75,
+            74
+          ],
+          "prompt": "tall wooden library bookshelves packed with rows of old leather-bound books, many book spines of different sizes, a few books lying flat, sharp focus, highly detailed",
+          "negative_extra": "empty shelves, cabinets, drawers, cupboard doors, panels",
+          "strength": 0.95,
+          "cond": 0.45,
+          "feather": 6,
+          "margin": 1.1,
+          "soften": 1.0,
+          "zoom": 8
+        }
+      ]
+    },
+    "9760ef179e9905ff": {
+      "title": "Palace terrace over the desert (room 75)",
+      "status": "in review 2026-10-15 (fifth round)",
+      "parts": [
+        {
+          "box": [
+            260,
+            124,
+            310,
+            149
+          ],
+          "prompt": "an ornithopter seen from above flying low over the desert: a retro-futuristic aircraft with two pairs of long narrow flapping wings like a dragonfly, four wings in an X, a mix between a plane and a helicopter, a cockpit fuselage and tail boom, riveted metal, sharp focus, highly detailed",
+          "negative_extra": "glider, single wing, helicopter rotor, propeller, bird, insect, airliner, jet",
+          "strength": 0.9,
+          "cond": 0.45,
+          "feather": 2,
+          "style": false,
+          "select": "warm",
+          "close": 3
+        },
+        {
+          "box": [
+            231,
+            90,
+            245,
+            119
+          ],
+          "select": "dark",
+          "close": 3,
+          "erase": true,
+          "_why": "the eagle statues: removed (user, 2026-10-15: could not get them right)"
+        },
+        {
+          "box": [
+            215,
+            129,
+            235,
+            152
+          ],
+          "select": "dark",
+          "close": 3,
+          "erase": true
+        }
+      ]
+    },
+    "71a161248997587a": {
+      "title": "Palace garden under the dome (room 207)",
+      "status": "in review 2026-10-15 (third round: areas blended into the room)",
+      "prompt": "film still from David Lynch's Dune (1984), the lush indoor garden of the Arrakeen palace under a great dome with radiating ribs: green trees, a gnarled old tree with a twisting trunk beside a small pond with water lilies, tall cypress trees, palms, ferns and large broad-leaved plants, a waterfall over orange rocks, a winding stone path, crisp photograph, deep focus, every leaf, needle and stone in sharp focus, fine botanical detail, highly detailed",
+      "negative": "spaceship, aircraft, vehicle, machine, metal structure, building, cage, ruins, person, people, human figure, statue, out of focus, depth of field, bokeh, blurry, soft focus, haze, cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, deformed, text, watermark, frame, noise",
+      "style": false,
+      "strength": 0.9,
+      "cond": 0.5,
+      "soften": 1.5,
+      "detail": {
+        "scale": 3,
+        "strength": 0.5,
+        "cond": 0.6,
+        "tile": 1024,
+        "overlap": 256
+      },
+      "model": "realvisxl5"
+    },
+    "6d0acf77294d28ae": {
+      "title": "Palace gallery with banners (room 93)",
+      "status": "in review 2026-10-15 (second round of the user's annotations)",
+      "prompt": "a long palace gallery in steep perspective: rows of massive angled stone pillars on both sides, a dark purple carpet runner down the middle, long flat matte green cloth Atreides banners hanging from the ceiling, each ending in a forked swallow-tail tip with a darker chevron border, heavy fabric, highly detailed",
+      "negative": "neon, glowing, glow, light tube, glass, blade, spike, sword, crystal, person, people, human figure, statue, out of focus, depth of field, bokeh, blurry, soft focus, haze, cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d render, deformed, text, watermark, frame, noise",
+      "parts": [
+        {
+          "banner": "atreides-banner",
+          "quad": [
+            [
+              49.2,
+              0
+            ],
+            [
+              64.5,
+              0
+            ],
+            [
+              95,
+              64
+            ],
+            [
+              84.5,
+              70
+            ]
+          ]
+        },
+        {
+          "banner": "atreides-banner",
+          "quad": [
+            [
+              114,
+              0
+            ],
+            [
+              121,
+              0
+            ],
+            [
+              128,
+              35
+            ],
+            [
+              123.5,
+              39
+            ]
+          ]
+        },
+        {
+          "banner": "atreides-banner",
+          "quad": [
+            [
+              145,
+              0
+            ],
+            [
+              149,
+              0
+            ],
+            [
+              149,
+              20
+            ],
+            [
+              145.5,
+              21
+            ]
+          ]
+        },
+        {
+          "banner": "atreides-banner",
+          "quad": [
+            [
+              49.2,
+              0
+            ],
+            [
+              64.5,
+              0
+            ],
+            [
+              95,
+              64
+            ],
+            [
+              84.5,
+              70
+            ]
+          ],
+          "flip": true
+        },
+        {
+          "banner": "atreides-banner",
+          "quad": [
+            [
+              114,
+              0
+            ],
+            [
+              121,
+              0
+            ],
+            [
+              128,
+              35
+            ],
+            [
+              123.5,
+              39
+            ]
+          ],
+          "flip": true
+        },
+        {
+          "banner": "atreides-banner",
+          "quad": [
+            [
+              145,
+              0
+            ],
+            [
+              149,
+              0
+            ],
+            [
+              149,
+              20
+            ],
+            [
+              145.5,
+              21
+            ]
+          ],
+          "flip": true
+        }
+      ]
+    },
+    "5a08cef9ff837c71": {
+      "title": "Palace girder hall (room 94)",
+      "status": "in review 2026-10-15 (from the user's annotations)",
+      "prompt": "a dark hangar-like palace hall under a roof of riveted steel girders and trusses, small blue signal lights along the girders, grated metal floor, highly detailed",
+      "lights": {
+        "select": "blue",
+        "core": 1.5,
+        "glow": 8,
+        "gain": 40
+      }
+    },
+    "3a6c890405c5bd31": {
+      "title": "Palace armoury (room 21)",
+      "status": "in review 2026-10-15 (from the user's annotations)",
+      "prompt": "the palace armoury: wall racks on both sides loaded with rows of rifles, a massive round vault door at the far end, red light, heavy pipes in the foreground, a guard standing beside the door, highly detailed",
+      "parts": [
+        {
+          "box": [
+            234,
+            50,
+            261,
+            107
+          ],
+          "character": "atreides-guard",
+          "pose": "arms folded across his chest, a long rifle slung over his shoulder, the barrel rising above his shoulder"
+        },
+        {
+          "box": [
+            1,
+            20,
+            131,
+            104
+          ],
+          "prompt": "close-up of an armoury wall rack holding rows of long rifles laid side by side on sloping shelves, crisp metal barrels and stocks, each rifle distinct, sharp focus, highly detailed",
+          "negative_extra": "bottles, tubes, pipes, logs, cigars, rockets, missiles",
+          "strength": 0.95,
+          "cond": 0.45,
+          "feather": 6,
+          "margin": 1.1,
+          "zoom": 8,
+          "soften": 1.0
+        },
+        {
+          "box": [
+            262,
+            28,
+            320,
+            104
+          ],
+          "same_as": 1,
+          "zoom": 12
         }
       ]
     }

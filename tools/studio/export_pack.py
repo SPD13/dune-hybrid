@@ -1,11 +1,12 @@
 """Export the studio's chosen versions as finished art for `dune-hd build --art`.
 
-    python export_pack.py WORK --out DIR [--scope approved|all]
+    python export_pack.py WORK --out DIR [--scope approved|all] [--pack ID] [--review PATH]
 
 For each item it takes one version: the preferred one, else the item's
 default (the newest made by its recipe). With --scope approved (the default)
 only items whose status is approved; with --scope all every item with a
 version, except rejected ones (to see the work in progress in the game).
+--pack: only that pack's versions (packs.py; default main), --review its review.
 
 Each picture is written as DIR/<art_name>.png, the name `dune-hd build --art`
 expects: talking heads NAME-fNN / NAME-vGG at their own size (dune-hd resizes
@@ -36,13 +37,15 @@ def png_size(path):
     return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
 
 
-def versions(work, item_id):
-    """The item's versions: {id: path}, oldest first (as the studio lists them)."""
+def versions(work, item_id, pack="main"):
+    """The item's versions made for `pack`: {id: path}, oldest first (as the studio lists them)."""
     d = os.path.join(work, "versions", item_id.replace("/", "__"))
     if not os.path.isdir(d):
         return {}
     pngs = sorted((n for n in os.listdir(d) if n.endswith(".png")), key=lambda n: (os.path.getmtime(os.path.join(d, n)), n))
-    return {n[:-4]: os.path.join(d, n) for n in pngs}
+    side = lambda n: os.path.join(d, n[:-4] + ".json")
+    of = lambda n: (json.load(open(side(n))).get("pack") if os.path.exists(side(n)) else None) or "main"
+    return {n[:-4]: os.path.join(d, n) for n in pngs if of(n) == pack}
 
 
 def default_version(work, item_id, found):
@@ -63,10 +66,12 @@ def main():
     ap.add_argument("work")
     ap.add_argument("--out", required=True)
     ap.add_argument("--scope", choices=["approved", "all"], default="approved")
+    ap.add_argument("--pack", default="main", help="the pack whose versions to export (packs.py)")
+    ap.add_argument("--review", help="the pack's review.json (default WORK/review/review.json)")
     a = ap.parse_args()
     work = os.path.abspath(a.work)
     items = json.load(open(os.path.join(work, "review", "items.json")))["items"]
-    review_path = os.path.join(work, "review", "review.json")
+    review_path = a.review or os.path.join(work, "review", "review.json")
     review = json.load(open(review_path, encoding="utf-8"))["assets"] if os.path.exists(review_path) else {}
     if os.path.isdir(a.out):
         shutil.rmtree(a.out)
@@ -77,7 +82,7 @@ def main():
         status = r.get("status", "new")
         if status == "rejected" or (a.scope == "approved" and status != "approved"):
             continue
-        found = versions(work, it["id"])
+        found = versions(work, it["id"], a.pack)
         if not found:
             if status == "approved":
                 skipped.append({"id": it["id"], "why": "approved, but no generated version"})
@@ -109,7 +114,7 @@ def main():
         if side:
             json.dump(side, open(os.path.join(a.out, name + ".json"), "w"))
         done.append({"id": it["id"], "art_name": name, "version": vid, "status": status, **({"true_colour": True} if head or side.get("true_colour") else {})})
-    json.dump({"scope": a.scope, "exported": done, "skipped": skipped}, open(os.path.join(a.out, "export.json"), "w"), indent=2)
+    json.dump({"scope": a.scope, "pack": a.pack, "exported": done, "skipped": skipped}, open(os.path.join(a.out, "export.json"), "w"), indent=2)
     heads = sum(1 for d in done if d["id"].startswith("head/"))
     print(f"exported {len(done)} pictures ({heads} talking-head frames and groups) to {a.out}", flush=True)
     for s in skipped:

@@ -23,6 +23,9 @@ header { grid-column: 1 / 4; display: flex; align-items: center; gap: 12px; padd
 header h1 { font-size: 14px; margin: 0; font-weight: 600; }
 header .save { margin-left: auto; color: var(--dim); font-size: 12px; }
 header .hint { color: var(--dim); font-size: 12px; }
+header .packs { display: flex; gap: 4px; align-items: center; }
+#newPackCard label { display: block; margin: 10px 0 4px; font-size: 12px; color: var(--dim); }
+#newPackCard input, #newPackCard select { width: 100%; max-width: none; box-sizing: border-box; }
 nav { background: var(--panel); border-right: 1px solid var(--line); overflow: auto; padding: 8px 0; }
 nav h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 12px 14px 4px; font-weight: 600; }
 nav button { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; color: var(--text); padding: 6px 14px; text-align: left; cursor: pointer; font: inherit; }
@@ -118,7 +121,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
 <body>
 <div id="app">
   <header>
-    <h1>Dune HD Studio</h1><span class="pill" id="hw">…</span><button class="btn" id="setupBtn">Setup</button><button class="btn" id="batchBtn">Batch</button><button class="btn" id="packBtn" title="Build an HD pack from the chosen versions, to see them in the game">Pack</button><button class="btn" id="jobsBtn">Jobs</button>
+    <h1>Dune HD Studio</h1><span class="packs"><select id="packSel" title="The pack you are working on: its own model, review and versions"></select><button class="btn" id="packAdd" title="A new pack (e.g. with another model), starting from this pack's notes">New</button><button class="btn" id="packDel" title="Delete this pack">Delete</button></span><span class="pill" id="hw">…</span><button class="btn" id="setupBtn">Setup</button><button class="btn" id="batchBtn">Batch</button><button class="btn" id="packBtn" title="Build an HD pack from the active pack's chosen versions, to see them in the game">Build pack</button><button class="btn" id="jobsBtn">Jobs</button>
     <span class="hint"><kbd>G</kbd> grid · <kbd>B</kbd> draw box · <kbd>H</kbd> hide boxes · <kbd>Space</kbd> flip · <kbd>F</kbd> fit · <kbd>1</kbd> 1:1 · <kbd>D</kbd> detail map · <kbd>Del</kbd> delete box · <kbd>↑</kbd><kbd>↓</kbd> assets</span>
     <span class="save" id="save">loading…</span>
   </header>
@@ -126,7 +129,8 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
     <option value="all">All</option><option value="new">Not reviewed</option><option value="needs-work">Needs work</option>
     <option value="approved">Approved</option><option value="rejected">Rejected</option><option value="versions">With generated versions</option>
     <option value="boxes">With boxes</option><option value="colours">Colours not certain</option></select><div class="small" id="shown"></div>
-    <button class="btn" id="collapseAll" title="Close every node of the list">Collapse all</button></div><div id="tree"></div></nav>
+    <button class="btn" id="collapseAll" title="Close every node of the list">Collapse all</button>
+    <button class="btn" id="prevItem" title="Previous item (↑)">↑</button><button class="btn" id="nextItem" title="Next item (↓)">↓</button></div><div id="tree"></div></nav>
   <main>
     <div class="toolbar">
       <label>Left <select id="selA"></select></label>
@@ -150,6 +154,14 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
 <div class="modal" id="setup"><div class="card" id="setupCard"></div></div>
 <div class="modal" id="batch"><div class="card" id="batchCard"></div></div>
 <div class="modal" id="pack"><div class="card" id="packCard"></div></div>
+<div class="modal" id="newPack"><div class="card" id="newPackCard">
+  <h2>New pack</h2>
+  <div class="small">A variation of the HD pack, e.g. with another base model. It gets its own recipes, a copy of <b id="npFrom"></b>'s with the model below, so its fixes stay its own; and starts from that pack's notes, boxes and open-mouth ticks, every item back to new. Its versions are its own.</div>
+  <label for="npName">Name</label><input type="text" id="npName" placeholder="e.g. RealVis XL">
+  <label for="npModel">Base model</label><select id="npModel"></select>
+  <div class="small" id="npMsg" style="margin-top:8px"></div>
+  <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:12px"><button class="btn" id="npCancel">Cancel</button><button class="btn primary" id="npOk">Create and switch to it</button></div>
+</div></div>
 <div id="jobs"></div>
 <script>
 "use strict";
@@ -197,8 +209,45 @@ const boxShown = (it, bx, vid) => boxState(it, bx).state !== "resolved" || bx.ve
 const versionLabel = (id) => ((cur && sources(cur).find((s) => s.id === id)) || { label: id || "?" }).label;
 const asset = (it) => (review.assets[it.id] ||= { status: "new", preferred: it.default || null, notes: "", boxes: [] });
 
+// ---------- packs ----------
+// The pack this page shows (its review and versions): the active one when the page loaded.
+let packSet = { active: "main", packs: [] }, pagePack = "main";
+const packOf = (id) => packSet.packs.find((p) => p.id === id) || { id, title: id };
+function renderPacks() {
+  const sel = $("packSel"); sel.innerHTML = "";
+  for (const p of packSet.packs) { const o = document.createElement("option"); o.value = p.id; o.textContent = p.title + (p.model ? ` · ${p.model}` : ""); sel.append(o); }
+  sel.value = pagePack;
+  $("packDel").disabled = pagePack === "main";
+  $("packDel").title = pagePack === "main" ? "The main pack can't be deleted" : `Delete the pack ${packOf(pagePack).title}`;
+}
+async function switchPack(body) {
+  await save();
+  try { await api("/api/packset", body); } catch (e) { alert(e.message); renderPacks(); return; }
+  location.reload();
+}
+$("packSel").onchange = () => switchPack({ action: "select", id: $("packSel").value });
+$("packDel").onclick = () => {
+  const p = packOf(pagePack);
+  if (confirm(`Delete the pack "${p.title}"? Its review and renders move to variants/deleted in the work folder; its versions stay on disk, hidden. The studio goes back to the main pack.`)) switchPack({ action: "delete", id: p.id });
+};
+$("packAdd").onclick = async () => {
+  $("npFrom").textContent = packOf(pagePack).title; $("npName").value = ""; $("npMsg").textContent = "";
+  const m = $("npModel"); m.innerHTML = '<option value="">The same models as the pack it is copied from</option>';
+  const s = sys || await api("/api/system").catch(() => null);
+  for (const d of (s ? s.models : []).filter((d) => (d.role || "").startsWith("base model"))) {
+    const o = document.createElement("option"); o.value = d.id; o.textContent = `${d.id} (${d.repo})` + (d.cached ? "" : ", not downloaded yet: Setup fetches it"); m.append(o);
+  }
+  $("newPack").classList.add("on"); $("npName").focus();
+};
+$("npCancel").onclick = () => $("newPack").classList.remove("on");
+$("npOk").onclick = () => {
+  if (!$("npName").value.trim()) { $("npMsg").textContent = "Give the pack a name."; return; }
+  switchPack({ action: "add", title: $("npName").value, model: $("npModel").value || null, from: pagePack });
+};
+
 async function load() {
   const r = await fetch("/api/items").then((r) => r.json());
+  packSet = r.packs || packSet; pagePack = packSet.active; renderPacks();
   items = r.items.items || [];
   review = r.review && r.review.assets ? r.review : { version: 1, assets: {} };
   resolutions = r.resolutions && r.resolutions.assets ? r.resolutions : { assets: {} };
@@ -319,6 +368,15 @@ function setGrid(on) {
   if (on) renderGrid(); else draw();
 }
 
+// The next (+1) or previous (-1) item of the list, as filtered (↑ ↓ buttons and keys).
+function step(d) {
+  const vis = [...grouped().values()].flatMap((g) => [...g.values()].flat());
+  const i = cur ? vis.indexOf(cur) + d : 0;
+  if (i < 0 || i >= vis.length) return;
+  setGrid(false); select(vis[i]);
+  const b = $("tree").querySelector("button.sel");
+  if (b) b.scrollIntoView({ block: "nearest" });
+}
 function select(it, show = true) {
   if (!it) return;
   $("talkBtn").style.display = isHead(it) ? "" : "none";
@@ -390,6 +448,20 @@ function renderSide() {
     side.append(which);
   }
 
+  if (isHead(cur) && !cur.id.endsWith("/f00")) {
+    // A pose the game draws with the mouth open: its prompt says so (generate.py reads the tick).
+    side.append(el("h3", null, "Mouth"));
+    const lab = el("label", "small"), cb = el("input");
+    cb.type = "checkbox"; cb.checked = a.open_mouth ?? cur.open_mouth_recipe === "open";
+    cb.onchange = () => { a.open_mouth = cb.checked; changed(); renderSide(); };
+    lab.style.cssText = "display:flex;gap:6px;align-items:center;cursor:pointer";
+    lab.append(cb, document.createTextNode("Open mouth"));
+    side.append(lab);
+    const from = a.open_mouth !== undefined ? "set by you" : cur.open_mouth_recipe === "open" ? "from the recipe" :
+      cur.open_mouth_recipe === "parted" ? "the recipe says lips slightly parted" : "";
+    if (from) side.append(el("div", "small", `${from}; applies at the next generation`));
+  }
+
   side.append(el("h3", null, "Generate"));
   const gen = el("div", "gen");
   const gb = el("button", "btn primary", "Generate a new version");
@@ -410,6 +482,20 @@ function renderSide() {
   const openBoxes = a.boxes.filter((bx) => states.get(bx).state !== "resolved"), doneBoxes = a.boxes.filter((bx) => states.get(bx).state === "resolved");
   side.append(el("h3", null, `Boxes (${openBoxes.length} open${doneBoxes.length ? `, ${doneBoxes.length} resolved` : ""})`));
   if (!a.boxes.length) side.append(el("div", "small", "Press B (or the Box tool) and drag on the picture to mark a part to describe, a problem, or an area to keep as the original."));
+  else {
+    // After a change of model (or anything that redraws the picture), the boxes describe
+    // details that are gone: start again. They are kept in review.json (archived_boxes).
+    const reset = el("button", "btn", "Reset boxes");
+    reset.title = "Clear this item's boxes (kept in its history, no longer shown or acted on)";
+    reset.onclick = () => {
+      if (!confirm(`Clear the ${a.boxes.length} boxes of this item? They are kept in its history but no longer shown or acted on.`)) return;
+      const at = new Date().toISOString();
+      a.archived_boxes = [...(a.archived_boxes || []), ...a.boxes.map((bx) => ({ ...bx, archived: at }))];
+      a.boxes = []; selBox = null;
+      changed(); renderSide(); renderList(); draw();
+    };
+    side.append(reset);
+  }
   const setState = (bx, state) => {
     bx.state = state; bx.state_at = new Date().toISOString();
     if (state === "resolved") { const r = states.get(bx); bx.resolved_in = r.version || $("selB").value; if (r.note) bx.resolved_note = r.note; }
@@ -473,7 +559,7 @@ async function save() {
     for (const bx of a.boxes) if (o && o.naturalWidth) bx.px = [bx.x * o.naturalWidth, bx.y * o.naturalHeight, (bx.x + bx.w) * o.naturalWidth, (bx.y + bx.h) * o.naturalHeight].map(Math.round);
   }
   try {
-    const r = await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(review, (k, v) => (k.startsWith("_") ? undefined : v)) });
+    const r = await fetch("/api/review?pack=" + encodeURIComponent(pagePack), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(review, (k, v) => (k.startsWith("_") ? undefined : v)) });
     $("save").textContent = r.ok ? "saved " + new Date().toLocaleTimeString() : "save failed";
   } catch { $("save").textContent = "save failed (is the server running?)"; }
 }
@@ -730,7 +816,8 @@ $("selA").onchange = () => draw();
 $("selB").onchange = () => { renderSide(); fit(); };
 addEventListener("resize", () => draw());
 addEventListener("keydown", (e) => {
-  if (e.target.matches("textarea, input, select")) { if (e.key === "Escape") e.target.blur(); return; }
+  // A ticked checkbox keeps the focus: the arrows still move through the list.
+  if (e.target.matches("textarea, input, select") && !(e.target.matches("input[type=checkbox]") && e.key.startsWith("Arrow"))) { if (e.key === "Escape") e.target.blur(); return; }
   const k = e.key.toLowerCase();
   if (k === " ") { e.preventDefault(); if (mode !== "flip") setMode("flip"); flip = !flip; draw(); }
   else if (k === "g") setGrid(!gridOn);
@@ -741,10 +828,8 @@ addEventListener("keydown", (e) => {
   else if (k === "2") zoomTo(2);
   else if (k === "d") setMode(mode === "detail" ? "side" : "detail");
   else if ((k === "delete" || k === "backspace") && selBox) { const a = asset(cur); a.boxes.splice(a.boxes.indexOf(selBox), 1); selBox = null; changed(); renderSide(); renderList(); draw(); }
-  else if (k === "arrowdown" || k === "arrowup") {
-    e.preventDefault(); const vis = [...grouped().values()].flatMap((g) => [...g.values()].flat()); const i = vis.indexOf(cur) + (k === "arrowdown" ? 1 : -1);
-    if (i >= 0 && i < vis.length) select(vis[i]);
-  } else if ((e.metaKey || e.ctrlKey) && k === "s") { e.preventDefault(); save(); }
+  else if (k === "arrowdown" || k === "arrowup") { e.preventDefault(); step(k === "arrowdown" ? 1 : -1); }
+  else if ((e.metaKey || e.ctrlKey) && k === "s") { e.preventDefault(); save(); }
 });
 addEventListener("beforeunload", (e) => { if ($("save").textContent.startsWith("unsaved")) { save(); e.preventDefault(); } });
 // ---------- setup, jobs, generation ----------
@@ -824,6 +909,7 @@ async function pollJobs() {
 }
 async function reloadItems() {
   const r = await api("/api/items");
+  if (r.packs && r.packs.active !== pagePack) { await save(); location.reload(); return; }  // switched in another tab
   const id = cur && cur.id;
   const before = cur ? cur.versions.length : 0;
   items = r.items.items || [];
@@ -999,6 +1085,8 @@ loadSystem().catch(() => { $("hw").textContent = "server offline"; });
 api("/api/jobs").then((l) => { for (const j of l) if (j.status !== "running" && j.status !== "queued") knownDone.add(j.id); jobList = l; renderJobs(); pollJobs(); }).catch(() => {});
 $("q").value = filter.q; $("flt").value = filter.status;
 $("collapseAll").onclick = collapseAll;
+$("prevItem").onclick = () => step(-1);
+$("nextItem").onclick = () => step(1);
 $("q").oninput = () => { filter.q = $("q").value; renderList(); };
 $("flt").onchange = () => { filter.status = $("flt").value; store.set("status", filter.status); renderList(); };
 setMode(mode); setTool("pan"); setGrid(false);

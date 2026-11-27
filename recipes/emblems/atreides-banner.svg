@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 580">
+  <!-- The Atreides hall banner (as in the throne room): solid green fading into a
+       triangle towards the fork, black between it and the green border, pointed tips.
+       Drawn by room banner parts (recipes/rooms.json), warped onto each banner's corners. -->
+  <defs>
+    <clipPath id="cloth">
+      <path id="shape" d="M0,0 H100 V580 L50,487 L0,580 Z"/>
+    </clipPath>
+    <linearGradient id="fade" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="464">
+      <stop offset="0" stop-color="#0a8f0a"/>
+      <stop offset="0.55" stop-color="#077507"/>
+      <stop offset="1" stop-color="#033803"/>
+    </linearGradient>
+  </defs>
+  <path d="M0,0 H100 V580 L50,487 L0,580 Z" fill="#040704"/>
+  <path d="M0,0 H100 V580 L50,487 L0,580 Z" fill="none" stroke="#067006" stroke-width="26" stroke-linejoin="miter" stroke-miterlimit="20" clip-path="url(#cloth)"/>
+  <path d="M0,0 H100 V273 H87 L50,464 L13,273 H0 Z" fill="url(#fade)"/>
+</svg>

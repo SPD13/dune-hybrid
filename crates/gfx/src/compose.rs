@@ -290,7 +290,7 @@ impl Compositor {
 
     /// The room is drawn: where the pack has its plate, the room's pixels
     /// take the plate's texels, wherever they still show what the plate
-    /// depicts (not under a character, same palette index).
+    /// depicts (not under a character or its outline, same palette index).
     pub fn room_end(&mut self) {
         let Some(t) = self.room.take() else { return };
         let (Some(target), Some(plates)) = (t.target, self.plates.as_mut()) else { return };
@@ -309,6 +309,10 @@ impl Compositor {
             }
             let (x, y) = (i % 320, i / 320);
             for j in 0..kk {
+                // A character's outline reaching over this pixel stays.
+                if t.spilled[i] & 1u32.checked_shl(j as u32).unwrap_or(0) != 0 {
+                    continue;
+                }
                 let p = plate.texels.px[(y * k + j / k) * w + x * k + j % k];
                 dst.hd[i * kk + j] = Texel { a: p[0], b: p[1], t: p[2], free: false, under: false, tc: None };
             }
@@ -481,6 +485,7 @@ impl Compositor {
         };
         // Take the target out of the map so the sink can read other buffers.
         let mut dst = self.buffers.remove(&target).unwrap();
+        let spilled = self.room.as_mut().filter(|t| t.in_character() && t.target == Some(target)).map(|t| &mut t.spilled[..]);
         let mut sink = HdSink {
             k: self.k,
             dst: &mut dst,
@@ -494,6 +499,7 @@ impl Compositor {
             mirror_y,
             fg,
             bg,
+            spilled,
         };
         walk(op, r, mem, &mut sink);
         if let Some(w) = self.watch {
@@ -883,6 +889,9 @@ struct HdSink<'a> {
     mirror_y: bool,
     fg: u8,
     bg: Option<u8>,
+    /// While a character is drawn into a room: the texels its art spills
+    /// into bytes it passes over (see [`crate::room::RoomTrack::spilled`]).
+    spilled: Option<&'a mut [u32]>,
 }
 
 impl HdSink<'_> {
@@ -901,13 +910,22 @@ impl HdSink<'_> {
         &mut self.dst.hd[at as usize * kk..(at as usize + 1) * kk]
     }
 
-    /// Texel (`tx`, `ty`) of a sprite block, honouring flips.
-    fn sprite_texel(&self, key: u64, col: u16, row: u16, tx: usize, ty: usize) -> Option<Texel> {
+    /// Texel (`tx`, `ty`) of a sprite block, honouring flips. A scaled
+    /// pixel (`step` > 0, see [`Px::Sprite`]) samples the art where that
+    /// texel falls in the sprite: whole blocks would drop or repeat a
+    /// block's worth of art at every skipped or doubled pixel.
+    fn sprite_texel(&self, key: u64, (col, row, fx, fy, step): (u16, u16, u8, u8, u16), tx: usize, ty: usize) -> Option<Texel> {
         let s = &self.sprites[&key];
         let k = self.k;
         let tx = if self.mirror_x { k - 1 - tx } else { tx };
         let ty = if self.mirror_y { k - 1 - ty } else { ty };
-        let (x, y) = (col as usize * k + tx, row as usize * k + ty);
+        let (x, y) = if step == 0 {
+            (col as usize * k + tx, row as usize * k + ty)
+        } else {
+            // The texel's centre in 8.8 sprite pixels, times k: in texels.
+            let at = |p: u16, f: u8, t: usize| ((p as usize * 256 + f as usize) * 2 * k + step as usize * (2 * t + 1)) / 512;
+            (at(col, fx, tx), at(row, fy, ty))
+        };
         if x >= s.w {
             return None;
         }
@@ -1016,16 +1034,16 @@ impl Sink for HdSink<'_> {
         if let Px::Zoom { seg, at: from, ix, iy, nx, ny } = px {
             return self.zoom_block(at, seg, from, value, (ix, iy, nx, ny));
         }
-        if let (Px::Sprite { col, row }, Source::Buffer { seg, start, stride }) = (px, self.source) {
+        if let (Px::Sprite { col, row, .. }, Source::Buffer { seg, start, stride }) = (px, self.source) {
             let from = start.wrapping_add(row.wrapping_mul(*stride)).wrapping_add(col);
             return self.copy_block(at, *seg, from, value);
         }
         self.dst.low[at as usize] = value;
         self.dst.lowres[at as usize] = false;
         match (px, self.source) {
-            (Px::Sprite { col, row }, Source::Sprite(key)) => {
+            (Px::Sprite { col, row, fx, fy, step }, Source::Sprite(key)) => {
                 let key = *key;
-                let mut texels: Vec<Option<Texel>> = (0..k * k).map(|i| self.sprite_texel(key, col, row, i % k, i / k)).collect();
+                let mut texels: Vec<Option<Texel>> = (0..k * k).map(|i| self.sprite_texel(key, (col, row, fx, fy, step), i % k, i / k)).collect();
                 // Keep the block mostly this pixel's colour (HD art must
                 // depict the low-resolution picture).
                 let own = texels.iter().filter(|t| t.map(|t| t.dominant()) == Some(value)).count();
@@ -1093,10 +1111,13 @@ impl Sink for HdSink<'_> {
         match (px, self.source) {
             // HD sprite art reaching into a transparent neighbour: draw it
             // where it stays a minority of the block.
-            (Px::Sprite { col, row }, Source::Sprite(key)) => {
+            (Px::Sprite { col, row, fx, fy, step }, Source::Sprite(key)) => {
                 let key = *key;
-                let texels: Vec<Option<Texel>> = (0..k * k).map(|i| self.sprite_texel(key, col, row, i % k, i / k)).collect();
+                let texels: Vec<Option<Texel>> = (0..k * k).map(|i| self.sprite_texel(key, (col, row, fx, fy, step), i % k, i / k)).collect();
                 if texels.iter().filter(|t| t.is_some()).count() * 2 < k * k {
+                    if let Some(spilled) = self.spilled.as_deref_mut() {
+                        spilled[at as usize] |= texels.iter().enumerate().filter(|(_, t)| t.is_some()).fold(0, |m, (j, _)| m | 1u32.checked_shl(j as u32).unwrap_or(0));
+                    }
                     let block = self.block(at);
                     for (b, t) in block.iter_mut().zip(texels) {
                         if let Some(t) = t {

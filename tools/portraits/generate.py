@@ -27,6 +27,12 @@ defaults: description "the subject as drawn").
 A character's "touch" entries (box in the square frame's pixels, prompt) repaint
 a detail of every frame in a close-up after generation, when the model misreads it
 in the pixel art (Hawat's bushy eyebrows, drawn as a horn).
+A character's "eyes" (boxes, colour, pick) colour the eyes where each frame's pixel
+art draws them blue or green, with no generation (the Fremen's blue-in-blue eyes).
+A character's "open_mouth" ({"open": [...], "parted": [...]}) lists the talking groups
+drawn with the mouth open or parted; each gets that modifier on its prompt. The
+studio's "Open mouth" checkbox (--review, else the --publish folder's review.json)
+wins over them.
 Emblems (the character's "emblems": box in the frame's pixels, emblem name) are
 taken out of every frame before generation and drawn back from their vector
 master (NAME.svg, as in hdgen.py) on every final frame, so they are exact and
@@ -53,6 +59,8 @@ NEGATIVE = ("cartoon, anime, painting, illustration, drawing, pixel art, cgi, 3d
             "disfigured, extra limbs, text, watermark, frame")
 FACIAL_HAIR = "mustache, moustache, beard, stubble, facial hair"
 BACKDROP = (24, 16, 12)
+# The character's "open_mouth" lists: the poses drawn with the mouth open, or just parted.
+OPEN_MOUTH = {"open": ("mouth open, speaking", "closed mouth"), "parted": ("lips slightly parted", "closed mouth, wide open mouth")}
 
 
 def load_face(path):
@@ -269,6 +277,31 @@ def touch_pass(render, im, low, touches, st, ch):
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
 
 
+def eye_colour(im, low, eyes):
+    """Colour the eyes where the frame's pixel art draws them in a colour (the character's
+    "eyes": boxes in the square frame's pixels, colour, pick "blue" or "green"): the model
+    paints whites the game doesn't have (the Fremen's blue-in-blue eyes). The mask comes
+    from each frame's own pixel art, so blinks and glances follow; the shading is kept."""
+    import cv2
+    a = np.asarray(low, dtype=np.int16)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    pick = (b > r + 30) & (b > g + 15) if eyes.get("pick", "blue") == "blue" else (g >= r - 15) & (g > b + 50)
+    box = np.zeros(pick.shape, bool)
+    for x0, y0, x1, y1 in eyes["boxes"]:
+        box[y0:y1, x0:x1] = True
+    m = (pick & box).astype(np.float32)
+    if not m.any():
+        return im
+    s = im.width / low.width
+    m = cv2.dilate(m, np.ones((3, 3), np.uint8), iterations=eyes.get("grow", 1))
+    m = cv2.resize(m, im.size, interpolation=cv2.INTER_LINEAR)
+    m = np.clip(cv2.GaussianBlur(m, (0, 0), s * 0.5), 0, 1)[..., None]
+    out = np.asarray(im, dtype=np.float32)
+    lum = out @ np.array([0.299, 0.587, 0.114], np.float32)
+    tint = np.clip(lum[..., None] / 255 * np.array(eyes["colour"], np.float32) * eyes.get("gain", 1.8), 0, 255)
+    return Image.fromarray(np.clip(tint * m + out * (1 - m), 0, 255).astype(np.uint8))
+
+
 def mouth_pass(render, im, low, vfull, mp, st, ch, drop=()):
     """Redo the inside of an open mouth: the dark interior the pixel art draws (no teeth,
     no gums) painted in, then only the mouth repainted by the model in a close-up, guided
@@ -382,6 +415,7 @@ def main():
     ap.add_argument("--force", action="store_true", help="render again even if a cached render has the same settings")
     ap.add_argument("--publish", help="studio work folder: also put each frame there as a new version of head/NAME/fNN")
     ap.add_argument("--label", help="label of the published versions (default: the settings)")
+    ap.add_argument("--review", help="the studio's review.json with the Open mouth ticks (default: the --publish folder's)")
     ap.add_argument("--prompt", help="replace the character's description")
     ap.add_argument("--negative", help="replace the character's extra negative prompt")
     ap.add_argument("--var-prompt", help="replace the prompt prefix of the selected rerender variants")
@@ -433,6 +467,25 @@ def main():
             fid = f"v{g:02d}"
             if fid not in variants and os.path.exists(os.path.join(args.heads, f"{name}-{fid}.png")):
                 variants[fid] = {"kind": f"mouth, group {g}", **ch.get("mouths", {})} if g in mouths else {"kind": f"group {g}"}
+    # Poses whose pixel art opens the mouth: told so (the guide alone gives a closed one).
+    # The studio's "Open mouth" ticks (review.json) win over the recipe's lists.
+    lists = {k: set(v) for k, v in ch.get("open_mouth", {}).items()}
+    review_path = args.review or os.path.join(args.publish or "", "review", "review.json")
+    if (args.review or args.publish) and os.path.exists(review_path):
+        for item_id, r in json.load(open(review_path, encoding="utf-8")).get("assets", {}).items():
+            kind, _, rest = item_id.partition("/")
+            n, _, fid = rest.partition("/")
+            if kind == "head" and n == name and "open_mouth" in r:
+                for s in lists.values():
+                    s.discard(fid)
+                if r["open_mouth"]:
+                    lists.setdefault("open", set()).add(fid)
+    for key, (vp, vn) in OPEN_MOUTH.items():
+        for fid in sorted(lists.get(key, ())):
+            if fid in variants:
+                v = variants[fid] = dict(variants[fid])
+                v["var_prompt"] = ", ".join(filter(None, [vp, v.get("var_prompt")]))
+                v["negative"] = ", ".join(filter(None, [v.get("negative"), vn]))
     only = set(args.only.split(",")) if args.only else set(variants)
     base_id = ch.get("base", "f00")
     needed = only | {variants[v]["over"] for v in only if v in variants and "over" in variants[v]}
@@ -492,6 +545,11 @@ def main():
                 print(f"@stage touch {name}-{fid}", flush=True)
                 # A pose may give its own (e.g. a frown: the eyebrow lowered).
                 finals[fid] = touch_pass(render, finals[fid], low, variants.get(fid, {}).get("touch", ch["touch"]), st, ch)
+
+    if ch.get("eyes"):
+        for fid in list(finals):
+            if fid in only or fid == base_id:
+                finals[fid] = eye_colour(finals[fid], frame(fid)[0], ch["eyes"])
 
     # Colours (eye stages): recoloured from the frame they're drawn over.
     groups = {}

@@ -57,16 +57,22 @@ class Recipes:
         models = load(os.path.join(d, "models.json"))
         repo = {m["id"]: m["repo"] for m in models["downloads"]}
         self.downloads = {m["id"]: m for m in models["downloads"]}
+        self.model_rules = models.get("use", {}).get("rules", [])
         ids = models["classes"]["portrait"]
         self.models = {"model": repo[ids[0]], "controlnet": repo[ids[1]], "vae": repo[ids[2]]}
 
     def part(self, p, parts):
         """A room part with what it refers to filled in: same_as (another part) and character
-        (recipes/cast.json); the part's own keys win."""
+        (recipes/cast.json); the part's own keys win. A character's prompt is its look followed
+        by its pose, so a part can give its own pose and keep the same person."""
         if "same_as" in p:
             p = {**self.part(parts[p["same_as"]], parts), **{k: v for k, v in p.items() if k != "same_as"}}
         if "character" in p:
-            p = {**self.cast[p["character"]], **p}
+            c = self.cast[p["character"]]
+            p = {**c, **p}
+            if "prompt" not in p or p["prompt"] == c.get("prompt"):
+                p["prompt"] = ", ".join(filter(None, [c.get("prompt"), p.get("pose")]))
+            p.pop("pose", None)
         return p
 
     def hint(self, group):
@@ -79,14 +85,14 @@ class Recipes:
         b = self.defaults["batch"].get(it["class_key"], {})
         if not b.get("enabled"):
             return False
+        if it["kind"] == "head-group":  # a talking group: made from its head's recipe (generate.py)
+            return it["group"] in self.heads["characters"]
         if it["kind"] == "head-frame" and b.get("frames") == "multi-group":
             name = it["group"]
             rec = self.heads["characters"].get(name)
             fid = it["id"].rsplit("/", 1)[1]
             if rec:  # a recipe head: its own frames
                 return fid == rec.get("base", "f00") or fid in rec.get("variants", {})
-        if it["kind"] == "head-group":  # a talking group: made from its head's recipe (generate.py)
-            return it["group"] in self.heads["characters"]
             return len(it.get("groups", [])) >= 2
         mw, mh = b.get("min_size", [0, 0])
         return it["size"][0] >= mw and it["size"][1] >= mh
@@ -103,7 +109,7 @@ class Recipes:
             st.update({k: v for k, v in self.rooms.get("defaults", {}).items() if k != "part"})
             own = self.rooms["rooms"].get(it.get("art_name"))
             if own:
-                st.update({k: v for k, v in own.items() if k in ("prompt", "negative", "strength", "cond", "soften", "anchor", "detail", "style")})
+                st.update({k: v for k, v in own.items() if k in ("prompt", "negative", "strength", "cond", "soften", "anchor", "detail", "style", "lights", "model", "keep_in_guide")})
                 st["parts"] = [self.part(p, own["parts"]) for p in own.get("parts", [])]
                 st["part"] = self.rooms.get("defaults", {}).get("part", {})
                 st["source"] = "recipes/rooms.json"
@@ -125,6 +131,12 @@ class Recipes:
             return "recipe-head", {"source": "recipes/heads.json", "head": it["group"]}
         if st.get("style", True) is not False:
             st["style"] = self.style_for(it)
+        if st.get("model") in self.downloads:  # a recipe's own model (an id from models.json) wins
+            st["model"] = self.downloads[st["model"]]["repo"]
+        for r in [] if st.get("model") else self.model_rules:  # models.json "use": the base model for this item
+            if ("classes" not in r or it["class_key"] in r["classes"]) and                ("groups" not in r or any(fnmatch.fnmatch(it.get("group") or "", g) for g in r["groups"])):
+                st["model"] = self.downloads[r["model"]]["repo"]
+                break
         return st.pop("method"), st
 
     def style_for(self, it):
@@ -229,30 +241,109 @@ def picture(pipe, rgb, alpha, st):
     # Emblems are taken out of the pixel art before anything is generated (the model would
     # paint its own version, larger than the original's pixels), and drawn back at the end.
     src = without_emblems(rgb, [p for p in parts if "emblem" in p])
-    out = np.asarray(pipe(guide_of(src, W, H, st["soften"]), st, st.get("seed", 1992)).resize((w * 4, h * 4), Image.LANCZOS), dtype=np.float32)
-    ref = src.copy()  # the colours the result is anchored to; emblem parts redraw theirs
+    # Banners are taken out the same way, so the model paints what is behind them and the
+    # anchoring does not spread their green around; they are drawn back at the very end.
+    banners = [p for p in parts if "banner" in p]
+    for p in banners:
+        src = inpaint_mask(src, banner_mask(rgb, p))
+    # Erased parts (erase: true; their pixels: select in the box) are painted out of the pixel
+    # art: the room is generated without them.
+    for p in parts:
+        if p.get("erase"):
+            src = inpaint_mask(src, part_mask(rgb, p))
+    # keep_in_guide: the room is generated with its banners still in the pixel art, when the
+    # room's look came out better that way; they are still taken out of the colours the
+    # result is anchored to, and drawn over at the end. Emblems always go before generation.
+    seen = without_emblems(rgb, [p for p in parts if "emblem" in p]) if st.get("keep_in_guide") else src
+    out = np.asarray(pipe(guide_of(seen, W, H, st["soften"]), st, st.get("seed", 1992)).resize((w * 4, h * 4), Image.LANCZOS), dtype=np.float32)
+    ref = src.copy()  # the colours the result is anchored to (emblems and banners taken out)
     # Order: people and objects in close-up, then the detail pass over everything (so the
-    # room is as crisp as the close-ups, and these keep the look they had), then emblems,
-    # which must keep their exact shape.
+    # room is as crisp as the close-ups, and these keep the look they had), the anchoring,
+    # then emblems and banners, which must keep their exact shape, and lights.
+    keep = np.zeros((h * 4, w * 4, 1), np.float32)  # sprites drawn so far: harmonizing leaves them
     for part in parts:
+        if "select" in part and "emblem" not in part and "banner" not in part and not part.get("erase"):
+            keep = np.maximum(keep, silhouette(part_mask(src, part), part.get("feather", 1.5) + 2))
         if "copy_of" in part:
             out = copy_part(out, src, parts[part["copy_of"]], part)
-        elif "emblem" not in part:
+        elif "emblem" not in part and "banner" not in part and not part.get("erase"):
             own = {k: part[k] for k in ("strength", "cond", "soften", "zoom") if k in part}
             out = refine(pipe, out, src, part, {**st, **st.get("part", {}), **own})
+            h = part.get("harmonize", st.get("part", {}).get("harmonize"))
+            if is_area(part) and h:
+                out = harmonize(pipe, out, part, st, h, keep)
     if st.get("detail"):
         out = detail(pipe, out, st)
+    out = anchor(out, ref, st["anchor"])
+    # Emblems last, over the anchored picture (whose colours were taken without them): the
+    # anchoring would soften their edges against a dark wall.
     for part in parts:
         if "emblem" in part:
-            out = emblem_part(pipe, out, rgb, part, st, ref)
-    return anchor(out, ref, st["anchor"])
+            out = emblem_part(pipe, out, rgb, part, st)
+    for p in banners:
+        out = banner_part(out, rgb, p)
+    return lights(out, rgb, st["lights"]) if st.get("lights") else out
+
+
+def banner_box(part, width):
+    """A banner part's corners (TL, TR, BR, BL, low-res pixel-edge coordinates; flip: the
+    mirrored banner on the other side) and the box around them."""
+    q = np.array(part["quad"], np.float32)
+    if part.get("flip"):
+        q = q[[1, 0, 3, 2]] * [-1, 1] + [width, 0]
+    x0, y0 = np.floor(q.min(0)).astype(int) - 2
+    x1, y1 = np.ceil(q.max(0)).astype(int) + 2
+    return q, [max(0, x0), max(0, y0), x1, y1]
+
+
+def banner_mask(rgb, part):
+    """A banner's pixels in the original: its green pixels and the dark ones drawn inside
+    them (the black strips), within its box."""
+    x0, y0, x1, y1 = banner_box(part, rgb.shape[1])[1]
+    x1, y1 = min(x1, rgb.shape[1]), min(y1, rgb.shape[0])
+    sub = rgb[y0:y1, x0:x1]
+    sel = ((sub[..., 1] - np.maximum(sub[..., 0], sub[..., 2])) > 30).astype(np.uint8)
+    near = cv2.dilate(sel, np.ones((3, 3), np.uint8), iterations=2) > 0
+    m = np.zeros(rgb.shape[:2], bool)
+    m[y0:y1, x0:x1] = (sel > 0) | (near & (sub.sum(-1) < 60))
+    return m
+
+
+def inpaint_mask(rgb, mask):
+    m = cv2.dilate(mask.astype(np.uint8), np.ones((3, 3), np.uint8))
+    return cv2.inpaint(np.clip(rgb, 0, 255).astype(np.uint8), m, 3, cv2.INPAINT_TELEA).astype(np.float32)
+
+
+def banner_part(hd, rgb, part):
+    """A banner drawn from its vector master (banner: NAME, like emblems), not generated:
+    the master is warped onto the banner's four corners (quad), so every banner has the
+    same design with clean edges and pointed tips, in the room's perspective."""
+    q, (x0, y0, x1, y1) = banner_box(part, rgb.shape[1])
+    H, W = hd.shape[:2]
+    x1, y1 = min(x1, W // 4), min(y1, H // 4)
+    tw, th = 200, 1160
+    em = render_emblem(part["banner"], tw, th)
+    src = np.float32([[0, 0], [tw, 0], [tw, th], [0, th]])
+    k = 4  # drawn 4x larger, then shrunk: smooth edges
+    dst = (q - [x0, y0]) * 4 * k
+    M = cv2.getPerspectiveTransform(src, dst.astype(np.float32))
+    w, h = (x1 - x0) * 4, (y1 - y0) * 4
+    big = cv2.warpPerspective(em, M, (w * k, h * k), flags=cv2.INTER_LINEAR)
+    big[..., :3] *= big[..., 3:] / 255  # premultiplied, so the shrink does not darken the edges
+    warped = cv2.resize(big, (w, h), interpolation=cv2.INTER_AREA)
+    warped[..., :3] /= np.maximum(warped[..., 3:] / 255, 1e-6)
+    a = warped[..., 3:] / 255
+    out = hd.copy()
+    region = out[y0 * 4:y1 * 4, x0 * 4:x1 * 4]
+    region[:] = warped[..., :3] * a + region * (1 - a)
+    return out
 
 
 def emblem_pixels(rgb, box):
-    """The emblem's own pixels in its box: clearly red ones."""
+    """The emblem's own pixels in its box: pure bright reds (not a dark red wall behind it)."""
     x0, y0, x1, y1 = box
     sub = rgb[y0:y1, x0:x1]
-    return (sub[..., 0] - np.maximum(sub[..., 1], sub[..., 2])) > 40
+    return (sub[..., 0] > 90) & (np.maximum(sub[..., 1], sub[..., 2]) < sub[..., 0] * 0.25)
 
 
 def without_emblems(rgb, emblems):
@@ -341,7 +432,7 @@ def emblem_part(pipe, hd, rgb, part, st, ref=None):
         em = em[:, ::-1]
     a = em[..., 3:] / 255
     sub = rgb[y0:y1, x0:x1]
-    red = (sub[..., 0] - np.maximum(sub[..., 1], sub[..., 2])) > 40
+    red = emblem_pixels(rgb, part["box"])
     colour = np.array(part["colour"], np.float32) if "colour" in part else (
         np.percentile(sub[red], 75, axis=0) if red.any() else em[..., :3][a[..., 0] > 0.5].mean(0))
     out = hd.copy()
@@ -373,15 +464,20 @@ def emblem_part(pipe, hd, rgb, part, st, ref=None):
 
 def part_mask(rgb, part):
     """The part's outline in the original's pixels: its box, or the cool-coloured pixels in it
-    (guards against a warm room), with warm gaps closed (faces, hands) and grown by a pixel."""
+    (guards against a warm room), or the strongly warm ones (an orange craft over pink sand), with warm gaps closed (faces, hands) and grown by a pixel."""
     x0b, y0b, x1b, y1b = part["box"]
     mask = np.zeros(rgb.shape[:2], bool)
     sub = rgb[y0b:y1b, x0b:x1b]
-    mask[y0b:y1b, x0b:x1b] = (sub[..., 0] - sub[..., 2]) < 30 if part.get("select") == "cool" else True
+    sel = part.get("select")
+    mask[y0b:y1b, x0b:x1b] = ((sub[..., 0] - sub[..., 2]) < 30 if sel == "cool" else
+                              (sub[..., 0] - sub[..., 2]) > 100 if sel == "warm" else
+                              sub.sum(-1) < 330 if sel == "dark" else True)
     if part.get("close"):
         k = int(part["close"])
         mask = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((k, k), np.uint8)) > 0
-    return cv2.dilate(mask.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+    # grow: a wider outline (low-res pixels) for small sprites whose close-up comes out a
+    # little larger than the pixel art (a helmet over a hat), so its edge is not cut off
+    return cv2.dilate(mask.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=1 + int(part.get("grow", 0))) > 0
 
 
 def silhouette(mask, feather=1.5):
@@ -392,35 +488,72 @@ def silhouette(mask, feather=1.5):
 
 
 def copy_part(hd, rgb, src, part):
-    """The same sprite drawn again (moved, or mirrored with flip): the HD result of the
-    source part is reused, so both look alike, and pasted within this part's outline."""
+    """The same sprite drawn again (moved, mirrored with flip, or larger or smaller: the
+    boxes may differ in size, e.g. the same statue nearer the camera): the HD result of the
+    source part is reused, so both look alike, and pasted within this part's outline. The
+    box may run past the picture's edge; what is outside is cut off."""
     (sx0, sy0, sx1, sy1), (dx0, dy0, dx1, dy1) = src["box"], part["box"]
-    if (sx1 - sx0, sy1 - sy0) != (dx1 - dx0, dy1 - dy0):
-        raise ValueError(f"copy_of: boxes {src['box']} and {part['box']} differ in size")
     H0, W0 = rgb.shape[:2]
-    pad = min(2, sx0, sy0, dx0, dy0, W0 - sx1, H0 - sy1, W0 - dx1, H0 - dy1)
+    pad = max(0, min(2, sx0, sy0, W0 - sx1, H0 - sy1))
     patch = hd[(sy0 - pad) * 4:(sy1 + pad) * 4, (sx0 - pad) * 4:(sx1 + pad) * 4]
     if part.get("flip"):
         patch = patch[:, ::-1]
-    sil = silhouette(part_mask(rgb, part))[(dy0 - pad) * 4:(dy1 + pad) * 4, (dx0 - pad) * 4:(dx1 + pad) * 4]
+    # the patch scaled onto the destination box (with the same padding, scaled)
+    kx, ky = (dx1 - dx0) / (sx1 - sx0), (dy1 - dy0) / (sy1 - sy0)
+    X0, Y0 = round((dx0 - pad * kx) * 4), round((dy0 - pad * ky) * 4)
+    X1, Y1 = round((dx1 + pad * kx) * 4), round((dy1 + pad * ky) * 4)
+    patch = cv2.resize(patch, (X1 - X0, Y1 - Y0), interpolation=cv2.INTER_LANCZOS4 if kx > 1 else cv2.INTER_AREA)
+    cx0, cy0, cx1, cy1 = max(0, X0), max(0, Y0), min(W0 * 4, X1), min(H0 * 4, Y1)
+    clipped = {**part, "box": [max(0, dx0), max(0, dy0), min(W0, dx1), min(H0, dy1)]}
+    sil = silhouette(part_mask(rgb, clipped))[cy0:cy1, cx0:cx1]
     out = hd.copy()
-    dst = out[(dy0 - pad) * 4:(dy1 + pad) * 4, (dx0 - pad) * 4:(dx1 + pad) * 4]
-    dst[:] = patch * sil + dst * (1 - sil)
+    dst = out[cy0:cy1, cx0:cx1]
+    dst[:] = patch[cy0 - Y0:cy1 - Y0, cx0 - X0:cx1 - X0] * sil + dst * (1 - sil)
     return out
 
 
+def is_area(part):
+    """A part drawn from a box (the user's annotation: an area to improve, not a cut line),
+    as opposed to a sprite cut out by its colours (select: a guard against the room)."""
+    return "select" not in part
+
+
+def area_mask(shape, box, soft):
+    """A box as blend weights at 4x: full inside, fading out across its edges over about
+    soft low-res pixels each way, so a redone area has no visible border."""
+    H0, W0 = shape
+    x0, y0, x1, y1 = box
+    m = np.zeros((H0 * 4, W0 * 4), np.float32)
+    m[y0 * 4:y1 * 4, x0 * 4:x1 * 4] = 1
+    return np.clip(cv2.GaussianBlur(m, (0, 0), soft * 4) * 1.7 - 0.07, 0, 1)[..., None]
+
+
+def area_style(part, st, room=True):
+    """The style a part is drawn with: the room's look (its style layers and, with room, its
+    own description) under the part's text, so the redone area belongs to the room. The
+    close-up leaves the room's description out: it would drown the part's own text."""
+    style = st.get("style") if isinstance(st.get("style"), dict) and part.get("style") is not False else None
+    layers = (style["layers"] if style else []) + ([st["prompt"]] if room else [])
+    return {**(style or {}), "layers": layers, "negative": style.get("negative", "") if style else ""}
+
+
 def refine(pipe, hd, rgb, part, st):
-    """A person or object painted into a room, redone in a 12x close-up and pasted back
-    within its outline (cool-coloured pixels in the box, for guards against a warm room)."""
+    """A person or object painted into a room, redone in a close-up and pasted back.
+    A sprite (select: its colours) is pasted within its outline, with its own description
+    alone. An area (a box) is drawn with the room's description and look under its own text,
+    over the room's rendering around it, and blended in with a wide soft edge."""
     x0b, y0b, x1b, y1b = part["box"]
     H0, W0 = rgb.shape[:2]
-    mask = part_mask(rgb, part)
+    area = is_area(part)
+    soft = max(2.0, 0.3 * min(x1b - x0b, y1b - y0b)) if area else 0
     cx, cy = (x0b + x1b) // 2, (y0b + y1b) // 2
-    ch = int((y1b - y0b) * part.get("margin", 1.4))
-    cw = max(int(ch * 0.8), int((x1b - x0b) * part.get("margin", 1.4)))  # wide boxes (a patch of floor) stay whole
+    ch = max(int((y1b - y0b) * part.get("margin", 1.4)), int(y1b - y0b + 4 * soft))
+    cw = max(int(ch * 0.8), int((x1b - x0b) * part.get("margin", 1.4)), int(x1b - x0b + 4 * soft))  # wide boxes stay whole
     x0, y0 = max(0, cx - cw // 2), max(0, cy - ch // 2)
     x1, y1 = min(W0, x0 + cw), min(H0, y0 + ch)
-    z = st.get("zoom", 12)
+    # An area is drawn near the model's own size (about 1024 px), no closer: a large box
+    # in a 12x close-up would come out far more detailed than the room around it.
+    z = st.get("zoom", 12) if not area or "zoom" in part else int(min(12, max(4, round(1024 / max(x1 - x0, y1 - y0)))))
     gw, gh = (x1 - x0) * z // 8 * 8, (y1 - y0) * z // 8 * 8
     seen = rgb.copy()
     for dx0, dy0, dx1, dy1, *by in part.get("darken", []):
@@ -430,18 +563,53 @@ def refine(pipe, hd, rgb, part, st):
         sub[(sub[..., 0] - sub[..., 2]) < 30] *= by[0] if by else 0.35
     low = guide_of(seen[y0:y1, x0:x1], gw, gh, st.get("soften", 1.5) * z / 4)
     ctx = Image.fromarray(np.clip(hd, 0, 255).astype(np.uint8)).crop((x0 * 4, y0 * 4, x1 * 4, y1 * 4)).resize((gw, gh), Image.LANCZOS)
-    m = Image.fromarray((mask[y0:y1, x0:x1] * 255).astype(np.uint8)).resize((gw, gh), Image.BILINEAR).filter(ImageFilter.GaussianBlur(z * 0.6))
+    if area:
+        weights = area_mask((H0, W0), part["box"], soft)
+    else:
+        weights = silhouette(part_mask(rgb, part), part.get("feather", 1.5))
+    crop_w = weights[y0 * 4:y1 * 4, x0 * 4:x1 * 4, 0]
+    if area:
+        m = Image.fromarray((crop_w * 255).astype(np.uint8)).resize((gw, gh), Image.BILINEAR)
+    else:
+        m = Image.fromarray((part_mask(rgb, part)[y0:y1, x0:x1] * 255).astype(np.uint8)).resize((gw, gh), Image.BILINEAR).filter(ImageFilter.GaussianBlur(z * 0.6))
     pst = {**st, "prompt": part["prompt"], "negative": ", ".join(filter(None, [part.get("negative_extra"), st["negative"]]))}
-    if part.get("style") is False:
+    if area:
+        pst["style"] = area_style(part, st, room=False)
+    elif part.get("style") is False:
         pst["style"] = None
     # context: false draws the part from the pixel art alone, not over the room's own
     # rendering: a character then looks the same whatever the room's settings.
     guide = Image.composite(low, ctx, m) if part.get("context", True) else low
     gen = pipe(guide, pst, part.get("seed", 1992))
     spr = np.asarray(gen.resize(((x1 - x0) * 4, (y1 - y0) * 4), Image.LANCZOS), dtype=np.float32)
-    sil = silhouette(mask, part.get("feather", 1.5))[y0 * 4:y1 * 4, x0 * 4:x1 * 4]
+    sil = weights[y0 * 4:y1 * 4, x0 * 4:x1 * 4]
     out = hd.copy()
     out[y0 * 4:y1 * 4, x0 * 4:x1 * 4] = spr * sil + out[y0 * 4:y1 * 4, x0 * 4:x1 * 4] * (1 - sil)
+    return out
+
+
+def harmonize(pipe, hd, part, st, strength, keep=None):
+    """The surroundings of a redone area repainted gently with the room's own settings and
+    description, so the area takes the room's detail, light and sharpness while keeping
+    what was redone; blended with a wide soft edge. keep (4x weights): sprites already drawn
+    (the guards), left as they are so they stay the same in every room."""
+    x0b, y0b, x1b, y1b = part["box"]
+    H, W = hd.shape[:2]
+    H0, W0 = H // 4, W // 4
+    g = int(max(x1b - x0b, y1b - y0b) * 0.6) + 4
+    x0, y0, x1, y1 = max(0, x0b - g), max(0, y0b - g), min(W0, x1b + g), min(H0, y1b + g)
+    k = 1024 / (max(x1 - x0, y1 - y0) * 4)
+    gw, gh = int((x1 - x0) * 4 * k) // 8 * 8, int((y1 - y0) * 4 * k) // 8 * 8
+    region = Image.fromarray(np.clip(hd[y0 * 4:y1 * 4, x0 * 4:x1 * 4], 0, 255).astype(np.uint8)).resize((gw, gh), Image.LANCZOS)
+    pst = {**st, "prompt": part["prompt"], "strength": strength, "cond": 0.6, "style": area_style(part, st),
+           "negative": ", ".join(filter(None, [part.get("negative_extra"), st["negative"]]))}
+    gen = np.asarray(pipe(region, pst, part.get("seed", 1992)).resize(((x1 - x0) * 4, (y1 - y0) * 4), Image.LANCZOS), dtype=np.float32)
+    grown = [max(0, x0b - g // 3), max(0, y0b - g // 3), min(W0, x1b + g // 3), min(H0, y1b + g // 3)]
+    wgt = area_mask((H0, W0), grown, g / 4)[y0 * 4:y1 * 4, x0 * 4:x1 * 4]
+    if keep is not None:
+        wgt = wgt * (1 - keep[y0 * 4:y1 * 4, x0 * 4:x1 * 4])
+    out = hd.copy()
+    out[y0 * 4:y1 * 4, x0 * 4:x1 * 4] = gen * wgt + out[y0 * 4:y1 * 4, x0 * 4:x1 * 4] * (1 - wgt)
     return out
 
 
@@ -475,7 +643,7 @@ def key_of(work, it, method, st, models):
     src = os.path.join(work, it["original"]["path"])
     h = hashlib.sha1(json.dumps({"method": method, "st": st, "models": models, "src": os.path.getsize(src)}, sort_keys=True).encode())
     h.update(open(src, "rb").read())
-    for name in sorted({p["emblem"] for p in st.get("parts", []) if "emblem" in p}):
+    for name in sorted({p.get("emblem") or p["banner"] for p in st.get("parts", []) if "emblem" in p or "banner" in p}):
         h.update(open(emblem_file(name), "rb").read())
     return h.hexdigest()[:10]
 
@@ -553,6 +721,9 @@ def batch(a):
         items = kept
     todo, recipe_heads = [], {}
     for it in items:
+        if it["kind"] == "head-group" and it["group"] not in rec.heads["characters"]:
+            print(f"!! {it['id']}: a talking group needs its head's recipe (recipes/heads.json)", flush=True)
+            continue
         method, st = rec.recipe(it)
         if method == "recipe-head":
             if a.override:
@@ -657,6 +828,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-        if it["kind"] == "head-group" and it["group"] not in rec.heads["characters"]:
-            print(f"!! {it['id']}: a talking group needs its head's recipe (recipes/heads.json)", flush=True)
-            continue

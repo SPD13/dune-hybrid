@@ -34,7 +34,12 @@
 //!                          built-in upscaling for that sprite.
 //!   --min-size N           leave sprites narrower or shorter than N pixels to
 //!                          the built-in upscaling (default 6; models invent
-//!                          too much on tiny images)
+//!                          too much on tiny images). Not talking-head parts
+//!                          upscaled over their face
+//!   --exact-silhouette     keep each sprite's outline exactly (MMPX on its
+//!                          mask). By default, upscaled art (not --art, not
+//!                          the mmpx backend) gets smooth outlines (staircases
+//!                          become lines), within half a pixel of the original
 //!   --previews             write original / upscaled / result images per
 //!                          sprite to WORK/preview
 //!   --prescale N           enlarge sprites N× (pixel-exact) before the
@@ -109,6 +114,8 @@ struct Args {
     prescale: usize,
     room_prescale: usize,
     face_context: bool,
+    /// Smooth outlines (see `art::edge_mask`).
+    smooth_edges: bool,
     guard: Option<f32>,
     /// Write side-by-side previews (original, upscaled, projected) per sprite.
     previews: bool,
@@ -135,6 +142,7 @@ fn parse() -> Result<Args, String> {
         prescale: 0,
         room_prescale: 1,
         face_context: true,
+        smooth_edges: true,
         guard: None,
         previews: false,
     };
@@ -162,6 +170,7 @@ fn parse() -> Result<Args, String> {
             "--previews" => a.previews = true,
             "--prescale" => a.prescale = v()?.parse().map_err(|e| format!("{e}"))?,
             "--no-face-context" => a.face_context = false,
+            "--exact-silhouette" => a.smooth_edges = false,
             "--room-prescale" => a.room_prescale = v()?.parse().map_err(|e| format!("{e}"))?,
             "--guard" => a.guard = Some(v()?.parse::<f32>().map_err(|e| format!("{e}"))?).filter(|g| *g > 0.0).or(Some(0.0)),
             _ => return Err(format!("unknown option {k}")),
@@ -373,9 +382,19 @@ fn extract(args: &Args, assets: &[Asset]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// 4× upscales of each sprite (cropped to the sprite), cached per backend.
-fn upscale(args: &Args, assets: &[Asset]) -> std::io::Result<HashMap<u64, Rgb>> {
-    let mut out = HashMap::new();
+/// What the upscaler made, by sprite hash.
+#[derive(Default)]
+struct Upscaled {
+    /// 4× upscales of each sprite (cropped to the sprite).
+    colour: HashMap<u64, Rgb>,
+    /// Talking-head parts upscaled over their face.
+    face_parts: HashSet<u64>,
+}
+
+/// 4× upscales of each sprite, cached per backend.
+fn upscale(args: &Args, assets: &[Asset]) -> std::io::Result<Upscaled> {
+    let mut done = Upscaled::default();
+    let out = &mut done.colour;
     match &args.backend {
         Backend::Mmpx => {}
         Backend::Nearest => {
@@ -388,7 +407,7 @@ fn upscale(args: &Args, assets: &[Asset]) -> std::io::Result<HashMap<u64, Rgb>> 
             let (rooms, sprites): (Vec<&Asset>, Vec<&Asset>) = assets.iter().partition(|a| a.room);
             for (group, n) in [(sprites, args.prescale), (rooms, args.room_prescale)] {
                 if !group.is_empty() {
-                    upscale_command(args, template, &group, n.max(1), &mut out)?;
+                    upscale_command(args, template, &group, n.max(1), out)?;
                 }
             }
             if args.face_context {
@@ -412,6 +431,7 @@ fn upscale(args: &Args, assets: &[Asset]) -> std::io::Result<HashMap<u64, Rgb>> 
                         let (w, h) = (a.stride * 4, a.height * 4);
                         let px = (0..h).flat_map(|ty| (0..w).map(move |tx| (tx, ty))).map(|(tx, ty)| up.px[(y * 4 + ty) * up.w + x * 4 + tx]).collect();
                         out.insert(hash, Rgb { w, h, px });
+                        done.face_parts.insert(hash);
                         cut += 1;
                     }
                 }
@@ -419,7 +439,7 @@ fn upscale(args: &Args, assets: &[Asset]) -> std::io::Result<HashMap<u64, Rgb>> 
             }
         }
     }
-    Ok(out)
+    Ok(done)
 }
 
 /// Upscale `assets` with the external upscaler, enlarged `n`× first;
@@ -494,7 +514,7 @@ fn true_colour_png(up: &Rgb, t: &Texels) -> Vec<u8> {
 
 fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>, true_colour: &HashSet<u64>, plates: &[heads::HeadPlate]) -> std::io::Result<()> {
     let todo: Vec<&Asset> = assets.iter().filter(|a| !external.contains_key(&a.hash)).collect();
-    let mut ups = upscale(args, &todo.iter().map(|a| (*a).clone()).collect::<Vec<_>>())?;
+    let Upscaled { colour: mut ups, face_parts } = upscale(args, &todo.iter().map(|a| (*a).clone()).collect::<Vec<_>>())?;
     ups.extend(external.iter().map(|(h, img)| (*h, Rgb { w: img.w, h: img.h, px: img.px.clone() })));
     eprintln!("projecting onto the game's palette…");
     let results: Vec<(usize, Option<(Texels, Texels)>)> = assets
@@ -505,11 +525,12 @@ fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>, true_colour
                 // Finished art: projected as made, no guard.
                 _ if external.contains_key(&a.hash) => {
                     let up = &ups[&a.hash];
-                    Some((art::project(a, up, 4), art::project(a, &art::halve(up), 2)))
+                    Some((art::project(a, up, 4, false), art::project(a, &art::halve(up), 2, false)))
                 }
                 Backend::Mmpx => Some((art::mmpx_texels(a, 4), art::mmpx_texels(a, 2))),
                 _ => ups.get(&a.hash).map(|up| {
-                    let (mut t4, mut t2) = (art::project(a, up, 4), art::project(a, &art::halve(up), 2));
+                    let smooth = args.smooth_edges;
+                    let (mut t4, mut t2) = (art::project(a, up, 4, smooth), art::project(a, &art::halve(up), 2, smooth));
                     if let Some(limit) = args.guard.filter(|g| *g > 0.0) {
                         art::guard(a, 4, &mut t4, limit);
                         art::guard(a, 2, &mut t2, limit);
@@ -564,7 +585,8 @@ fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>, true_colour
         let a = &assets[*i];
         let id = format!("{:016x}", a.content);
         let room = a.room;
-        let big_enough = a.width >= args.min_size && a.height >= args.min_size;
+        // Parts upscaled over their face are as good as the face.
+        let big_enough = (a.width >= args.min_size && a.height >= args.min_size) || face_parts.contains(&a.hash);
         let text_art = !room && gfx::pack::text_art(&a.local, |v| a.opaque(v));
         let finished = external.contains_key(&a.hash);
         let (q4, q2, ok) = match pair {
@@ -631,7 +653,7 @@ fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>, true_colour
         let a = &p.picture;
         let id = format!("{:016x}", p.key);
         let half = art::halve(&p.art);
-        let (t4, t2) = (art::project(a, &p.art, 4), art::project(a, &half, 2));
+        let (t4, t2) = (art::project(a, &p.art, 4, false), art::project(a, &half, 2, false));
         let low = Texels { w: a.stride, h: a.height, px: a.local.iter().enumerate().map(|(i, &v)| [v, 0, 0, if a.solid(i) { 255 } else { 0 }]).collect(), quality: 0.0, drift: 0.0 };
         let refs: Vec<u8> = (0..=255u8).flat_map(|v| a.rgb(v)).collect();
         let entries = [
@@ -674,7 +696,7 @@ fn build(args: &Args, assets: &[Asset], external: HashMap<u64, Rgb>, true_colour
         "<!doctype html><meta charset=utf-8><title>dune-hd report</title>\
          <style>body{{font:14px system-ui;margin:2em}}td,th{{padding:2px 8px;text-align:left}}tr.drop{{color:#a33}}</style>\
          <h1>dune-hd report</h1><p>Upscaler: {} ({}). {kept} sprites in the pack, {dropped} left to the built-in upscaler \
-         (smaller than {} pixels, text art such as the intro's subtitle lines (opaque, two colours), \
+         (smaller than {} pixels unless upscaled over their face, text art such as the intro's subtitle lines (opaque, two colours), \
          or drift above {}: the mean OKLab distance between the art's local colours and the original's).</p>\
          <p>Block match: the share of the original pixels whose 4×4 HD block mostly shows their own colour (low where the art smooths dithering).</p>\
          <p>{NOTICE}</p><table><tr><th>Resource</th><th>Part</th><th>Size</th><th>Block match 4×</th><th>Drift 4×</th><th></th></tr>{rows}</table>",

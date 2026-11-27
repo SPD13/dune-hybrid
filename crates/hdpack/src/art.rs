@@ -5,8 +5,9 @@
 //! palette at run time, so every texel is one of the sprite's own palette
 //! values, or a mix of two of them (`a`, `b`, weight `t` of `b`). Each
 //! upscaled pixel is matched, in OKLab, to the colours present in its source
-//! pixel's 3×3 neighbourhood; the silhouette comes from MMPX on the sprite's
-//! mask, so it follows the low-resolution one exactly.
+//! pixel's 3×3 neighbourhood. The silhouette comes from MMPX on the sprite's
+//! mask, so it follows the low-resolution one exactly, or from that mask
+//! smoothed, kept within half a pixel of it.
 
 use std::{collections::HashMap, path::Path, process::Command};
 
@@ -222,6 +223,63 @@ pub fn mask(a: &Asset, k: usize) -> Vec<bool> {
     m.into_iter().map(|v| v != 0).collect()
 }
 
+/// How far [`edge_mask`] smooths outlines, in original pixels (the blur's
+/// standard deviation): enough to straighten a long staircase of 1-pixel
+/// steps into its line.
+const EDGE_SIGMA: f32 = 1.5;
+
+/// A smooth silhouette at `k`×: the opaque mask, blurred and cut at half, so
+/// staircases become the lines and curves they draw. It stays close to the
+/// original's: an opaque pixel keeps at least half of its block, and the art
+/// reaches into a transparent pixel next to the sprite for less than half of
+/// its block (the most the game shows there). Other blocks keep the MMPX
+/// silhouette.
+pub fn edge_mask(a: &Asset, k: usize) -> Vec<bool> {
+    let mut m = mask(a, k);
+    let (sw, sh, w, h) = (a.stride, a.height, a.stride * k, a.height * k);
+    // Gaussian blur of the k× mask, separable; edges repeat (sprites cut by
+    // their rectangle continue past it).
+    let sigma = EDGE_SIGMA * k as f32;
+    let r = (3.0 * sigma).ceil() as i32;
+    let kernel: Vec<f32> = (-r..=r).map(|d| (-(d * d) as f32 / (2.0 * sigma * sigma)).exp()).collect();
+    let total: f32 = kernel.iter().sum();
+    let blur = |src: &[f32], len: usize, step: usize, lines: usize, line_step: usize| -> Vec<f32> {
+        let mut out = vec![0f32; src.len()];
+        for l in 0..lines {
+            for i in 0..len {
+                let mut s = 0f32;
+                for (j, wt) in kernel.iter().enumerate() {
+                    let at = (i as i32 + j as i32 - r).clamp(0, len as i32 - 1) as usize;
+                    s += wt * src[l * line_step + at * step];
+                }
+                out[l * line_step + i * step] = s / total;
+            }
+        }
+        out
+    };
+    let solid_hd: Vec<f32> = (0..w * h).map(|i| a.solid((i / w / k) * sw + (i % w) / k) as u8 as f32).collect();
+    let smooth = blur(&blur(&solid_hd, w, 1, h, w), h, w, w, 1);
+    let solid = |x: i32, y: i32| x >= 0 && y >= 0 && (x as usize) < sw && (y as usize) < sh && a.solid(y as usize * sw + x as usize);
+    for sy in 0..sh {
+        for sx in 0..sw {
+            let own = a.solid(sy * sw + sx);
+            let (x, y) = (sx as i32, sy as i32);
+            if !own && !(-1..=1).any(|dy| (-1..=1).any(|dx| solid(x + dx, y + dy))) {
+                continue;
+            }
+            let at = |j: usize| (sy * k + j / k) * w + sx * k + j % k;
+            let block: Vec<bool> = (0..k * k).map(|j| smooth[at(j)] >= 0.5).collect();
+            let n = block.iter().filter(|b| **b).count();
+            if (own && n * 2 >= k * k) || (!own && n * 2 < k * k) {
+                for (j, b) in block.into_iter().enumerate() {
+                    m[at(j)] = b;
+                }
+            }
+        }
+    }
+    m
+}
+
 /// MMPX on the palette values themselves (no colours needed).
 pub fn mmpx_texels(a: &Asset, k: usize) -> Texels {
     let mut px: Vec<u16> = a.local.iter().enumerate().map(|(i, &v)| if a.solid(i) { v as u16 } else { 0x100 }).collect();
@@ -240,11 +298,12 @@ pub fn mmpx_texels(a: &Asset, k: usize) -> Texels {
     Texels { w, h, px, quality, drift }
 }
 
-/// Match an upscaled image to the sprite's palette values.
-pub fn project(a: &Asset, up: &Rgb, k: usize) -> Texels {
+/// Match an upscaled image to the sprite's palette values; the silhouette
+/// is smoothed (`smooth_edges`, see [`edge_mask`]) or the original's.
+pub fn project(a: &Asset, up: &Rgb, k: usize, smooth_edges: bool) -> Texels {
     let (w, h) = (a.stride * k, a.height * k);
     assert_eq!((up.w, up.h), (w, h));
-    let silhouette = mask(a, k);
+    let silhouette = if smooth_edges && !a.room { edge_mask(a, k) } else { mask(a, k) };
     let lab: HashMap<u8, [f32; 3]> = a.local.iter().enumerate().filter(|&(i, _)| a.solid(i)).map(|(_, &v)| (v, oklab(a.rgb(v)))).collect();
     let mix_lab = |p: u8, q: u8, t: f32| -> [f32; 3] {
         let (cp, cq) = (a.rgb(p), a.rgb(q));

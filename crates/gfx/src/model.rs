@@ -19,8 +19,11 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Px {
     /// Pixel (`col`, `row`) of the sprite's decoded image (unflipped
-    /// coordinates; rows of 4-bit sprites are padded to whole words).
-    Sprite { col: u16, row: u16 },
+    /// coordinates; rows of 4-bit sprites are padded to whole words). A
+    /// scaled draw also gives where in that pixel the screen pixel starts
+    /// (`fx`, `fy`, in 256ths) and how far it reaches (`step`, 256 = one
+    /// pixel); 0 otherwise.
+    Sprite { col: u16, row: u16, fx: u8, fy: u8, step: u16 },
     /// Bit (`col`, `row`) of a glyph, set or not.
     Glyph { col: u8, row: u8, on: bool },
     /// A solid fill (or clear).
@@ -386,7 +389,7 @@ fn nibble_raw<S: Sink>(s: &SpriteRef, pal: u8, start: u16, first_row: u16, rows:
                         continue;
                     }
                 }
-                put_nibble(dst, row.wrapping_add(col), nib, pal, Px::Sprite { col, row: first_row.wrapping_add(r) });
+                put_nibble(dst, row.wrapping_add(col), nib, pal, Px::Sprite { col, row: first_row.wrapping_add(r), fx: 0, fy: 0, step: 0 });
             }
         }
         src = src.wrapping_add(rb);
@@ -461,7 +464,7 @@ fn nibble_rle_rows<S: Sink>(
                         px >= x0 as i16 && px < x1 as i16
                     });
                     if visible {
-                        put_nibble(dst, di, nib, pal, Px::Sprite { col, row });
+                        put_nibble(dst, di, nib, pal, Px::Sprite { col, row, fx: 0, fy: 0, step: 0 });
                     }
                     di = di.wrapping_add(dx as u16);
                     col = col.wrapping_add(1);
@@ -507,7 +510,7 @@ fn byte_raw<S: Sink>(s: &SpriteRef, x: u16, y: u16, yo: u16, mem: Mem, dst: &mut
     for r in 0..s.height as u16 {
         for i in 0..w {
             let v = mem.u8(s.seg, src.wrapping_add(i));
-            let px = Px::Sprite { col: i, row: r };
+            let px = Px::Sprite { col: i, row: r, fx: 0, fy: 0, step: 0 };
             if keyed && v == 0 {
                 dst.skip(row.wrapping_add(i), px);
             } else {
@@ -541,7 +544,7 @@ fn byte_rle<S: Sink>(s: &SpriteRef, x: u16, y: u16, yo: u16, mem: Mem, dst: &mut
             budget = budget.wrapping_sub(count);
             for _ in 0..count {
                 let v = rep.unwrap_or_else(&mut next);
-                let px = Px::Sprite { col, row };
+                let px = Px::Sprite { col, row, fx: 0, fy: 0, step: 0 };
                 if keyed && v == 0 {
                     dst.skip(di, px);
                 } else {
@@ -624,7 +627,7 @@ fn scaled<S: Sink>(s: &SpriteRef, pal: u8, x: u16, y: u16, out_w: u16, out_h: u1
             let col = (acc >> 8) as u8;
             let b = mem.u8(s.seg, base.wrapping_add((col >> 1) as u16));
             let nib = if col & 1 != 0 { b >> 4 } else { b & 15 };
-            put_nibble(dst, d, nib, pal, Px::Sprite { col: col as u16, row: acc_row >> 8 });
+            put_nibble(dst, d, nib, pal, Px::Sprite { col: col as u16, row: acc_row >> 8, fx: acc as u8, fy: acc_row as u8, step });
             d = d.wrapping_add(dx);
             acc = acc.wrapping_add(step);
         }

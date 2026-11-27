@@ -7,7 +7,8 @@ WORK_DIR holds `review/items.json` (what to show; `dune-hd inventory` writes
 it), `versions/<item id, / as __>/*.png` (versions dropped by the generation
 tools, each with an optional .json sidecar: label, settings, default) and
 receives `review/review.json` (statuses, preferred versions, notes and boxes),
-which the generation tools and Claude read. `WORK_DIR/studio.json` remembers
+which the generation tools and Claude read. `WORK_DIR/packs.json` lists the
+packs (variations, e.g. with another base model) and the active one: see packs.py. `WORK_DIR/studio.json` remembers
 the options. Only this computer can connect (127.0.0.1), and nothing leaves
 it: the pictures are derived from your copy of the game.
 
@@ -23,12 +24,15 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
 import jobs
+import packs
 import system
+from packs import MAIN, review_path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -42,9 +46,9 @@ def version_dir(work, item_id):
     return os.path.join(work, "versions", item_id.replace("/", "__"))
 
 
-def attach_versions(work, items):
+def attach_versions(work, items, pid=packs.MAIN):
     """Add the pictures found in each item's version folder (NAME.png, with an
-    optional NAME.json: {"label", "settings", "default": true})."""
+    optional NAME.json: {"label", "settings", "default": true, "pack"}): pack pid's only."""
     for it in items.get("items", []):
         d = version_dir(work, it["id"])
         if not os.path.isdir(d):
@@ -63,21 +67,51 @@ def attach_versions(work, items):
                     meta = json.load(open(side))
                 except ValueError:
                     pass
+            if packs.version_pack(meta) != pid:
+                continue
             v = {"id": name[:-4], "label": meta.get("label", name[:-4]), "path": rel, "settings": meta.get("settings", {})}
             it.setdefault("versions", []).append(v)
             if meta.get("default") or not it.get("default"):
                 it["default"] = v["id"]
 
 
+def attach_open_mouth(recipes, items):
+    """Each talking-head pose its recipe lists as drawn with the mouth open or parted
+    (heads.json "open_mouth"): "open_mouth_recipe", what the studio's checkbox starts from."""
+    try:
+        heads = json.load(open(os.path.join(recipes, "heads.json"), encoding="utf-8"))["characters"]
+    except (OSError, ValueError, KeyError):
+        return
+    for it in items.get("items", []):
+        kind, _, rest = it["id"].partition("/")
+        name, _, fid = rest.partition("/")
+        if kind == "head" and name in heads:
+            lists = heads[name].get("open_mouth", {})
+            it["open_mouth_recipe"] = next((k for k in ("open", "parted") if fid in lists.get(k, [])), None)
+
+
 class Studio:
     def __init__(self, work, cfg):
         self.work, self.cfg = work, cfg
         self.queue = jobs.Queue()
-        self.recipes = cfg.get("recipes") or os.path.join(REPO, "recipes")
+        self.base_recipes = cfg.get("recipes") or os.path.join(REPO, "recipes")
         self.env = cfg.get("env") or os.path.join(system.data_dir(), "env")
         self.hw = system.hardware()
         self.env_info = {"ok": False, "checking": True}
         self.recheck_env()
+
+    def pack(self):
+        """The active pack (packs.json)."""
+        return packs.get(self.work)
+
+    @property
+    def recipes(self):
+        """The active pack's recipe bundle (main: recipes/, else recipes/packs/<id>)."""
+        return packs.recipes_dir(self.pack()["id"], self.base_recipes)
+
+    def for_pack(self, cmd, pk):
+        """A generation command run for pack pk: the versions it makes are tagged as pk's."""
+        return cmd if pk["id"] == packs.MAIN else [sys.executable, os.path.join(HERE, "packs.py"), "run", self.work, pk["id"], "--"] + cmd
 
     def recheck_env(self, *_):
         self.env_info = {**self.env_info, "checking": True}
@@ -156,9 +190,12 @@ class Studio:
         if kind != "head" or name not in heads:
             # Every other item: hdgen with its recipe or its class's defaults; with Try settings on top.
             py = system.env_python(self.env)
+            pk = self.pack()
             args = batch_args(self, {"ids": [item_id]})
-            title = f"Generate {item_id}"
+            title = f"Generate {item_id}" + ("" if pk["id"] == packs.MAIN else f" ({pk['title']})")
             steps = []
+            if pk["id"] != packs.MAIN and not override:
+                args += ["--label", f"batch ({pk['title']}) {time.strftime('%Y-%m-%d')}"]
             if override:
                 label = "try: " + ", ".join(try_label(k, v) for k, v in override.items())
                 args += ["--override", json.dumps(override), "--label", label]
@@ -168,7 +205,7 @@ class Studio:
                 if m and not m["cached"]:
                     steps.append((f"download {m['repo']} ({m['size_gb']} GB)", [py, os.path.join(TOOLS, "fetch_models.py"), "--models",
                                                                                os.path.join(self.recipes, "models.json"), "--only", m["id"]]))
-            steps.append(("generate", [py] + args))
+            steps.append(("generate", self.for_pack([py] + args, pk)))
             return self.queue.add(jobs.Job(title, steps, env={"HF_HUB_OFFLINE": "1"}))
         rec = heads[name]
         # Talking groups (vGG) need no entry of their own: generate.py rerenders them.
@@ -181,16 +218,20 @@ class Studio:
                 raise ValueError("start the studio with --dat and --dune-hd to extract the heads")
             steps.append(("extract the talking heads", [self.cfg["dune_hd"], "heads", "--dat", self.cfg["dat"], "--work", self.work]))
         py = system.env_python(self.env)
+        pk = self.pack()
         cmd = [py, os.path.join(TOOLS, "generate.py"), name, "--heads", heads_dir, "--characters", os.path.join(self.recipes, "heads.json"),
-               "--out", os.path.join(self.work, "gen", name), "--only", fid, "--publish", self.work]
-        title = f"Generate {name} {fid}"
+               "--out", os.path.join(packs.gen_dir(self.work, pk["id"]), name), "--only", fid, "--publish", self.work,
+               "--review", packs.review_path(self.work, pk["id"])]
+        if pk["id"] != packs.MAIN and not override:
+            cmd += ["--label", f"{pk['title']} {time.strftime('%Y-%m-%d')}"]
+        title = f"Generate {name} {fid}" + ("" if pk["id"] == packs.MAIN else f" ({pk['title']})")
         if override:
             # A try on a recipe head: its own render folder (the recipe's cache stays), a label.
             flags = {"strength": "--strength", "cond": "--cond", "soften": "--soften", "seed": "--seed", "model": "--model", "prompt": "--prompt"}
             unknown = set(override) - set(flags)
             if unknown:
                 raise ValueError(f"{name}: these settings do not apply to talking heads: {', '.join(sorted(unknown))}")
-            cmd[cmd.index("--out") + 1] = os.path.join(self.work, "gen", f"{name}-try")
+            cmd[cmd.index("--out") + 1] = os.path.join(packs.gen_dir(self.work, pk["id"]), f"{name}-try")
             for k, v in override.items():
                 cmd += [flags[k], str(v)]
             cmd += ["--force", "--label", "try: " + ", ".join(try_label(k, v) for k, v in override.items())]
@@ -199,7 +240,7 @@ class Studio:
             if m and not m["cached"]:
                 steps.append((f"download {m['repo']} ({m['size_gb']} GB)", [py, os.path.join(TOOLS, "fetch_models.py"), "--models",
                                                                            os.path.join(self.recipes, "models.json"), "--only", m["id"]]))
-        steps.append((f"generate {name} {fid}", cmd))
+        steps.append((f"generate {name} {fid}", self.for_pack(cmd, pk)))
         return self.queue.add(jobs.Job(title, steps, env={"HF_HUB_OFFLINE": "1"}))
 
 
@@ -207,8 +248,8 @@ def pack(studio, scope):
     """A job that exports the chosen versions (export_pack.py) and builds an HD pack from
     them with dune-hd: WORK/packs/dune-hd-pack-<scope>-<time>.zip, the rest of the art
     upscaled by dune-hd's built-in upscaler."""
-    import time
     cfg, work = studio.cfg, studio.work
+    pk = studio.pack()
     if not (cfg.get("dat") and cfg.get("dune_hd")):
         raise ValueError("start the studio with --dat and --dune-hd to build packs")
     if scope not in ("approved", "all"):
@@ -216,12 +257,12 @@ def pack(studio, scope):
     stamp = time.strftime("%Y%m%d-%H%M%S")
     packs = os.path.join(work, "packs")
     art = os.path.join(packs, f"art-{stamp}")
-    out = os.path.join(packs, f"dune-hd-pack-{scope}-{stamp}.zip")
+    out = os.path.join(packs, f"dune-hd-pack-{scope}-{stamp}.zip" if pk["id"] == MAIN else f"dune-hd-pack-{pk['id']}-{scope}-{stamp}.zip")
     # The generation environment has Pillow (only needed to resize a picture); else this Python.
     py = system.env_python(studio.env) if studio.env_info.get("ok") else sys.executable
     bundle = json.load(open(os.path.join(studio.recipes, "bundle.json"))).get("version", "?")
     build = [cfg["dune_hd"], "build", "--dat", cfg["dat"], "--work", os.path.join(packs, "build"), "--art", art, "--out", out,
-             "--model-name", f"Dune HD Studio, recipe bundle {bundle} (generative art; the rest MMPX)",
+             "--model-name", f"Dune HD Studio, recipe bundle {bundle}" + ("" if pk["id"] == MAIN else f", pack {pk['title']} ({pk.get('model') or 'recipes models'})") + " (generative art; the rest MMPX)",
              "--model-license", "see the models in recipes/models.json", "--model-source", "Dune HD Studio"]
     if os.path.isdir(os.path.join(work, "rooms")):
         build += ["--rooms", os.path.join(work, "rooms")]
@@ -231,10 +272,11 @@ def pack(studio, scope):
         if found:
             build += ["--trace", found[-1]]
     os.makedirs(packs, exist_ok=True)
-    steps = [("export the chosen versions", [py, os.path.join(HERE, "export_pack.py"), work, "--out", art, "--scope", scope]),
+    steps = [("export the chosen versions", [py, os.path.join(HERE, "export_pack.py"), work, "--out", art, "--scope", scope,
+                                             "--pack", pk["id"], "--review", review_path(work, pk["id"])]),
              ("build the pack", build)]
     what = "approved items" if scope == "approved" else "all generated items"
-    return studio.queue.add(jobs.Job(f"Build a pack: {what}", steps))
+    return studio.queue.add(jobs.Job(f"Build a pack: {what}" + ("" if pk["id"] == MAIN else f" ({pk['title']})"), steps))
 
 
 def pack_list(work):
@@ -260,11 +302,11 @@ def png_size(path):
     return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
 
 
-def talking(work, item_id):
+def talking(work, item_id, gen="gen"):
     """What the studio's Talking view animates for a head: the rest face, the mouths of
     the head's lip-sync table (dune-hd heads: WORK/heads/NAME.json) and every talking pose
     (each group the head swaps in: WORK/heads/NAME-vGG.png), as pixel art and as generated
-    (generate.py's renders, WORK/gen/NAME: squares, the frame padded at the bottom)."""
+    (generate.py's renders, WORK/<gen>/NAME, the active pack's: squares, the frame padded at the bottom)."""
     kind, _, rest = item_id.partition("/")
     name = rest.split("/")[0]
     if kind != "head" or not name:
@@ -282,7 +324,7 @@ def talking(work, item_id):
         if len(frame) != 1:
             continue  # a mouth over several groups: not shown yet
         v = f"v{frame[0]:02d}"
-        hd = rel("gen", name, f"{name}-{v}.png")
+        hd = rel(gen, name, f"{name}-{v}.png")
         mouths.append({"id": v, "pixel": rel("heads", f"{name}-{v}.png"), "hd": hd if exists(hd) else None})
     lips = {m["id"] for m in mouths}
     poses = []
@@ -291,9 +333,9 @@ def talking(work, item_id):
     for g in (g for g in range(len(layout["groups"])) if g not in faces):
         v = f"v{g:02d}"
         if exists(rel("heads", f"{name}-{v}.png")):
-            hd = rel("gen", name, f"{name}-{v}.png")
+            hd = rel(gen, name, f"{name}-{v}.png")
             poses.append({"id": v, "pixel": rel("heads", f"{name}-{v}.png"), "hd": hd if exists(hd) else None, "lipsync": v in lips})
-    hd_rest = rel("gen", name, f"{name}-f00.png")
+    hd_rest = rel(gen, name, f"{name}-f00.png")
     return {"id": item_id, "name": name, "size": png_size(os.path.join(work, "heads", f"{name}-f00.png")),
             "rest": {"pixel": rel("heads", f"{name}-f00.png"), "hd": hd_rest if exists(hd_rest) else None}, "mouths": mouths, "poses": poses}
 
@@ -327,9 +369,48 @@ def batch_args(studio, data):
         args.append("--redo")
     if data.get("limit"):
         args += ["--limit", str(int(data["limit"]))]
+    if data.get("override"):
+        args += ["--override", json.dumps(data["override"])]
+    if data.get("label"):
+        args += ["--label", data["label"]]
     if studio.cfg.get("dune_hd") and studio.cfg.get("dat"):
         args += ["--dune-hd", studio.cfg["dune_hd"], "--dat", studio.cfg["dat"]]
     return args
+
+
+def pack_batch(studio, pk, data):
+    """A batch request for pack pk (its recipes: studio.recipes); in a pack other than main,
+    without the recipe heads (hdgen.py makes them in main's render folder): pack_heads makes them."""
+    data = dict(data)
+    if pk["id"] != packs.MAIN:
+        data["label"] = f"batch ({pk['title']}) {time.strftime('%Y-%m-%d')}"
+        if data.get("ids"):
+            data["ids"] = [i for i in data["ids"] if not i.startswith("head/")]
+        elif data.get("classes"):
+            data["classes"] = [c for c in data["classes"] if c != "heads"]
+    return data
+
+
+def pack_heads(studio, pk, data):
+    """generate.py commands for the talking heads of a batch in pack pk: every frame and
+    pose of each recipe head the batch covers (its filtered ids, or the heads class)."""
+    heads = json.load(open(os.path.join(studio.recipes, "heads.json"), encoding="utf-8"))["characters"]
+    if data.get("ids") is not None:
+        names = sorted({i.split("/")[1] for i in data["ids"] if i.startswith("head/")} & set(heads))
+    else:
+        names = sorted(heads) if "heads" in (data.get("classes") or []) else []
+    heads_dir = os.path.join(studio.work, "heads")
+    py = system.env_python(studio.env)
+    out = []
+    for n in names:
+        if not os.path.exists(os.path.join(heads_dir, f"{n}-f00.png")):
+            continue
+        cmd = [py, os.path.join(TOOLS, "generate.py"), n, "--heads", heads_dir, "--characters", os.path.join(studio.recipes, "heads.json"),
+               "--out", os.path.join(packs.gen_dir(studio.work, pk["id"]), n), "--publish", studio.work,
+               "--review", packs.review_path(studio.work, pk["id"]),
+               "--label", f"batch ({pk['title']}) {time.strftime('%Y-%m-%d')}"]
+        out.append((n, cmd))
+    return out
 
 
 def make_handler(studio):
@@ -365,10 +446,15 @@ def make_handler(studio):
                 return self.file(os.path.join(HERE, "index.html"))
             if path == "/api/items":
                 items = json.load(open(items_path)) if os.path.exists(items_path) else {"items": []}
-                attach_versions(work, items)
-                review = json.load(open(review_path)) if os.path.exists(review_path) else {"assets": {}}
+                pset = packs.load(work)
+                attach_versions(work, items, pset["active"])
+                attach_open_mouth(studio.recipes, items)
+                rp = packs.review_path(work, pset["active"])
+                review = json.load(open(rp, encoding="utf-8")) if os.path.exists(rp) else {"assets": {}}
                 resolutions = json.load(open(resolutions_path, encoding="utf-8")) if os.path.exists(resolutions_path) else {"assets": {}}
-                return self.send(200, {"items": items, "review": review, "resolutions": resolutions})
+                return self.send(200, {"items": items, "review": review, "resolutions": resolutions, "packs": pset})
+            if path == "/api/packset":
+                return self.send(200, packs.load(work))
             if path == "/api/system":
                 return self.send(200, studio.system())
             if path == "/api/jobs":
@@ -377,7 +463,8 @@ def make_handler(studio):
                 return self.send(200, pack_list(work))
             if path == "/api/talking":
                 try:
-                    return self.send(200, talking(work, parse_qs(urlparse(self.path).query).get("id", [""])[0]))
+                    gen = os.path.relpath(packs.gen_dir(work, packs.load(work)["active"]), work).replace(os.sep, "/")
+                    return self.send(200, talking(work, parse_qs(urlparse(self.path).query).get("id", [""])[0], gen))
                 except (ValueError, OSError) as e:
                     return self.send(400, {"error": str(e)})
             if path == "/api/recipe":
@@ -402,13 +489,27 @@ def make_handler(studio):
                 return self.send(400, b"bad json", "text/plain")
             try:
                 if path == "/api/review":
-                    os.makedirs(review_dir, exist_ok=True)
+                    # The review of the pack the page shows (?pack=), which may no longer be the active one.
+                    pid = parse_qs(urlparse(self.path).query).get("pack", [packs.MAIN])[0]
+                    if not any(p["id"] == pid for p in packs.load(work)["packs"]):
+                        raise ValueError(f"no pack {pid} (deleted?): reload the page")
+                    rp = packs.review_path(work, pid)
+                    os.makedirs(os.path.dirname(rp), exist_ok=True)
                     # Written atomically: the generation tools may read it at any time.
-                    fd, tmp = tempfile.mkstemp(dir=review_dir, suffix=".tmp")
-                    with os.fdopen(fd, "w") as f:
+                    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(rp), suffix=".tmp")
+                    with os.fdopen(fd, "w", encoding="utf-8") as f:
                         json.dump(data, f, indent=2, ensure_ascii=False)
-                    os.replace(tmp, review_path)
+                    os.replace(tmp, rp)
                     return self.send(200, {"ok": True})
+                if path == "/api/packset":
+                    what = data.get("action")
+                    if what == "select":
+                        return self.send(200, packs.select(work, data.get("id")))
+                    if what == "add":
+                        return self.send(200, packs.add(work, data.get("title"), data.get("model"), data.get("from"), studio.base_recipes))
+                    if what == "delete":
+                        return self.send(200, packs.delete(work, data.get("id"), studio.base_recipes))
+                    raise ValueError(f"unknown action {what}")
                 if path == "/api/setup":
                     return self.send(200, studio.setup(data.get("what")).view())
                 if path == "/api/batch/plan":
@@ -426,8 +527,14 @@ def make_handler(studio):
                     if why:
                         raise ValueError(why)
                     py = system.env_python(studio.env)
+                    pk = studio.pack()
                     what = f"{len(data['ids'])} filtered items" if data.get("ids") else ", ".join(data.get("classes") or ["default classes"])
-                    job = jobs.Job(f"Batch: {what}", [("generate", [py] + batch_args(studio, data))], env={"HF_HUB_OFFLINE": "1"})
+                    pdata = pack_batch(studio, pk, data)
+                    # Only heads in a pack other than main: no hdgen.py step (no ids would mean its default classes).
+                    steps = [] if data.get("ids") and not pdata["ids"] else [("generate", studio.for_pack([py] + batch_args(studio, pdata), pk))]
+                    if pk["id"] != packs.MAIN:
+                        steps += [(f"generate {n} ({pk['title']})", studio.for_pack(cmd, pk)) for n, cmd in pack_heads(studio, pk, data)]
+                    job = jobs.Job(f"Batch: {what}" + ("" if pk["id"] == packs.MAIN else f" ({pk['title']})"), steps, env={"HF_HUB_OFFLINE": "1"})
                     return self.send(200, studio.queue.add(job).view())
                 if path == "/api/pack":
                     return self.send(200, pack(studio, data.get("scope", "approved")).view())
