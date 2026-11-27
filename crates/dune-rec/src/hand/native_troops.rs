@@ -29,7 +29,7 @@ fn chain(w: &World, p: u16) -> Option<Vec<(u16, bool)>> {
     while n != 0 {
         let t = troop_number(n);
         if t.wrapping_add(troop::SIZE) > STORY_END || out.len() > 0x100 {
-            return None;
+            return super::world::nm("a walk past the tables");
         }
         out.push((t, w.byte(t + troop::STATE) < 0x80));
         n = w.byte(t + troop::NEXT);
@@ -215,7 +215,7 @@ pub fn event_roll(w: &mut World, t: u16, p: u16) {
 /// modelled yet: `None`).
 fn grow_location(w: &mut World, p: u16) -> Option<()> {
     let grows = w.byte(p + place::KIND) < 0x20 && w.byte(p + place::RADIUS) < 0x0c && w.byte(p + place::FLAGS) & location_flag::STARTED == 0;
-    if grows { None } else { Some(()) }
+    if grows { super::world::nm("a place's circle drawn") } else { Some(()) }
 }
 
 /// `loc_06dbb`: the people at the place `p` (its number in the high byte,
@@ -226,7 +226,7 @@ fn grow_location(w: &mut World, p: u16) -> Option<()> {
 fn set_people_state(w: &mut World, p: u16) -> Option<()> {
     let off = p.wrapping_sub(place::FIRST);
     if off / place::SIZE > 0xff {
-        return None;
+        return super::world::nm("a division fault");
     }
     let bx = ((off / place::SIZE + 1) as u8 as u16) << 8 | 0x80;
     let dh = w.byte(p + place::KIND) as u16;
@@ -254,7 +254,7 @@ fn set_people_state(w: &mut World, p: u16) -> Option<()> {
         }
     }
     let harkonnen = chain(w, p)?.iter().any(|&(t, yours)| !yours && w.byte(t + troop::BYTE_10) & 0x80 != 0);
-    if harkonnen { None } else { Some(()) }
+    if harkonnen { super::world::nm("Harkonnen troops lost") } else { Some(()) }
 }
 
 /// `loc_06e82`'s mark for a troop of yours at the place `p`: idle

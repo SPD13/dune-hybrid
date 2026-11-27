@@ -928,6 +928,9 @@ fn main() -> ExitCode {
         for (piece, checked, equal, skipped) in dune_rec::hand::world::counts(&mut m) {
             println!("native: {piece}: {checked} checked against the original, {equal} equal, {skipped} not checked");
         }
+        for ((piece, why), n) in dune_rec::hand::world::reasons(&mut m) {
+            println!("native not modelled: {piece}: {why} {n}");
+        }
         let (days, grown, watered) = dune_rec::hand::ecology::counts(&mut m);
         if days + watered > 0 {
             println!("ecology: {days} days grown by the rules ({grown} cells), {watered} wind-traps watered");

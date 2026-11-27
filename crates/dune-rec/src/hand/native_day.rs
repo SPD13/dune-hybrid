@@ -72,11 +72,14 @@ fn fix_character_rooms(w: &mut World) -> Option<()> {
         }
         let p = (number as u16 * place::SIZE).wrapping_add(place::FIRST - place::SIZE);
         if p.wrapping_add(place::SIZE) > STORY_END {
-            return None;
+            return super::world::nm("a walk past the tables");
         }
         let kind = w.byte(p + place::KIND);
         let v = w.word(record);
-        let changed = (v >> 8) as u8 != kind || v as u8 > *ROOM_LIMITS.get(kind as usize)?;
+        let Some(&limit) = ROOM_LIMITS.get(kind as usize) else {
+            return super::world::nm("a room limit past the table");
+        };
+        let changed = (v >> 8) as u8 != kind || v as u8 > limit;
         if changed {
             w.set_word(record, (kind as u16) << 8 | 1);
         }
@@ -92,7 +95,7 @@ pub(super) fn your_troops(w: &World, p: u16) -> Option<Vec<u16>> {
     while n != 0 {
         let t = troop::FIRST.wrapping_add((n.wrapping_sub(1) as u16) * troop::SIZE);
         if t.wrapping_add(troop::SIZE) > STORY_END || out.len() > 0x100 {
-            return None;
+            return super::world::nm("a walk past the tables");
         }
         if w.byte(t + troop::STATE) < 0x80 {
             out.push(t);
@@ -108,7 +111,7 @@ pub(super) fn places(w: &World) -> Option<Vec<u16>> {
     loop {
         let next = out.last()?.wrapping_add(place::SIZE);
         if next >= STORY_END {
-            return None;
+            return super::world::nm("a walk past the tables");
         }
         if w.byte(next) == 0xff {
             return Some(out);
@@ -231,7 +234,7 @@ fn map_shares(w: &mut World) -> Option<()> {
     }
     let cells = (CELLS as u16).wrapping_sub(0x188).wrapping_add(1);
     if any.wrapping_sub(grown) >= cells || grown >= cells {
-        return None; // the original's division faults
+        return super::world::nm("a division fault");
     }
     let share = |n: u16| -> (u16, u16) {
         let q = ((n as u32) << 16) / cells as u32;
@@ -263,7 +266,7 @@ fn update_totals(w: &mut World) -> Option<()> {
     let mut t = troop::FIRST;
     loop {
         if t + 2 * troop::SIZE > STORY_END {
-            return None;
+            return super::world::nm("a walk past the tables");
         }
         let (size, state, b10) = (w.byte(t + troop::SIZE_FIELD), w.byte(t + troop::STATE), w.byte(t + troop::BYTE_10));
         if state & 0x20 == 0 {
@@ -322,7 +325,7 @@ fn restock_smugglers(w: &mut World) -> Option<()> {
     let mut si = g::SMUGGLERS;
     loop {
         if si + 0x11 >= STORY_END {
-            return None;
+            return super::world::nm("a walk past the tables");
         }
         if w.byte(si + 2) & smugglers::smuggler_flag::MET != 0 {
             for kind in (0..=4u16).rev() {
@@ -339,4 +342,38 @@ fn restock_smugglers(w: &mut World) -> Option<()> {
             return Some(());
         }
     }
+}
+
+/// `loc_063f0` (`map_func_qq`): on a new day, each wind-trap below its
+/// most gains water by the cells spreading around it
+/// ([`super::ecology::wind_trap_water`], `loc_0642e`'s six cells from its
+/// cell's offset less one), then the day's growth over the map
+/// ([`super::ecology::grow`], `loc_065b6`, from the seed CS:65B4h).
+pub fn grow_water(w: &mut World) -> Option<()> {
+    use super::ecology;
+    if w.byte(g::DAY_CHANGED) == 0 {
+        return Some(());
+    }
+    let mut p = place::FIRST;
+    loop {
+        if p + place::SIZE + 2 > STORY_END {
+            return super::world::nm("a walk past the tables");
+        }
+        let water = w.byte(p + 0x1b);
+        if w.byte(p + place::FLAGS) & super::game::location_flag::WIND_TRAP != 0 && ecology::wind_trap_water(water, 0).is_some() {
+            let around = ecology::spreading_around(|o| w.cell(o), w.word(p + 6), 2);
+            let v = ecology::wind_trap_water(water, around).expect("below the most");
+            w.set_byte(p + 0x1b, v);
+        }
+        p += place::SIZE;
+        if w.word(p) == 0xffff {
+            break;
+        }
+    }
+    let grown = ecology::grow(|o| w.cell(o), w.growth_seed);
+    for (o, b) in grown.grown {
+        w.set_cell(o, b);
+    }
+    w.growth_seed = grown.seed;
+    Some(())
 }

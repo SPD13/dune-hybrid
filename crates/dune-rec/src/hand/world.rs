@@ -56,6 +56,9 @@ pub mod troop {
     pub const SIZE_FIELD: u16 = 0x1a;
 }
 
+/// The planet's growth seed in the code segment (`loc_065b6`'s word).
+pub const GROWTH_SEED: u16 = 0x65b4;
+
 /// The story block's end: a walk past it is beyond what the rules model.
 pub const STORY_END: u16 = 0x1261;
 
@@ -72,6 +75,8 @@ pub struct World {
     /// The bytes of [`EXTRAS`], in order: the time step's state outside
     /// the story block (not saved).
     pub extras: Vec<u8>,
+    /// The planet's growth seed, a word of the code (CS:65B4h, not saved).
+    pub growth_seed: u16,
 }
 
 /// The memory outside the story block the rules read and write, by
@@ -119,6 +124,10 @@ impl World {
             rand_masked_seed: peek_word(m, g::RAND_MASKED_SEED),
             rand_below_seed: peek_word(m, g::RAND_BELOW_SEED),
             extras: EXTRAS.iter().flat_map(|&(at, len)| (0..len).map(move |k| m.hw.peek(ds(at + k)))).collect(),
+            growth_seed: {
+                let cs = ((pc::LOAD_SEG as u32) << 4) + GROWTH_SEED as u32;
+                m.hw.peek(cs) as u16 | (m.hw.peek(cs + 1) as u16) << 8
+            },
         }
     }
 
@@ -142,6 +151,21 @@ impl World {
     pub fn set_word(&mut self, off: u16, v: u16) {
         self.set_byte(off, v as u8);
         self.set_byte(off + 1, (v >> 8) as u8);
+    }
+
+    /// Map cell `o`'s state as the map's byte has it (bits 4..5: 0, 10h,
+    /// 20h, 30h), from the packed states; 0 past the map.
+    pub fn cell(&self, o: u16) -> u8 {
+        let (q, k) = (o as usize / 4, o as usize % 4);
+        self.save.map.get(q).map_or(0, |b| (b >> (2 * (3 - k)) & 3) << 4)
+    }
+    /// Map cell `o`'s state set (bits 4..5 of `v`).
+    pub fn set_cell(&mut self, o: u16, v: u8) {
+        let (q, k) = (o as usize / 4, o as usize % 4);
+        if let Some(b) = self.save.map.get_mut(q) {
+            let sh = 2 * (3 - k);
+            *b = *b & !(3 << sh) | ((v >> 4) & 3) << sh;
+        }
     }
 
     /// The game time ([2]).
@@ -211,6 +235,7 @@ impl World {
             ("rand seed", self.rand_seed, other.rand_seed),
             ("rand_masked seed", self.rand_masked_seed, other.rand_masked_seed),
             ("rand_below seed", self.rand_below_seed, other.rand_below_seed),
+            ("growth seed", self.growth_seed, other.growth_seed),
         ] {
             if a != b {
                 add(format!("{name} {a:04x} vs {b:04x}"));
@@ -259,6 +284,8 @@ pub struct NativeChecks {
     /// Per piece: (checked, equal, not checked: the original's piece gave
     /// up to the interpreter, or the rules can't run it).
     pub pieces: Vec<(&'static str, u64, u64, u64)>,
+    /// Per piece and reason, the cases the rules don't model.
+    pub why: Vec<((&'static str, &'static str), u64)>,
     /// The worlds the rules made, waiting for the original's to compare
     /// (a stack: a checked piece may call another).
     pub pending: Vec<Option<(&'static str, World)>>,
@@ -306,6 +333,17 @@ pub fn checked(
     r
 }
 
+thread_local! {
+    static WHY: std::cell::Cell<&'static str> = const { std::cell::Cell::new("") };
+}
+
+/// A case the native rules don't model (yet): `None`, and why, for the
+/// counts.
+pub fn nm<T>(why: &'static str) -> Option<T> {
+    WHY.with(|w| w.set(why));
+    None
+}
+
 /// Whether `NATIVE_CHECK` is on.
 pub fn checking() -> bool {
     use std::sync::OnceLock;
@@ -334,7 +372,17 @@ fn count(m: &mut Machine, piece: &'static str, what: usize) {
 /// world (`None`: they can't), kept to compare at [`after`].
 pub fn before(m: &mut Machine, piece: &'static str, rules: impl FnOnce(&mut World) -> Option<()>) {
     let mut w = World::from_machine(m);
+    WHY.with(|c| c.set(""));
     let ran = rules(&mut w).is_some();
+    if !ran {
+        let why = WHY.with(|c| c.get());
+        let why = if why.is_empty() { "?" } else { why };
+        let n = &mut super::native::native(m).native_checks.why;
+        match n.iter_mut().find(|e| e.0 == (piece, why)) {
+            Some(e) => e.1 += 1,
+            None => n.push(((piece, why), 1)),
+        }
+    }
     super::native::native(m).native_checks.pending.push(ran.then_some((piece, w)));
     if !ran {
         count(m, piece, 2);
@@ -359,6 +407,11 @@ pub fn after(m: &mut Machine, done: bool) {
     } else if std::env::var("NATIVE_TRACE").is_ok() || super::native::native(m).native_checks.pieces.iter().find(|p| p.0 == piece).is_some_and(|p| p.1 - p.2 <= 3) {
         eprintln!("native {piece} at time {:04x}: the rules' world vs the original's: {}", got.time(), d.join("; "));
     }
+}
+
+/// The cases not modelled, by piece and reason.
+pub fn reasons(m: &mut Machine) -> Vec<((&'static str, &'static str), u64)> {
+    super::native::native(m).native_checks.why.clone()
 }
 
 /// The counts, for the runner's report: (piece, checked, equal, not

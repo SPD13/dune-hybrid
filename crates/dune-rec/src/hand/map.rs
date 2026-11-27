@@ -4651,6 +4651,10 @@ fn raid_from_747c(c: &mut Ctx) -> Result<(), Bail> {
 /// kind 10h around it + 1 (`count_10_bytes` at its map cell, word 6);
 /// then [`spread_spice`].
 pub fn grow_water(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x63f0, "grow water", |w, r| { let _ = &r; super::native_day::grow_water(w) }, grow_water_frame)
+}
+
+fn grow_water_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x63f0)?;
     let mut c = Ctx::new(m);
     let k = c.byte(g::DAY_CHANGED);

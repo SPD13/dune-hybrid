@@ -52,7 +52,7 @@ fn link(w: &mut World, t: u16, p: u16) -> Option<()> {
     let last = loop {
         let o = troop_number(n);
         if o + troop::SIZE > STORY_END || k > 0x100 {
-            return None;
+            return super::world::nm("a walk past the tables");
         }
         k += 1;
         let slot = w.byte(o + SLOT);
@@ -86,7 +86,7 @@ fn unlink(w: &mut World, t: u16) -> Option<()> {
             loop {
                 let before = troop_number(n);
                 if before + troop::SIZE > STORY_END || k > 0x100 {
-                    return None;
+                    return super::world::nm("a walk past the tables");
                 }
                 k += 1;
                 n = w.byte(before + troop::NEXT);
@@ -126,7 +126,7 @@ fn reset_location_troop(w: &mut World, t: u16, p: u16) -> Option<()> {
     while n != 0 {
         let o = troop_number(n);
         if o + troop::SIZE > STORY_END || k > 0x100 {
-            return None;
+            return super::world::nm("a walk past the tables");
         }
         k += 1;
         n = w.byte(o + troop::NEXT);
@@ -194,11 +194,13 @@ fn spare(w: &mut World, p: u16, kind: u16) -> Option<bool> {
     while n != 0 {
         let o = troop_number(n);
         if o + troop::SIZE > STORY_END || c > 0x100 {
-            return None;
+            return super::world::nm("a walk past the tables");
         }
         c += 1;
         for k in kinds(w.byte(o + troop::EQUIPMENT)) {
-            let v = *out.get(k as usize)?;
+            let Some(&v) = out.get(k as usize) else {
+                return super::world::nm("spare equipment of kind 7");
+            };
             if v != 0 {
                 out[k as usize] = v - 1;
             }
@@ -208,7 +210,10 @@ fn spare(w: &mut World, p: u16, kind: u16) -> Option<bool> {
     for (k, v) in out.iter().enumerate() {
         w.set_byte(SPARE + k as u16, *v);
     }
-    Some(*out.get(kind as usize)? != 0)
+    match out.get(kind as usize) {
+        Some(&v) => Some(v != 0),
+        None => super::world::nm("spare equipment past kind 6"),
+    }
 }
 
 /// `loc_0841f`: a troop moving on: at its destination it stops there
@@ -265,7 +270,7 @@ fn arrived(w: &mut World, t: u16) -> Option<()> {
             return alert(w, p);
         }
         if meets {
-            return None;
+            return super::world::nm("troops meeting");
         }
         return alert(w, p);
     }
@@ -290,11 +295,11 @@ fn step(w: &mut World, t: u16) -> Option<(u16, u16)> {
     let row = ty.wrapping_shl(1);
     let row = if row & 0x8000 != 0 { row.wrapping_neg() } else { row };
     if row >= 0x300 {
-        return None;
+        return super::world::nm("a step's row past the table");
     }
     let scale = w.word(SCALES + row);
     if scale == 0 {
-        return None;
+        return super::world::nm("a step's scale 0");
     }
     let seed = w.word(g::RANDOM_BITS);
     let s = troop_moves::step(w.word(p + 2).wrapping_sub(tx), w.word(p + 4).wrapping_sub(ty), scale, seed & 0x8000 != 0);
@@ -361,7 +366,7 @@ fn phase_30_check(w: &World) -> Option<()> {
     if p.phase.wrapping_sub(0x2d) >= 3 || p.party & 0x10 != 0 || w.word(g::TICK_LOCATION) == 0 {
         return Some(());
     }
-    None
+    super::world::nm("the phase 30h check talking")
 }
 
 /// `loc_06c6f`: the troops' tick. The place of character 4 (the tick's

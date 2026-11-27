@@ -43,7 +43,7 @@ pub fn work(w: &mut World, job: u8, t: u16, p: u16) -> Option<()> {
         troop_job::SPICE_PROSPECTING => prospecting(w, t, p),
         4 => training(w, t, p),
         5 => espionage(w, t, p),
-        6 => None,
+        6 => super::world::nm("the attack job"),
         troop_job::IRRIGATION => irrigation(w, t, p),
         9 => wind_trap(w, t, p),
         0x0a => bulbs(w, t, p),
@@ -221,7 +221,7 @@ fn prospecting(w: &mut World, t: u16, p: u16) -> Option<()> {
         return Some(());
     }
     if w.word(g::FOLLOWED_TROOP_PLACE) != 0 {
-        return None;
+        return super::world::nm("a troop setting out");
     }
     if st & 0x10 == 0 {
         add_pending_event(w, 0x0f0e, p);
@@ -285,7 +285,7 @@ fn training(w: &mut World, t: u16, p: u16) -> Option<()> {
         if cx != 0 {
             let cl = cx as u8 as u16;
             if cl == 0 || dx / cl > 0xff {
-                return None; // the original's division faults
+                return super::world::nm("a division fault");
             }
             (dx % cl) << 8 | dx / cl
         } else {
@@ -312,12 +312,12 @@ fn espionage(w: &mut World, t: u16, p: u16) -> Option<()> {
         let (half, quarter) = troop_jobs::spy_times(skill);
         if troop_jobs::past(quarter, elapsed) {
             if w.word(t + troop::RATE) == 0 {
-                return None;
+                return super::world::nm("the flagged troops counted");
             }
             if !troop_jobs::past(half, elapsed) {
                 return spy_found_out(w, t, p, elapsed, skill);
             }
-            return None;
+            return super::world::nm("the place's forces measured");
         }
     }
     spy_found_out(w, t, p, elapsed, skill)
@@ -341,7 +341,7 @@ fn spy_found_out(w: &mut World, t: u16, p: u16, elapsed: u16, skill: u8) -> Opti
     if w.byte(t + troop::STATE) & 0x20 != 0 || w.byte(t + troop::BYTE_10) & 0x80 != 0 {
         return Some(());
     }
-    None
+    super::world::nm("a troop started (its charisma)")
 }
 
 /// `loc_07693`, job 8: irrigation, unless held. A place not started is
@@ -363,7 +363,7 @@ fn irrigation(w: &mut World, t: u16, p: u16) -> Option<()> {
         w.set_word(p + field::WORD_0C, w.word(p + field::X));
         w.set_word(p + field::WORD_0E, w.word(p + field::Y) & 0xff);
         w.set_byte(p + place::RADIUS, 4);
-        return None;
+        return super::world::nm("water spread on the map");
     }
     day_update(w, t, p)?;
     let step = troop_jobs::irrigation_step(w.byte(t + troop::SKILLS + 2));
@@ -388,7 +388,7 @@ fn irrigation(w: &mut World, t: u16, p: u16) -> Option<()> {
             if let Some(v) = byte_0e {
                 w.set_byte(p + field::BYTE_0E, v);
             }
-            None
+            super::world::nm("water spread on the map")
         }
     }
 }
