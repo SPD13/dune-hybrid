@@ -561,3 +561,9 @@ pub fn unlink_check(w: &mut World, t: u16) -> Option<()> {
 pub fn spare_check(w: &mut World, p: u16) -> Option<()> {
     spare(w, p, 0).map(|_| ())
 }
+pub fn arrived_check(w: &mut World, t: u16) -> Option<()> {
+    arrived(w, t)
+}
+pub fn alert_check(w: &mut World, p: u16) -> Option<()> {
+    alert(w, p)
+}

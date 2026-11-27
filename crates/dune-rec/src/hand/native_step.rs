@@ -120,7 +120,8 @@ fn demand(w: &mut World) -> Option<()> {
 /// `loc_01dd7` (`loc_01f64`): the Harkonnens' take of a sietch, once their
 /// wait is over ([`harkonnen::take_window`]), not on a quiet day, nor
 /// when skipped once ([11BCh]), on the random bits' draw
-/// ([`harkonnen::take_draw`]); taken: not modelled.
+/// ([`harkonnen::take_draw`]); drawn, the sietch taken
+/// ([`take_sietch`]).
 pub fn harkonnen_take(w: &mut World) -> Option<()> {
     let now = w.time();
     let window = harkonnen::take_window(w.get::<Progress>().phase, now, w.word(g::WORD_1154));
@@ -135,7 +136,7 @@ pub fn harkonnen_take(w: &mut World) -> Option<()> {
     w.set_byte(g::SKIP_HARKONNEN_TAKE, 0);
     w.set_word(g::RANDOM_BITS, r);
     if carry {
-        return nm("the Harkonnens take a sietch");
+        return take_sietch(w);
     }
     Some(())
 }
@@ -476,5 +477,148 @@ pub fn time_step(w: &mut World) -> Option<()> {
     if w.get::<Progress>().harkonnen_place != 0 {
         return nm("the Harkonnens' place revisited");
     }
+    Some(())
+}
+
+/// `ui_comm` (2017h): the sietch the Harkonnens go for: of the places
+/// from 100h while the next's byte 0 is below 8, the sietches (below kind
+/// 20h) discovered and not theirs, west of the last found (their y below,
+/// from 64h), with no troop marked for the attack, whose troops changed
+/// (`loc_0331e`'s counts 0 and 3 differ), whose nearest high place (the
+/// unmapped one within 1Eh, else the mapped one within 1Eh; not 11Ch) has
+/// Harkonnen troops but none of yours unstarted (`loc_05098`): the place,
+/// and that high place.
+fn sietch_to_call(w: &mut World) -> Option<Option<(u16, u16)>> {
+    let mut found: Option<(u16, u16)> = None;
+    let mut bx: u16 = 0x64;
+    let mut di = place::FIRST;
+    loop {
+        if di + 2 * place::SIZE > STORY_END {
+            return nm("a walk past the tables");
+        }
+        let (kind, f, y) = (w.byte(di + place::KIND), w.byte(di + place::FLAGS), w.word(di + 4));
+        let candidate = kind < 0x20
+            && f & (super::game::location_flag::UNDISCOVERED | super::game::location_flag::HARKONNEN) == 0
+            && (bx as i16) > y as i16;
+        if candidate && !marked_troop_at(w, di)? {
+            describe_place(w, di)?;
+            let (a, b) = (w.byte(0x60), w.byte(0x63));
+            if a != b {
+                let s = w.get::<Situation>();
+                let (e4, e2, dc, de) = (s.nearest_high_unmapped.record, s.nearest_high_unmapped.distance, s.nearest_high_mapped.distance, s.nearest_high_mapped.record);
+                let skip = e2 >= 0x1e && dc >= 0x1e;
+                let bp = if e2 >= 0x1e { de } else { e4 };
+                if !skip && bp != 0x11c {
+                    let (mut theirs, mut ours) = (0u16, 0u16);
+                    for t in chain(w, bp)? {
+                        let s = w.byte(t + troop::STATE);
+                        if s & 0x20 != 0 {
+                            continue;
+                        }
+                        if w.byte(t + troop::BYTE_10) & 0x80 != 0 {
+                            theirs += 1;
+                        } else if s == 6 {
+                            ours += 1;
+                        }
+                    }
+                    if theirs != 0 && ours == 0 {
+                        bx = y;
+                        found = Some((di, bp));
+                    }
+                }
+            }
+        }
+        di += place::SIZE;
+        if w.byte(di) >= 8 {
+            return Some(found);
+        }
+    }
+}
+
+/// `loc_060f8`: the battle's balance at the place `p`: your attackers'
+/// men and rates (state 6) against the Harkonnens' men (each troop of its
+/// chain, `loc_06155`), as `idiv` and `sar` give it, 80h for even.
+fn location_balance(w: &World, p: u16) -> Option<u8> {
+    let (mut bx, mut cx, mut dx, mut e) = (0u16, 0u16, 0u16, 0u16);
+    for t in chain(w, p)? {
+        let size = w.byte(t + troop::SIZE_FIELD) as u16;
+        if w.byte(t + troop::BYTE_10) & 0x80 != 0 {
+            e = e.wrapping_add(size);
+        } else if w.byte(t + troop::STATE) == 6 {
+            dx = dx.wrapping_add(size);
+            cx = cx.wrapping_add(w.word(t + troop::RATE));
+            bx = bx.wrapping_add(w.word(t + troop::WORD_0E));
+        }
+    }
+    let s1 = bx.wrapping_add(dx);
+    let q1 = if s1 != 0 { ((dx as u32) << 8) / s1 as u32 } else { 0 };
+    let s2 = cx.wrapping_add(e);
+    let q2 = if s2 != 0 { ((e as u32) << 8) / s2 as u32 } else { 0 };
+    if q1 > 0xffff || q2 > 0xffff {
+        return nm("a division fault");
+    }
+    let (q1, q2) = (q1 as u16, q2 as u16);
+    let si = q1.max(q2);
+    let d = q1.wrapping_sub(q2);
+    let ax = if si != 0 {
+        let num = (d as i16 as i32) * 256 + if d & 0x8000 != 0 { 255 } else { 0 };
+        let q = num / si as i16 as i32;
+        if si as i16 == 0 || !(-32768..=32767).contains(&q) {
+            return nm("a division fault");
+        }
+        q as u16
+    } else {
+        d
+    };
+    Some((((ax as i16) >> 1) as u8).wrapping_add(0x80))
+}
+
+/// `loc_01f95`: the Harkonnens take the sietch [`sietch_to_call`] gives:
+/// one takeover more; twice, the first Harkonnen troop of the high place
+/// (state 8Dh) sets out for it and arrives (byte 10h bit 10h cleared
+/// between); the place theirs (flag 02h), its troops alerted
+/// (`loc_083fd`), its people in its kind's room 1, event 0F0Ch (0F0Dh
+/// where troop 3 is); the player there: in that room, the Harkonnens'
+/// place and the battle's balance (`loc_06144`).
+fn take_sietch(w: &mut World) -> Option<()> {
+    let Some((di, bp)) = sietch_to_call(w)? else {
+        return Some(());
+    };
+    w.update::<Economy>(|e| e.harkonnen_takeovers = e.harkonnen_takeovers.wrapping_add(1));
+    for _ in 0..2 {
+        let Some(t) = chain(w, bp)?.into_iter().find(|&t| w.byte(t + troop::BYTE_10) & 0x80 != 0) else {
+            break;
+        };
+        w.set_byte(t + troop::STATE, 0x8d);
+        super::native_moves::set_out(w, t, di)?;
+        w.set_byte(t + troop::BYTE_10, w.byte(t + troop::BYTE_10) & 0xef);
+        super::native_moves::arrived_check(w, t)?;
+    }
+    w.set_byte(di + place::FLAGS, w.byte(di + place::FLAGS) | 2);
+    super::native_moves::alert_check(w, di)?;
+    let off = di.wrapping_sub(place::FIRST);
+    if off / place::SIZE > 0xff {
+        return nm("a division fault");
+    }
+    let bx = (((off / place::SIZE + 1) & 0xff) << 8) | 0x80;
+    let dx = (w.byte(di + place::KIND) as u16) << 8 | 1;
+    for i in 0..9u16 {
+        let s = g::CHARACTERS + 0x10 * i;
+        if w.word(s + 2) == bx {
+            w.set_word(s, dx);
+        }
+    }
+    let own = w.word(super::native_troops::troop_number(3) + troop::LOCATION) == di;
+    add_pending_event(w, if own { 0x0f0d } else { 0x0f0c }, di);
+    if w.get::<super::player::PlayerAt>().y != bx {
+        return Some(());
+    }
+    w.update::<super::player::PlayerAt>(|p| p.x = dx);
+    w.update::<Progress>(|t| {
+        t.room = dx as u8;
+        t.harkonnen_place = dx as u8;
+    });
+    let al = location_balance(w, di)? | 1;
+    w.update::<Situation>(|s| s.battle_balance = al);
     Some(())
 }
