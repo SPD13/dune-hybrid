@@ -37,7 +37,7 @@ const SLOT: u16 = 2;
 /// `loc_0851f`: the troop linked at the end of the place's chain, in its
 /// first free slot (from 9 for the Harkonnens', else from 1: the slots
 /// of the chain marked in a table of 1Eh; 1Eh when none is free).
-fn link(w: &mut World, t: u16, p: u16) -> Option<()> {
+pub fn link(w: &mut World, t: u16, p: u16) -> Option<()> {
     let id = w.byte(t + troop::ID);
     let lowest: u8 = if w.byte(t + troop::BYTE_10) & 0x80 != 0 { 9 } else { 1 };
     let first = w.byte(p + place::FIRST_TROOP);
@@ -73,7 +73,7 @@ fn link(w: &mut World, t: u16, p: u16) -> Option<()> {
 
 /// `loc_0858c`: the troop taken out of its place's chain (a travelling
 /// troop is in none), its next 0.
-fn unlink(w: &mut World, t: u16) -> Option<()> {
+pub fn unlink(w: &mut World, t: u16) -> Option<()> {
     let id = w.byte(t + troop::ID);
     let p = w.word(t + troop::LOCATION);
     if w.byte(t + troop::STATE) & troop_state::TRAVELLING == 0 {
@@ -270,7 +270,7 @@ fn arrived(w: &mut World, t: u16) -> Option<()> {
             return alert(w, p);
         }
         if meets {
-            return super::world::nm("troops meeting");
+            return super::native_raids::troops_meet(w, p);
         }
         return alert(w, p);
     }
@@ -516,7 +516,7 @@ pub fn set_out(w: &mut World, t: u16, target: u16) -> Option<()> {
                 n = w.byte(o + troop::NEXT);
             }
             if troop_moves::abandons(count, ours) {
-                return super::world::nm("a place abandoned");
+                super::native_raids::abandon(w, home)?;
             }
         }
         match troop_moves::attacker_goes(w.byte(target + place::KIND), w.byte(target + place::FLAGS)) {

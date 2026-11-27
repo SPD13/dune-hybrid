@@ -204,17 +204,19 @@ pub(super) fn skipped(w: &World, p: u16) -> bool {
 }
 
 /// `loc_01cda`: the spice in the fields: an eighth of each place's not
-/// skipped, plus a random part to a sixteenth of that.
-fn estimate_field_spice(w: &mut World) -> Option<()> {
-    let mut sum = 0u16;
+/// skipped, plus a random part to a sixteenth of that; the places
+/// counted.
+pub fn estimate_field_spice(w: &mut World) -> Option<u16> {
+    let (mut sum, mut count) = (0u16, 0u16);
     for p in places(w)? {
         if !skipped(w, p) {
+            count = count.wrapping_add(1);
             sum = sum.wrapping_add((w.byte(p + place::SPICE) >> 3) as u16);
         }
     }
     let r = w.rand_below(sum >> 4);
     w.update::<Economy>(|t| t.field_spice_estimate = sum.wrapping_add(r));
-    Some(())
+    Some(count)
 }
 
 /// `loc_0bfe3`: the map's share of cells grown (states 10h, 20h) and of

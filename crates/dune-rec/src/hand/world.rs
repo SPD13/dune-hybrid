@@ -81,14 +81,16 @@ pub struct World {
 
 /// The memory outside the story block the rules read and write, by
 /// offset and length: the day changed, the clock's steps waiting, the
+/// comm's caller, the
 /// map's latitude table and its
 /// rows' base (tables of the game's), a place's spare equipment, the
 /// steps' scales by row (a table of the game's), the spice's tenths, the
 /// tick's recheck and location, the troop selected on the map, the troop
 /// shown.
-pub const EXTRAS: [(u16, u16); 11] = [
+pub const EXTRAS: [(u16, u16); 12] = [
     (g::DAY_CHANGED, 1),
     (0x46dd, 1),
+    (g::COMM_CALLER, 1),
     (g::LATITUDE_TABLE, 0x2f0),
     (0xdcfe, 2),
     (g::LOCATION_SPARE_EQUIPMENT, 7),
@@ -205,6 +207,14 @@ impl World {
         let p = self.rand_seed as u32 * 0xcbd1;
         self.rand_seed = (p as u16).wrapping_add(1);
         ((p >> 16) as u16 & 0xff) << 8 | self.rand_seed >> 8
+    }
+
+    /// `rand_masked` (E3B7h): the second generator's word (factor E56Dh)
+    /// ANDed with `mask`.
+    pub fn rand_masked(&mut self, mask: u16) -> u16 {
+        let p = self.rand_masked_seed as u32 * 0xe56d;
+        self.rand_masked_seed = (p as u16).wrapping_add(1);
+        (((p >> 16) as u16 & 0xff) << 8 | self.rand_masked_seed >> 8) & mask
     }
 
     /// `rand_below` (E3DFh): a random number 0..=`max`.

@@ -132,7 +132,7 @@ pub fn set_activity(w: &mut World, t: u16) {
 }
 
 /// `loc_06acb`: the troop given job `job` unless it has it.
-fn give_job_unless_same(w: &mut World, t: u16, job: u8) {
+pub fn give_job_unless_same(w: &mut World, t: u16, job: u8) {
     if w.byte(t + troop::STATE) & 0x0f != job {
         set_job(w, t, job);
     }
@@ -301,8 +301,8 @@ fn training(w: &mut World, t: u16, p: u16) -> Option<()> {
 
 /// `loc_072b0`, job 5: espionage. Once a quarter of its time past
 /// ([`troop_jobs::spy_times`]): its rate (the flagged troops' count when
-/// 0: not modelled), past half the report (the place's forces: not
-/// modelled), then done (bit 40h of byte 10h). Unless the place's own
+/// 0: not modelled), past half the report (the Harkonnens' strength
+/// there per its rate, `loc_033be`), then done (bit 40h of byte 10h). Unless the place's own
 /// troop, a spy may be found out ([`troop_jobs::spy_found_out`]) and
 /// started (not modelled when it is).
 fn espionage(w: &mut World, t: u16, p: u16) -> Option<()> {
@@ -317,7 +317,13 @@ fn espionage(w: &mut World, t: u16, p: u16) -> Option<()> {
             if !troop_jobs::past(half, elapsed) {
                 return spy_found_out(w, t, p, elapsed, skill);
             }
-            return super::world::nm("the place's forces measured");
+            super::native_step::measure_forces(w, p)?;
+            let rate = w.word(t + troop::RATE);
+            let Some(report) = troop_jobs::spy_report(w.word(g::TOPIC_PLACE_HARKONNEN_STRENGTH), rate) else {
+                return super::world::nm("a division fault");
+            };
+            w.set_word(t + troop::WORD_0E, report);
+            w.set_byte(t + troop::BYTE_10, w.byte(t + troop::BYTE_10) | 0x40);
         }
     }
     spy_found_out(w, t, p, elapsed, skill)
@@ -336,12 +342,8 @@ fn spy_found_out(w: &mut World, t: u16, p: u16, elapsed: u16, skill: u8) -> Opti
     if troop_jobs::spy_found_out(skill, elapsed, || r) != Some(true) {
         return Some(());
     }
-    // `loc_0668f`: nothing for a troop started already or the
-    // Harkonnens'; else the charisma lost (not modelled).
-    if w.byte(t + troop::STATE) & 0x20 != 0 || w.byte(t + troop::BYTE_10) & 0x80 != 0 {
-        return Some(());
-    }
-    super::world::nm("a troop started (its charisma)")
+    super::native_raids::start_troop(w, t);
+    Some(())
 }
 
 /// `loc_07693`, job 8: irrigation, unless held. A place not started is

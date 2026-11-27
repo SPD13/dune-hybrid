@@ -6607,7 +6607,8 @@ pub fn time_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `NATIVE_CHECK`: the native time step (`hand/native_step.rs`) on the
 /// world before `loc_01b23`, against the world after.
 fn checked_new_time(c: &mut Ctx) -> Result<(), Bail> {
-    if !super::world::checking() {
+    // No step waiting: nothing to check (and the world's copy is costly).
+    if !super::world::checking() || c.clock().steps_pending == 0 {
         return new_time_1b23(c);
     }
     super::world::before(c.m, "time step", super::native_step::time_step);

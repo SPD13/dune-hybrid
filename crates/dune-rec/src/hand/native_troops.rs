@@ -329,8 +329,7 @@ fn set_people_state(w: &mut World, p: u16) -> Option<()> {
             w.set_word(t + troop::WORD_12, w.word(t + troop::WORD_12) | 0x1000);
         }
     }
-    let harkonnen = chain(w, p)?.iter().any(|&(t, yours)| !yours && w.byte(t + troop::BYTE_10) & 0x80 != 0);
-    if harkonnen { super::world::nm("Harkonnen troops lost") } else { Some(()) }
+    super::native_raids::lose_all_harkonnen(w, p)
 }
 
 /// `loc_06e82`'s mark for a troop of yours at the place `p`: idle

@@ -829,6 +829,10 @@ pub(super) fn run_for_your_troops(c: &mut Ctx, routine: u16, ret: u16) -> Result
 /// its word 10h is set: its byte 19h cleared, its time of change now (AX
 /// that time), and charisma 4 less (`lose_charisma`; DI kept).
 pub fn start_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x668f, "start troop", |w, r| { let _ = &r; super::native_raids::start_troop(w, r.si); Some(()) }, start_troop_frame)
+}
+
+fn start_troop_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x668f)?;
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));

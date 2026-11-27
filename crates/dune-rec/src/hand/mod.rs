@@ -83,6 +83,7 @@ pub mod native_troops;
 pub mod native_jobs;
 pub mod native_moves;
 pub mod native_step;
+pub mod native_raids;
 pub mod flags_read;
 mod cursor;
 mod dialogue;

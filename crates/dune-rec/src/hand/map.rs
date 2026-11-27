@@ -2831,6 +2831,10 @@ fn note_shown_at(c: &mut Ctx) -> Result<(), Bail> {
 /// of radius 5 around it, bits 9 of byte 0Ah cleared, and
 /// [`note_shown_location`].
 pub fn abandon_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x74b6, "abandon", |w, r| { let _ = &r; super::native_raids::abandon(w, r.di) }, abandon_location_frame)
+}
+
+fn abandon_location_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x74b6)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
@@ -4526,6 +4530,10 @@ pub fn map_hover(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_01cda` leaves DL above 1, [`g::ENDGAME_STAGE`] 1, bit 2 of [0FF7h] and
 /// [1007h] cleared and `loc_0765e`; then [`count_shown_location`].
 pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x7443, "raid", |w, r| { let _ = &r; super::native_raids::raided(w, r.di) }, location_raided_frame)
+}
+
+fn location_raided_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7443)?;
     let mut c = Ctx::new(m);
     c.run(start, 4)?;
@@ -4577,6 +4585,10 @@ pub fn location_raided(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (`loc_075af`), then the garrison and the end of
 /// [`location_raided`] (from 747Ch).
 pub fn troops_meet(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x7429, "troops meet", |w, r| { let _ = &r; super::native_raids::troops_meet(w, r.di) }, troops_meet_frame)
+}
+
+fn troops_meet_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7429)?;
     let mut c = Ctx::new(m);
     let away = c.reg(DI) != c.word(g::PLACE);

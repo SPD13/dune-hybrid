@@ -229,7 +229,7 @@ fn troops_for(w: &World, p: u16) -> Option<Vec<u16>> {
 /// adds its yield to the Harkonnens' strength or to yours (yours: their
 /// words 10h and 12h ORed into the place's), then the strike odds
 /// (`loc_033d9`).
-fn measure_forces(w: &mut World, p: u16) -> Option<()> {
+pub fn measure_forces(w: &mut World, p: u16) -> Option<()> {
     for at in [0x94u16, 0x96, 0x5c, 0x5e] {
         w.set_word(at, 0);
     }
