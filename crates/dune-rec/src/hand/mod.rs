@@ -77,6 +77,8 @@ pub mod troop_work;
 pub mod spice_accounts;
 pub mod rule_paths;
 pub mod harkonnen;
+pub mod world;
+pub mod native_day;
 pub mod flags_read;
 mod cursor;
 mod dialogue;

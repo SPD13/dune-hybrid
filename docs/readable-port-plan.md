@@ -1672,6 +1672,59 @@ moved; `TOPIC_TROOP_HOME`). No open names left from this list. The strings come 
 dump: the command strings are numbered from 1 (string n at word n - 1 of
 their offset table).
 
+## Stage C: the native mode (the rules on the world, 2026-11-27)
+
+The ports keep the 8086 frame: each runs the original's instructions'
+count, sets its registers and flags, and gives up to the interpreter
+wherever it can't go on exactly. The native mode runs the rules alone,
+on the game's state with no machine, and grows piece by piece, each
+checked against the original at every call, until a whole time step,
+then the passing of time, runs natively: a save loaded, time advanced
+in Rust, a save written (the end goal, a simulator without the
+emulator).
+
+**The world** (`hand/world.rs`): what a save keeps (the blocks of
+`SaveImage`: the story block DS:0-1260h, the dialogue table, the book,
+the map's cells' states) and the three random generators' seeds, which
+the save doesn't keep (D824h, D826h, D828h). All of it is Rust state
+already (Stage B: every byte of the save comes from the owners), so
+`World::from_machine` is a copy of it. The typed records are read and
+written through their views' byte layouts (`World::get`, `update`,
+`nth`); the generators are its methods (`rand`, `rand_below`).
+
+**The check** (`NATIVE_CHECK=1`): where a port the native rules cover
+is entered, the world is taken from the machine and the rules run on
+it; when the port returns (whole: not given up to the interpreter), the
+machine's world must equal the rules'. The differences are printed by
+table and field (or loose variable); the runner reports `native: PIECE:
+N checked against the original, M equal, K not checked`. The port being
+the shadow-checked image of the original, this is a check against the
+original. Validate's run k has it on.
+
+**The first piece: the new day** (`hand/native_day.rs`): `new_day`
+(1C46h) and all it calls, read again from the listing as rules on the
+world: the phase's days, the characters' rooms (`loc_01d66`, its limits
+table CS:1D35h), the Harkonnens' attack picked (`loc_01e43`: the place
+with the most of your troops below state 8, its troops marked, event
+0F08h added as `loc_029f0` adds one, the oldest dropped at ten), the
+spice's accounts, the field spice estimated (`loc_01cda`, `rand_below`),
+the map's shares from the cells' states (`loc_0bfe3`), the income and
+the armies counted (`loc_0c02e`), the statistics and their marks
+(`loc_0bf26`; the digits it writes into the phrase file's string are
+display, not state), the smugglers' restock (`rand`). The rules are
+the frames' own (`spice_accounts`, `harkonnen`, `smuggler_trade`). The
+suite's games pass no day in their 300 s, so the checks come from the
+harness: in run k all 5 calls of 1C46h equal (an attack picked, a
+restock, every income path). With one rule left out (the statistics)
+every call differs, at the stats' words and marks.
+
+Next: the rest of the time step (`loc_01b23`): the troops' tick
+(`loc_06c6f`, the movement and the jobs), the water's growth (the
+ecology's rules, which need the map's whole cells: the world will carry
+them), the time-of-day handlers, the Harkonnens' revisit; the display
+parts (the date panel, the sky, the map's overlays, the room drawn)
+stay the frame's.
+
 ## Tools in place
 
 | Tool | What it checks |

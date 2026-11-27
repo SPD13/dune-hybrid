@@ -925,6 +925,9 @@ fn main() -> ExitCode {
         }
         let paths: Vec<String> = dune_rec::hand::rule_paths::counts(&mut m).iter().map(|(p, n)| format!("{p} {n}")).collect();
         println!("rule paths: {}", paths.join(", "));
+        for (piece, checked, equal, skipped) in dune_rec::hand::world::counts(&mut m) {
+            println!("native: {piece}: {checked} checked against the original, {equal} equal, {skipped} not checked");
+        }
         let (days, grown, watered) = dune_rec::hand::ecology::counts(&mut m);
         if days + watered > 0 {
             println!("ecology: {days} days grown by the rules ({grown} cells), {watered} wind-traps watered");

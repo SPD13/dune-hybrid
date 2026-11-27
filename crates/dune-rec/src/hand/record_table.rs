@@ -272,7 +272,7 @@ impl Which {
             Which::PhraseArgs => 1,
         }
     }
-    fn end(self) -> u16 {
+    pub fn end(self) -> u16 {
         self.base() + self.size() * self.count() as u16
     }
 }
