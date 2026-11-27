@@ -1718,12 +1718,43 @@ harness: in run k all 5 calls of 1C46h equal (an attack picked, a
 restock, every income path). With one rule left out (the statistics)
 every call differs, at the stats' words and marks.
 
-Next: the rest of the time step (`loc_01b23`): the troops' tick
-(`loc_06c6f`, the movement and the jobs), the water's growth (the
-ecology's rules, which need the map's whole cells: the world will carry
-them), the time-of-day handlers, the Harkonnens' revisit; the display
-parts (the date panel, the sky, the map's overlays, the room drawn)
-stay the frame's.
+**The troops natively** (`hand/native_troops.rs`, `native_jobs.rs`,
+`native_moves.rs`): the whole troops' tick (`loc_06c6f`) and all it
+calls: a troop's day (`loc_06e20`: the raid over, the place freed and
+its people, the place growing and its circle drawn into the map's cells
+by the midpoint walk and the latitude table, the restless, the idle
+report), its motivation, rate, skills and their decay, the events'
+roll, the held checks; the seven job handlers and the job changes
+(`loc_06ad4`); merging, the steps, the arrival, settling, the chains
+(`loc_0851f`, `loc_0858c`), the resets, moving on with carried
+equipment. And the water's growth (`loc_063f0`: the wind-traps, the
+day's spread by the seed in the code, CS:65B4h). Each is checked at its
+own port's entry (`world::checked`, a stack: a checked piece calls
+others). Run k: all equal, none left unmodelled for the troops' day and
+tick; the suite's 7 games: some 2000 calls equal.
+
+The world grew the time step's bytes outside the save
+(`World::extras`: the day changed, the spice's tenths, the tick's
+recheck and location, the troop selected and the one shown, a place's
+spare equipment) and three tables of the game's (the steps' scales at
+DS:4880h, the latitude table, its rows' base). The map's cells are
+read and written as states from the save's packed block (`World::cell`:
+the rules look at bits 4..5 alone).
+
+**Not modelled, by name** (`world::nm`): a case the rules don't cover
+yet returns `None` with its reason; the runner prints `native not
+modelled: PIECE: WHY N`, so the next rule to write is the one most
+checks wait on. Left in run k: the place's forces measured and a troop
+started (espionage), water spread on the map (irrigation, `loc_06515`'s
+trail), a troop setting out (`loc_084a6`), troops meeting (the raids,
+`loc_07429`), the attack job (6, no port yet), the phase 30h check.
+
+Next: the rest of the time step (`loc_01b23`): the character 7 check
+(`loc_01d9f`), the time-of-day handlers (`loc_020a4`, the Harkonnens'
+take, the shipments, the Harkonnens' growth), the place talked about
+(`loc_0331e`), the Harkonnens' revisit (`loc_01bec`); the display parts
+(the date panel, the sky, the map's overlays, the room drawn) stay the
+frame's.
 
 ## Tools in place
 
