@@ -2724,6 +2724,10 @@ pub fn next_flight_video(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// location [473Ch] that `loc_0331e` leaves [66h] set for: the game phase
 /// to 30h.
 pub fn phase_30_check(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x6c46, "phase 30 check", |w, r| { let _ = &r; super::native_moves::phase_30_check_check(w) }, phase_30_check_frame)
+}
+
+fn phase_30_check_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6c46)?;
     let mut c = Ctx::new(m);
     let ph = c.progress().phase;

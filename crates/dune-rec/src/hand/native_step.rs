@@ -38,7 +38,7 @@ fn marked_troop_at(w: &World, p: u16) -> Option<bool> {
 /// byte 0 then 2) with a marked troop there ticks the attack's clock
 /// (`loc_01eda`: 8 more; wrapping, the troops there unmarked and noted
 /// (bit 800h), event 709h, one attack less pending, the next place with a
-/// marked troop the target; none: phase 60h, not modelled).
+/// marked troop the target; none: phase 60h, `loc_011cb`).
 pub fn character_7_check(w: &mut World) -> Option<()> {
     if w.get::<Progress>().present & 0x80 != 0 {
         return Some(());
@@ -79,7 +79,16 @@ pub fn character_7_check(w: &mut World) -> Option<()> {
     }
     w.set_word(g::ATTACK_TARGET, found);
     if found == 0 {
-        return nm("phase 60h");
+        // `loc_011cb`: phase 60h (no phase change's scripts), character 7
+        // at the Harkonnens' palace (11Ch: its number and 80h; its kind and
+        // room 2).
+        w.update::<Situation>(|s| s.days_in_phase = 0);
+        w.update::<Progress>(|t| t.phase = 0x60);
+        let p = 0x11cu16;
+        let bx = ((((p - place::FIRST) / place::SIZE + 1) & 0xff) << 8) | 0x80;
+        let dx = (w.byte(p + place::KIND) as u16) << 8 | 2;
+        w.set_word(g::CHARACTERS + 0x70, dx);
+        w.set_word(g::CHARACTERS + 0x72, bx);
     }
     Some(())
 }

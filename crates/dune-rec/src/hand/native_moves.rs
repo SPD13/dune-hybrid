@@ -365,13 +365,20 @@ fn merge(w: &mut World, t: u16) -> Option<bool> {
 
 /// `loc_06c46`: from phase 2Dh to 2Fh, the party without bit 10h, at a
 /// place: the place talked about, and phase 30h set when the Harkonnens
-/// are there (not modelled: `None`).
-fn phase_30_check(w: &World) -> Option<()> {
+/// are there (a phase change: not modelled).
+fn phase_30_check(w: &mut World) -> Option<()> {
     let p = w.get::<Progress>();
     if p.phase.wrapping_sub(0x2d) >= 3 || p.party & 0x10 != 0 || w.word(g::TICK_LOCATION) == 0 {
         return Some(());
     }
-    super::world::nm("the phase 30h check talking")
+    // The place talked about, and with Harkonnen troops there (its count
+    // at 66h) phase 30h: a phase change runs the condition scripts
+    // (`set_game_phase`, B17Ah), not modelled.
+    super::native_step::describe_place(w, w.word(g::TICK_LOCATION))?;
+    if w.byte(0x66) == 0 {
+        return Some(());
+    }
+    super::world::nm("a phase change (the condition scripts)")
 }
 
 /// `loc_06c6f`: the troops' tick. The place of character 4 (the tick's
@@ -566,4 +573,7 @@ pub fn arrived_check(w: &mut World, t: u16) -> Option<()> {
 }
 pub fn alert_check(w: &mut World, p: u16) -> Option<()> {
     alert(w, p)
+}
+pub fn phase_30_check_check(w: &mut World) -> Option<()> {
+    phase_30_check(w)
 }
