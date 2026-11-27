@@ -147,12 +147,38 @@ The palace plan button (24h, element 1CBCh of the default set, handler 18EEh) is
 - **The marks:** a person is a bronze stud with a cross cut in it (`mark.png`, 3.4 game pixels across, centred on the game's 3 x 3 sprite); the player is a red gem (`player.png`, 5.2 across, centred on the 5 x 5 sprite).
 - **In the game:** mark `ui_draw_palace_plan` (18EEh) and `people_panel` (1948h). Draw the tablet at (160,0), 160 x 116, then the doorway walls still in the list, then the marks from the same counts; fade the rectangle in. On leaving, the game redraws what was under it.
 
-## 9. The command list and the text
+## 9. The colours by place and hour
+
+The game's panel has no colours of its own: its sprites (`ICONES`, `PALPLAN`, `MIXR`) are drawn with the palette's last 16 entries, 240-255, which the place leaves there (reading in `tripo/recolour_views.py`):
+
+- **Indoors:** the room's sheet sets them: a brown-gold ramp in the palace, a red-gold one in a sietch. They are the same at every hour.
+- **Outdoors:** the sky palette of the hour sets them (`set_sky_palette`, 388Dh): sub-resource N of `SKYDN.HSQ`, with N from the table at DS:2280h by the slot of the day (game time & 0Fh), plus 4 x the day's palette group (0 to 7).
+
+| Slots | 0-1 | 2-10 | 11-12 | 13-15 |
+|---|---|---|---|---|
+| SKYDN | 8 dawn | 9 day | 0Ah dusk | 0Bh night |
+
+- **What turns:** the stone, the book, the alcove, the strip, the command rows, the head and its collar, the arrows and their frame, the empty slots, the sun and the moon.
+- **What keeps its colours** (other indices): the palace plan button (36), the map buttons (37 to 41), the hawks (53, 76), the globe's arrow (54) and the faces (65 to 73).
+
+**HD** (`hud/hud_tod.py`, prototype `hud/tod.html`, preview: HUD, **Panel by hour**):
+
+- **The matrices.** The HD panel is the palace's. The game's sprites in each variant (`recolour/VARIANT/`) give the 15 ramp colours of the palace and their colours in the variant, one for one. A 3 x 4 matrix per variant (`out = M · [r, g, b, 1]`, 0-255) is fitted to those 15 pairs by least squares; mean error 1.8 to 5.2 levels out of 255. The matrices are in `hud/tod.json` (palace: identity), with the slots' variants and the pairs.
+- **Applying it:** the matrix tints the whole panel layer (the panel rows, the collar and the head). Then what keeps its colours is drawn untinted on top. The head is drawn from its layers (`head.png`, then `collar-front.png`, in its region (136,124)-(184,176), section 4), not from the sprites `ICONES-016` to `026`: those are clipped at the engine's 20 x 23 rectangle at (150,137), which cuts the top of the HD head.
+- **Between slots** the prototype blends the two matrices over the slot before a change. The game switches at the slot's start; **Game steps** does the same.
+- **A ramp along the brightness** was tried too. It kept the HD's warm detail as a difference and oversaturated the slate; the matrix matched the game's mood better (`hud/tod/compare.png`).
+- **In the game:** read which palette the place loaded: the room's sheet, or the sky slot (`[PALETTE_SUB]` after 388Dh). Apply the matching matrix to the panel's HD layers (a colour matrix in the compositor's shader), not to the room, and not to the fixed sprites.
+- **Not covered:**
+  - the day's palette group (8 groups of 4 sky palettes; the matrices are fitted to group 0);
+  - the map screen's blue (a third kind of variant);
+  - the fades, which the game makes by moving the palette.
+
+## 10. The command list and the text
 
 - The commands are not sprites: glyphs of the bitmap font (slot 7), one per row at (95, 159 + 8k), live or not by colour, the hovered one by swapping colours. The HD layer should draw them with an HD font at the same places; the mock-ups use Garamond Bold as a stand-in: live (236, 214, 170), not live (150, 124, 96), with a dark offset copy for an engraved look.
 - The day number (section 6) and the people's names elsewhere are text too.
 
-## 10. Drawing it in the game
+## 11. Drawing it in the game
 
 - **Marks,** as the rooms and heads have:
   - the frieze: `redraw_frieze_screen` (B23Fh); the side sets (D795h and its entries D75Ah, D792h, D7ADh, D7B2h); the nudge (D23Dh); the button sets (D72Bh, D717h);
@@ -172,9 +198,9 @@ The palace plan button (24h, element 1CBCh of the default set, handler 18EEh) is
   Skip the game's pixels for the panel rows.
 - **What stands over the room** (the head and its collar, the open book's top, the turning page) has its own alpha and is drawn after the room.
 - **The page turn** replaces the two sprites: on B1AFh, read DX and play the HD turn over the open book for the game's duration; the game then redraws the open book (element 1AF4h), which is the HD book again.
-- **Colours:** the time-of-day range F0h-FFh and the fades apply to the HD panel as a grade; the map screen's blue as a tint or a second master.
+- **Colours:** the place's and the hour's colour matrix (section 9) on the panel's layers; the fades as a grade; the map screen's blue as a tint or a second master.
 
-## 11. Assets
+## 12. Assets
 
 All game-derived, in `tripo/hud/` (outside this repo; the pictures are in no repo):
 
@@ -190,18 +216,18 @@ All game-derived, in `tripo/hud/` (outside this repo; the pictures are in no rep
 | the sun and the moon | `hud/pieces/ICONES-074`, `075`, `hud/sky.json`, `hud/sky-mask.png`, `hud/sky-bg.png` | `hud_sky.py` |
 | the book's pages and crease | `hud/book-page-left.png`, `book-page-right.png`, `hud/book.json`, `hud/book-crease.png` (a check) | `hud_book.py` |
 | the mock-ups | `hud/mock-room.png`, `hud/mock-book.png` | `hud_cut.py` |
+| the colours by place and hour | `hud/tod.json` (the matrices), `hud/tod/game-*.png`, `hud/tod/compare.png` | `hud_tod.py` (needs `recolour/` from `recolour_views.py`) |
 | the palace plan | `hud/palplan/tablet.png`, `base.png`, `wall-3/4/5.png`, `mark.png`, `player.png`, `pieces.json`, `layout.json`, `frame-game.png` | `palplan_ref.py` (from a frame of the game), `palplan_gen.py`, `palplan_cut.py` |
 | the Mixer Panel | see [hud-mixer-implementation.md](hud-mixer-implementation.md) | `mixer_ref.py`, `mixer_gen.py`, `mixer_cut.py` |
 
 Order to rebuild: `hud_cut.py` (after any state), `hud_faces.py`, `hud_insignia.py`, `hud_sky.py`, `hud_book.py`. The prototypes: `hud/sky.html` (preview: HUD, **Day and night**), `hud/book.html` (**Page turn**), `hud/mixer.html` (**Mixer panel**), `hud/palplan.html` (**Palace plan**), and the process view (**Process: the HD panel**).
 
-## 12. Open points
+## 13. Open points
 
 - **Not done in HD:**
   - the map and travel button sets (1CCAh and 1D72h sprites 37-44, 49);
   - the nudge's own transition;
   - the map screen's blue panel;
-  - the time-of-day grade;
   - the HD font and the command text;
   - the edge strips (12) and the in-between side sprites (not needed with layers).
 - **To check in the running game:**
