@@ -253,6 +253,10 @@ pub fn talking_head_zoom_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [10h] clear, [0Bh] not 8 and [`g::ENDGAME_STAGE`] 0. Flags from the check that ended
 /// it.
 pub fn note_shipment_event_if_due(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x1dda, "shipment event", |w, r| { let _ = &r; super::native_step::shipment_event(w) }, note_shipment_event_if_due_frame)
+}
+
+fn note_shipment_event_if_due_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1dda)?;
     let mut c = Ctx::new(m);
     let (a, b, d, e) = (c.economy().shipment_flags, c.progress().party, c.progress().room, c.economy().endgame_stage);
@@ -274,6 +278,10 @@ pub fn note_shipment_event_if_due(m: &mut Machine, start: u16) -> Result<(), Bai
 /// Harkonnen troop (bit 80h of byte 10h) grows its size (byte 1Ah) by 1, up to C8h.
 /// Flags from the last check.
 pub fn grow_harkonnen_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x1dfe, "harkonnen growth", |w, r| { let _ = &r; super::native_step::grow_harkonnen_troops(w) }, grow_harkonnen_troops_frame)
+}
+
+fn grow_harkonnen_troops_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1dfe)?;
     let mut c = Ctx::new(m);
     let bits = c.word(g::RANDOM_BITS);

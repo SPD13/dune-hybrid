@@ -82,6 +82,7 @@ pub mod native_day;
 pub mod native_troops;
 pub mod native_jobs;
 pub mod native_moves;
+pub mod native_step;
 pub mod flags_read;
 mod cursor;
 mod dialogue;

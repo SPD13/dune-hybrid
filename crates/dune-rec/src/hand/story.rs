@@ -521,6 +521,10 @@ pub(super) fn four_in_phases_15_to_1f(c: &mut Ctx, ret: u16) -> Result<bool, Bai
 /// `loc_01d9f`: unless bit 80h of [12h], `loc_01e01` on the record at
 /// 1048h, then `loc_01eda` when it sets CF.
 pub fn check_character_7_attack(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x1d9f, "character 7 check", |w, r| { let _ = &r; super::native_step::character_7_check(w) }, check_character_7_attack_frame)
+}
+
+fn check_character_7_attack_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1d9f)?;
     let mut c = Ctx::new(m);
     let w = c.progress().present;
@@ -4995,6 +4999,10 @@ fn palette_after_2eb2(c: &mut Ctx) -> Result<(), Bail> {
 /// its new id DX in [4] and [0Bh], [473Bh], [2Bh] and `note_battle_balance`, else
 /// the shown locations counted.
 pub fn harkonnen_take(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x1dd7, "harkonnen take", |w, r| { let _ = &r; super::native_step::harkonnen_take(w) }, harkonnen_take_frame)
+}
+
+fn harkonnen_take_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x1dd7)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
