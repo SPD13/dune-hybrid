@@ -54,7 +54,7 @@ fn add_motivation_to_all(w: &mut World, by: u8) {
 /// `increase_charisma_by_al` (6F78h): charisma up by `by` (the byte
 /// wrapping, then at most C8h); each step of 4 it rises through, every
 /// troop free (bits A0h of byte 3 clear) gains that much motivation.
-fn raise_charisma(w: &mut World, by: u8) {
+pub fn raise_charisma(w: &mut World, by: u8) {
     let old = w.byte(g::CHARISMA);
     let new = by.wrapping_add(old).min(0xc8);
     w.set_byte(g::CHARISMA, new);

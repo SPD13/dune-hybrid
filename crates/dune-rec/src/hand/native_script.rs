@@ -258,20 +258,143 @@ pub fn set_game_phase(w: &mut World, new: u8) -> Option<()> {
     if p > 0x6c {
         return Some(());
     }
-    match p & !1 {
-        // `loc_010b7`: nothing (phases 18h, 24h, 3Ch, 68h, 6Ch).
-        0x18 | 0x24 | 0x3c | 0x68 | 0x6c => Some(()),
+    phase_handler(w, p)
+}
+
+/// The phase `p`'s handler (CS:11E7h + `p` / 2: phases 2 mod 4 read a
+/// word across two entries, not a handler's start: not modelled). The
+/// display's parts (the panel's buttons, `loc_02ffb`) are left out.
+fn phase_handler(w: &mut World, p: u8) -> Option<()> {
+    if p & 2 != 0 {
+        return nm("a phase's handler between two");
+    }
+    let fe8 = |w: &mut World, v: u8| w.set_byte(0xfe8, v);
+    match p & !3 {
+        // `loc_010b7`: nothing.
+        0x18 | 0x24 | 0x3c | 0x68 | 0x6c => {}
+        // `loc_01011`.
+        0x04 => {
+            w.set_byte(0x122a, w.byte(0x122a).wrapping_sub(1));
+            for p in [0x218, 0x2dc] {
+                discover(w, p)?;
+            }
+            fe8(w, 9);
+        }
+        // `loc_01027`.
+        0x08 => w.set_byte(0x122e, w.byte(0x122e) & 0x7f),
+        // `loc_0102f`: a sequence started (the clock stopped meanwhile).
+        0x0c => {
+            w.set_byte(0x124a, w.byte(0x124a) & 0x7f);
+            w.set_byte(0x1247, w.byte(0x1247) & 0x7f);
+            w.set_word(0x121d, 0xffff);
+            return nm("a sequence started");
+        }
+        // `loc_01045`.
+        0x10 => {
+            w.set_byte(0xfd8, 5);
+            fe8(w, 9);
+            add_message(w, 0x10b);
+        }
+        // `loc_01053`.
+        0x14 => {
+            w.set_byte(0xfd8, 0x0a);
+            for p in [0x34c, 0x368, 0x384] {
+                discover(w, p)?;
+            }
+        }
+        // `loc_010a4`.
+        0x1c => {
+            w.set_byte(0x1245, w.byte(0x1245) & 0x7f);
+            w.set_word(0x1217, 0xffff);
+        }
+        // `loc_010b2`.
+        0x20 => w.set_byte(0xffb, 1),
+        // `loc_010b8`.
+        0x28 => discover(w, 0x800)?,
+        // `loc_010be`.
+        0x2c => {
+            w.set_word(0x1154, w.time());
+            w.set_word(0x1018, 0x2006);
+            w.set_word(0xff8, 0x2008);
+            w.set_word(0xffa, 0x180);
+            fe8(w, 0x0a);
+            w.set_word(0xfea, 0x180);
+            w.set_word(0x1201, 0x109);
+            super::native_raids::raise_charisma(w, 0x14);
+            w.set_byte(0x0a, w.byte(0x0a) | 0x10);
+            for p in [0x5ec, 0x5d0, 0x608, 0x640, 0x65c] {
+                discover(w, p)?;
+            }
+        }
         // `loc_01103`: event 4, message 1409h.
         0x30 => {
             add_pending_event(w, 4, 0);
             add_message(w, 0x1409);
-            Some(())
+        }
+        // `loc_0110f`.
+        0x34 => {
+            if w.byte(0xfe8) != 8 {
+                fe8(w, 0x0a);
+                w.set_word(0xfea, 0x180);
+            }
+            add_message(w, 0x280a);
+        }
+        // `loc_01127`.
+        0x38 => w.set_byte(0xfdb, 0xff),
+        // `loc_0112d`.
+        0x40 => w.set_byte(0x1067, w.byte(0x1067) | 2),
+        // `loc_01133`.
+        0x44 => discover(w, 0x3d8)?,
+        // `loc_01139`, `loc_01196`: a sequence started.
+        0x48 | 0x58 => return nm("a sequence started"),
+        // `loc_01166`.
+        0x4c => {
+            w.set_byte(0x1141, w.byte(0x1141).wrapping_add(1));
+            fe8(w, 2);
+            w.set_word(0xfea, 0x180);
+            add_pending_event(w, 0x105, 0);
+        }
+        // `loc_0117b`.
+        0x50 => {
+            w.set_byte(0x0a, w.byte(0x0a) | 0x40);
+            super::native_raids::raise_charisma(w, 0x28);
+            fe8(w, 9);
+        }
+        // `loc_01188`.
+        0x54 => {
+            w.set_byte(0x1259, w.byte(0x1259) & 0x7f);
+            w.set_word(0x1211, 0xffff);
+        }
+        // `loc_011b3` (the listing reads it as data).
+        0x5c => {
+            w.set_byte(0x1038, 5);
+            w.set_byte(0x11d0, w.byte(0x11d0).wrapping_add(0x0c));
+            w.set_word(0x1156, (w.time() >> 4).wrapping_add(3));
+            w.set_byte(0x1141, w.byte(0x1141).wrapping_add(1));
         }
         // `loc_011cb`: phase 60h's start.
-        0x60 => {
-            super::native_step::go_to_phase_60(w);
-            Some(())
-        }
-        _ => nm("a phase's handler"),
+        0x60 => super::native_step::go_to_phase_60(w),
+        _ => return nm("a phase's handler"),
     }
+    Some(())
+}
+
+/// `loc_0425b`: the place `p` discovered (flag 80h off, byte 0Bh 0); a
+/// sietch (below kind 20h) one more held, and place 603h's discovery
+/// raises the phase to 10h.
+fn discover(w: &mut World, p: u16) -> Option<()> {
+    let f = w.byte(p + 0x0a);
+    if f & 0x80 == 0 {
+        return Some(());
+    }
+    w.set_byte(p + 0x0a, f & 0x7f);
+    w.set_byte(p + 0x0b, 0);
+    if w.byte(p + 8) >= 0x20 {
+        return Some(());
+    }
+    w.update::<Progress>(|t| t.sietches_held = t.sietches_held.wrapping_add(1));
+    if w.word(p) == 0x0603 {
+        set_game_phase(w, 0x10)?;
+    }
+    Some(())
 }
