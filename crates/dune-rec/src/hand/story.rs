@@ -3639,6 +3639,10 @@ pub fn start_phase_15(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// bit set in [53h],
 /// `loc_03385`, `loc_05274`. SI, DI kept.
 pub fn describe_place(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x331e, "describe place", |w, r| { let _ = &r; super::native_step::describe_place(w, r.di) }, describe_place_frame)
+}
+
+fn describe_place_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x331e)?;
     let mut c = Ctx::new(m);
     c.run(start, (24) + 7)?; // the `rep` iterations too

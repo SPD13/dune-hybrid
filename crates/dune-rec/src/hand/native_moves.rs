@@ -460,3 +460,6 @@ pub fn link_check(w: &mut World, t: u16, p: u16) -> Option<()> {
 pub fn unlink_check(w: &mut World, t: u16) -> Option<()> {
     unlink(w, t)
 }
+pub fn spare_check(w: &mut World, p: u16) -> Option<()> {
+    spare(w, p, 0).map(|_| ())
+}

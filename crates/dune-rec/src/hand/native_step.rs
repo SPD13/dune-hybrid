@@ -176,3 +176,258 @@ pub fn grow_harkonnen_troops(w: &mut World) -> Option<()> {
         }
     }
 }
+
+/// `loc_0342d`: a troop's yield in a fight: twice its motivation plus
+/// skill 1 (saturating), times its men, over 10h; for each of its
+/// equipment bits 20h..04h, the step (doubling each time) added (capped
+/// at FFFFh); over 100h, at least 1 with any men.
+fn troop_yield(w: &World, t: u16) -> u16 {
+    let m = super::native_troops::motivation(w, t);
+    let size = w.byte(t + troop::SIZE_FIELD);
+    let bits = w.byte(t + troop::EQUIPMENT);
+    let (sum, over) = m.wrapping_add(m).overflowing_add(w.byte(t + troop::SKILLS + 1));
+    let base = (if over { 0xff } else { sum } as u16 * size as u16) >> 4;
+    let (mut total, mut step) = (base, base << 1);
+    for k in 0..4 {
+        if k > 0 {
+            step <<= 1;
+        }
+        if bits & (0x20 >> k) != 0 {
+            match total.checked_add(step) {
+                Some(v) => total = v,
+                None => {
+                    total = 0xffff;
+                    break;
+                }
+            }
+        }
+    }
+    let r = total >> 8;
+    if r != 0 { r } else { (size >= 1) as u16 }
+}
+
+/// The troops `loc_06639` walks for the place `p`: its chain, then every
+/// troop of the table travelling there (to its location, or its
+/// destination when moving on: state bits 3).
+fn troops_for(w: &World, p: u16) -> Option<Vec<u16>> {
+    let mut out = chain(w, p)?;
+    let mut t = troop::FIRST;
+    while t < g::TROOPS_END {
+        let s = w.byte(t + troop::STATE);
+        if s & 0x40 != 0 {
+            let to = if s & 3 == 3 { w.word(t + 0x0c) } else { w.word(t + troop::LOCATION) };
+            if to == p {
+                out.push(t);
+            }
+        }
+        t += troop::SIZE;
+    }
+    Some(out)
+}
+
+/// `loc_033be`: the place's forces: each troop of its chain not started
+/// adds its yield to the Harkonnens' strength or to yours (yours: their
+/// words 10h and 12h ORed into the place's), then the strike odds
+/// (`loc_033d9`).
+fn measure_forces(w: &mut World, p: u16) -> Option<()> {
+    for at in [0x94u16, 0x96, 0x5c, 0x5e] {
+        w.set_word(at, 0);
+    }
+    for t in chain(w, p)? {
+        if w.byte(t + troop::STATE) & 0x20 != 0 {
+            continue;
+        }
+        let amount = troop_yield(w, t);
+        if w.byte(t + troop::BYTE_10) & 0x80 != 0 {
+            w.set_word(g::TOPIC_PLACE_HARKONNEN_STRENGTH, w.word(g::TOPIC_PLACE_HARKONNEN_STRENGTH).wrapping_add(amount));
+        } else {
+            w.set_word(g::TOPIC_PLACE_OUR_STRENGTH, w.word(g::TOPIC_PLACE_OUR_STRENGTH).wrapping_add(amount));
+            w.set_word(g::TOPIC_PLACE_TROOP_BITS_10, w.word(g::TOPIC_PLACE_TROOP_BITS_10) | w.word(t + troop::WORD_10));
+            w.set_word(g::TOPIC_PLACE_TROOP_BITS_12, w.word(g::TOPIC_PLACE_TROOP_BITS_12) | w.word(t + troop::WORD_12));
+        }
+    }
+    let (a, d) = (w.word(g::TOPIC_PLACE_OUR_STRENGTH), w.word(g::TOPIC_PLACE_HARKONNEN_STRENGTH));
+    let below = a < d;
+    let (big, small) = if below { (d, a) } else { (a, d) };
+    let ratio = if small == 0 || big >> 8 >= small { 0xfc } else { ((((big as u32) << 8) / small as u32) as u16 >> 1).min(0xfc) };
+    w.set_byte(g::TOPIC_PLACE_STRIKE_ODDS, if below { (ratio as u8).wrapping_neg() } else { ratio as u8 });
+    Some(())
+}
+
+fn bump(w: &mut World, at: u16) {
+    w.set_byte(at, w.byte(at).wrapping_add(1));
+}
+
+/// `loc_034a5`: the place's troops counted (60h..92h cleared first) by
+/// `loc_034d0` for each troop `loc_06639` walks: idle ones, by side,
+/// travelling or there, by job, and yours by kind; then the totals.
+fn count_troops(w: &mut World, p: u16) -> Option<()> {
+    for k in 0..0x33 {
+        w.set_byte(g::TOPIC_PLACE_OUR_TROOPS + k, 0);
+    }
+    for t in troops_for(w, p)? {
+        let state = w.byte(t + troop::STATE);
+        if state & 0x20 != 0 {
+            continue;
+        }
+        let base = if state & 0x40 != 0 { g::TOPIC_PLACE_HARKONNEN_INBOUND } else { g::TOPIC_PLACE_HARKONNEN_TROOPS };
+        let harkonnen = w.byte(t + troop::BYTE_10) & 0x80 != 0;
+        if !harkonnen && state == 0x80 {
+            bump(w, g::TOPIC_PLACE_IDLE);
+            continue;
+        }
+        let job = if state & 3 == 3 { state & 0x0f & !3 } else { state & 0x0f };
+        let at = base + job as u16;
+        bump(w, if harkonnen { base } else { base - 1 });
+        bump(w, at + 1);
+        if at < g::TOPIC_PLACE_HARKONNEN_INBOUND {
+            bump(w, g::TOPIC_PLACE_TROOP_KINDS + (w.word(t + troop::WORD_12) & 0x0f));
+        }
+    }
+    for (a, b, to) in [
+        (g::TOPIC_PLACE_OUR_TROOPS, g::TOPIC_PLACE_OUR_INBOUND, g::TOPIC_PLACE_OUR_TOTAL),
+        (g::TOPIC_PLACE_HARKONNEN_TROOPS, g::TOPIC_PLACE_HARKONNEN_INBOUND, g::TOPIC_PLACE_HARKONNEN_TOTAL),
+    ] {
+        w.set_byte(to, w.byte(a).wrapping_add(w.byte(b)));
+    }
+    Some(())
+}
+
+/// `loc_05133` / `loc_0514e`: the direction from (`x0`, `y0`) to (`x1`,
+/// `y1`), 0..FFh (the differences halved when the rows are 80h or more
+/// apart; the rows' difference in the high byte, by `imul` / `idiv`).
+fn direction(x0: u16, y0: u16, x1: u16, y1: u16) -> u8 {
+    let by = y1.wrapping_sub(y0);
+    let half = (by as i16) < -0x80 || (by as i16) >= 0x80;
+    let (mut b, mut d) = (by, x1.wrapping_sub(x0));
+    if half {
+        b = ((b as i16) >> 1) as u16;
+        d = ((d as i16) >> 1) as u16;
+    }
+    let (bx, dx) = ((b & 0xff) << 8, d);
+    let (nb, nd) = (bx & 0x8000 != 0, dx & 0x8000 != 0);
+    let ax = if nb { bx.wrapping_neg() } else { bx };
+    let cx = if nd { dx.wrapping_neg() } else { dx };
+    if cx >= ax {
+        if cx < 1 {
+            return ax as u8;
+        }
+        let q = (32 * bx as i16 as i32) / dx as i16 as i32;
+        (q as u8).wrapping_add(if nd { 0xc0 } else { 0x40 })
+    } else {
+        let q = (32 * dx as i16 as i32) / bx as i16 as i32;
+        let al = q as u8;
+        (if nb { al } else { al.wrapping_sub(0x80) }).wrapping_neg()
+    }
+}
+
+/// `loc_05323`: the octant (0..7) of the place in the slot whose record
+/// is at `bp`, seen from (`x`, `y`), into [`bp` + 2].
+fn octant(w: &mut World, bp: u16, x: u16, y: u16) -> u16 {
+    let rec = w.word(bp);
+    let (x1, y1) = (w.word(rec.wrapping_add(2)), w.word(rec.wrapping_add(4)));
+    let v = (direction(x, y, x1, y1).wrapping_add(0x10).rotate_left(3) & 7) as u16;
+    w.set_byte(bp + 2, v as u8);
+    v
+}
+
+/// `loc_05274`: the places nearest to the place `p` (the larger of the x
+/// distance's high byte and the y distance), into the five slots (the
+/// nearest of all; low or high kinds, mapped or not: an undiscovered low
+/// one before its phase is left out), each with its octant; the
+/// direction's phrase from the low unmapped one's.
+fn nearest_places(w: &mut World, p: u16) -> Option<()> {
+    let (dx, bx) = (w.word(p + 2), w.word(p + 4));
+    for a in [g::NEAREST_PLACE, g::NEAREST_LOW_MAPPED, g::NEAREST_LOW_UNMAPPED, g::NEAREST_HIGH_MAPPED, g::NEAREST_HIGH_UNMAPPED] {
+        w.set_word(a, 0xffff);
+    }
+    let phase = w.get::<Progress>().phase;
+    let mut si = place::FIRST;
+    loop {
+        if si + place::SIZE > STORY_END {
+            return nm("a walk past the tables");
+        }
+        if w.word(si) == 0xffff {
+            break;
+        }
+        if si != p {
+            let (x, y) = (w.word(si + 2).wrapping_sub(dx), w.word(si + 4).wrapping_sub(bx));
+            let xa = if x & 0x8000 != 0 { x.wrapping_neg() } else { x };
+            let ya = if y & 0x8000 != 0 { y.wrapping_neg() } else { y };
+            let cl = (xa >> 8) as u8;
+            let d = if cl < ya as u8 { ya } else { cl as u16 };
+            let (kind, f) = (w.byte(si + place::KIND), w.byte(si + place::FLAGS));
+            let undiscovered = f & super::game::location_flag::UNDISCOVERED != 0;
+            let slot = if kind >= 0x28 {
+                Some(if undiscovered { g::NEAREST_HIGH_UNMAPPED } else { g::NEAREST_HIGH_MAPPED })
+            } else if !undiscovered {
+                Some(g::NEAREST_LOW_MAPPED)
+            } else if phase < w.byte(si + place::RADIUS) {
+                None
+            } else {
+                Some(g::NEAREST_LOW_UNMAPPED)
+            };
+            if let Some(bp) = slot {
+                if d < w.word(bp) {
+                    w.set_word(bp, d);
+                    w.set_word(bp + 2, si);
+                }
+                if d < w.word(g::NEAREST_PLACE) {
+                    w.set_word(g::NEAREST_PLACE, d);
+                    w.set_word(g::NEAREST_PLACE + 2, si);
+                }
+            }
+        }
+        si += place::SIZE;
+    }
+    let mut ax = 0;
+    for bp in [0xdeu16, 0xe4, 0xd8] {
+        ax = octant(w, bp, dx, bx);
+    }
+    w.update::<super::phrase_args::PhraseArgs>(|t| t.slots[super::phrase_args::DIRECTION] = ax.wrapping_add(0xda));
+    octant(w, 0xcc, dx, bx);
+    octant(w, 0xd2, dx, bx);
+    Some(())
+}
+
+/// `loc_0331e`: the place `p` talked about: noted ([11CEh]), its name,
+/// chance, status, spice, water, kind and equipment copied, its forces
+/// measured, its troops counted, its spare kinds, the characters there
+/// (`loc_03385`), the places nearest.
+pub fn describe_place(w: &mut World, p: u16) -> Option<()> {
+    w.set_word(g::TOPIC_PLACE_RECORD, p);
+    let (b0, b1) = (w.byte(p), w.byte(p.wrapping_add(1)));
+    w.set_word(g::TOPIC_PLACE_NAME, (b0 as u16) << 8 | b1 as u16);
+    w.set_byte(g::TOPIC_PLACE_CHANCE, w.byte(g::CHANCES.wrapping_add(b1 as u16)));
+    for (src, dst) in [(0x0au16, g::TOPIC_PLACE_STATUS), (0x12, g::TOPIC_PLACE_SPICE), (0x1b, g::TOPIC_PLACE_WATER), (8, g::TOPIC_PLACE_KIND)] {
+        w.set_byte(dst, w.byte(p.wrapping_add(src)));
+    }
+    for k in 0..7 {
+        w.set_byte(g::TOPIC_PLACE_EQUIPMENT + k, w.byte(p.wrapping_add(0x14 + k)));
+    }
+    measure_forces(w, p)?;
+    count_troops(w, p)?;
+    super::native_moves::spare_check(w, p)?;
+    let mut bits = 0xffu8;
+    for i in 0..7u16 {
+        bits = bits << 1 | (w.byte(g::LOCATION_SPARE_EQUIPMENT + i) == 0) as u8;
+    }
+    w.set_byte(g::TOPIC_PLACE_SPARE_KINDS, !bits << 1);
+    if p == w.word(g::LAST_PLACE) {
+        w.set_byte(g::TOPIC_PLACE_CHARACTERS, 0);
+    } else {
+        let off = p.wrapping_sub(place::FIRST);
+        if off / place::SIZE > 0xff {
+            return nm("a division fault");
+        }
+        w.set_byte(g::TOPIC_PLACE_CHARACTERS, 0);
+        let bx = (((off / place::SIZE + 1) & 0xff) << 8) | 0x80;
+        for si in [0x1018u16, 0x1028, 0x1048] {
+            if w.word(si + 2) == bx {
+                let bit = super::pure::shl(pc::cpu::Width::B, 1, w.byte(si + 0x0e)) as u8;
+                w.set_byte(g::TOPIC_PLACE_CHARACTERS, w.byte(g::TOPIC_PLACE_CHARACTERS) | bit);
+            }
+        }
+    }
+    nearest_places(w, p)
+}
