@@ -3106,6 +3106,10 @@ pub(super) fn troop_yield_value(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
 /// new job ([`set_troop_job`], CL), unless that is its job already (no bits
 /// above the job and the low two clear). AL its job.
 pub fn set_troop_activity(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x6ac5, "set activity", |w, r| { let _ = &r; super::native_jobs::set_job_check(w, r.si, None); Some(()) }, set_troop_activity_frame)
+}
+
+fn set_troop_activity_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6ac5)?;
     let mut c = Ctx::new(m);
     let state = Troop(c.reg(SI)).state(&mut c);
@@ -4969,6 +4973,10 @@ const SPICE_TENTHS: u16 = 0x46e1;
 /// in its own slot of the time of day (its number's low nibble), its
 /// wait over (bit 200h cleared) and not held; else its rate cleared.
 pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x6fe5, "job: mining", |w, r| { let _ = &r; super::native_jobs::work(w, 0, r.si, r.di) }, job_harvest_frame)
+}
+
+fn job_harvest_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6fe5)?;
     let mut c = Ctx::new(m);
     c.run(0x6fe5, 1)?;
@@ -5091,6 +5099,10 @@ fn held_end(c: &mut Ctx, troop: Troop) -> Result<(), Bail> {
 /// = location +9), once skill 1 / 2 is below BX: a random number's low
 /// six bits not below skill 1 start it (`start_troop`).
 pub fn job_espionage(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x72b0, "job: espionage", |w, r| { let _ = &r; super::native_jobs::work(w, 5, r.si, r.di) }, job_espionage_frame)
+}
+
+fn job_espionage_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x72b0)?;
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
@@ -5195,6 +5207,10 @@ fn job_5_start(c: &mut Ctx, troop: Troop, elapsed: u16, skill: u8) -> Result<(),
 /// `loc_0767d`, job 10, Bulb growing: with the location's byte 1Ah 0, the counter
 /// [0ECh] up (on to 0: byte 1Ah 10h); else, or then, `give_troop_job_unless_same` with CL 8.
 pub fn job_bulb_growing(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x767d, "job: bulbs", |w, r| { let _ = &r; super::native_jobs::work(w, 10, r.si, r.di) }, job_bulb_growing_frame)
+}
+
+fn job_bulb_growing_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x767d)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
@@ -5222,6 +5238,10 @@ pub fn job_bulb_growing(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// byte 0Ah and 8 of byte 8 set and byte 1Bh 5. Then (bit 20h)
 /// `set_troop_activity`.
 pub fn job_wind_trap_assembly(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x7711, "job: wind-trap", |w, r| { let _ = &r; super::native_jobs::work(w, 9, r.si, r.di) }, job_wind_trap_assembly_frame)
+}
+
+fn job_wind_trap_assembly_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7711)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
@@ -5264,6 +5284,10 @@ pub fn job_wind_trap_assembly(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (`drop_troop_particle`); else +0Bh up to 0Ch, +0Eh (signed byte)
 /// down 2 unless below -50h, and `start_move`.
 pub fn job_irrigation(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x7693, "job: irrigation", |w, r| { let _ = &r; super::native_jobs::work(w, 8, r.si, r.di) }, job_irrigation_frame)
+}
+
+fn job_irrigation_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x7693)?;
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
@@ -5352,6 +5376,10 @@ pub fn job_irrigation(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// troop [46EFh], it sets out (`troop_set_out`) when [11D3h] is set,
 /// else (not marked, byte 3 bit 10h) `call_29f0_f` with AL 0Eh.
 pub fn job_spice_prospecting(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x70cc, "job: prospecting", |w, r| { let _ = &r; super::native_jobs::work(w, 1, r.si, r.di) }, job_spice_prospecting_frame)
+}
+
+fn job_spice_prospecting_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x70cc)?;
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
@@ -5477,6 +5505,10 @@ pub fn job_spice_prospecting(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// location's bit 4 cleared (`clear_location_4`, its CX into word 12h)
 /// and word 0Eh 0.
 pub fn job_military_training(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x71ef, "job: training", |w, r| { let _ = &r; super::native_jobs::work(w, 4, r.si, r.di) }, job_military_training_frame)
+}
+
+fn job_military_training_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x71ef)?;
     let mut c = Ctx::new(m);
     c.run(0x71ef, 1)?;

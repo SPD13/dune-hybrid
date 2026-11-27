@@ -125,7 +125,7 @@ pub fn held_by_state(w: &mut World, t: u16, p: u16) -> bool {
 
 /// `loc_06bb6`: bit 10h of the troop's state set to `held`; a troop
 /// released is stamped (`loc_06b25`).
-fn set_held(w: &mut World, t: u16, held: bool) {
+pub fn set_held(w: &mut World, t: u16, held: bool) {
     let s = w.byte(t + troop::STATE);
     if (s & 0x10 != 0) == held {
         return;
@@ -284,7 +284,7 @@ fn mark_idle(w: &mut World, t: u16) {
 /// first troop, when 3 of yours there are idle elsewhere
 /// ([`troop_day::idle_report`]), has them marked and event 302h told.
 pub fn day_update(w: &mut World, t: u16, p: u16) -> Option<()> {
-    if w.day_changed == 0 {
+    if w.byte(g::DAY_CHANGED) == 0 {
         return Some(());
     }
     let flags = w.byte(p + place::FLAGS);

@@ -69,8 +69,33 @@ pub struct World {
     pub rand_masked_seed: u16,
     /// [`g::RAND_BELOW_SEED`] (D828h): `rand_below`'s.
     pub rand_below_seed: u16,
-    /// [`g::DAY_CHANGED`] (46DEh): the time step's (not saved).
-    pub day_changed: u8,
+    /// The bytes of [`EXTRAS`], in order: the time step's state outside
+    /// the story block (not saved).
+    pub extras: Vec<u8>,
+}
+
+/// The memory outside the story block the rules read and write, by
+/// offset and length: the day changed, the spice's tenths, the tick's
+/// recheck and location, the troop selected on the map, the troop shown.
+pub const EXTRAS: [(u16, u16); 6] = [
+    (g::DAY_CHANGED, 1),
+    (0x46e1, 2),
+    (g::TROOPS_TICK_RECHECK, 1),
+    (g::TICK_LOCATION, 2),
+    (0x46ef, 2),
+    (g::SHOWN_TROOP, 1),
+];
+
+/// Where `off` is kept in [`World::extras`].
+fn extra(off: u16) -> usize {
+    let mut k = 0;
+    for (at, len) in EXTRAS {
+        if off >= at && off < at + len {
+            return k + (off - at) as usize;
+        }
+        k += len as usize;
+    }
+    panic!("the world has no byte DS:{off:04x}")
 }
 
 fn ds(off: u16) -> u32 {
@@ -89,16 +114,22 @@ impl World {
             rand_seed: peek_word(m, g::RAND_SEED),
             rand_masked_seed: peek_word(m, g::RAND_MASKED_SEED),
             rand_below_seed: peek_word(m, g::RAND_BELOW_SEED),
-            day_changed: m.hw.peek(ds(g::DAY_CHANGED)),
+            extras: EXTRAS.iter().flat_map(|&(at, len)| (0..len).map(move |k| m.hw.peek(ds(at + k)))).collect(),
         }
     }
 
-    /// Byte `off` of the story block (DS:0-1260h).
+    /// Byte `off` of the story block (DS:0-1260h) or of [`EXTRAS`].
     pub fn byte(&self, off: u16) -> u8 {
-        self.save.story[off as usize]
+        match self.save.story.get(off as usize) {
+            Some(&v) => v,
+            None => self.extras[extra(off)],
+        }
     }
     pub fn set_byte(&mut self, off: u16, v: u8) {
-        self.save.story[off as usize] = v;
+        match self.save.story.get_mut(off as usize) {
+            Some(b) => *b = v,
+            None => self.extras[extra(off)] = v,
+        }
     }
     /// Word `off` of the story block.
     pub fn word(&self, off: u16) -> u16 {
@@ -176,7 +207,6 @@ impl World {
             ("rand seed", self.rand_seed, other.rand_seed),
             ("rand_masked seed", self.rand_masked_seed, other.rand_masked_seed),
             ("rand_below seed", self.rand_below_seed, other.rand_below_seed),
-            ("day changed", self.day_changed as u16, other.day_changed as u16),
         ] {
             if a != b {
                 add(format!("{name} {a:04x} vs {b:04x}"));
@@ -193,6 +223,20 @@ impl World {
                     (None, None) => format!("DS:{at:04x}"),
                 };
                 add(format!("{place} (DS:{at:04x}) {a:02x} vs {b:02x}"));
+            }
+        }
+        for (k, (a, b)) in self.extras.iter().zip(&other.extras).enumerate() {
+            if a != b {
+                let mut at = 0;
+                let mut left = k as u16;
+                for (o, len) in EXTRAS {
+                    if left < len {
+                        at = o + left;
+                        break;
+                    }
+                    left -= len;
+                }
+                add(format!("DS:{at:04x} {a:02x} vs {b:02x}"));
             }
         }
         for (name, x, y) in [("map", &self.save.map, &other.save.map), ("book", &self.save.book, &other.save.book), ("dialogue", &self.save.dialogue, &other.save.dialogue)] {

@@ -80,6 +80,7 @@ pub mod harkonnen;
 pub mod world;
 pub mod native_day;
 pub mod native_troops;
+pub mod native_jobs;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
