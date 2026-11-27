@@ -173,10 +173,59 @@ The game's panel has no colours of its own: its sprites (`ICONES`, `PALPLAN`, `M
   - the map screen's blue (a third kind of variant);
   - the fades, which the game makes by moving the palette.
 
-## 10. The command list and the text
+## 10. How text is written
 
-- The commands are not sprites: glyphs of the bitmap font (slot 7), one per row at (95, 159 + 8k), live or not by colour, the hovered one by swapping colours. The HD layer should draw them with an HD font at the same places; the mock-ups use Garamond Bold as a stand-in: live (236, 214, 170), not live (150, 124, 96), with a dark offset copy for an engraved look.
-- The day number (section 6) and the people's names elsewhere are text too.
+The game writes all its text (the commands, the day, the dialogue, the book, captions) glyph by glyph from one bitmap font. The HD layer must write the same strings, in the same boxes, in an HD typeface. It must not upscale the glyphs' pixels; the mock-ups' Garamond was a stand-in only.
+
+**The game's font** (`DNCDPRG.lst`; the decompile's `video.rs`, `gfx.rs`, `tails.rs`):
+
+- **The resource:** BBh (`DNCHAR.BIN`), or C7h (`DNCHAR2.BIN`) for the Fremen language 6. It is loaded at start-up and on a language change (`loc_0cfe4`) to DS:CEECh. It is 2304 bytes:
+
+| Offset | What |
+|---|---|
+| 0 (CEECh) | the tall font's advance widths, a byte per code 0-127 |
+| 80h (CF6Ch) | the small font's advance widths |
+| 100h | the tall font's glyphs: 9 bytes each, a byte a row, the leftmost pixel the high bit (`[2514h]`) |
+| 580h | the small font's glyphs: 7 bytes each (`[2516h]`) |
+
+- **Two fonts:**
+  - **tall** (9 rows, capitals 7 rows high): `font_select_tall_font`, D068h, glyph routine D096h;
+  - **small** (7 rows, capitals 5 high: rows 1 to 5): `font_select_small_font`, D075h, glyph routine D12Fh.
+  The selector sets the glyph routine `[2518h]` and the width table `[47A0h]`.
+- **Drawing a glyph:** at the pen (`font_get_draw_position`); then the pen moves on by the glyph's advance (`[0D82Ch]`). The colour is the text colour word (`[TEXT_COLOUR]`, e.g. F1FAh for the day): ink and paper as palette indices.
+- **Codes, not Unicode:** the game's text tables hold font codes. 32-90 are ASCII; 97-122 a-z; 64 is ¿; 91-96 and 123-127 are the accented letters (â, ê, î, ô, û, í, à, é, è, ù, ç: read from the glyphs, to confirm per language). A renderer maps the code to the glyph and never goes through Unicode.
+- **Where the game writes:**
+  - the commands: the small font, the pen at (97, 160 + 8k) for row k (checked on a frame: the capitals' ink at rows 161-165 in row 0, x from 97);
+  - the day: the small font, `draw_number_at_pos`, then a space;
+  - the dialogue and the book: the tall font (not measured yet).
+  The live, dimmed and hovered commands differ only by their colour.
+
+**The HD typeface** (`tripo/font/`; page `font/font.html`, preview: HUD, **HD font**):
+
+- **A smooth typeface, not the game's blocks** (user, 2026-11-27): the HD text does not reproduce the pixel style. The page compares candidates on the panel. The default is **Open Sans Semibold**, under an open licence that allows shipping it with the game (Apache 2.0; `font/OpenSans-Semibold.ttf`). The alternatives:
+  - **Lato Bold** and **Carlito Bold:** also open licences;
+  - **Open Sans Bold:** heavier;
+  - **Bahnschrift:** the shapes closest to the game's, but a Windows font that cannot be redistributed, shown for comparison only.
+- **How close each is to the game:** all 589 fonts installed here were compared glyph by glyph against the game's tall font (`font_match.py`, `font/match.json`). Bahnschrift scores 0.749, Open Sans Semibold 0.740 and Lato 0.726, and no typeface has the game's squared shapes. The score only ranks closeness; the choice is a smooth, legible sans that holds up at small sizes.
+- **The Fremen script** (`DNCHAR2.BIN`) has no typeface. It keeps the game's glyphs converted to strokes (`font_build.py` → `font/dune-hd-font.json`): each ink pixel joined to its side, upper or lower neighbours by a straight stroke, and to its diagonal ones when no shared neighbour is ink; drawn as round-capped lines of width `weight` (1.0 = the game's stroke). The same conversion of the Latin glyphs is on the page as "the game's glyphs as strokes", for comparison.
+
+**Writing a string:**
+1. **Get the whole string.** Take the string, its pen position, its font (tall or small, Latin or Fremen) and its colour word at the engine's text routine. Hook the routines that draw strings, such as `font_draw_phrase_or_command_string`, rather than the glyph routine, so the whole string is known.
+2. **Map codes to letters.** ASCII is direct. The extra codes are 64 ¿, 91 â, 92 ê, 93 î, 94 ô, 95 û, 96 í, 123 à, 124 é, 125 è, 126 ù, 127 ç, read from the glyphs and to be confirmed per language. The table is `CODE_TO_CHAR` in `font/font.html`.
+3. **Size and place.** The capitals are as high as the game's: 5 game pixels for the small font, 7 for the tall one. The font size is `cap height / the typeface's cap-height ratio`. The text stands on the game's baseline: row 6 of the small font's 7, row 7 of the tall font's 9, from the pen's y. It starts at the pen's x.
+4. **Never wider than the game.** The string's width in the game is the sum of its codes' advances (the width tables). When the typeface's text is wider, squeeze it horizontally to that width; otherwise leave it at its natural width. Boxes and hit areas stay the game's.
+5. **Colour:** map the game's ink index to the HD colour of that state, as on the panel:
+   - live (236, 214, 170), dimmed (150, 124, 96);
+   - a dark copy (20, 12, 8) offset 0.3 game pixels down and right, for the engraved look;
+   - then the place's and the hour's colour matrix (section 9), as for the rest of the panel.
+6. **Rendering:** render the typeface with the engine's text renderer (a multi-channel signed-distance-field atlas made once from the TTF serves every size), or rasterised per string at the output size.
+7. **The day** is centred in the HD alcove rather than at the game's right-aligned x (section 6), in the small font's size.
+
+**Not covered:**
+- the measured places of the dialogue's and the book's text (tall font);
+- the accented codes' letters per language, to confirm;
+- the decorative gold title font (`GENERIC`, 64 large serif glyphs, 14 to 18 pixels, used for titles: a separate sheet, not yet done);
+- an OTF/TTF export of the Fremen strokes, for tools that need a font file (needs `fontTools`, not installed here).
 
 ## 11. Drawing it in the game
 
@@ -216,11 +265,12 @@ All game-derived, in `tripo/hud/` (outside this repo; the pictures are in no rep
 | the sun and the moon | `hud/pieces/ICONES-074`, `075`, `hud/sky.json`, `hud/sky-mask.png`, `hud/sky-bg.png` | `hud_sky.py` |
 | the book's pages and crease | `hud/book-page-left.png`, `book-page-right.png`, `hud/book.json`, `hud/book-crease.png` (a check) | `hud_book.py` |
 | the mock-ups | `hud/mock-room.png`, `hud/mock-book.png` | `hud_cut.py` |
+| the HD typeface | `font/OpenSans-Semibold.ttf` (the default; Lato, Carlito, Open Sans Bold to compare), `font/dune-hd-font.json` (the Fremen strokes), `font/glyphs.json` (the game's pixels), `font/match.json` (the installed fonts' scores), `font/hd-sheet.png` | `font_ref.py` (from `DUNE.DAT`), `font_match.py`, `font_build.py` |
 | the colours by place and hour | `hud/tod.json` (the matrices), `hud/tod/game-*.png`, `hud/tod/compare.png` | `hud_tod.py` (needs `recolour/` from `recolour_views.py`) |
 | the palace plan | `hud/palplan/tablet.png`, `base.png`, `wall-3/4/5.png`, `mark.png`, `player.png`, `pieces.json`, `layout.json`, `frame-game.png` | `palplan_ref.py` (from a frame of the game), `palplan_gen.py`, `palplan_cut.py` |
 | the Mixer Panel | see [hud-mixer-implementation.md](hud-mixer-implementation.md) | `mixer_ref.py`, `mixer_gen.py`, `mixer_cut.py` |
 
-Order to rebuild: `hud_cut.py` (after any state), `hud_faces.py`, `hud_insignia.py`, `hud_sky.py`, `hud_book.py`. The prototypes: `hud/sky.html` (preview: HUD, **Day and night**), `hud/book.html` (**Page turn**), `hud/mixer.html` (**Mixer panel**), `hud/palplan.html` (**Palace plan**), and the process view (**Process: the HD panel**).
+Order to rebuild: `hud_cut.py` (after any state), `hud_faces.py`, `hud_insignia.py`, `hud_sky.py`, `hud_book.py`. The prototypes: `hud/sky.html` (preview: HUD, **Day and night**), `hud/book.html` (**Page turn**), `hud/mixer.html` (**Mixer panel**), `hud/palplan.html` (**Palace plan**), `hud/tod.html` (**Panel by hour**), `font/font.html` (**HD font**), and the process view (**Process: the HD panel**).
 
 ## 13. Open points
 
@@ -228,7 +278,6 @@ Order to rebuild: `hud_cut.py` (after any state), `hud_faces.py`, `hud_insignia.
   - the map and travel button sets (1CCAh and 1D72h sprites 37-44, 49);
   - the nudge's own transition;
   - the map screen's blue panel;
-  - the HD font and the command text;
   - the edge strips (12) and the in-between side sprites (not needed with layers).
 - **To check in the running game:**
   - that `wait_a_bit` counts the engine's 200-a-second ticks (the page turn's length);
