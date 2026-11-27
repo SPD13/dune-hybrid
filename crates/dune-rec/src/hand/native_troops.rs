@@ -38,7 +38,7 @@ fn chain(w: &World, p: u16) -> Option<Vec<(u16, bool)>> {
 }
 
 /// `loc_07085`: the troop marked (state 10h).
-fn mark(w: &mut World, t: u16) {
+pub fn mark(w: &mut World, t: u16) {
     w.set_byte(t + troop::STATE, w.byte(t + troop::STATE) | troop_state::MARKED);
 }
 

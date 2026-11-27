@@ -124,7 +124,7 @@ pub fn set_job(w: &mut World, t: u16, job: u8) {
 
 /// `loc_06ac5`: the troop's job made its state's bits FCh, unless the
 /// same.
-fn set_activity(w: &mut World, t: u16) {
+pub fn set_activity(w: &mut World, t: u16) {
     let state = w.byte(t + troop::STATE);
     if state & 0x0f != state & 0xfc {
         set_job(w, t, state & 0xfc);

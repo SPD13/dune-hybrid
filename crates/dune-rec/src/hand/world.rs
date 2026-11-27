@@ -75,10 +75,14 @@ pub struct World {
 }
 
 /// The memory outside the story block the rules read and write, by
-/// offset and length: the day changed, the spice's tenths, the tick's
-/// recheck and location, the troop selected on the map, the troop shown.
-pub const EXTRAS: [(u16, u16); 6] = [
+/// offset and length: the day changed, a place's spare equipment, the
+/// steps' scales by row (a table of the game's), the spice's tenths, the
+/// tick's recheck and location, the troop selected on the map, the troop
+/// shown.
+pub const EXTRAS: [(u16, u16); 8] = [
     (g::DAY_CHANGED, 1),
+    (g::LOCATION_SPARE_EQUIPMENT, 7),
+    (0x4880, 0x300),
     (0x46e1, 2),
     (g::TROOPS_TICK_RECHECK, 1),
     (g::TICK_LOCATION, 2),

@@ -93,6 +93,10 @@ pub(super) fn activity(c: &mut Ctx, ret: u16) -> Result<u16, Bail> {
 /// (`troop_particle`, ZF), then reset: at [`NOWHERE`], byte 3 A0h (not a
 /// troop, started), size 0. SI, DI kept.
 pub fn reset_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x66b1, "reset troop", |w, r| { let _ = &r; super::native_moves::reset(w, r.si) }, reset_troop_frame)
+}
+
+fn reset_troop_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x66b1)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -1729,6 +1733,10 @@ pub fn drop_selected_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// the location the player is at with the hotspot 1F0Eh up (`loc_0d41b`,
 /// BP) and [0Bh] 1 (2 with [2Bh] 0), [473Bh] gets bit 1. CL its byte 3.
 pub fn settle_arrived_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x83bc, "settle", |w, r| { let _ = &r; super::native_moves::settle_check(w, r.si, r.di) }, settle_arrived_troop_frame)
+}
+
+fn settle_arrived_troop_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x83bc)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -2189,6 +2197,10 @@ pub fn refresh_all_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (byte 19h) shared (its own keeps those both have), bit 200h of word
 /// 12h there; then it is reset (`reset_troop`). CF set when merged.
 pub fn merge_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x6d19, "merge", |w, r| { let _ = &r; super::native_moves::merge_check(w, r.si) }, merge_troop_frame)
+}
+
+fn merge_troop_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6d19)?;
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
@@ -2526,6 +2538,10 @@ pub(super) fn run_for_location_troops(c: &mut Ctx, routine: u16, ret: u16) -> Re
 /// travelling): the location's first troop or the troop before it
 /// then points past it; its next cleared. BP = SI; DI kept.
 pub fn unlink_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x858c, "unlink", |w, r| { let _ = &r; super::native_moves::unlink_check(w, r.si) }, unlink_troop_frame)
+}
+
+fn unlink_troop_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x858c)?;
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
@@ -3221,6 +3237,10 @@ const NEAREST_DISTANCE: u16 = 0x470c;
 /// in a table of 1Eh bytes on the stack, then searched (`repne scasb`).
 /// CX the slot.
 pub fn link_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x851f, "link", |w, r| { let _ = &r; super::native_moves::link_check(w, r.si, r.di) }, link_troop_frame)
+}
+
+fn link_troop_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x851f)?;
     let mut c = Ctx::new(m);
     let (troop, place) = (Troop(c.reg(SI)), Location(c.reg(DI)));
@@ -3315,6 +3335,10 @@ pub(super) fn linked_slot(c: &mut Ctx, ret: u16) -> Result<u8, Bail> {
 ///
 /// [`g::TROOPS_RECHECK`] = [`g::TROOPS_TICK_RECHECK`] at the end (AL).
 pub fn troops_tick(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x6c6f, "troops tick", |w, r| { let _ = &r; super::native_moves::tick(w) }, troops_tick_frame)
+}
+
+fn troops_tick_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6c6f)?;
     let mut c = Ctx::new(m);
     let w = c.character(4).y;
@@ -4009,6 +4033,10 @@ fn skills_79bc(c: &mut Ctx) -> Result<(), Bail> {
 /// `loc_08308`: the troop SI moves: 4 steps (8 when fast, bit 40h of byte
 /// 19h), see [`steps_8313`].
 pub fn troop_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x8308, "troop move", |w, r| { let _ = &r; super::native_moves::travel_check(w, r.si) }, troop_move_frame)
+}
+
+fn troop_move_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x8308)?;
     let mut c = Ctx::new(m);
     let steps = troop_moves::steps_per_tick(Troop(c.reg(SI)).equipment(&mut c));
