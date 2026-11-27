@@ -221,7 +221,7 @@ fn prospecting(w: &mut World, t: u16, p: u16) -> Option<()> {
         return Some(());
     }
     if w.word(g::FOLLOWED_TROOP_PLACE) != 0 {
-        return super::world::nm("a troop setting out");
+        return super::native_moves::set_out(w, t, p);
     }
     if st & 0x10 == 0 {
         add_pending_event(w, 0x0f0e, p);

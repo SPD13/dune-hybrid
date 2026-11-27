@@ -4323,6 +4323,10 @@ fn figure_gone_848b(c: &mut Ctx) -> Result<(), Bail> {
 /// and unless it waits (bit 10h of byte 10h) seven steps
 /// ([`steps_8313`]). Callers read the flags: those of its last test.
 pub fn troop_set_out(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x84a6, "set out", |w, r| { let _ = &r; super::native_moves::set_out(w, r.si, r.di) }, troop_set_out_frame)
+}
+
+fn troop_set_out_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x84a6)?;
     let mut c = Ctx::new(m);
     if Troop(c.reg(SI)) == Troop::number(3) {

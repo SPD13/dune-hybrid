@@ -312,7 +312,12 @@ fn step(w: &mut World, t: u16) -> Option<(u16, u16)> {
 /// `loc_08308`: the troop's steps of a tick
 /// ([`troop_moves::steps_per_tick`]); still, it has arrived.
 fn travel(w: &mut World, t: u16) -> Option<()> {
-    for _ in 0..troop_moves::steps_per_tick(w.byte(t + troop::EQUIPMENT)) {
+    steps(w, t, troop_moves::steps_per_tick(w.byte(t + troop::EQUIPMENT)))
+}
+
+/// `loc_08313`: up to `n` steps of the troop; still, it has arrived.
+fn steps(w: &mut World, t: u16, n: u16) -> Option<()> {
+    for _ in 0..n {
         let (dx, dy) = step(w, t)?;
         if dx | dy == 0 {
             return arrived(w, t);
@@ -445,6 +450,99 @@ pub fn tick(w: &mut World) -> Option<()> {
 
 /// For the checks of the move's ports: `loc_08308` (the troop's steps of
 /// a tick), `loc_06d19` (a merge), `loc_066b1` (a reset).
+/// `loc_084a6`: the troop sets out for the place `target` (troop 3, the
+/// followed one: for the followed place, once the waypoints it reached are
+/// dropped, `loc_0848f`; none left: it stays). Already travelling it is
+/// retargeted (a move on ended). Else the troops of yours at its place
+/// with bit 10h of byte 12h are given their jobs again, it leaves its
+/// chain; an attacker (state 6) leaving the Harkonnens' place as the last
+/// of yours abandons it (not modelled), stays for a near Harkonnen place
+/// or loses motivation for a near one ([`troop_moves::attacker_goes`]);
+/// it travels (slot 0), takes its equipment from the place's, and, unless
+/// held (bit 10h of byte 10h), makes its first steps.
+pub fn set_out(w: &mut World, t: u16, target: u16) -> Option<()> {
+    let mut target = target;
+    if t == troop_number(3) {
+        loop {
+            let di = w.word(FOLLOWED);
+            if w.word(t + troop::LOCATION) == di && w.byte(t + troop::STATE) & 0x40 == 0 {
+                for k in 0..6 {
+                    w.set_byte(FOLLOWED + k, w.byte(FOLLOWED + 2 + k));
+                }
+                continue;
+            }
+            if di == 0 {
+                return Some(());
+            }
+            target = di;
+            break;
+        }
+    }
+    let state = w.byte(t + troop::STATE);
+    if let troop_moves::SetOut::Retarget { move_ends } = troop_moves::set_out(state) {
+        w.set_word(t + troop::LOCATION, target);
+        if move_ends {
+            w.set_byte(t + troop::STATE, state & !3);
+        }
+        return Some(());
+    }
+    let home = w.word(t + troop::LOCATION);
+    for x in your_troops(w, home)? {
+        if w.byte(x + troop::BYTE_12) & 0x10 != 0 {
+            set_job(w, x, w.byte(x + troop::STATE) & 0x0f);
+        }
+    }
+    unlink(w, t)?;
+    if w.byte(t + troop::STATE) == 6 {
+        let home = w.word(t + troop::LOCATION);
+        if w.byte(home + place::FLAGS) & location_flag::HARKONNEN != 0 {
+            let (mut count, mut ours) = (0u16, 0u16);
+            let mut n = w.byte(home + place::FIRST_TROOP);
+            let mut k = 0;
+            while n != 0 {
+                let o = troop_number(n);
+                if o + troop::SIZE > STORY_END || k > 0x100 {
+                    return super::world::nm("a walk past the tables");
+                }
+                k += 1;
+                let s = w.byte(o + troop::STATE);
+                if s & 0x20 == 0 {
+                    if w.byte(o + troop::BYTE_10) & 0x80 != 0 {
+                        count += 1;
+                    } else if s == 6 {
+                        ours += 1;
+                    }
+                }
+                n = w.byte(o + troop::NEXT);
+            }
+            if troop_moves::abandons(count, ours) {
+                return super::world::nm("a place abandoned");
+            }
+        }
+        match troop_moves::attacker_goes(w.byte(target + place::KIND), w.byte(target + place::FLAGS)) {
+            troop_moves::AttackerGoes::Stays => return Some(()),
+            troop_moves::AttackerGoes::LosesMotivation => {
+                super::native_troops::lower_motivation(w, t, troop_moves::NEAR_MOTIVATION_LOSS)
+            }
+            troop_moves::AttackerGoes::Goes => {}
+        }
+    }
+    let old = w.word(t + troop::LOCATION);
+    w.set_word(t + troop::LOCATION, target);
+    w.set_byte(t + troop::STATE, w.byte(t + troop::STATE) | troop_state::TRAVELLING);
+    w.set_byte(t + SLOT, 0);
+    for k in kinds(w.byte(t + troop::EQUIPMENT)) {
+        let v = w.byte(old + place::EQUIPMENT + k);
+        if v != 0 {
+            w.set_byte(old + place::EQUIPMENT + k, v - 1);
+        }
+    }
+    if w.byte(t + troop::BYTE_10) & 0x10 != 0 {
+        return Some(());
+    }
+    steps(w, t, troop_moves::FIRST_STEPS)
+}
+
 pub fn travel_check(w: &mut World, t: u16) -> Option<()> {
     travel(w, t)
 }
