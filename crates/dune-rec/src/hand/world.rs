@@ -77,22 +77,59 @@ pub struct World {
     pub extras: Vec<u8>,
     /// The planet's growth seed, a word of the code (CS:65B4h, not saved).
     pub growth_seed: u16,
+    /// The condition scripts (CONDIT.HSQ where [AA72h] points: read-only).
+    pub conditions: std::sync::Arc<Conditions>,
     /// The map's cells, whole (the resource's bytes: the terrain and the
     /// marks the drawing uses, bits 4..5 the state the save keeps). The
     /// rules read and write these; `save.map` is their states as loaded.
     pub cells: Vec<u8>,
 }
 
+/// The condition scripts' resource as loaded: `base` its offset in its
+/// segment (the table's, [AA72h]), `bytes` from there.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Conditions {
+    pub base: u16,
+    pub bytes: Vec<u8>,
+}
+
+/// CONDIT.HSQ's size unpacked.
+pub const CONDIT_LEN: usize = 0x2a9b;
+
+thread_local! {
+    static CONDIT: std::cell::RefCell<Option<((u16, u16), std::sync::Arc<Conditions>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The machine's condition scripts (read once for where they are).
+fn conditions_of(m: &Machine) -> std::sync::Arc<Conditions> {
+    let (base, seg) = (peek_word(m, g::CONDITIONS), peek_word(m, g::CONDITIONS + 2));
+    CONDIT.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some((k, v)) = c.as_ref()
+            && *k == (seg, base)
+        {
+            return v.clone();
+        }
+        let at = (seg as u32) << 4;
+        let bytes = (0..CONDIT_LEN as u32).map(|k| m.hw.peek(at + ((base as u32 + k) & 0xffff))).collect();
+        let v = std::sync::Arc::new(Conditions { base, bytes });
+        *c = Some(((seg, base), v.clone()));
+        v
+    })
+}
+
 /// The memory outside the story block the rules read and write, by
-/// offset and length: the day changed, the clock's steps waiting, the
+/// offset and length: the day changed, the conversation record, the
+/// clock's steps waiting, the
 /// comm's caller, the trail's pattern, the
 /// map's latitude table and its
 /// rows' base (tables of the game's), a place's spare equipment, the
 /// steps' scales by row (a table of the game's), the spice's tenths, the
 /// tick's recheck and location, the troop selected on the map, the troop
 /// shown.
-pub const EXTRAS: [(u16, u16); 13] = [
+pub const EXTRAS: [(u16, u16); 14] = [
     (g::DAY_CHANGED, 1),
+    (0x47a2, 0x24),
     (0x46dd, 1),
     (g::COMM_CALLER, 1),
     (g::MOVE_TRAIL_PATTERN, 1),
@@ -136,6 +173,7 @@ impl World {
             rand_masked_seed: peek_word(m, g::RAND_MASKED_SEED),
             rand_below_seed: peek_word(m, g::RAND_BELOW_SEED),
             extras: EXTRAS.iter().flat_map(|&(at, len)| (0..len).map(move |k| m.hw.peek(ds(at + k)))).collect(),
+            conditions: conditions_of(m),
             cells: match super::map_cells::get(m) {
                 Some(mc) => (0..super::map_cells::CELLS).map(|i| mc.cell(i)).collect(),
                 None => {
@@ -150,18 +188,27 @@ impl World {
         }
     }
 
-    /// Byte `off` of the story block (DS:0-1260h) or of [`EXTRAS`].
+    /// Byte `off` of the story block (DS:0-1260h), the dialogue table
+    /// (DS:AA76h on) or [`EXTRAS`].
     pub fn byte(&self, off: u16) -> u8 {
-        match self.save.story.get(off as usize) {
-            Some(&v) => v,
-            None => self.extras[extra(off)],
+        if let Some(&v) = self.save.story.get(off as usize) {
+            return v;
         }
+        if let Some(&v) = off.checked_sub(super::dialogue_table::AT).and_then(|k| self.save.dialogue.get(k as usize)) {
+            return v;
+        }
+        self.extras[extra(off)]
     }
     pub fn set_byte(&mut self, off: u16, v: u8) {
-        match self.save.story.get_mut(off as usize) {
-            Some(b) => *b = v,
-            None => self.extras[extra(off)] = v,
+        if let Some(b) = self.save.story.get_mut(off as usize) {
+            *b = v;
+            return;
         }
+        if let Some(b) = off.checked_sub(super::dialogue_table::AT).and_then(|k| self.save.dialogue.get_mut(k as usize)) {
+            *b = v;
+            return;
+        }
+        self.extras[extra(off)] = v;
     }
     /// Word `off` of the story block.
     pub fn word(&self, off: u16) -> u16 {
@@ -170,6 +217,12 @@ impl World {
     pub fn set_word(&mut self, off: u16, v: u16) {
         self.set_byte(off, v as u8);
         self.set_byte(off + 1, (v >> 8) as u8);
+    }
+
+    /// Byte `o` of the condition scripts' segment (`None` outside the
+    /// resource).
+    pub fn condit(&self, o: u16) -> Option<u8> {
+        self.conditions.bytes.get(o.wrapping_sub(self.conditions.base) as usize).copied()
     }
 
     /// Map cell `o`'s byte (its state in bits 4..5: 0, 10h, 20h, 30h); 0

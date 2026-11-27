@@ -67,6 +67,9 @@ pub fn world(dir: &Path, save: &[u8]) -> Result<World, String> {
         rand_below_seed: 0,
         extras: vec![0; EXTRAS.iter().map(|e| e.1 as usize).sum()],
         growth_seed: exe.cs_word(0x65b4),
+        // CONDIT.HSQ (BCh), loaded at a segment's start ([AA72h] its far
+        // pointer, offset 0).
+        conditions: std::sync::Arc::new(dune_rec::hand::world::Conditions { base: 0, bytes: resource(dir, &exe, 0xbc)? }),
         cells,
     };
     let lat = resource(dir, &exe, 0xba)?;

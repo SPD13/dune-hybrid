@@ -123,6 +123,10 @@ pub fn on_phase_40(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// Exit: AL as given; BX = the handler index if one ran. Flags: from the
 /// comparison that ended it, or as the handler left them.
 pub fn set_game_phase(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x121f, "set game phase", |w, r| { let _ = &r; super::native_script::set_game_phase(w, r.ax as u8) }, set_game_phase_frame)
+}
+
+fn set_game_phase_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x121f)?;
     let mut c = Ctx::new(m);
     let new = c.reg8(super::r8::AL);
@@ -888,6 +892,10 @@ pub fn note_place_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0b17a` (called on each phase change): [`code::DIALOGUE_STEP_AB84`]
 /// with bit 80h of [0C6h] set for the while.
 pub fn on_phase_change(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0xb17a, "phase change step", |w, r| { let _ = &r; super::native_script::on_phase_change(w) }, on_phase_change_frame)
+}
+
+fn on_phase_change_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xb17a)?;
     let mut c = Ctx::new(m);
     c.run(start, 5)?;

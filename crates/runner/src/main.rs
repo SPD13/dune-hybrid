@@ -801,7 +801,11 @@ fn main() -> ExitCode {
                     let b = fs::read(args.save.as_ref().expect("simcheck needs --save")).unwrap();
                     match simfile::world(&args.dir, &b) {
                         Ok(w) => {
-                            let d = w.differences(&dune_rec::hand::world::World::from_machine(&m), 40);
+                            let mw = dune_rec::hand::world::World::from_machine(&m);
+                            let (c0, c1) = (&w.conditions, &mw.conditions);
+                            let n = c0.bytes.len().min(c1.bytes.len());
+                            println!("simcheck: the condition scripts: base {:04x} vs {:04x}, {} vs {} bytes, {} of the first {n} differ", c0.base, c1.base, c0.bytes.len(), c1.bytes.len(), (0..n).filter(|&k| c0.bytes[k] != c1.bytes[k]).count());
+                            let d = w.differences(&mw, 40);
                             println!("simcheck: the world from the files vs the machine's: {} differences{}{}", d.len(), if d.is_empty() { "" } else { ": " }, d.join("; "));
                         }
                         Err(e) => println!("simcheck: {e}"),

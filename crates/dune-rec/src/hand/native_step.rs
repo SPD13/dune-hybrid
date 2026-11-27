@@ -79,16 +79,7 @@ pub fn character_7_check(w: &mut World) -> Option<()> {
     }
     w.set_word(g::ATTACK_TARGET, found);
     if found == 0 {
-        // `loc_011cb`: phase 60h (no phase change's scripts), character 7
-        // at the Harkonnens' palace (11Ch: its number and 80h; its kind and
-        // room 2).
-        w.update::<Situation>(|s| s.days_in_phase = 0);
-        w.update::<Progress>(|t| t.phase = 0x60);
-        let p = 0x11cu16;
-        let bx = ((((p - place::FIRST) / place::SIZE + 1) & 0xff) << 8) | 0x80;
-        let dx = (w.byte(p + place::KIND) as u16) << 8 | 2;
-        w.set_word(g::CHARACTERS + 0x70, dx);
-        w.set_word(g::CHARACTERS + 0x72, bx);
+        go_to_phase_60(w);
     }
     Some(())
 }
@@ -737,4 +728,16 @@ fn take_sietch(w: &mut World) -> Option<()> {
     let al = location_balance(w, di)? | 1;
     w.update::<Situation>(|s| s.battle_balance = al);
     Some(())
+}
+
+/// `loc_011cb`: phase 60h (no phase change's step), character 7 at the
+/// Harkonnens' palace (11Ch: its number and 80h; its kind and room 2).
+pub fn go_to_phase_60(w: &mut World) {
+    w.update::<Situation>(|s| s.days_in_phase = 0);
+    w.update::<Progress>(|t| t.phase = 0x60);
+    let p = 0x11cu16;
+    let bx = ((((p - place::FIRST) / place::SIZE + 1) & 0xff) << 8) | 0x80;
+    let dx = (w.byte(p + place::KIND) as u16) << 8 | 2;
+    w.set_word(g::CHARACTERS + 0x70, dx);
+    w.set_word(g::CHARACTERS + 0x72, bx);
 }

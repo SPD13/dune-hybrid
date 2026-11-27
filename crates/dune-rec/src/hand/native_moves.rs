@@ -378,7 +378,7 @@ fn phase_30_check(w: &mut World) -> Option<()> {
     if w.byte(0x66) == 0 {
         return Some(());
     }
-    super::world::nm("a phase change (the condition scripts)")
+    super::native_script::set_game_phase(w, 0x30)
 }
 
 /// `loc_06c6f`: the troops' tick. The place of character 4 (the tick's
