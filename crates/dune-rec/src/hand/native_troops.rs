@@ -222,12 +222,26 @@ fn grow_location(w: &mut World, p: u16) -> Option<()> {
     circle(w, p, r as u16 + 1, 0x20)
 }
 
+/// What a circle's spans do to the cells (the handler at CS:64EDh).
+#[derive(Clone, Copy)]
+pub enum Span {
+    /// `loc_0646f`: each cell not spreading (state 10h) made this state.
+    Colour(u8),
+    /// `loc_0653a`: a moving record's trail (the irrigation's water).
+    Trail,
+}
+
 /// `loc_06447`'s circle of radius `radius` around the place `p`'s map
-/// point, in `colour` (bits 4..5): the midpoint walk at `loc_064b2`
-/// (`map::circle_sim`), each of its stops two spans (`loc_064ef`: the
-/// rows BX and SI, from DI, DX - DI + 1 cells) by `loc_0646f`.
+/// point, in `colour` (bits 4..5).
 pub fn circle(w: &mut World, p: u16, radius: u16, colour: u8) -> Option<()> {
     let (x, y) = (w.word(p + 2), w.word(p + 4));
+    walk(w, radius, x, y, Span::Colour(colour))
+}
+
+/// The midpoint walk at `loc_064b2` (`map::circle_sim`) of radius
+/// `radius` around the map point (`x`, row `y`): each of its stops two
+/// spans (`loc_064ef`: the rows BX and SI, from DI, DX - DI + 1 cells).
+pub fn walk(w: &mut World, radius: u16, x: u16, y: u16, span: Span) -> Option<()> {
     let mut r = [0, 0, radius, 0, 0, 0, 0];
     let mut label = 0x64b2;
     loop {
@@ -239,22 +253,26 @@ pub fn circle(w: &mut World, p: u16, radius: u16, colour: u8) -> Option<()> {
             return Some(());
         };
         let count = dx.wrapping_sub(di).wrapping_add(1);
-        circle_span(w, bx, di, count, x, y, colour)?;
-        circle_span(w, si, di, count, x, y, colour)?;
+        circle_span(w, bx, di, count, x, y, span)?;
+        circle_span(w, si, di, count, x, y, span)?;
         r = out;
         label = back;
     }
 }
 
-/// `loc_0646f`: row `row` of the circle (from its centre's row `y`, rows
-/// past 5Dh either way left out): the map row's cells (`loc_0b58b`: the
-/// latitude table's row, its length BP twice its scale, the centre `x`
-/// scaled into it) from `start` on, `count` of them wrapping around the
-/// row, each not spreading (state 10h) made `colour`.
-fn circle_span(w: &mut World, row: u16, start: u16, count: u16, x: u16, y: u16, colour: u8) -> Option<()> {
+/// A span handler: row `row` of the circle (from its centre's row `y`;
+/// rows past 5Dh, for a trail 56h, either way left out): the map row's
+/// cells (`loc_0b58b`: the latitude table's row, its length BP twice its
+/// scale, the centre `x` scaled into it) from `start` on, `count` of them
+/// wrapping around the row.
+fn circle_span(w: &mut World, row: u16, start: u16, count: u16, x: u16, y: u16, span: Span) -> Option<()> {
+    let limit: i16 = if matches!(span, Span::Trail) { 0x56 } else { 0x5d };
     let row = row.wrapping_add(y);
-    if (row as i16) > 0x5d || (row as i16) < -0x5d {
+    if (row as i16) > limit || (row as i16) < -limit {
         return Some(());
+    }
+    if count == 0 {
+        return super::world::nm("a circle's span of 0 cells");
     }
     let off = row.wrapping_mul(8);
     let neg = off & 0x8000 != 0;
@@ -276,13 +294,24 @@ fn circle_span(w: &mut World, row: u16, start: u16, count: u16, x: u16, y: u16, 
             return super::world::nm("a circle's span past its row");
         }
     }
-    if count == 0 {
-        return super::world::nm("a circle's span of 0 cells");
-    }
     for _ in 0..count {
         let old = w.cell(di);
-        if old & 0x30 != 0x10 {
-            w.set_cell(di, colour);
+        let bits = old & 0x30;
+        match span {
+            Span::Colour(colour) => {
+                if bits != 0x10 {
+                    w.set_cell(di, (old ^ bits) | colour);
+                }
+            }
+            Span::Trail => {
+                if bits != 0x10 {
+                    if old & 0x40 != 0 {
+                        trail_place(w, di)?;
+                    }
+                    let v = trail_cell(w, old);
+                    w.set_cell(di, v);
+                }
+            }
         }
         di = di.wrapping_add(1);
         dx = dx.wrapping_add(1);
@@ -292,6 +321,48 @@ fn circle_span(w: &mut World, row: u16, start: u16, count: u16, x: u16, y: u16, 
         }
     }
     Some(())
+}
+
+/// The trail's new byte for a cell `b` (`loc_0653a`'s recolour): bits
+/// ECFh of the byte twice kept, state 20h; for a terrain (bits 1..3)
+/// below 8, the trail's pattern ([4736h]) rotated, its carry making it
+/// state 10h.
+fn trail_cell(w: &mut World, b: u8) -> u8 {
+    let ax = ((b as u16) << 8 | b as u16) & 0x0ecf;
+    let mut al = (ax as u8) | 0x20;
+    if ((ax >> 8) as u8) < 8 {
+        let v = w.byte(g::MOVE_TRAIL_PATTERN);
+        w.set_byte(g::MOVE_TRAIL_PATTERN, v.rotate_left(1));
+        if v & 0x80 != 0 {
+            al = (al & 0xcf) | 0x10;
+        }
+    }
+    al
+}
+
+/// A trail over a place's marker (bit 40h): the place whose cell (word
+/// 6) it is (`loc_0409a`) has its spice taken (byte 12h 0); not skipped
+/// and from 138h on, it loses bit 80h and is raided (`loc_07443`).
+fn trail_place(w: &mut World, cell: u16) -> Option<()> {
+    let mut si = place::FIRST;
+    loop {
+        if si + place::SIZE > STORY_END {
+            return super::world::nm("a walk past the tables");
+        }
+        if w.word(si) == 0xffff {
+            return Some(());
+        }
+        if w.word(si + 6) == cell {
+            break;
+        }
+        si += place::SIZE;
+    }
+    w.set_byte(si + place::SPICE, 0);
+    if super::native_day::skipped(w, si) || si < 0x138 {
+        return Some(());
+    }
+    w.set_byte(si + place::FLAGS, w.byte(si + place::FLAGS) & 0x7f);
+    super::native_raids::raided(w, si)
 }
 
 /// `loc_06dbb`: the people at the place `p` (its number in the high byte,

@@ -77,20 +77,25 @@ pub struct World {
     pub extras: Vec<u8>,
     /// The planet's growth seed, a word of the code (CS:65B4h, not saved).
     pub growth_seed: u16,
+    /// The map's cells, whole (the resource's bytes: the terrain and the
+    /// marks the drawing uses, bits 4..5 the state the save keeps). The
+    /// rules read and write these; `save.map` is their states as loaded.
+    pub cells: Vec<u8>,
 }
 
 /// The memory outside the story block the rules read and write, by
 /// offset and length: the day changed, the clock's steps waiting, the
-/// comm's caller, the
+/// comm's caller, the trail's pattern, the
 /// map's latitude table and its
 /// rows' base (tables of the game's), a place's spare equipment, the
 /// steps' scales by row (a table of the game's), the spice's tenths, the
 /// tick's recheck and location, the troop selected on the map, the troop
 /// shown.
-pub const EXTRAS: [(u16, u16); 12] = [
+pub const EXTRAS: [(u16, u16); 13] = [
     (g::DAY_CHANGED, 1),
     (0x46dd, 1),
     (g::COMM_CALLER, 1),
+    (g::MOVE_TRAIL_PATTERN, 1),
     (g::LATITUDE_TABLE, 0x2f0),
     (0xdcfe, 2),
     (g::LOCATION_SPARE_EQUIPMENT, 7),
@@ -131,6 +136,13 @@ impl World {
             rand_masked_seed: peek_word(m, g::RAND_MASKED_SEED),
             rand_below_seed: peek_word(m, g::RAND_BELOW_SEED),
             extras: EXTRAS.iter().flat_map(|&(at, len)| (0..len).map(move |k| m.hw.peek(ds(at + k)))).collect(),
+            cells: match super::map_cells::get(m) {
+                Some(mc) => (0..super::map_cells::CELLS).map(|i| mc.cell(i)).collect(),
+                None => {
+                    let seg = m.hw.peek(ds(g::MAP_GFX_SEGMENT)) as u32 | (m.hw.peek(ds(g::MAP_GFX_SEGMENT) + 1) as u32) << 8;
+                    (0..super::map_cells::CELLS as u32).map(|i| m.hw.peek((seg << 4) + i)).collect()
+                }
+            },
             growth_seed: {
                 let cs = ((pc::LOAD_SEG as u32) << 4) + GROWTH_SEED as u32;
                 m.hw.peek(cs) as u16 | (m.hw.peek(cs + 1) as u16) << 8
@@ -160,19 +172,22 @@ impl World {
         self.set_byte(off + 1, (v >> 8) as u8);
     }
 
-    /// Map cell `o`'s state as the map's byte has it (bits 4..5: 0, 10h,
-    /// 20h, 30h), from the packed states; 0 past the map.
+    /// Map cell `o`'s byte (its state in bits 4..5: 0, 10h, 20h, 30h); 0
+    /// past the map.
     pub fn cell(&self, o: u16) -> u8 {
-        let (q, k) = (o as usize / 4, o as usize % 4);
-        self.save.map.get(q).map_or(0, |b| (b >> (2 * (3 - k)) & 3) << 4)
+        self.cells.get(o as usize).copied().unwrap_or(0)
     }
-    /// Map cell `o`'s state set (bits 4..5 of `v`).
+    /// Map cell `o`'s byte set (past the map: the original writes the
+    /// segment's other data there, not the world's).
     pub fn set_cell(&mut self, o: u16, v: u8) {
-        let (q, k) = (o as usize / 4, o as usize % 4);
-        if let Some(b) = self.save.map.get_mut(q) {
-            let sh = 2 * (3 - k);
-            *b = *b & !(3 << sh) | ((v >> 4) & 3) << sh;
+        if let Some(b) = self.cells.get_mut(o as usize) {
+            *b = v;
         }
+    }
+    /// The save's packed map states from the cells (`MapCells::packed`'s
+    /// layout: four to a byte, the first in the top bits).
+    pub fn packed_map(&self) -> Vec<u8> {
+        self.cells.chunks(4).map(|q| q.iter().fold(0u8, |b, &c| b << 2 | (c >> 4 & 3))).collect()
     }
 
     /// The game time ([2]).
@@ -283,7 +298,12 @@ impl World {
                 add(format!("DS:{at:04x} {a:02x} vs {b:02x}"));
             }
         }
-        for (name, x, y) in [("map", &self.save.map, &other.save.map), ("book", &self.save.book, &other.save.book), ("dialogue", &self.save.dialogue, &other.save.dialogue)] {
+        let n = self.cells.iter().zip(&other.cells).filter(|(a, b)| a != b).count();
+        if n != 0 {
+            let first = self.cells.iter().zip(&other.cells).position(|(a, b)| a != b).unwrap_or(0);
+            add(format!("map cells: {n} bytes, the first at {first:04x}: {:02x} vs {:02x}", self.cells[first], other.cells[first]));
+        }
+        for (name, x, y) in [("book", &self.save.book, &other.save.book), ("dialogue", &self.save.dialogue, &other.save.dialogue)] {
             let n = x.iter().zip(y.iter()).filter(|(a, b)| a != b).count();
             if n != 0 {
                 add(format!("{name}: {n} bytes"));

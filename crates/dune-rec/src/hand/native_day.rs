@@ -223,7 +223,7 @@ pub fn estimate_field_spice(w: &mut World) -> Option<u16> {
 /// state 30h, in hundredths, from the first C5F9h cells' states.
 fn map_shares(w: &mut World) -> Option<()> {
     const CELLS: usize = 0xc5f9;
-    let state = |j: usize| -> Option<u8> { Some((w.save.map.get(j / 4)? >> (2 * (3 - j % 4))) & 3) };
+    let state = |j: usize| -> Option<u8> { Some(w.cells.get(j)? >> 4 & 3) };
     let (mut grown, mut any) = (0u16, 0u16);
     for j in 0..CELLS {
         let s = state(j)?;

@@ -348,10 +348,10 @@ fn spy_found_out(w: &mut World, t: u16, p: u16, elapsed: u16, skill: u8) -> Opti
 
 /// `loc_07693`, job 8: irrigation, unless held. A place not started is
 /// started (spice 0, its centre, radius 4) and its water's spread drawn
-/// (not modelled); else the troop's day, a step of skill 2 on byte 0Fh and
+/// (`loc_06515`); else the troop's day, a step of skill 2 on byte 0Fh and
 /// on its carry a point of skill 2 and the water's growth
 /// ([`troop_jobs::irrigated`]): dried up (the troop marked) or grown (the
-/// spread drawn: not modelled).
+/// spread drawn).
 fn irrigation(w: &mut World, t: u16, p: u16) -> Option<()> {
     if w.byte(t + troop::STATE) & 0x10 != 0 || held_by_skill(w, t, p) {
         return Some(());
@@ -365,7 +365,7 @@ fn irrigation(w: &mut World, t: u16, p: u16) -> Option<()> {
         w.set_word(p + field::WORD_0C, w.word(p + field::X));
         w.set_word(p + field::WORD_0E, w.word(p + field::Y) & 0xff);
         w.set_byte(p + place::RADIUS, 4);
-        return super::world::nm("water spread on the map");
+        return start_move(w, p);
     }
     day_update(w, t, p)?;
     let step = troop_jobs::irrigation_step(w.byte(t + troop::SKILLS + 2));
@@ -390,9 +390,19 @@ fn irrigation(w: &mut World, t: u16, p: u16) -> Option<()> {
             if let Some(v) = byte_0e {
                 w.set_byte(p + field::BYTE_0E, v);
             }
-            super::world::nm("water spread on the map")
+            start_move(w, p)
         }
     }
+}
+
+/// `loc_06515`: the place's water spread on the map: the trail's pattern
+/// 44h, a circle of its radius (byte 0Bh) around its spread's centre
+/// (word 0Ch, the row byte 0Eh signed), its cells made a trail.
+fn start_move(w: &mut World, p: u16) -> Option<()> {
+    w.set_byte(g::MOVE_TRAIL_PATTERN, 0x44);
+    let r = w.byte(p + place::RADIUS) as u16;
+    let (x, row) = (w.word(p + field::WORD_0C), w.byte(p + field::BYTE_0E) as i8 as u16);
+    super::native_troops::walk(w, r, x, row, super::native_troops::Span::Trail)
 }
 
 /// `loc_07711`, job 9: wind-trap assembly. Built already: the troop's
@@ -440,4 +450,7 @@ pub fn set_job_check(w: &mut World, t: u16, job: Option<u8>) {
         None => set_activity(w, t),
         Some(j) => give_job_unless_same(w, t, j),
     }
+}
+pub fn start_move_check(w: &mut World, p: u16) -> Option<()> {
+    start_move(w, p)
 }

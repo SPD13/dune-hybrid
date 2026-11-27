@@ -412,6 +412,10 @@ pub fn scan_up_from_mark(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// byte) to D81Ch, D818h; the step routine patched to 653Ah) and
 /// `loc_064b2`.
 pub fn start_move(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x6515, "water spread", |w, r| { let _ = &r; super::native_jobs::start_move_check(w, r.di) }, start_move_frame)
+}
+
+fn start_move_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6515)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
