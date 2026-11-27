@@ -35,15 +35,14 @@ mod field {
 }
 
 /// The job handler for job `job` of the troop `t` at the place `p`
-/// (CS:6C26h; jobs 2, 3, 6, 7 and 0Bh up have none here: 6, the attacks,
-/// has no port yet).
+/// (CS:6C26h; jobs 2, 3, 7 and 0Bh up have none).
 pub fn work(w: &mut World, job: u8, t: u16, p: u16) -> Option<()> {
     match job {
         troop_job::SPICE_MINING => harvest(w, t, p),
         troop_job::SPICE_PROSPECTING => prospecting(w, t, p),
         4 => training(w, t, p),
         5 => espionage(w, t, p),
-        6 => super::world::nm("the attack job"),
+        6 => super::native_raids::attack(w, t, p),
         troop_job::IRRIGATION => irrigation(w, t, p),
         9 => wind_trap(w, t, p),
         0x0a => bulbs(w, t, p),

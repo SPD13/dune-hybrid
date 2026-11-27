@@ -312,3 +312,138 @@ pub fn lose_all_harkonnen(w: &mut World, p: u16) -> Option<()> {
     }
     nm("Harkonnen troops not all lost")
 }
+
+/// `loc_05098`'s counts at the place `p`: the Harkonnen troops (CX) and
+/// your attackers (state 6, DX), of the troops not started.
+fn sides(w: &World, p: u16) -> Option<(u16, u16)> {
+    let (mut cx, mut dx) = (0u16, 0u16);
+    let mut n = w.byte(p + place::FIRST_TROOP);
+    let mut k = 0;
+    while n != 0 {
+        let t = troop_number(n);
+        if t + troop::SIZE > STORY_END || k > 0x100 {
+            return nm("a walk past the tables");
+        }
+        k += 1;
+        let s = w.byte(t + troop::STATE);
+        if s & 0x20 == 0 {
+            if w.byte(t + troop::BYTE_10) & 0x80 != 0 {
+                cx += 1;
+            } else if s == 6 {
+                dx += 1;
+            }
+        }
+        n = w.byte(t + troop::NEXT);
+    }
+    Some((cx, dx))
+}
+
+/// `loc_0758d`: the blow `dx` takes from the troop `t`: times FFh less
+/// twice its skill 1 (a byte), over 100h (FFh past it), at most its men.
+fn blow(w: &World, t: u16, dx: u16) -> u8 {
+    let d = 0xffu8.wrapping_sub(w.byte(t + 0x17)).wrapping_sub(w.byte(t + 0x17)) as u32;
+    let p = dx as u32 * d;
+    let al = if p >> 16 != 0 { 0xff } else { (p >> 8) as u8 };
+    al.min(w.byte(t + troop::SIZE_FIELD))
+}
+
+/// `loc_0739e`, job 6: the attack. At the Harkonnens' palace (11Ch): the
+/// endgame's next stage, your troops there to training (state 4), the
+/// Harkonnens there lost, the map's cells of state 30h to 20h, event
+/// 0F0Ah. Elsewhere (the takeover skipped once, [11BCh]): the place's
+/// forces measured; no Harkonnen strength: the troops meet
+/// (`loc_07429`). Else a random byte against the strike odds: below, the
+/// attacker's yield over the Harkonnen troops there (plus one, at most
+/// FFh) strikes each Harkonnen troop ([`blow`]; a troop left without
+/// men is started and held, one time in four losing its equipment
+/// bit 4), the blows added to the attacker's word 0Ch, and with none
+/// left standing the troops meet; not below, the Harkonnens' strength
+/// over your troops there strikes the attacker (word 0Eh), and left
+/// without men it gets 1Eh..9Dh new, is started, and with no attacker
+/// left the place is abandoned.
+pub fn attack(w: &mut World, t: u16, p: u16) -> Option<()> {
+    w.set_byte(g::SKIP_HARKONNEN_TAKE, w.byte(g::SKIP_HARKONNEN_TAKE) | 1);
+    if p == 0x11c {
+        w.update::<Economy>(|e| e.endgame_stage = e.endgame_stage.wrapping_add(1));
+        for x in super::native_day::your_troops(w, p)? {
+            w.set_byte(x + troop::STATE, 4);
+        }
+        lose_all_harkonnen(w, p)?;
+        for o in 0..0xc5f9u16 {
+            let b = w.cell(o);
+            if b & 0x30 == 0x30 {
+                w.set_cell(o, b & 0xef);
+            }
+        }
+        add_pending_event(w, 0x0f0a, 0x11c);
+        return Some(());
+    }
+    super::native_step::measure_forces(w, p)?;
+    if w.word(g::TOPIC_PLACE_HARKONNEN_STRENGTH) == 0 {
+        return troops_meet(w, p);
+    }
+    let r = w.rand() as u8;
+    if r < w.byte(g::TOPIC_PLACE_STRIKE_ODDS) {
+        let (cx, _) = sides(w, p)?;
+        let mut ax = super::native_step::troop_yield(w, t);
+        if cx != 0 {
+            ax /= cx;
+        }
+        let dl = (ax as u8).wrapping_add(1);
+        let dx = if dl == 0 { 0xff } else { dl } as u16;
+        let (mut total, mut standing) = (0u16, 0u16);
+        each_troop(w, p, |w, x, _| {
+            if w.byte(x + troop::BYTE_10) & 0x80 == 0 {
+                return Some(());
+            }
+            standing += 1;
+            let al = blow(w, x, dx);
+            total = total.wrapping_add(al as u16);
+            let size = w.byte(x + troop::SIZE_FIELD);
+            w.set_byte(x + troop::SIZE_FIELD, size.wrapping_sub(al));
+            if size > al {
+                return Some(());
+            }
+            w.set_byte(x + troop::STATE, w.byte(x + troop::STATE) | 0x20);
+            w.set_byte(x + troop::BYTE_10, w.byte(x + troop::BYTE_10) | 0x10);
+            standing -= 1;
+            if w.rand_masked(3) == 0 {
+                w.set_byte(x + troop::EQUIPMENT, w.byte(x + troop::EQUIPMENT) & 0xfb);
+                let at = w.word(x + troop::LOCATION);
+                let bits = w.byte(x + troop::EQUIPMENT);
+                for k in (0..8u16).filter(|&k| bits & (0x80 >> k) != 0) {
+                    let v = w.byte(at + place::EQUIPMENT + k);
+                    if v != 0 {
+                        w.set_byte(at + place::EQUIPMENT + k, v - 1);
+                    }
+                }
+            }
+            Some(())
+        })?;
+        w.set_word(t + troop::RATE, w.word(t + troop::RATE).wrapping_add(total));
+        if standing == 0 {
+            return troops_meet(w, p);
+        }
+        return Some(());
+    }
+    let mut ax = w.word(g::TOPIC_PLACE_HARKONNEN_STRENGTH);
+    let cl = w.byte(g::TOPIC_PLACE_OUR_TROOPS) as u16;
+    if cl != 0 {
+        ax /= cl;
+    }
+    let al = blow(w, t, ax);
+    w.set_word(t + troop::WORD_0E, w.word(t + troop::WORD_0E).wrapping_add(al as u16));
+    let size = w.byte(t + troop::SIZE_FIELD);
+    w.set_byte(t + troop::SIZE_FIELD, size.wrapping_sub(al));
+    if size > al {
+        return Some(());
+    }
+    let men = (w.rand_masked(0x7f) as u8).wrapping_add(0x1e);
+    w.set_byte(t + troop::SIZE_FIELD, men);
+    start_troop(w, t);
+    let (_, ours) = sides(w, p)?;
+    if ours == 0 {
+        abandon(w, p)?;
+    }
+    Some(())
+}

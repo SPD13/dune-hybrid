@@ -477,7 +477,11 @@ pub fn counts(m: &mut Machine) -> Vec<(&'static str, u64, u64, u64)> {
 pub struct Sim {
     world: Option<World>,
     pending: Option<World>,
+    /// The rules' world after a step the original's port gave up on (the
+    /// interpreter finished it): compared at the next step's start.
+    deferred: Option<World>,
     pub steps: u64,
+    pub deferred_equal: u64,
     pub equal: u64,
     pub not_run: u64,
     pub seeds_fed: u64,
@@ -497,6 +501,27 @@ pub fn simulating() -> bool {
 pub fn sim_before(m: &mut Machine) {
     let fresh = World::from_machine(m);
     let s = &mut super::native::native(m).native_checks.sim;
+    if let Some(mut p) = s.deferred.take() {
+        // What the frames and the clock change between steps, fed.
+        p.save.story[0..4].copy_from_slice(&fresh.save.story[0..4]);
+        p.save.day = fresh.save.day;
+        let k = extra(0x46dd);
+        p.extras[k] = fresh.extras[k];
+        (p.rand_seed, p.rand_masked_seed, p.rand_below_seed) = (fresh.rand_seed, fresh.rand_masked_seed, fresh.rand_below_seed);
+        let d = p.differences(&fresh, 6);
+        if d.is_empty() {
+            s.deferred_equal += 1;
+            s.world = Some(p);
+        } else {
+            let what = d[0].split([' ', '(']).next().unwrap_or("?").to_string();
+            match s.resynced.iter_mut().find(|e| e.0 == what) {
+                Some(e) => e.1 += 1,
+                None => s.resynced.push((what, 1)),
+            }
+            eprintln!("native sim (deferred) at time {:04x}: the carried world vs the machine's: {}", fresh.time(), d.join("; "));
+            s.world = None;
+        }
+    }
     let mut w = s.world.take().unwrap_or_else(|| fresh.clone());
     w.save.story[2] = fresh.save.story[2];
     w.save.story[3] = fresh.save.story[3];
@@ -531,6 +556,7 @@ pub fn sim_after(m: &mut Machine, done: bool) {
     };
     if !done {
         s.world = None;
+        s.deferred = Some(w);
         return;
     }
     let d = w.differences(&got, 6);
@@ -555,5 +581,5 @@ pub fn sim_after(m: &mut Machine, done: bool) {
 /// by what).
 pub fn sim_counts(m: &mut Machine) -> (u64, u64, u64, u64, Vec<(String, u64)>) {
     let s = &super::native::native(m).native_checks.sim;
-    (s.steps, s.equal, s.not_run, s.seeds_fed, s.resynced.clone())
+    (s.steps, s.equal + s.deferred_equal, s.not_run, s.seeds_fed, s.resynced.clone())
 }

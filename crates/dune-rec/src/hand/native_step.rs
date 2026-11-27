@@ -289,7 +289,7 @@ pub fn grow_harkonnen_troops(w: &mut World) -> Option<()> {
 /// skill 1 (saturating), times its men, over 10h; for each of its
 /// equipment bits 20h..04h, the step (doubling each time) added (capped
 /// at FFFFh); over 100h, at least 1 with any men.
-fn troop_yield(w: &World, t: u16) -> u16 {
+pub fn troop_yield(w: &World, t: u16) -> u16 {
     let m = super::native_troops::motivation(w, t);
     let size = w.byte(t + troop::SIZE_FIELD);
     let bits = w.byte(t + troop::EQUIPMENT);
