@@ -1819,6 +1819,37 @@ A simulated week's save loads the same way. The world's layout lost an
 overlap on the way: the steps' scales (DS:4880h) are 63h words, not 300h
 bytes running into the latitude table (DS:4948h, 318h bytes).
 
+**The condition scripts and the phase changes** (2026-11-27,
+`hand/native_script.rs`): `evaluate_condition_ax` (A396h) on the
+scripts of CONDIT.HSQ (resource BCh, 2A9Bh bytes unpacked, loaded at a
+segment's start, [AA72h] its far pointer): the world carries them
+read-only (`World::conditions`; the simulator loads the file, equal to
+the machine's byte for byte). A script is terms of operands (a story
+variable's byte or word, a byte, a word) and operators (the table at
+CS:A376h: compares, unsigned for `<`/`>`, signed for `<=`/`>=`, add,
+sub, and, or); an operator with bit 80h closes a term, the terms are
+combined left to right, FFh ends it; it holds when not 0.
+
+A phase change (`set_game_phase`, 121Fh) runs the dialogue step for the
+pseudo-speaker 10h in the book's mode (`loc_0b17a`, `loc_096b5`,
+`loc_09f9e` with nothing shown): from the list [AB84h] the first entry
+not said once whose condition holds, its action (the table at
+CS:A107h: those it meets are written: the flag [47A5h], the last entry,
+the next phase or group of phases, the endgame's stage), then marked
+said and noted in the book. Then the phase's handler from CS:11E7h, read
+at the phase over 2 as a byte offset: only phases that are multiples of
+4 meet a handler's start (phases 2 mod 4 read a word across two
+entries). The handlers set story bytes, discover places (`loc_0425b`;
+place 603h raises phase 10h), raise charisma, add messages and events;
+phase 5Ch's is in bytes the listing reads as data (decoded: [1038h] 5,
+[11D0h] + 0Ch, [1156h] the day + 3, [1141h] + 1). The world addresses
+the dialogue table (DS:AA76h on, the save's block) and keeps the
+conversation record (47A2h). Run k: a crafted change into each
+handler's phase (25), the phase change's step (48), the phase 30h check
+(40): all equal. Not modelled: the handlers that start a sequence
+(phases 0Ch, 48h, 58h: the cutscene, the clock stopped), phase 64h's
+(`loc_01f13`), phase 1's start, the other entry actions.
+
 ## Tools in place
 
 | Tool | What it checks |
