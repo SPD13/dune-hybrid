@@ -2104,7 +2104,8 @@ pub fn rects_missing(m: &mut Machine, start: u16) -> Result<(), Bail> {
 }
 
 /// [`rects_missing`] from `start`: the entries of the list SI (a count
-/// word, then 3 bytes each) looked up in the list ES:DI by a `cmpsw` and
+/// word, then 3 bytes each) looked up in the list at DI (its size read in
+/// DS each round, its entries compared in ES) by a `cmpsw` and
 /// a `cmpsb` (the two compares' `lahf` bytes `and`ed, AX); each one
 /// missing grows the rect ([`grow_dialogue_rect`], with SI on the entry,
 /// DI past the list, CX 0, and the outer count and the list on the
@@ -2113,7 +2114,8 @@ fn rects_missing_at(c: &mut Ctx, start: u16) -> Result<(), Bail> {
     let list = c.reg(DI);
     let mut si = c.reg(SI);
     let count = c.word(si);
-    let size = c.word_in(ES, list);
+    // `mov cx, [di]`: the size in DS (the entries compared in ES).
+    let size = c.word(list);
     if count == 0 || size == 0 {
         // `loop` from 0 would go 65536 times: left to the interpreter.
         c.m.cpu.ip = start;
@@ -2143,7 +2145,7 @@ fn rects_missing_at(c: &mut Ctx, start: u16) -> Result<(), Bail> {
             pushed.push((lin(ss, sp), v as u8));
             pushed.push((lin(ss, sp.wrapping_add(1)), (v >> 8) as u8));
         }
-        let size = read(c, &pushed, ES, list) as u16 | (read(c, &pushed, ES, list.wrapping_add(1)) as u16) << 8;
+        let size = read(c, &pushed, DS, list) as u16 | (read(c, &pushed, DS, list.wrapping_add(1)) as u16) << 8;
         if size == 0 {
             // `loop` from 0 would go 65536 times: left to the interpreter.
             c.m.cpu.ip = from;
@@ -2165,12 +2167,6 @@ fn rects_missing_at(c: &mut Ctx, start: u16) -> Result<(), Bail> {
                 break;
             }
             cost += 2;
-        }
-        if cost > LONGEST_STRETCH {
-            // Lists of thousands of entries (only the call harness's
-            // random pointers make them): left to the interpreter.
-            c.m.cpu.ip = from;
-            return Err(Bail);
         }
         if !found {
             // Missing: the rect grown by it.
@@ -2207,12 +2203,6 @@ fn rects_missing_at(c: &mut Ctx, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     rects_tail(c)
 }
-
-/// The longest stretch [`rects_missing_at`] runs itself (instructions):
-/// the game's lists take a few dozen; a stretch of some 600000 through
-/// interrupts (a harness call's list over the video memory) once came out
-/// different from the original, cause not found.
-const LONGEST_STRETCH: u32 = 0x10000;
 
 /// The pushes and pops a stretch of [`rects_missing_at`] made, in order.
 fn replay_stack(c: &mut Ctx, stacked: &[Option<u16>]) {

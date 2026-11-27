@@ -1248,17 +1248,22 @@ irrigation), all shadow-equal.
 
 The new port shifted the random inputs `--call-each` gives every later
 entry (one random stream for all), and two ports met inputs no run gave
-them before: `rects_missing` (9C54h) and `lowest_record` (C835h), with
-random counts walking their lists over a whole segment (the stack
-included) for some 600000 and 440000 instructions through interrupts,
-came out with AX, CX different from the original. One cause was found
-and fixed (9C54h's lists may run over the stack, where the original
-reads what its loop pushed; the port's reads see its pending pushes now,
-and it reads the list's size again each round as the original does);
-the rest was not found. Both now leave such stretches to the
-interpreter (9C54h: one over 65536 instructions; C835h: more than 400h
-records), far beyond any list of the game. `CALL_EACH_TRACE=ENTRY`
-prints each harness call's registers to that entry.
+them before. `rects_missing` (9C54h) came out with AX different from
+the original after a stretch of some 600000 instructions. Its cause,
+found by logging every compare of both sides: the list's size is read
+by `mov cx, [di]`, in DS, while its entries are compared in ES; the
+port read the size in ES (the same in the game, where DS = ES; the
+harness's ES was A000h). Fixed, with no limit left; the port also sees
+the pushes its loop makes when its lists run over the stack, as the
+original reads them. `lowest_record` (C835h), over some 55000 records
+(its words running over the whole segment, the stack included, through
+interrupts), ended with CX 1 where the original's is 0, both when run
+through the interrupts and again stopping at them (another such call
+differed in SP on its first try only); reading each record's word only
+after the last stretch's interrupts were settled did not change it.
+Cause not found: it leaves more than 400h records to the interpreter,
+far beyond any list of the game. `CALL_EACH_TRACE=ENTRY` prints each
+harness call's registers to that entry.
 
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
