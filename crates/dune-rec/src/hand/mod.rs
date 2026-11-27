@@ -84,6 +84,7 @@ pub mod native_jobs;
 pub mod native_moves;
 pub mod native_step;
 pub mod native_raids;
+pub mod native_sim;
 pub mod flags_read;
 mod cursor;
 mod dialogue;

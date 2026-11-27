@@ -748,6 +748,30 @@ fn main() -> ExitCode {
                         break;
                     }
                 }
+                "sim" => {
+                    // `T:sim:STEPS[:FRAMES]`: the simulator without the
+                    // emulator from the world now: STEPS clock steps by
+                    // the native rules, the save written as slot 9
+                    // (`load:9` loads it in the game).
+                    let steps: u32 = ev[1].parse().unwrap();
+                    let frames: u32 = ev.get(2).and_then(|v| v.parse().ok()).unwrap_or(30);
+                    let w = dune_rec::hand::world::World::from_machine(&m);
+                    let (day0, t0w) = (w.time() >> 4, w.time());
+                    let run = dune_rec::hand::native_sim::run(w, steps, frames);
+                    let img = dune_rec::hand::native_sim::save_image(&run.world);
+                    fs::write(args.out.join("saves").join("DUNE37S9.SAV"), img.to_file()).unwrap();
+                    let e = &run.world;
+                    println!(
+                        "native sim run: {} of {steps} steps from time {t0w:04x} (day {day0}) to {:04x} (day {}){}; spice {}, our army {}, the Harkonnens' {}; written as slot 9",
+                        run.steps,
+                        e.time(),
+                        e.time() >> 4,
+                        run.stopped.map_or(String::new(), |w| format!(", stopped: {w}")),
+                        e.word(0xa0),
+                        e.word(0xaa),
+                        e.word(0xac),
+                    );
+                }
                 _ => eprintln!("unknown event {ev:?}"),
             }
             ei += 1;

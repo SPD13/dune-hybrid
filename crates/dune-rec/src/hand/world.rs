@@ -381,6 +381,11 @@ pub fn nm<T>(why: &'static str) -> Option<T> {
     None
 }
 
+/// Why the rules last gave up (`nm`'s reason).
+pub fn last_why() -> &'static str {
+    WHY.with(|w| w.get())
+}
+
 /// Whether `NATIVE_CHECK` is on.
 pub fn checking() -> bool {
     use std::sync::OnceLock;

@@ -2850,6 +2850,10 @@ pub fn map_place_watch(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`g::UNREAD_MESSAGES`] counted; from phase 38h, out of room 8
 /// ([0Bh]), `loc_029ee` with AX 201h.
 pub fn add_message(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x26da, "add message", |w, r| { let _ = &r; super::native_step::add_message(w, r.ax); Some(()) }, add_message_frame)
+}
+
+fn add_message_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x26da)?;
     let mut c = Ctx::new(m);
     add_message_in(&mut c)

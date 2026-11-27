@@ -97,9 +97,12 @@ pub fn time_of_day(w: &mut World) -> Option<()> {
     }
 }
 
-/// `loc_020a4`: with a demand going (bit 80h of the shipment's flags), the
-/// days since it was made ([118Dh]) counted down into [0CFh]; its day
-/// come, the next demand (not modelled, nor the calls it starts).
+/// `loc_020a4`: with a demand going (bit 80h of the shipment's flags):
+/// past the endgame's start only the days left counted ([0CFh] the days
+/// to the demand's day [118Dh], negated); a demand made (bit 10h) is
+/// reminded of on the days after it (`loc_02131`); a call waiting
+/// ([11BBh]) or a reminder too late has the Emperor call (the comm's
+/// caller 7); else, on its day, the next demand (`loc_020d2`).
 fn demand(w: &mut World) -> Option<()> {
     let flags = w.get::<Economy>().shipment_flags;
     if flags & 0x80 == 0 {
@@ -107,14 +110,118 @@ fn demand(w: &mut World) -> Option<()> {
     }
     let day = w.time() >> 4;
     let since = day.wrapping_sub(w.word(0x118d));
-    if w.get::<Economy>().endgame_stage != 0 || (flags & 0x10 == 0 && w.byte(0x11bb) == 0) {
-        if since == 0 {
-            return if w.get::<Economy>().endgame_stage != 0 { Some(()) } else { nm("the Emperor's next demand") };
+    if w.get::<Economy>().endgame_stage != 0 {
+        if since != 0 {
+            w.update::<Situation>(|s| s.shipment_days_left = since.wrapping_neg() as u8);
         }
+        return Some(());
+    }
+    if flags & 0x10 != 0 {
+        // `loc_02131`: the reminders.
+        if since == 0 {
+            return Some(());
+        }
+        if since >= 4 {
+            w.set_byte(g::COMM_CALLER, 7);
+            return Some(());
+        }
+        let bl = (since as u8) << 2;
+        let al = grade(w).min(2);
+        let k = al.wrapping_add(bl) as usize;
+        // CS:2161h: the bytes of the instruction before it, then the table.
+        const XLAT: [u8; 15] = [0xd9, 0x46, 0x07, 0xc3, 4, 5, 6, 0, 5, 6, 0, 0, 6, 0, 0];
+        let Some(&v) = XLAT.get(k) else {
+            return nm("a reminder past the table");
+        };
+        if v == 0 {
+            w.set_byte(g::COMM_CALLER, 7);
+            return Some(());
+        }
+        add_message(w, (v as u16) << 8 | 0x0b);
+        return Some(());
+    }
+    if w.byte(0x11bb) != 0 {
+        w.set_byte(g::COMM_CALLER, 7);
+        return Some(());
+    }
+    if since != 0 {
         w.update::<Situation>(|s| s.shipment_days_left = since.wrapping_neg() as u8);
         return Some(());
     }
-    nm("the Emperor's call")
+    next_demand(w);
+    Some(())
+}
+
+/// `loc_024d2`: the shipments' grade: how many of 1, 40h, 80h, 90h, FFh
+/// the ratio ([0BEh]) is below.
+fn grade(w: &World) -> u8 {
+    let v = w.get::<Economy>().shipment_ratio;
+    [1u8, 0x40, 0x80, 0x90, 0xff].iter().filter(|&&t| v < t).count() as u8
+}
+
+/// `loc_020d2`: the next demand: the demands counted, 150 a demand made
+/// before plus 100, times E0h + a random 0..3Fh (`rand_masked`), over
+/// 100h; for a ratio without its top bit, times (100h + its complement
+/// doubled) over 100h (FFFFh past a word); the demand noted ([0BCh]), the
+/// days left 0, flags 90h, and the message 20Bh (30Bh for a ratio not
+/// negative).
+fn next_demand(w: &mut World) {
+    let n = w.get::<Economy>().demands;
+    w.update::<Economy>(|e| e.demands = e.demands.wrapping_add(1));
+    let ratio = w.get::<Economy>().shipment_ratio;
+    // An overflow goes straight to FFFFh (`loc_02111`), past the ratio.
+    let dx: u16 = 'd: {
+        let ax = n as u32 * 0x96 + 0x64;
+        if ax > 0xffff {
+            break 'd 0xffff;
+        }
+        let r = w.rand_masked(0x3f).wrapping_add(0xe0) as u32;
+        let p = r * ax;
+        if p >> 24 != 0 {
+            break 'd 0xffff;
+        }
+        let dx = (p >> 8) as u16;
+        if ratio & 0x80 != 0 {
+            break 'd dx;
+        }
+        let p = (0x100 | (!(ratio << 1)) as u32) * dx as u32;
+        if p >> 24 != 0 { 0xffff } else { (p >> 8) as u16 }
+    };
+    w.update::<Economy>(|e| e.demanded = dx);
+    w.update::<Situation>(|s| s.shipment_days_left = 0);
+    w.update::<Economy>(|e| e.shipment_flags |= 0x90);
+    add_message(w, if (ratio as i8) < 0 { 0x20b } else { 0x30b });
+}
+
+/// `loc_026da`: the message `ax` kept, unless kept already: the oldest
+/// dropped at ten (`loc_0272f`), one more unread; from phase 38h, out of
+/// room 8, event 201h.
+pub fn add_message(w: &mut World, ax: u16) {
+    let n0 = w.get::<Economy>().message_count as u16;
+    for k in 0..n0 {
+        if w.word(g::MESSAGES + 2 * k) == ax {
+            return;
+        }
+    }
+    let mut cl = n0 as u8;
+    if cl >= 0x0a {
+        w.update::<Economy>(|e| e.message_count = e.message_count.wrapping_sub(1));
+        for k in 0..9u16 {
+            let v = w.word(g::MESSAGES + 2 * k + 2);
+            w.set_word(g::MESSAGES + 2 * k, v);
+        }
+        w.set_word(g::MESSAGES + 18, 0);
+        cl = 9;
+    }
+    w.set_word(g::MESSAGES + 2 * cl as u16, ax);
+    w.update::<Economy>(|e| {
+        e.message_count = e.message_count.wrapping_add(1);
+        e.unread_messages = e.unread_messages.wrapping_add(1);
+    });
+    let p = w.get::<Progress>();
+    if p.phase >= 0x38 && p.room != 8 {
+        add_pending_event(w, 0x201, 0);
+    }
 }
 
 /// `loc_01dd7` (`loc_01f64`): the Harkonnens' take of a sietch, once their
