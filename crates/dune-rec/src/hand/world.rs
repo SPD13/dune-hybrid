@@ -80,12 +80,15 @@ pub struct World {
 }
 
 /// The memory outside the story block the rules read and write, by
-/// offset and length: the day changed, a place's spare equipment, the
+/// offset and length: the day changed, the map's latitude table and its
+/// rows' base (tables of the game's), a place's spare equipment, the
 /// steps' scales by row (a table of the game's), the spice's tenths, the
 /// tick's recheck and location, the troop selected on the map, the troop
 /// shown.
-pub const EXTRAS: [(u16, u16); 8] = [
+pub const EXTRAS: [(u16, u16); 10] = [
     (g::DAY_CHANGED, 1),
+    (g::LATITUDE_TABLE, 0x2f0),
+    (0xdcfe, 2),
     (g::LOCATION_SPARE_EQUIPMENT, 7),
     (0x4880, 0x300),
     (0x46e1, 2),

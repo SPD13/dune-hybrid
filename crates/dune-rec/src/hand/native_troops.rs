@@ -211,11 +211,87 @@ pub fn event_roll(w: &mut World, t: u16, p: u16) {
 }
 
 /// `loc_06cfc`: a place below kind 20h, radius below 0Ch and not started
-/// grows: its radius one more and its circle drawn into the map (not
-/// modelled yet: `None`).
+/// grows: its radius one more and its circle drawn into the map
+/// (`loc_0644e`, state 20h).
 fn grow_location(w: &mut World, p: u16) -> Option<()> {
-    let grows = w.byte(p + place::KIND) < 0x20 && w.byte(p + place::RADIUS) < 0x0c && w.byte(p + place::FLAGS) & location_flag::STARTED == 0;
-    if grows { super::world::nm("a place's circle drawn") } else { Some(()) }
+    let r = w.byte(p + place::RADIUS);
+    if w.byte(p + place::KIND) >= 0x20 || r >= 0x0c || w.byte(p + place::FLAGS) & location_flag::STARTED != 0 {
+        return Some(());
+    }
+    w.set_byte(p + place::RADIUS, r + 1);
+    circle(w, p, r as u16 + 1, 0x20)
+}
+
+/// `loc_06447`'s circle of radius `radius` around the place `p`'s map
+/// point, in `colour` (bits 4..5): the midpoint walk at `loc_064b2`
+/// (`map::circle_sim`), each of its stops two spans (`loc_064ef`: the
+/// rows BX and SI, from DI, DX - DI + 1 cells) by `loc_0646f`.
+pub fn circle(w: &mut World, p: u16, radius: u16, colour: u8) -> Option<()> {
+    let (x, y) = (w.word(p + 2), w.word(p + 4));
+    let mut r = [0, 0, radius, 0, 0, 0, 0];
+    let mut label = 0x64b2;
+    loop {
+        let Ok((_, end, out, _)) = super::map::circle_sim(label, r) else {
+            return super::world::nm("a circle's walk too long");
+        };
+        let [_, bx, _, dx, si, di, _] = out;
+        let Some(back) = end else {
+            return Some(());
+        };
+        let count = dx.wrapping_sub(di).wrapping_add(1);
+        circle_span(w, bx, di, count, x, y, colour)?;
+        circle_span(w, si, di, count, x, y, colour)?;
+        r = out;
+        label = back;
+    }
+}
+
+/// `loc_0646f`: row `row` of the circle (from its centre's row `y`, rows
+/// past 5Dh either way left out): the map row's cells (`loc_0b58b`: the
+/// latitude table's row, its length BP twice its scale, the centre `x`
+/// scaled into it) from `start` on, `count` of them wrapping around the
+/// row, each not spreading (state 10h) made `colour`.
+fn circle_span(w: &mut World, row: u16, start: u16, count: u16, x: u16, y: u16, colour: u8) -> Option<()> {
+    let row = row.wrapping_add(y);
+    if (row as i16) > 0x5d || (row as i16) < -0x5d {
+        return Some(());
+    }
+    let off = row.wrapping_mul(8);
+    let neg = off & 0x8000 != 0;
+    let entry = if neg { off.wrapping_neg() } else { off };
+    let value = w.word(g::LATITUDE_TABLE.wrapping_add(entry));
+    let scale = w.word(g::LATITUDE_TABLE.wrapping_add(entry).wrapping_add(2));
+    let ax = if neg { value.wrapping_neg() } else { value };
+    let bp = scale.wrapping_shl(1);
+    let pr = bp as u32 * x as u32;
+    let hi = ((pr >> 16) as u16).wrapping_add((pr as u16) >> 15);
+    let mut di = w.word(0xdcfe).wrapping_add(ax).wrapping_add(hi).wrapping_add(start);
+    let mut dx = hi.wrapping_add(start);
+    let mut guard = 0;
+    while dx & 0x8000 != 0 {
+        di = di.wrapping_add(bp);
+        dx = dx.wrapping_add(bp);
+        guard += 1;
+        if guard > 10_000 {
+            return super::world::nm("a circle's span past its row");
+        }
+    }
+    if count == 0 {
+        return super::world::nm("a circle's span of 0 cells");
+    }
+    for _ in 0..count {
+        let old = w.cell(di);
+        if old & 0x30 != 0x10 {
+            w.set_cell(di, colour);
+        }
+        di = di.wrapping_add(1);
+        dx = dx.wrapping_add(1);
+        if dx >= bp {
+            dx = dx.wrapping_sub(bp);
+            di = di.wrapping_sub(bp);
+        }
+    }
+    Some(())
 }
 
 /// `loc_06dbb`: the people at the place `p` (its number in the high byte,

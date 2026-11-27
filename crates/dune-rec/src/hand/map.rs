@@ -2587,6 +2587,10 @@ pub fn scene_39(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `loc_0644e`: the circle of radius byte 0Bh of the location DI around
 /// its map point, colour 20h ([`draw_location_circle`]'s drawing).
 pub fn location_circle(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x644e, "location circle", |w, r| { let _ = &r; super::native_troops::circle(w, r.di, w.byte(r.di + 0x0b) as u16, 0x20) }, location_circle_frame)
+}
+
+fn location_circle_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x644e)?;
     let mut c = Ctx::new(m);
     c.run(start, 3)?;
@@ -2656,7 +2660,7 @@ fn circle_at(c: &mut Ctx, at: u16) -> Result<(), Bail> {
 /// other flags and keep CF). Every stretch passes a `sub ax, bp` before it
 /// can end.
 #[derive(Clone, Copy, Default)]
-struct CircleFlags {
+pub(super) struct CircleFlags {
     /// (`add`?, a, b) of the last `add`/`sub`.
     arith: Option<(bool, u16, u16)>,
     /// (`inc`?, a) of an `inc`/`dec` after it.
@@ -2695,7 +2699,7 @@ fn circle_flags(c: &mut Ctx, f: CircleFlags) {
 /// ends it (or none for the `ret`), the registers (AX, BX, CX, DX, SI,
 /// DI, BP) and the flags it ends with.
 #[allow(clippy::type_complexity)]
-fn circle_sim(label: u16, r: [u16; 7]) -> Result<(u32, Option<u16>, [u16; 7], CircleFlags), Bail> {
+pub(super) fn circle_sim(label: u16, r: [u16; 7]) -> Result<(u32, Option<u16>, [u16; 7], CircleFlags), Bail> {
     let [mut ax, mut bx, mut cx, mut dx, mut si, mut di, mut bp] = r;
     let mut n = 0u32;
     let mut fl = CircleFlags::default();
