@@ -15,29 +15,7 @@ use super::globals as g;
 use super::world::World;
 use super::{economy::Economy, harkonnen, progress::Progress, situation::Situation, smuggler_trade, smugglers, spice_accounts};
 
-/// A location record's fields.
-mod place {
-    pub const SIZE: u16 = 0x1c;
-    pub const FIRST: u16 = 0x100;
-    pub const FIRST_TROOP: u16 = 9;
-    pub const KIND: u16 = 8;
-    pub const FLAGS: u16 = 0x0a;
-    pub const SPICE: u16 = 0x12;
-}
-
-/// A troop record's fields.
-mod troop {
-    pub const SIZE: u16 = 0x1b;
-    pub const FIRST: u16 = 0x8aa;
-    pub const NEXT: u16 = 1;
-    pub const STATE: u16 = 3;
-    pub const BYTE_10: u16 = 0x10;
-    pub const WORD_12: u16 = 0x12;
-    pub const SIZE_FIELD: u16 = 0x1a;
-}
-
-/// The story block's end: a walk past it is beyond what the rules model.
-const STORY_END: u16 = 0x1261;
+use super::world::{place, troop, STORY_END};
 
 /// The rooms' limits by the place's kind (CS:1D35h, `loc_01d66`).
 const ROOM_LIMITS: [u8; 0x31] = [
@@ -108,7 +86,7 @@ fn fix_character_rooms(w: &mut World) -> Option<()> {
 
 /// The troops of the place `p` whose byte 3 is below 80h (yours:
 /// `loc_0661d`), by record.
-fn your_troops(w: &World, p: u16) -> Option<Vec<u16>> {
+pub(super) fn your_troops(w: &World, p: u16) -> Option<Vec<u16>> {
     let mut out = Vec::new();
     let mut n = w.byte(p + place::FIRST_TROOP);
     while n != 0 {
@@ -125,7 +103,7 @@ fn your_troops(w: &World, p: u16) -> Option<Vec<u16>> {
 }
 
 /// The places, by record, to the FFh after the last.
-fn places(w: &World) -> Option<Vec<u16>> {
+pub(super) fn places(w: &World) -> Option<Vec<u16>> {
     let mut out = vec![place::FIRST];
     loop {
         let next = out.last()?.wrapping_add(place::SIZE);
@@ -177,7 +155,7 @@ fn pick_attack_location(w: &mut World) -> Option<()> {
 /// `loc_029f0`: with bit 1 of the events' flags ([0Ah]), the event
 /// (`word`, `at`) added unless waiting already; with 10 waiting the oldest
 /// dropped first (`loc_02a34`).
-fn add_pending_event(w: &mut World, word: u16, at: u16) {
+pub(super) fn add_pending_event(w: &mut World, word: u16, at: u16) {
     if w.get::<Progress>().event_flags & 1 == 0 {
         return;
     }
@@ -218,7 +196,7 @@ fn add_pending_event(w: &mut World, word: u16, at: u16) {
 
 /// Whether the location loops skip the place `p` (`loc_05d36`): of a
 /// kind below 28h, or raided (flag 08h).
-fn skipped(w: &World, p: u16) -> bool {
+pub(super) fn skipped(w: &World, p: u16) -> bool {
     w.byte(p + place::KIND) < 0x28 || w.byte(p + place::FLAGS) & super::game::location_flag::RAIDED != 0
 }
 

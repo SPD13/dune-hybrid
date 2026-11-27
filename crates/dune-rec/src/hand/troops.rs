@@ -1087,6 +1087,10 @@ pub fn grow_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (BX + 1; BX then holds that). DL = the skill before, AL = the steps it
 /// changed (old ^ new, top four bits).
 pub fn add_skill(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x6edd, "add skill", |w, r| { let _ = &r; super::native_troops::add_skill(w, r.si, r.bx, r.ax as u8); Some(()) }, add_skill_frame)
+}
+
+fn add_skill_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6edd)?;
     let mut c = Ctx::new(m);
     let (troop, k, gain) = (Troop(c.reg(SI)), c.reg(BX), c.reg8(r8::AL));
@@ -1336,6 +1340,10 @@ pub(super) fn troop_bit_10_set_by_location(c: &mut Ctx, ret: u16) -> Result<bool
 /// 200h of word 10h or bits 30h of word 12h, or at a location with byte
 /// 12h 0, or with bits 41h of byte 0Ah other than 40h alone.
 pub fn troop_bit_10_by_state(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x6b96, "held by state", |w, r| { let _ = &r; super::native_troops::held_by_state(w, r.si, r.di); Some(()) }, troop_bit_10_by_state_frame)
+}
+
+fn troop_bit_10_by_state_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6b96)?;
     let mut c = Ctx::new(m);
     let (si, di) = (c.reg(SI), c.reg(DI));
@@ -1863,6 +1871,10 @@ pub fn troop_joins(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// the activity, `troop_activity`). AX = those bits shifted out, CL the
 /// activity.
 pub fn troop_skills_decay(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x6d7b, "skills decay", |w, r| { let _ = &r; super::native_troops::skills_decay(w, r.si); Some(()) }, troop_skills_decay_frame)
+}
+
+fn troop_skills_decay_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6d7b)?;
     let mut c = Ctx::new(m);
     let time = game::game_time(&mut c);
@@ -2370,6 +2382,10 @@ const SPARE_EQUIPMENT_COPY: u16 = g::SCRATCH_BUFFER;
 /// word 10h (CX) say which way: 8 up, 4 down (BL). Callers read the flags
 /// (its last `sub` or `or`).
 pub fn troop_rate(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x708a, "troop rate", |w, r| { let _ = &r; super::native_troops::rate(w, r.si, r.di); Some(()) }, troop_rate_frame)
+}
+
+fn troop_rate_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x708a)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -2837,6 +2853,10 @@ pub fn pick_attack_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// message pair 302h (`loc_029f0`; SI, DI kept). The decisions are the
 /// rules of [`troop_day`](super::troop_day); this is their 8086 frame.
 pub fn troop_day_update(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x6e20, "troop day", |w, r| { let _ = &r; super::native_troops::day_update(w, r.si, r.di) }, troop_day_update_frame)
+}
+
+fn troop_day_update_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6e20)?;
     let mut c = Ctx::new(m);
     if c.byte(g::DAY_CHANGED) == 0 {
@@ -2945,6 +2965,10 @@ pub fn troop_rate_by_age(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// 1000h, bit 80h of byte 19h off (its kind 0 lost), the location's kind 0 one lower and
 /// the message pair 0F06h (`call_29f0_f`).
 pub fn troop_event_roll(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x714c, "troop event roll", |w, r| { let _ = &r; super::native_troops::event_roll(w, r.si, r.di); Some(()) }, troop_event_roll_frame)
+}
+
+fn troop_event_roll_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x714c)?;
     let mut c = Ctx::new(m);
     if c.progress().event_flags & 1 == 0 {

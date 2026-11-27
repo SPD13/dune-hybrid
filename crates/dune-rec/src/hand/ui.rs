@@ -772,6 +772,10 @@ pub fn draw_location_name(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// (not below 0); below 5 it is set to 4, `sub_7085` runs and the troop
 /// gets bit 20h of +12h. AX kept.
 pub fn decrease_troop_motivation(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x6f93, "lower motivation", |w, r| { let _ = &r; super::native_troops::lower_motivation(w, r.si, r.ax as u8); Some(()) }, decrease_troop_motivation_frame)
+}
+
+fn decrease_troop_motivation_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x6f93)?;
     let mut c = Ctx::new(m);
     let si = c.reg(SI);

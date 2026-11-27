@@ -21,6 +21,44 @@ use super::save_file::SaveImage;
 use super::globals as g;
 use pc::Machine;
 
+/// A location record's fields.
+pub mod place {
+    pub const SIZE: u16 = 0x1c;
+    pub const FIRST: u16 = 0x100;
+    pub const NAME_FIRST: u16 = 0;
+    pub const KIND: u16 = 8;
+    pub const FIRST_TROOP: u16 = 9;
+    pub const FLAGS: u16 = 0x0a;
+    pub const RADIUS: u16 = 0x0b;
+    pub const SPICE: u16 = 0x12;
+    pub const EQUIPMENT: u16 = 0x14;
+}
+
+/// A troop record's fields.
+pub mod troop {
+    pub const SIZE: u16 = 0x1b;
+    pub const FIRST: u16 = 0x8aa;
+    pub const ID: u16 = 0;
+    pub const NEXT: u16 = 1;
+    pub const STATE: u16 = 3;
+    pub const LOCATION: u16 = 4;
+    pub const CHANGED_AT: u16 = 0x0a;
+    pub const RATE: u16 = 0x0c;
+    pub const WORD_0E: u16 = 0x0e;
+    pub const BYTE_10: u16 = 0x10;
+    pub const WORD_10: u16 = 0x10;
+    pub const WORD_12: u16 = 0x12;
+    pub const BYTE_12: u16 = 0x12;
+    pub const DAY: u16 = 0x14;
+    pub const MOTIVATION: u16 = 0x15;
+    pub const SKILLS: u16 = 0x16;
+    pub const EQUIPMENT: u16 = 0x19;
+    pub const SIZE_FIELD: u16 = 0x1a;
+}
+
+/// The story block's end: a walk past it is beyond what the rules model.
+pub const STORY_END: u16 = 0x1261;
+
 /// The state the native rules run on.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct World {
@@ -31,6 +69,8 @@ pub struct World {
     pub rand_masked_seed: u16,
     /// [`g::RAND_BELOW_SEED`] (D828h): `rand_below`'s.
     pub rand_below_seed: u16,
+    /// [`g::DAY_CHANGED`] (46DEh): the time step's (not saved).
+    pub day_changed: u8,
 }
 
 fn ds(off: u16) -> u32 {
@@ -49,6 +89,7 @@ impl World {
             rand_seed: peek_word(m, g::RAND_SEED),
             rand_masked_seed: peek_word(m, g::RAND_MASKED_SEED),
             rand_below_seed: peek_word(m, g::RAND_BELOW_SEED),
+            day_changed: m.hw.peek(ds(g::DAY_CHANGED)),
         }
     }
 
@@ -135,6 +176,7 @@ impl World {
             ("rand seed", self.rand_seed, other.rand_seed),
             ("rand_masked seed", self.rand_masked_seed, other.rand_masked_seed),
             ("rand_below seed", self.rand_below_seed, other.rand_below_seed),
+            ("day changed", self.day_changed as u16, other.day_changed as u16),
         ] {
             if a != b {
                 add(format!("{name} {a:04x} vs {b:04x}"));
@@ -169,8 +211,51 @@ pub struct NativeChecks {
     /// Per piece: (checked, equal, not checked: the original's piece gave
     /// up to the interpreter, or the rules can't run it).
     pub pieces: Vec<(&'static str, u64, u64, u64)>,
-    /// The world the rules made, waiting for the original's to compare.
-    pub pending: Option<(&'static str, World)>,
+    /// The worlds the rules made, waiting for the original's to compare
+    /// (a stack: a checked piece may call another).
+    pub pending: Vec<Option<(&'static str, World)>>,
+}
+
+/// The registers a piece is entered with (its arguments).
+#[derive(Clone, Copy, Debug)]
+pub struct Regs {
+    pub ax: u16,
+    pub bx: u16,
+    pub cx: u16,
+    pub dx: u16,
+    pub si: u16,
+    pub di: u16,
+    pub bp: u16,
+}
+
+impl Regs {
+    pub fn of(m: &Machine) -> Regs {
+        use pc::cpu::{AX, BP, BX, CX, DI, DX, SI};
+        let r = &m.cpu.regs;
+        Regs { ax: r[AX], bx: r[BX], cx: r[CX], dx: r[DX], si: r[SI], di: r[DI], bp: r[BP] }
+    }
+}
+
+/// The port `frame` entered at `start`: with `NATIVE_CHECK`, entered at
+/// its `entry`, the native `rules` run on the world before (with the
+/// registers it is entered with) and must give the world it returns
+/// with.
+pub fn checked(
+    m: &mut Machine,
+    start: u16,
+    entry: u16,
+    piece: &'static str,
+    rules: impl FnOnce(&mut World, Regs) -> Option<()>,
+    frame: impl FnOnce(&mut Machine, u16) -> Result<(), super::Bail>,
+) -> Result<(), super::Bail> {
+    if start != entry || !checking() {
+        return frame(m, start);
+    }
+    let regs = Regs::of(m);
+    before(m, piece, |w| rules(w, regs));
+    let r = frame(m, start);
+    after(m, r.is_ok());
+    r
 }
 
 /// Whether `NATIVE_CHECK` is on.
@@ -202,7 +287,7 @@ fn count(m: &mut Machine, piece: &'static str, what: usize) {
 pub fn before(m: &mut Machine, piece: &'static str, rules: impl FnOnce(&mut World) -> Option<()>) {
     let mut w = World::from_machine(m);
     let ran = rules(&mut w).is_some();
-    super::native::native(m).native_checks.pending = ran.then_some((piece, w));
+    super::native::native(m).native_checks.pending.push(ran.then_some((piece, w)));
     if !ran {
         count(m, piece, 2);
     }
@@ -211,7 +296,7 @@ pub fn before(m: &mut Machine, piece: &'static str, rules: impl FnOnce(&mut Worl
 /// After the original's `piece` returned (`done`: whole, not given up
 /// to the interpreter): its world compared with the rules'.
 pub fn after(m: &mut Machine, done: bool) {
-    let Some((piece, want)) = super::native::native(m).native_checks.pending.take() else {
+    let Some(Some((piece, want))) = super::native::native(m).native_checks.pending.pop() else {
         return;
     };
     if !done {

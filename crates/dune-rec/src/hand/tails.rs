@@ -1645,13 +1645,7 @@ pub fn set_room_light_palette(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `NATIVE_CHECK`: the native new day (`hand/native_day.rs`) runs on the
 /// world before, and must give the world this one returns with.
 pub fn new_day(m: &mut Machine, start: u16) -> Result<(), Bail> {
-    if start != 0x1c46 || !super::world::checking() {
-        return new_day_frame(m, start);
-    }
-    super::world::before(m, "new day", super::native_day::new_day);
-    let r = new_day_frame(m, start);
-    super::world::after(m, r.is_ok());
-    r
+    super::world::checked(m, start, 0x1c46, "new day", |w, _| super::native_day::new_day(w), new_day_frame)
 }
 
 fn new_day_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
