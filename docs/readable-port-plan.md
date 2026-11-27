@@ -1223,6 +1223,43 @@ idle report). Every path of every rule is now reached in run k (only
 "time: stopped" stays 0 there: play reaches it constantly), all
 shadow-equal.
 
+**The troops' jobs as rules** (2026-11-26, `hand/troop_jobs.rs`): the
+job handlers' decisions and figures. Spice mining: a waiting troop works
+only in its own slot of the time of day (the time's low nibble its
+number's); its tally (word 0Eh) gains the rate, a skill point each 80h
+crossed; the harvest counted in tenths; the place's spice lowered by the
+rate plus its leftover over its worth (not below 0; the original's `div`
+faulting is left to the interpreter). Espionage: its times from skill 1
+((50h - it) / 2 and half that, signed); its report (the Harkonnens'
+strength there per its rate); found out past half its skill on a draw
+not below it. Bulb growing: the counter wrapping grows the bulbs (byte
+1Ah 10h). A wind-trap built when its assembly carries past FFh (byte 1Bh
+5 then). Irrigation: a step of skill 2 / 4, at least 1; on a carry 0Ch
+of water grows the place (radius up to 0Ch, byte 0Eh down 2 not below
+-52h), too little dries it up. Prospecting: its rate (worth x 16 over
+motivation + skill 0), the share done in hundredths, found once the time
+reaches it. Military training: an exercise counting down from FF40h -
+skill 1; a drill's countdown C8h, FAh, 12Ch or 190h (by the equipment)
+over twice the trainers' strength above its skill plus its motivation (at
+least 1Eh). The seven handlers in `hand/troops.rs` are their frame.
+Validate's run k reaches all 22 paths with chosen inputs (the place
+prospected, bit 40h, for a harvest not held; bit value 2 of byte 19h for
+irrigation), all shadow-equal.
+
+The new port shifted the random inputs `--call-each` gives every later
+entry (one random stream for all), and two ports met inputs no run gave
+them before: `rects_missing` (9C54h) and `lowest_record` (C835h), with
+random counts walking their lists over a whole segment (the stack
+included) for some 600000 and 440000 instructions through interrupts,
+came out with AX, CX different from the original. One cause was found
+and fixed (9C54h's lists may run over the stack, where the original
+reads what its loop pushed; the port's reads see its pending pushes now,
+and it reads the list's size again each round as the original does);
+the rest was not found. Both now leave such stretches to the
+interpreter (9C54h: one over 65536 instructions; C835h: more than 400h
+records), far beyond any list of the game. `CALL_EACH_TRACE=ENTRY`
+prints each harness call's registers to that entry.
+
 **Replacement assets (the HD art, the 3D talking heads).** The HD
 layer stays what it is: a follower of the driver's calls
 (`pc::gfx::GfxEvent`: each call's registers, the marks a room, a

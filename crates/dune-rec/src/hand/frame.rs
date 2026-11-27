@@ -554,6 +554,12 @@ pub fn skip_zero_words(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
 }
 
+/// The most records [`lowest_record`] looks through itself: the game's
+/// lists hold a few; a harness call over some 55000 (its words running
+/// over the whole segment, the stack included, through interrupts) once
+/// ended with CX one off the original's, cause not found.
+const LOWEST_RECORD_MOST: u16 = 0x400;
+
 /// `loc_0c835` (the map's at [2786h]): of the CX records pointed to by
 /// the words at SI (0: none), the one lowest down, by its bottom (word 4
 /// plus word 6; 7FFFh with bit 40h of its byte 0Ch): DX that bottom
@@ -561,8 +567,9 @@ pub fn skip_zero_words(m: &mut Machine, start: u16) -> Result<(), Bail> {
 pub fn lowest_record(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0xc835)?;
     let mut c = Ctx::new(m);
-    if c.reg(CX) == 0 {
-        // `loop` would go round 65536 times: left to the original.
+    if c.reg(CX) == 0 || c.reg(CX) > LOWEST_RECORD_MOST {
+        // `loop` would go round 65536 times, or thousands (only the call
+        // harness's random counts): left to the original.
         return Err(Bail);
     }
     c.run(start, 1)?;

@@ -6,6 +6,7 @@ use super::ui;
 use super::troop_day;
 use super::troop_work;
 use super::troop_moves;
+use super::troop_jobs;
 use super::harkonnen;
 use super::story;
 use super::gfx;
@@ -4950,11 +4951,13 @@ pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::TROOP_DAY_UPDATE, 0x6fe8)?;
     let troop = Troop(c.reg(SI));
     let w10 = troop.word_10(&mut c);
-    if w10 & 0x200 != 0 {
+    let (time, id) = (c.game_time(), troop.id(&mut c));
+    let slot = troop_jobs::harvest_slot(w10, time, id);
+    super::rule_paths::hit(c.m, "harvest: off its slot", slot == Some(false));
+    super::rule_paths::hit(c.m, "harvest: its slot", slot == Some(true));
+    if let Some(mine) = slot {
         // 705Ch: its slot of the time of day?
-        let (time, id) = (c.game_time(), troop.id(&mut c));
         let ax = ((id as u16) << 8 | time & 0xff) & 0x0f0f;
-        let mine = ax & 0xff == ax >> 8;
         if !mine {
             c.run(0x6fe8, 2 + 5 + 2 + 2)?;
             c.set_reg(AX, ax);
@@ -4973,6 +4976,7 @@ pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
         c.run(0x6fe8, 3)?;
         if troop_bit_10_set_by_state(&mut c, 0x6ff2)? {
             // 707Bh: held: no rate, nothing harvested.
+            super::rule_paths::hit(c.m, "harvest: held", true);
             c.run(0x6ff2, 2 + 4)?; // jae; jmp; 707Bh: mov; mov; or; ret
             match troop.record(&mut c) {
                 Some(mut r) => {
@@ -4996,9 +5000,9 @@ pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
     troop.set_word_10(&mut c, w10 | 0x100);
     let rate = production_rate(&mut c, 0x7002)?;
     let old = troop.word_0e(&mut c);
-    let total = old.wrapping_add(rate);
-    let crossed = (total ^ old) & 0xff80 != 0;
+    let (total, crossed) = troop_jobs::tally(old, rate);
     c.run(0x7002, 7 + if crossed { 3 } else { 0 })?;
+    super::rule_paths::hit(c.m, "harvest: skill point", crossed);
     c.push(rate);
     c.set_reg(DX, old);
     troop.set_word_0e(&mut c, total);
@@ -5010,27 +5014,26 @@ pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x7019, 9)?;
     let rate = c.pop();
     c.push(rate);
-    let n = rate.wrapping_add(c.word(SPICE_TENTHS));
+    let (whole, tenths) = troop_jobs::in_tenths(rate, c.word(SPICE_TENTHS));
     c.set_reg(CX, 0x0a);
-    c.set_reg(AX, n / 10);
-    c.set_reg(DX, n % 10);
-    c.set_word(SPICE_TENTHS, n % 10);
-    let all = c.economy().spice.wrapping_add(n / 10);
+    c.set_reg(AX, whole);
+    c.set_reg(DX, tenths);
+    c.set_word(SPICE_TENTHS, tenths);
+    let all = c.economy().spice.wrapping_add(whole);
     c.update_economy(|t| t.spice = all);
     let rate = c.pop();
     c.set_reg(AX, rate);
     // 702Fh: taken from the location.
     let place = Location(c.reg(DI));
-    let taken = rate.wrapping_add(place.harvest_left(&mut c) as u16);
     let per = place.harvest_per_spice(&mut c);
-    if per == 0 || taken / per as u16 > 0xff {
+    let spice = place.spice(&mut c);
+    let Some(t) = troop_jobs::taken(rate, place.harvest_left(&mut c), per, spice) else {
         c.m.cpu.ip = 0x702f; // the division faults: the interpreter's
         return Err(Bail);
-    }
-    let (q, r) = ((taken / per as u16) as u8, (taken % per as u16) as u8);
-    let spice = place.spice(&mut c);
+    };
+    let (q, r) = (t.spice_units, t.left);
     let low = spice & 0x0f;
-    let more = q > low;
+    let more = t.more_than_low;
     let place_view = c.map_view().mode & 0x40 != 0;
     let borrow = spice < q;
     c.run(0x702f, 4 + 5 + if more { 2 + place_view as u32 } else { 0 } + 2 + borrow as u32 + 1)?;
@@ -5041,8 +5044,9 @@ pub fn job_harvest(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let k = c.map_view().changes.wrapping_add(1);
         c.update_map_view(|t| t.changes = k);
     }
-    let left = pure::sub(B, spice as u16, q as u16) as u8; // the exit's flags
-    place.set_spice(&mut c, if borrow { 0 } else { left });
+    let _ = pure::sub(B, spice as u16, q as u16); // the exit's flags
+    super::rule_paths::hit(c.m, "harvest: place emptied", borrow);
+    place.set_spice(&mut c, t.spice);
     c.ret()
 }
 
@@ -5072,9 +5076,9 @@ pub fn job_espionage(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.run(0x72b0, 4)?;
     c.set_reg(BX, elapsed);
     if !done {
-        let half = ((0x50u8.wrapping_sub(skill) as i8 as i16) >> 1) as u16;
-        let quarter = ((half as i16) >> 1) as u16;
-        let due = (quarter as i16) < elapsed as i16;
+        let (half, quarter) = troop_jobs::spy_times(skill);
+        let due = troop_jobs::past(quarter, elapsed);
+        super::rule_paths::hit(c.m, "spy: due", due);
         c.run(0x72bd, 8)?;
         c.set_reg8(r8::AL, 0x50u8.wrapping_sub(skill));
         c.set_reg(BP, half);
@@ -5101,22 +5105,24 @@ pub fn job_espionage(m: &mut Machine, start: u16) -> Result<(), Bail> {
             }
             if counted {
                 // 72DFh: past h, its word 0Eh.
-                c.run(0x72df, if (half as i16) < elapsed as i16 { 4 } else { 2 })?;
-                if (half as i16) < elapsed as i16 {
+                let reports = troop_jobs::past(half, elapsed);
+                super::rule_paths::hit(c.m, "spy: report", reports);
+                c.run(0x72df, if reports { 4 } else { 2 })?;
+                if reports {
                     c.push(elapsed);
                     c.call(entry::MEASURE_PLACE_FORCES, 0x72e7)?;
                     let rate = troop.rate(&mut c);
                     let total = c.place_forces().harkonnen_strength;
-                    if rate == 0 {
+                    let Some(report) = troop_jobs::spy_report(total, rate) else {
                         c.m.cpu.ip = 0x72e7; // the division faults: the interpreter's
                         return Err(Bail);
-                    }
+                    };
                     c.run(0x72e7, 5)?;
                     let bx = c.pop();
                     c.set_reg(BX, bx);
-                    c.set_reg(AX, total / rate);
+                    c.set_reg(AX, report);
                     c.set_reg(DX, total % rate);
-                    troop.set_word_0e(&mut c, total / rate);
+                    troop.set_word_0e(&mut c, report);
                 } else {
                     return job_5_start(&mut c, troop, elapsed, skill);
                 }
@@ -5140,7 +5146,7 @@ fn job_5_start(c: &mut Ctx, troop: Troop, elapsed: u16, skill: u8) -> Result<(),
         return c.ret();
     }
     let half = (skill >> 1) as u16;
-    if half >= elapsed {
+    if troop_jobs::spy_found_out(skill, elapsed, || 0).is_none() {
         c.run(0x72f7, 3 + 6)?;
         c.set_reg(AX, half);
         c.cmp(W, half, elapsed);
@@ -5148,10 +5154,13 @@ fn job_5_start(c: &mut Ctx, troop: Troop, elapsed: u16, skill: u8) -> Result<(),
     }
     c.run(0x72f7, 3 + 6)?;
     let random = math::random_word(c, 0x730c)?;
+    let found_out = troop_jobs::spy_found_out(skill, elapsed, || random) == Some(true);
+    super::rule_paths::hit(c.m, "spy: found out", found_out);
+    super::rule_paths::hit(c.m, "spy: unseen", !found_out);
     let r = ((random as u8) & 0x3f) as u16;
     c.set_reg8(r8::AL, r as u8);
     c.cmp(B, r, skill as u16);
-    if r < skill as u16 {
+    if !found_out {
         c.run(0x730c, 4)?;
         return c.ret();
     }
@@ -5167,15 +5176,15 @@ pub fn job_bulb_growing(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let di = c.reg(DI);
     let v = Location(di).byte_1a(&mut c);
     if v == 0 {
-        let k = c.situation().job10_counter;
-        let wraps = k == 0xff;
+        let (k, wraps) = troop_jobs::bulb_count(c.situation().job10_counter);
         c.run(0x767d, 4 + if wraps { 3 } else { 1 })?;
-        let k = pure::inc(B, k as u16) as u8; // the flags of the exit (or the tail's)
+        super::rule_paths::hit(c.m, "bulbs: grown", wraps);
+        let _ = pure::inc(B, k.wrapping_sub(1) as u16); // the flags of the exit (or the tail's)
         c.update_situation(|t| t.job10_counter = k);
         if !wraps {
             return c.ret();
         }
-        Location(di).set_byte_1a(&mut c, 0x10);
+        Location(di).set_byte_1a(&mut c, troop_jobs::BULBS_GROWN);
     } else {
         c.run(0x767d, 4)?;
     }
@@ -5203,9 +5212,10 @@ pub fn job_wind_trap_assembly(m: &mut Machine, start: u16) -> Result<(), Bail> {
     c.call(entry::TROOP_STRENGTH, 0x771f)?;
     let al = c.reg8(r8::AL);
     let v = Location(di).water(&mut c);
-    let carry = v as u16 + al as u16 > 0xff;
+    let (r, carry) = troop_jobs::assembled(v, al);
     c.run(0x771f, if carry { 6 } else { 3 })?;
-    let r = pure::add(B, v as u16, al as u16) as u8; // the exit's flags
+    super::rule_paths::hit(c.m, "wind-trap: built", carry);
+    let _ = pure::add(B, v as u16, al as u16); // the exit's flags
     Location(di).set_water(&mut c, r);
     if !carry {
         return c.ret();
@@ -5215,7 +5225,7 @@ pub fn job_wind_trap_assembly(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let b = Location(di).kind(&mut c);
     let b = pure::or(B, b as u16, 8) as u8; // the flags the tail gets
     Location(di).set_kind(&mut c, b);
-    Location(di).set_water(&mut c, 5);
+    Location(di).set_water(&mut c, troop_jobs::WIND_TRAP_START);
     c.jump(entry::SET_TROOP_ACTIVITY)
 }
 
@@ -5245,6 +5255,7 @@ pub fn job_irrigation(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     let di = c.reg(DI);
     let a = Location(di).flags(&mut c);
+    super::rule_paths::hit(c.m, "irrigation: place started", a & location_flag::STARTED == 0);
     if a & location_flag::STARTED == 0 {
         c.run(0x769c, 1 + 4 + 9)?;
         c.set_byte(g::TROOPS_TICK_RECHECK, 0xff);
@@ -5266,10 +5277,7 @@ pub fn job_irrigation(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let w = troop.word_10(&mut c);
     troop.set_word_10(&mut c, w | 0x100);
     c.call(entry::TROOP_DAY_UPDATE, 0x76ce)?;
-    let step = match troop.skill(&mut c, 2) >> 2 {
-        0 => 1,
-        k => k,
-    };
+    let step = troop_jobs::irrigation_step(troop.skill(&mut c, 2));
     let f = c.byte(di.wrapping_add(0x0f));
     let carry = f as u16 + step as u16 > 0xff;
     let zero = troop.skill(&mut c, 2) >> 2 == 0;
@@ -5283,25 +5291,26 @@ pub fn job_irrigation(m: &mut Machine, start: u16) -> Result<(), Bail> {
     }
     raise_skill(&mut c, 2, 1, 0x76e5)?;
     let e = Location(di).water(&mut c);
-    if e < 0x0c {
+    let b = Location(di).radius(&mut c);
+    let ax = c.word(di.wrapping_add(0x0e));
+    let grown = troop_jobs::irrigated(e, b, ax as u8);
+    super::rule_paths::hit(c.m, "irrigation: dried up", grown == troop_jobs::Irrigated::DriedUp);
+    super::rule_paths::hit(c.m, "irrigation: grows", grown != troop_jobs::Irrigated::DriedUp);
+    let troop_jobs::Irrigated::Grows { water, radius, byte_0e, ax } = grown else {
         c.run(0x76e5, 2 + 2)?;
         Location(di).set_water(&mut c, 0);
         c.call(entry::MARK_TROOP_10, 0x770e)?;
         c.run(0x770e, 1)?;
         return c.jump(entry::DROP_TROOP_PARTICLE);
-    }
-    let b = Location(di).radius(&mut c);
-    let ax = c.word(di.wrapping_add(0x0e));
-    let ax = ((ax as u8 as i8) as i16 as u16).wrapping_sub(2);
-    let keep = (ax as i16) < -0x52;
-    c.run(0x76e5, 2 + 2 + (b < 0x0c) as u32 + 5 + (!keep) as u32 + 1)?;
-    Location(di).set_water(&mut c, e - 0x0c);
-    if b < 0x0c {
-        Location(di).set_radius(&mut c, b + 1);
+    };
+    c.run(0x76e5, 2 + 2 + (b < troop_jobs::MAX_RADIUS) as u32 + 5 + byte_0e.is_some() as u32 + 1)?;
+    Location(di).set_water(&mut c, water);
+    if radius != b {
+        Location(di).set_radius(&mut c, radius);
     }
     c.set_reg(AX, ax);
-    if !keep {
-        c.set_byte(di.wrapping_add(0x0e), ax as u8);
+    if let Some(v) = byte_0e {
+        c.set_byte(di.wrapping_add(0x0e), v);
     }
     c.call(entry::START_MOVE, 0x7706)?;
     c.run(0x7706, 1)?;
@@ -5338,17 +5347,19 @@ pub fn job_spice_prospecting(m: &mut Machine, start: u16) -> Result<(), Bail> {
         }
         let mut rate = troop.rate(&mut c);
         if rate == 0 {
-            let v = (Location(di).harvest_per_spice(&mut c) as u16) << 4;
+            let per = Location(di).harvest_per_spice(&mut c);
+            let v = (per as u16) << 4;
             let cl = troop.motivation(&mut c).wrapping_add(troop.skill(&mut c, 0));
-            if cl == 0 || v / cl as u16 > 0xff {
+            let Some(r) = troop_jobs::prospect_rate(per, troop.motivation(&mut c), troop.skill(&mut c, 0)) else {
                 c.run(0x70da, 4 + 5)?;
                 c.set_reg(AX, v);
                 c.set_reg(CX, c.reg(CX) & 0xff00 | cl as u16);
                 c.m.cpu.ip = 0x70f0; // the division faults: the interpreter's
                 return Err(Bail);
-            }
+            };
             c.run(0x70da, 4 + 8)?;
-            rate = v / cl as u16;
+            super::rule_paths::hit(c.m, "prospect: rate set", true);
+            rate = r;
             c.set_reg(CX, c.reg(CX) & 0xff00 | cl as u16);
             troop.set_rate(&mut c, rate);
         } else {
@@ -5357,7 +5368,10 @@ pub fn job_spice_prospecting(m: &mut Machine, start: u16) -> Result<(), Bail> {
         // 70F7h: the share done, or the job's end.
         let elapsed = c.game_time().wrapping_sub(troop.changed_at(&mut c));
         c.set_reg(AX, rate);
-        if rate > elapsed {
+        let share = troop_jobs::prospect_share(rate, elapsed);
+        super::rule_paths::hit(c.m, "prospect: under way", share.is_some());
+        super::rule_paths::hit(c.m, "prospect: found", share.is_none());
+        if let Some(share) = share {
             c.run(0x70f7, 4 + if elapsed == 0 { 2 } else { 7 })?;
             c.set_reg(CX, elapsed);
             if elapsed == 0 {
@@ -5367,9 +5381,10 @@ pub fn job_spice_prospecting(m: &mut Machine, start: u16) -> Result<(), Bail> {
             c.set_reg(AX, elapsed);
             c.mul16(0x64); // the exit's flags (the `div` keeps them)
             let n = (c.reg(DX) as u32) << 16 | c.reg(AX) as u32;
-            c.set_reg(AX, (n / rate as u32) as u16);
+            debug_assert_eq!(share as u32, n / rate as u32);
+            c.set_reg(AX, share);
             c.set_reg(DX, (n % rate as u32) as u16);
-            troop.set_word_0e(&mut c, (n / rate as u32) as u16);
+            troop.set_word_0e(&mut c, share);
             return c.ret();
         }
         c.run(0x70f7, 4 + 3)?;
@@ -5403,6 +5418,7 @@ pub fn job_spice_prospecting(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let setting_out = c.word(g::FOLLOWED_TROOP_PLACE);
+    super::rule_paths::hit(c.m, "prospect: sets out", setting_out != 0);
     if setting_out != 0 {
         c.run(0x712d, 7)?;
         troop.set_word_0e(&mut c, 0x64);
@@ -5449,8 +5465,10 @@ pub fn job_military_training(m: &mut Machine, start: u16) -> Result<(), Bail> {
         let w = troop.word_0e(&mut c);
         let on = w >> 8 == 0xff;
         let s1 = troop.skill(&mut c, 1);
-        let ax = if on { w } else { 0xff00 | 0x40u8.wrapping_sub(s1) as u16 };
-        let over = (ax as u8).wrapping_sub(1) & 0x80 != 0;
+        let (next, over) = troop_jobs::exercise(w, s1);
+        super::rule_paths::hit(c.m, "training: exercise", !over);
+        super::rule_paths::hit(c.m, "training: exercise over", over);
+        let ax = next.wrapping_add(1) & 0xff | next & 0xff00;
         c.run(0x71f2, 3 + 3 + if on { 0 } else { 2 } + 2 + if over { 1 } else { 2 })?;
         let w10 = troop.word_10(&mut c);
         troop.set_word_10(&mut c, w10 & 0xfdff);
@@ -5474,6 +5492,7 @@ pub fn job_military_training(m: &mut Machine, start: u16) -> Result<(), Bail> {
         return c.ret();
     }
     let n = troop.rate(&mut c).wrapping_sub(1);
+    super::rule_paths::hit(c.m, "training: countdown", n & 0x8000 == 0);
     if n & 0x8000 == 0 {
         c.run(0x71f2, 3 + 3)?;
         let w10 = troop.word_10(&mut c);
@@ -5517,28 +5536,22 @@ pub fn job_military_training(m: &mut Machine, start: u16) -> Result<(), Bail> {
     let s1 = troop.skill(&mut c, 1);
     let below = (ax as u8) < s1;
     c.run(0x721b, 3 + below as u32 + 3)?;
-    let cx = (ax as u8).saturating_sub(s1) as u16 * 2;
+    let cx = troop_jobs::drill_gain(ax as u8, s1);
     c.set_reg(AX, cx);
     c.set_reg(CX, cx);
     let al = effective_motivation(&mut c, 0x722b)?;
     // 722Bh: plus the motivation (at least 1Eh); the base by byte 19h.
-    let m = al.max(0x1e) as u16;
+    let m = al.max(troop_jobs::DRILL_MOTIVATION) as u16;
     let bl = troop.equipment(&mut c);
-    let (base, chain) = if bl & 0x0c != 0 {
-        (0xc8u16, 0)
-    } else if bl & 0x10 != 0 {
-        (0xfa, 3)
-    } else if bl & 0x20 != 0 {
-        (0x12c, 6)
-    } else {
-        (0x190, 7)
-    };
+    let (base, chain) = troop_jobs::drill_base(bl);
     let d = cx + m;
-    c.run(0x722b, 3 + (al < 0x1e) as u32 + 5 + chain + 5 + 1)?;
+    c.run(0x722b, 3 + (al < troop_jobs::DRILL_MOTIVATION) as u32 + 5 + chain + 5 + 1)?;
+    super::rule_paths::hit(c.m, "training: new drill", true);
+    let countdown = troop_jobs::drill_countdown(bl, cx, al);
     c.set_reg(CX, d);
-    c.set_reg(AX, base / d);
+    c.set_reg(AX, countdown);
     c.set_reg(DX, base % d);
-    troop.set_rate(&mut c, base / d);
+    troop.set_rate(&mut c, countdown);
     // 7259h: BX 1, then 6EDBh: AL 1, `add_skill`.
     c.set_reg(BX, 1);
     c.set_reg8(r8::AL, 1);

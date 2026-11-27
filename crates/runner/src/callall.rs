@@ -164,6 +164,15 @@ pub fn run(m: &mut Machine, main_loop: u16, entries: &[u16], samples: u32, call_
             let a = (ss as usize * 16 + sp as usize) & 0xf_ffff;
             m.hw.mem[a..a + 2].copy_from_slice(&main_loop.to_le_bytes());
             m.cpu.ip = entry;
+            // CALL_EACH_TRACE=HEX: the registers of each call to that entry.
+            if std::env::var("CALL_EACH_TRACE").ok().and_then(|v| u16::from_str_radix(&v, 16).ok()) == Some(entry) {
+                let r = &m.cpu.regs;
+                println!(
+                    "call-each {entry:04x} #{k}: AX {:04x} BX {:04x} CX {:04x} DX {:04x} SI {:04x} DI {:04x} BP {:04x} SP {:04x} DS {:04x} ES {:04x} SS {:04x}",
+                    r[cpu::AX], r[cpu::BX], r[cpu::CX], r[cpu::DX], r[cpu::SI], r[cpu::DI], r[cpu::BP], r[cpu::SP],
+                    m.cpu.sregs[cpu::DS], m.cpu.sregs[cpu::ES], m.cpu.sregs[cpu::SS]
+                );
+            }
             m.rec_check_here();
             m.break_at = Some((LOAD_SEG, main_loop));
             let r = m.run_until(m.now_ns() + call_ns);

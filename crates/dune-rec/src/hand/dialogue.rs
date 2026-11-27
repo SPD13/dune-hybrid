@@ -2124,14 +2124,36 @@ fn rects_missing_at(c: &mut Ctx, start: u16) -> Result<(), Bail> {
     // The stretch's pushes (`Some`) and pops (`None`), done after its
     // `run`.
     let mut stacked: Vec<Option<u16>> = Vec::new();
+    // What those pushes wrote (linear address, byte; a pop leaves them):
+    // the lists may run over the stack, and the original reads them there.
+    let ss = c.sreg(SS);
+    let mut sp = c.reg(SP);
+    let mut pushed: Vec<(u32, u8)> = Vec::new();
+    let lin = |seg: u16, off: u16| ((seg as u32) << 4).wrapping_add(off as u32) & 0xf_ffff;
+    let read = |c: &mut Ctx, pushed: &[(u32, u8)], seg: usize, off: u16| -> u8 {
+        let a = lin(c.sreg(seg), off);
+        pushed.iter().rev().find(|p| p.0 == a).map_or_else(|| c.byte_in(seg, off), |p| p.1)
+    };
     let (mut di, mut ax) = (list, c.reg(AX));
     for left in (1..=count).rev() {
         cost += 4;
+        // `push cx; push di`, then the list's size read again.
+        for v in [left, list] {
+            sp = sp.wrapping_sub(2);
+            pushed.push((lin(ss, sp), v as u8));
+            pushed.push((lin(ss, sp.wrapping_add(1)), (v >> 8) as u8));
+        }
+        let size = read(c, &pushed, ES, list) as u16 | (read(c, &pushed, ES, list.wrapping_add(1)) as u16) << 8;
+        if size == 0 {
+            // `loop` from 0 would go 65536 times: left to the interpreter.
+            c.m.cpu.ip = from;
+            return Err(Bail);
+        }
         di = list.wrapping_add(2);
         let mut found = false;
         for _ in 0..size {
-            let [a0, a1, a2] = [0u16, 1, 2].map(|i| c.byte(si.wrapping_add(i)));
-            let [b0, b1, b2] = [0u16, 1, 2].map(|i| c.byte_in(ES, di.wrapping_add(i)));
+            let [a0, a1, a2] = [0u16, 1, 2].map(|i| read(c, &pushed, DS, si.wrapping_add(i)));
+            let [b0, b1, b2] = [0u16, 1, 2].map(|i| read(c, &pushed, ES, di.wrapping_add(i)));
             let word_flags = pure::lahf_cmp(W, (a1 as u16) << 8 | a0 as u16, (b1 as u16) << 8 | b0 as u16);
             let byte_flags = pure::lahf_cmp(B, a2 as u16, b2 as u16);
             ax = (byte_flags as u16) << 8 | (word_flags & byte_flags) as u16;
@@ -2144,10 +2166,16 @@ fn rects_missing_at(c: &mut Ctx, start: u16) -> Result<(), Bail> {
             }
             cost += 2;
         }
+        if cost > LONGEST_STRETCH {
+            // Lists of thousands of entries (only the call harness's
+            // random pointers make them): left to the interpreter.
+            c.m.cpu.ip = from;
+            return Err(Bail);
+        }
         if !found {
             // Missing: the rect grown by it.
             cost += 1;
-            c.run(from, cost)?;
+                    c.run(from, cost)?;
             replay_stack(c, &stacked);
             stacked.clear();
             c.push(left);
@@ -2161,8 +2189,12 @@ fn rects_missing_at(c: &mut Ctx, start: u16) -> Result<(), Bail> {
             ax = c.reg(AX);
             (from, cost) = (0x9c72, 1);
             stacked.extend([None, None]);
+            // The pushes are in memory now.
+            pushed.clear();
+            sp = c.reg(SP).wrapping_add(4);
         } else {
             stacked.extend([Some(left), Some(list), None, None]);
+            sp = sp.wrapping_add(4);
         }
         cost += 3;
         di = list;
@@ -2175,6 +2207,12 @@ fn rects_missing_at(c: &mut Ctx, start: u16) -> Result<(), Bail> {
     c.set_reg(AX, ax);
     rects_tail(c)
 }
+
+/// The longest stretch [`rects_missing_at`] runs itself (instructions):
+/// the game's lists take a few dozen; a stretch of some 600000 through
+/// interrupts (a harness call's list over the video memory) once came out
+/// different from the original, cause not found.
+const LONGEST_STRETCH: u32 = 0x10000;
 
 /// The pushes and pops a stretch of [`rects_missing_at`] made, in order.
 fn replay_stack(c: &mut Ctx, stacked: &[Option<u16>]) {
