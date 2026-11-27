@@ -1788,6 +1788,37 @@ first step, the rooms walked into and the talks the monkey input starts
 the player's place), the globe's view in the latitude table's other
 words. No difference points at a rule the time step lacks.
 
+**The simulator without the emulator** (2026-11-27, `hand/native_sim.rs`,
+`crates/runner/src/simfile.rs`): `dune-run --dir GAME --save FILE
+--sim-only STEPS --out DIR` builds the world from the game's files and
+the save alone, advances it STEPS clock steps by the native rules (each
+the clock's step, the time step, 30 main-loop draws of the random bits),
+and writes `DIR/saves/DUNE37S9.SAV`. The world's parts the save lacks
+come from what the game's start sets up (`initialize_resources`, 00D1h,
+and the code before it): resource numbers to names through the table at
+DS:31FFh of DNCDPRG.EXE (unpacked; DS F4Bh paragraphs into its image);
+the latitude table from TABLAT.BIN (BAh, its words byte-swapped), the
+steps' scales computed from it; the map's cells from MAP.HSQ (BFh, C5F9h
+bytes) with the save's states in bits 4..5 and each place's cell (its
+word 6) marked with bit 40h (the start-up code at 0192h); the rows' base
+[0DCFEh] 62FCh; the growth seed from the code (CS:65B4h). The random
+seeds start at 0 (the save doesn't keep them).
+
+The runner's event `T:simcheck` compares that world with the machine's
+just after the game loaded the same save: from the day 23 save, all
+equal but what the save doesn't hold (the seeds, the time step's scratch
+bytes set where used), two bytes the game changes on entering the room,
+and the 3 bytes past the map. The event `T:sim:STEPS[:FRAMES]` runs the
+simulator from the machine's world in a run, `load:9` loads its save.
+
+From the day 23 save, 2000 steps (day 22 to 147) take 0.01 s. The game
+loads the written save (the date 148), its next time steps equal to the
+rules', and then ends the game: the Emperor's demands went unanswered for
+four months ("my Sardaukars terror troops took control of the planet").
+A simulated week's save loads the same way. The world's layout lost an
+overlap on the way: the steps' scales (DS:4880h) are 63h words, not 300h
+bytes running into the latitude table (DS:4948h, 318h bytes).
+
 ## Tools in place
 
 | Tool | What it checks |

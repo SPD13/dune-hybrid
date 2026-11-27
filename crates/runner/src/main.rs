@@ -38,6 +38,7 @@
 mod callall;
 mod gfxcheck;
 mod rooms;
+mod simfile;
 
 use std::{cell::RefCell, fs, path::PathBuf, process::ExitCode, rc::Rc};
 
@@ -63,6 +64,10 @@ struct Args {
     /// `--save FILE`: a save copied in as `<out>/saves/DUNE37S1.SAV` (the
     /// event `load:1` loads it).
     save: Option<PathBuf>,
+    /// `--sim-only STEPS`: the simulator without the emulator: the
+    /// world from the game's files and `--save`, STEPS clock steps by
+    /// the native rules, the save written to `<out>/saves/DUNE37S9.SAV`.
+    sim_only: Option<u32>,
     /// Follow the drawing with the reference HD compositor at this scale.
     hd: Option<usize>,
     /// Also write HD screenshots.
@@ -121,6 +126,7 @@ fn parse() -> Result<Args, String> {
         gfx_trace: None,
         snapshot: None,
         save: None,
+        sim_only: None,
         hd: None,
         hd_shots: false,
         hd_pack: None,
@@ -150,6 +156,7 @@ fn parse() -> Result<Args, String> {
             "--gfx-trace" => a.gfx_trace = Some(v()?.into()),
             "--snapshot" => a.snapshot = Some(v()?.into()),
             "--save" => a.save = Some(v()?.into()),
+            "--sim-only" => a.sim_only = Some(v()?.parse().map_err(|e| format!("{e}"))?),
             "--hd" => a.hd = Some(v()?.parse().map_err(|e| format!("{e}"))?),
             "--hd-shots" => a.hd_shots = true,
             "--hd-pack" => a.hd_pack = Some(v()?.into()),
@@ -524,6 +531,42 @@ fn write_wav(path: &PathBuf, samples: &[f32]) {
     fs::write(path, d).unwrap();
 }
 
+/// `--sim-only`: see [`Args::sim_only`].
+fn sim_only(args: &Args, steps: u32) -> ExitCode {
+    let Some(save) = &args.save else {
+        eprintln!("--sim-only needs --save FILE");
+        return ExitCode::FAILURE;
+    };
+    let w = match fs::read(save).map_err(|e| format!("{}: {e}", save.display())).and_then(|b| simfile::world(&args.dir, &b)) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let t0 = w.time();
+    let start = std::time::Instant::now();
+    let run = dune_rec::hand::native_sim::run(w, steps, 30);
+    let e = &run.world;
+    let out = args.out.join("saves");
+    fs::create_dir_all(&out).unwrap();
+    fs::write(out.join("DUNE37S9.SAV"), dune_rec::hand::native_sim::save_image(e).to_file()).unwrap();
+    println!(
+        "native sim run (no emulator): {} of {steps} steps from time {t0:04x} (day {}) to {:04x} (day {}){} in {:.2} s; spice {}, our army {}, the Harkonnens' {}; written as {}",
+        run.steps,
+        t0 >> 4,
+        e.time(),
+        e.time() >> 4,
+        run.stopped.map_or(String::new(), |w| format!(", stopped: {w}")),
+        start.elapsed().as_secs_f64(),
+        e.word(0xa0),
+        e.word(0xaa),
+        e.word(0xac),
+        out.join("DUNE37S9.SAV").display(),
+    );
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
     let args = match parse() {
         Ok(a) => a,
@@ -532,6 +575,9 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if let Some(steps) = args.sim_only {
+        return sim_only(&args, steps);
+    }
     #[cfg(not(feature = "interp"))]
     if !(args.rec == Some(pc::rec::RecMode::On) && args.rec_native) {
         eprintln!("built without the interpreter: only --rec native runs");
@@ -746,6 +792,19 @@ fn main() -> ExitCode {
                     if let Some(r2) = enter_load(&mut m, slot, ev[0] == "save") {
                         r = r2;
                         break;
+                    }
+                }
+                "simcheck" => {
+                    // The world from the files and the `--save` file
+                    // against the machine's (just after the game loaded
+                    // that save).
+                    let b = fs::read(args.save.as_ref().expect("simcheck needs --save")).unwrap();
+                    match simfile::world(&args.dir, &b) {
+                        Ok(w) => {
+                            let d = w.differences(&dune_rec::hand::world::World::from_machine(&m), 40);
+                            println!("simcheck: the world from the files vs the machine's: {} differences{}{}", d.len(), if d.is_empty() { "" } else { ": " }, d.join("; "));
+                        }
+                        Err(e) => println!("simcheck: {e}"),
                     }
                 }
                 "sim" => {

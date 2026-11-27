@@ -294,7 +294,7 @@ fn step(w: &mut World, t: u16) -> Option<(u16, u16)> {
     let (tx, ty) = (w.word(t + X), w.word(t + Y));
     let row = ty.wrapping_shl(1);
     let row = if row & 0x8000 != 0 { row.wrapping_neg() } else { row };
-    if row >= 0x300 {
+    if row >= 0xc6 {
         return super::world::nm("a step's row past the table");
     }
     let scale = w.word(SCALES + row);
