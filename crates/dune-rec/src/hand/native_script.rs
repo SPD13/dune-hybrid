@@ -556,13 +556,17 @@ fn say_sentence(w: &mut World, n: u16) -> Option<bool> {
     Some(said)
 }
 
-/// `loc_096f1`: speaker `n` says its sentence `n` (the troop told about,
-/// 0Eh, not modelled). Whether it said a line.
+/// `loc_096f1`: speaker `n` says its sentence `n` (for the troop told
+/// about, 0Eh, the troop [4756h] described first, `loc_031f6`). Whether
+/// it said a line.
 pub fn say_numbered(w: &mut World, n: u16) -> Option<bool> {
     w.set_word(conv::TALKER, n);
-    if n & 0xff == 0x0e {
-        return nm("the troop told about");
-    }
+    let n = if n & 0xff == 0x0e {
+        describe_troop(w, w.word(g::CHARACTER_14_TROOP))?;
+        0x0e
+    } else {
+        n
+    };
     say_sentence(w, n)
 }
 
