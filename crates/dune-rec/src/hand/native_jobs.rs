@@ -103,9 +103,29 @@ fn job_check(w: &mut World, t: u16) -> bool {
 /// `loc_06ad4`: the troop takes job `job` ([`troop_moves::job_given`]):
 /// its state the job, bits 30h of byte 12h and 100h of word 10h cleared,
 /// 100h again unless its job check holds it, stamped, its activity
-/// marked in word 12h ([`troop_moves::activity_mark`]). (The orders menu
-/// redrawn for the troop shown is display.)
+/// marked in word 12h ([`troop_moves::activity_mark`]). For the troop
+/// shown ([1954h]) its orders menu (`loc_07847`; its items are display):
+/// the place's spare equipment noted (`loc_07f27`) for a troop not held
+/// (word 12h bit 400h), not awaiting orders, from phase 4, without bit
+/// 200h of word 10h, at a place taken or of kind below 28h.
 pub fn set_job(w: &mut World, t: u16, job: u8) {
+    set_job_only(w, t, job);
+    if w.byte(t + troop::ID) == w.byte(0x1954) {
+        let p = w.word(t + troop::LOCATION);
+        let state = w.byte(t + troop::STATE);
+        let held = w.word(t + troop::WORD_12) & 0x400 != 0;
+        let taken = w.byte(p + super::world::place::FLAGS) & super::game::location_flag::RAIDED != 0;
+        let stop = state & 0x0f == 2
+            || w.get::<super::progress::Progress>().phase < 4
+            || w.word(t + troop::WORD_10) & 0x200 != 0
+            || (!taken && w.byte(p + super::world::place::KIND) >= 0x28);
+        if !held && !stop {
+            let _ = super::native_moves::spare_check(w, p);
+        }
+    }
+}
+
+fn set_job_only(w: &mut World, t: u16, job: u8) {
     let at = w.word(t + troop::LOCATION);
     let given = troop_moves::job_given(job, at, || w.byte(at + field::BYTE_1A));
     w.set_byte(t + troop::STATE, given);
