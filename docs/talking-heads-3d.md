@@ -631,18 +631,32 @@ Started 2026-11-27. Everything is in `tripo/anim/`; the videos and the frames ar
 - **Cost:** 2.6 ms a frame at 2640 x 1254 on the RTX 5070.
 - It is a new flight over new dunes, not the path of the original. Nothing of it is in the engine.
 
-**The scenes** (`?scene=`), each after its original clip:
+**The scenes are built as the game's videos are** (the user, 2026-11-27: build the MTG flights and take the clips from them). A **course** is one world and one flight through it; a clip is a stretch of a course (`?scene=`: its course, where it starts, how long it lasts):
 
-| Scene | Clip | What it shows |
+| Course | The flight | Its stretches |
 |---|---|---|
-| `dunes` | `DFL2` | the dunes |
-| `mnt1` | `MNT1` | the dunes, the mountains far ahead (the rock zone begins 2.6 km on) |
-| `mnt2` | `MNT2` | dunes, the arch seen from more than a kilometre, under it at about 10 s, into the rocks |
-| `mnt3` | `MNT3` | among the rocks |
-| `mnt4` | `MNT4` | out of the rocks, back over the dunes |
-| `palace` | `PALACE` | over the dunes from the left, one long turn onto the palace's axis, between its four hawk statues, slowing, settling before the stairs (12.6 s) |
-| `sietch` | `SIET` | the rock comes into view over the dunes, the flight goes round to face the cave's mouth (10.5 s) |
-| `fort` | `FORT` | over the last dunes to the fortress (3.1 s) |
+| `mtg3` (`MTG3`, 28.8 s) | over the dunes, the canyon far ahead on the horizon | `mnt1` (`MNT1`): 0 to 14.4 s |
+| `mtg1` (`MTG1`, 26.8 s) | over the dunes for 12.96 s, then off the line and to the palace, the canyon far behind it | `palace` (`PALACE`): from 14.72 s |
+| `mtg2` (`MTG2`, 40.48 s) | dunes, under the arch at 10 s, the canyon to about 21 s, dunes, and from 29.92 s to the sietch | `mnt2` (`MNT2`): 0 to 15.2 s; `mnt4` (`MNT4`): 15.2 to 25.12 s; `sietch` (`SIET`): from 29.92 s |
+| `fort` (`FORT`, 3.12 s) | to the fortress | |
+| `dunes` (`DFL2`) | the dunes, without end | |
+| `mnt3` (`MNT3`) | in the canyon, without end | |
+
+In the tab the clips of one course share one frame of the page: `MNT2`, `MNT4`, `SIET` and `MTG2` are the same world, shown from different seconds.
+
+**Landing** (the user, 2026-11-27: the fortress had no time to land). The arrival at the fortress takes 5.12 s, two more than its video, and the palace's 14.84 s, one more: the remake runs on past the video's last frame (`tail` in `REMADE`; the video waits on its last frame). The craft comes down to 4 m above the ground as it comes to rest.
+
+**The arrival joins the flight without a break.** Where the flight is at `th` it leaves its line on a curve to the place, and the place stands where that puts it. The craft slows evenly from the flight's own speed to rest (the way travelled is L (1 - (1 - u)^2) over the arrival's T seconds: its speed falls in a straight line; with a smaller power it kept its speed and stopped short at the end), so the curve must be 130 T / 2 m long: each place's shape of way (`PLACES.way`) is made larger or smaller about its end until it is (965 m for the palace). One function gives the craft's place and attitude for the whole course (`where`, `place`, `attitude`): measured on `mtg1`, the speed is the flight's 130 m a second at the join and falls from there, and the direction of the look never steps more than 0.2 degrees in a fiftieth of a second.
+
+**The three MTG videos are the flight clips joined end to end** (found 2026-11-27 by matching each of their frames with the frames of the clips), in one daytime palette of their own:
+
+| Video | Frames | What it is |
+|---|---|---|
+| `MTG1` (26.8 s) | 0-161, 162-334 | `MNT1` from its frame 18; then 22 frames of dunes and `PALACE` to its frame 150 |
+| `MTG2` (40.5 s) | 0-189, 190-313, 314-373, 374-505 | `MNT2` whole; `MNT4` whole; the first 60 frames of `MNT1`; `SIET` whole |
+| `MTG3` (28.8 s) | 0-179, 180-359 | `MNT1` twice |
+
+The clips themselves begin on the same frames of dunes (`MNT2` 0-21, `PALACE` 0-13, `SIET` 0-4 and stretches of `MNT1` are the same pictures), which is why they join without a visible cut. Where the game plays the MTG videos was not looked for.
 
 **The rocks.** A zone along the flight (`ZONE`: where it is entered and left, the length over which the mountains rise). In it the height function is rock, a canyon: low hills on the flight's line, walls of 50 to 150 m rising from 55 m beside it, mesas to 360 m over them where a slow noise is high, all cut into ledges every 38 m. The shader gives rock two pictures made by Meshy's text-to-image (nano-banana-pro, 9 credits each; `models/cliff.jpg`, a cliff face of level strata, on the steep sides; `models/slab.jpg`, cracked bedrock, on level ground), each at a large size and again at a small one for the near view, mirrored when repeated so they join. They only colour the rock: a relief taken from their brightness from one pixel to the next glittered on the lit faces and was taken out. Sand lies in drifts on the rock's gentle ground. The sun is turned behind the flight and raised in these scenes, or the ground between the mesas is all in shadow.
 
@@ -669,5 +683,5 @@ Started 2026-11-27. Everything is in `tripo/anim/`; the videos and the frames ar
 - Not seen in motion by the one who wrote it: judged from single pictures and scripted checks.
 - The dunes cast no shadow on the models. The palace is paler and greyer than our HD view's stone, and Meshy put two figures between its towers.
 - The rock ground is soft seen from close; the mesas are one function, so they look alike.
-- `MTG1` to `MTG3`: not remade. The sietch's two boulders are not there.
+- The sietch's two boulders are not there. `MNT3` (the canyon without end) is a course of its own: the video joins `MNT2` straight to `MNT4`, so it is in no MTG flight.
 - How a remake is stored and played by the engine is open, and so is how the engine chooses a video from the ground ahead (`loc_04e8e`).
