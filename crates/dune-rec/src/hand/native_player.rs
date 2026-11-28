@@ -11,6 +11,8 @@
 //!   `loc_084a6`);
 //! - `recruit TROOP`: troop TROOP joins you (`loc_066ce`, its leader
 //!   talked to at its sietch: the script vouches for the visit);
+//! - `equip TROOP KIND`: troop TROOP takes a piece of kind KIND (0..6)
+//!   of its place's spare equipment (`loc_077d7`);
 //! - `buy`: from the smuggler met (character 0Dh's), the next item it
 //!   has offered (`loc_02388`) and bought on credit (`loc_023e6`), into
 //!   the player's place's equipment (the script vouches for the visit).
@@ -29,6 +31,7 @@ pub enum Action {
     Go(u8, u16),
     Recruit(u8),
     Buy,
+    Equip(u8, u16),
 }
 
 /// A script's line: on day `day` (counted from 0, the time / 16), `action`.
@@ -56,7 +59,8 @@ pub fn parse(text: &str) -> Result<Vec<Timed>, String> {
             (Some("go"), 4) => Action::Go(num(f[2])? as u8, u16::from_str_radix(f[3], 16).map_err(|_| err("a place (hex)"))?),
             (Some("recruit"), 3) => Action::Recruit(num(f[2])? as u8),
             (Some("buy"), 2) => Action::Buy,
-            _ => return Err(err("an action (ship, job, go, recruit, buy)")),
+            (Some("equip"), 4) => Action::Equip(num(f[2])? as u8, num(f[3])?),
+            _ => return Err(err("an action (ship, job, go, recruit, buy, equip)")),
         };
         out.push(Timed { day, action });
     }
@@ -73,6 +77,7 @@ pub fn act(w: &mut World, a: &Action) -> Option<()> {
         Action::Job(n, job) => super::native_script::order_job(w, super::native_troops::troop_number(n), job),
         Action::Go(n, place) => super::native_moves::set_out(w, super::native_troops::troop_number(n), place),
         Action::Recruit(n) => troop_joins(w, super::native_troops::troop_number(n)),
+        Action::Equip(n, kind) => take_equipment(w, super::native_troops::troop_number(n), kind).map(|_| ()),
         Action::Buy => {
             if open_deal(w)? {
                 buy_on_credit(w);
@@ -241,4 +246,32 @@ pub fn buy_on_credit(w: &mut World) {
     w.set_byte(s, w.byte(s).wrapping_sub(1));
     let at = i.wrapping_add(w.word(g::PLACE)).wrapping_add(0x14);
     w.set_byte(at, w.byte(at).wrapping_add(1));
+}
+
+/// `loc_077d7`: the troop `t` takes equipment of kind `kind` at its place
+/// when the place's spare of it (`loc_07f27`) is at least 1 (2 for kind 1
+/// at the last place): the equipment it had noted for the troop talked
+/// about, the kind's bit (80h >> kind) set. Whether it took it.
+pub fn take_equipment(w: &mut World, t: u16, kind: u16) -> Option<bool> {
+    use super::world::troop;
+    let p = w.word(t + troop::LOCATION);
+    super::native_moves::spare_check(w, p)?;
+    let least = 1 + (kind == 1 && p == w.word(g::LAST_PLACE)) as u8;
+    if w.byte(g::LOCATION_SPARE_EQUIPMENT.wrapping_add(kind)) < least {
+        return Some(false);
+    }
+    let bits = w.byte(t + troop::EQUIPMENT);
+    w.update::<super::topic_troop::TopicTroop>(|r| r.equipment_gained = bits);
+    let bit = if kind & 0x1f < 8 { 0x80u8 >> (kind & 0x1f) } else { 0 };
+    w.set_byte(t + troop::EQUIPMENT, bits | bit);
+    Some(true)
+}
+
+/// For the check of `loc_077d7`: the troop shown (zoomed map: [1954h]).
+pub fn take_equipment_check(w: &mut World, kind: u16) -> Option<()> {
+    if w.byte(0x46eb) < 0x80 {
+        return nm("the shown troop from the character list");
+    }
+    let t = super::native_troops::troop_number(w.byte(g::SHOWN_TROOP));
+    take_equipment(w, t, kind).map(|_| ())
 }

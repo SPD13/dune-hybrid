@@ -1656,6 +1656,10 @@ pub fn alert_location_troops(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [`g::LAST_PLACE`]): [`g::TOPIC_TROOP_EQUIPMENT_GAINED`] = its byte 19h, which gets bit 80h >>
 /// BX; CF clear. Else CF set. AL that least spare, or the bit.
 pub fn troop_take_equipment(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x77d7, "take equipment", |w, r| { let _ = &r; super::native_player::take_equipment_check(w, r.bx) }, troop_take_equipment_frame)
+}
+
+fn troop_take_equipment_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x77d7)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
