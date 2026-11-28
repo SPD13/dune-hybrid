@@ -119,7 +119,12 @@ pub fn sequence_step(w: &mut World) -> Option<()> {
             }
             // `loc_013a0`, `loc_013aa`: speaker 0Fh's line.
             0x0e | 0x10 => return super::native_script::speaker_dialogue(w, 0x0f),
-            _ => return nm("a sequence's op"),
+            // `loc_01474`: `ret`: it waits for the next click.
+            8 => return Some(()),
+            0x12 => return nm("a sequence's op 12h (a transition)"),
+            0x14 => return nm("a sequence's op 14h (the ending)"),
+            0x16 => return nm("a sequence's op 16h (the credits)"),
+            _ => return nm("a sequence's op past the table"),
         }
     }
     nm("a sequence chaining without end")

@@ -380,7 +380,10 @@ impl World {
                 add(format!("{place} (DS:{at:04x}) {a:02x} vs {b:02x}"));
             }
         }
+        let portrait = extra(0x47a4);
         for (k, (a, b)) in self.extras.iter().zip(&other.extras).enumerate() {
+            // Bit 80h of the line's state: the portrait shown (display).
+            let (a, b) = if k == portrait { (&(a & 0x7f), &(b & 0x7f)) } else { (a, b) };
             if a != b {
                 let mut at = 0;
                 let mut left = k as u16;
