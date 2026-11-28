@@ -735,7 +735,7 @@ pub fn idle_player(w: &mut World) -> Option<()> {
         return Some(());
     }
     if phase == 0x14 {
-        return nm("phase 14h's idle start");
+        return phase_14_start(w);
     }
     if w.byte(g::PENDING_EVENTS) == 0 {
         return Some(());
@@ -753,4 +753,28 @@ pub fn idle_player(w: &mut World) -> Option<()> {
         start_speaker(w, talker);
     }
     Some(())
+}
+
+/// `loc_02ba1`: in phase 14h, a player with no party ([10h]) at no place
+/// ([8] FFh) idle 1000 ticks (the simulator's idle player is): phase 15h
+/// set up (`loc_01071`: its days 0, [0FDBh] 1, record 1018h's room and
+/// place, [0FE8h] 0Ah, [0D5h] FFh, the first demand today, event flag 1,
+/// event 1), the phase change's step, then the clock's step until an
+/// event is told ([0EAh] FFh): the idle player hears it.
+fn phase_14_start(w: &mut World) -> Option<()> {
+    if w.word(g::PARTY) != 0 || w.byte(8) != 0xff {
+        return Some(());
+    }
+    w.set_byte(0xff, 0);
+    w.set_byte(g::GAME_PHASE, 0x15);
+    w.set_byte(0xfdb, 1);
+    w.set_word(0x1018, 0x200b);
+    w.set_word(0x101a, 0x180);
+    w.set_byte(0xfe8, 0x0a);
+    w.set_byte(0xd5, 0xff);
+    super::native_step::demand_today(w);
+    w.set_byte(0x0a, w.byte(0x0a) | 1);
+    add_pending_event(w, 1, 0);
+    on_phase_change(w)?;
+    idle_player(w)
 }

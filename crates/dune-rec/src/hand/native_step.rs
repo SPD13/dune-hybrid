@@ -166,12 +166,29 @@ fn grade(w: &World) -> u8 {
 /// days left 0, flags 90h, and the message 20Bh (30Bh for a ratio not
 /// negative).
 fn next_demand(w: &mut World) {
+    next_demand_ah(w, 0)
+}
+
+/// `loc_02090`: the demand's day ([118Dh]) today, then the next demand
+/// (`loc_020d2` with AH the day's high byte).
+pub fn demand_today(w: &mut World) {
+    let day = w.time() >> 4;
+    w.set_word(0x118d, day);
+    next_demand_ah(w, (day >> 8) as u8)
+}
+
+/// `loc_020d2` with AH `ah` (the demands' count in AL).
+fn next_demand_ah(w: &mut World, ah: u8) {
     let n = w.get::<Economy>().demands;
     w.update::<Economy>(|e| e.demands = e.demands.wrapping_add(1));
     let ratio = w.get::<Economy>().shipment_ratio;
     // An overflow goes straight to FFFFh (`loc_02111`), past the ratio.
     let dx: u16 = 'd: {
-        let ax = n as u32 * 0x96 + 0x64;
+        let p = ((ah as u32) << 8 | n as u32) * 0x96;
+        if p > 0xffff {
+            break 'd 0xffff;
+        }
+        let ax = p + 0x64;
         if ax > 0xffff {
             break 'd 0xffff;
         }
