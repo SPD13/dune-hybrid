@@ -3077,6 +3077,10 @@ pub fn add_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// ([11CEh] kept), the sentence AH by `loc_096d8`, `loc_09945`, `loc_09ef1`
 /// with AL 1 ([0EAh] AL meanwhile, then FFh); CF set. Else CF clear.
 pub fn tell_pending_event(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x2ad8, "tell event", |w, r| { let _ = &r; super::native_script::tell_event(w).map(|_| ()) }, tell_pending_event_frame)
+}
+
+fn tell_pending_event_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2ad8)?;
     let mut c = Ctx::new(m);
     let ev = c.events().list[0].word();
@@ -3145,6 +3149,10 @@ pub(super) fn event_told(c: &mut Ctx, ret: u16) -> Result<bool, Bail> {
 /// the list's end gets an empty entry. BP the count kept. Bails at entry
 /// with DF set.
 pub fn drop_events(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x2a51, "drop events", |w, r| { let _ = &r; super::native_script::drop_events(w, r.ax as u8, r.di); Some(()) }, drop_events_frame)
+}
+
+fn drop_events_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2a51)?;
     let mut c = Ctx::new(m);
     if c.flag(pc::cpu::DF) {

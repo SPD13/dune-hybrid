@@ -519,12 +519,85 @@ pub fn speaker_dialogue(w: &mut World, talker: u16) -> Option<()> {
     }
     let group = talker << 3 | 7;
     let list = w.word(0xaa76u16.wrapping_add(group << 1));
+    text_setup(w)?;
+    w.set_byte(conv::MODE, 0x80);
+    say_entry(w, list)
+}
+
+/// `loc_09f40`: the speaker's record (Thufir's sums at the endgame's
+/// stage 4 not modelled; the text box's margins and font: display).
+fn text_setup(w: &mut World) -> Option<()> {
+    let talker = w.word(conv::TALKER);
     if talker == THUFIR && w.get::<Economy>().endgame_stage == 4 {
         return nm("Thufir's sums");
     }
     w.set_word(0x47a2, (talker & 0xff) * 0x10 + g::CHARACTERS);
-    w.set_byte(conv::MODE, 0x80);
-    say_entry(w, list)
+    Some(())
+}
+
+/// `loc_096d8` then `loc_09702` with 10h: `talker` says its sentence group
+/// 10h's list 4 (entry 84h of the table at DS:AA76h) in mode 20h (the
+/// mode given back after).
+fn talk_as(w: &mut World, talker: u16) -> Option<()> {
+    w.set_word(conv::TALKER, talker);
+    text_setup(w)?;
+    let list = w.word(0xaa76u16.wrapping_add(0x84 << 1));
+    let mode = w.word(conv::MODE);
+    w.set_byte(conv::MODE, 0x20);
+    say_entry(w, list)?;
+    w.set_word(conv::MODE, mode);
+    Some(())
+}
+
+/// `loc_02ad8`: the next event waiting told when its teller is present
+/// (its bit of [12h]; teller 0Fh only at its place): its place described
+/// (when it has one), the event's kind noted ([0EAh], then FFh), the
+/// teller's sentence, the place talked about described again. Whether it
+/// was told.
+pub fn tell_event(w: &mut World) -> Option<bool> {
+    let (kind, teller, place) = (w.byte(g::NEXT_EVENT), w.byte(g::NEXT_EVENT + 1), w.word(g::NEXT_EVENT + 2));
+    let present = w.get::<Progress>().present;
+    let sh = (teller & 0x1f) as u32;
+    let bit = sh < 16 && (present >> sh) & 1 != 0;
+    if !bit || (teller == 0x0f && place != w.word(g::PLACE)) {
+        return Some(false);
+    }
+    let keep = w.word(g::TOPIC_PLACE_RECORD);
+    if place != 0 {
+        super::native_step::describe_place(w, place)?;
+    }
+    w.update::<Situation>(|s| s.event_kind = kind);
+    talk_as(w, teller as u16)?;
+    w.update::<Situation>(|s| s.event_kind = 0xff);
+    super::native_step::describe_place(w, keep)?;
+    Some(true)
+}
+
+/// `loc_02a51`: the events of the teller `teller` dropped (teller 0Fh's
+/// only at the place `at`), the others kept in order, two words of 0
+/// after when any went.
+pub fn drop_events(w: &mut World, teller: u8, at: u16) {
+    let n = w.byte(g::PENDING_EVENTS);
+    let mut kept: Vec<(u16, u16)> = Vec::new();
+    for i in 0..n as u16 {
+        let e = g::NEXT_EVENT + 4 * i;
+        let (ev, p) = (w.word(e), w.word(e + 2));
+        let drop = (ev >> 8) as u8 == teller && (teller != 0x0f || p == at);
+        if !drop {
+            kept.push((ev, p));
+        }
+    }
+    for (i, (ev, p)) in kept.iter().enumerate() {
+        let e = g::NEXT_EVENT + 4 * i as u16;
+        w.set_word(e, *ev);
+        w.set_word(e + 2, *p);
+    }
+    w.set_byte(g::PENDING_EVENTS, kept.len() as u8);
+    if kept.len() as u8 != n {
+        let e = g::NEXT_EVENT + 4 * kept.len() as u16;
+        w.set_word(e, 0);
+        w.set_word(e + 2, 0);
+    }
 }
 
 /// `loc_094f3`: for a person (speaker below 10h), its flags and the time
