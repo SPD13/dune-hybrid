@@ -51,6 +51,20 @@ The closed book's entry (D75Ah) also draws the date (section 6) and the people s
 | 1D72h, travel | 2Ah, 2Bh, 2Ch (42-44) at (258,172)-(266,182), (270,170)-(279,182), (283,172)-(291,182); 29h (41) at (266,171)-(285,184); 31h (49) at (38,159)-(54,172) |
 | 1E1Ah, open book | no sprites: the left page (21,161)-(42,186), handler AFC7h; the right page (43,161)-(63,186), handler AFB5h; the left block (0,154)-(92,200), handler B18Bh (closes the book); the frame 21h at (255,162)-(295,192) |
 
+**HD pieces of the sets** (`hud/nav_buttons.py`; the boxes in `hud/nav/boxes.json`, game pixels from each sprite's place):
+
+| Sprite | HD piece | Where from |
+|---|---|---|
+| 13 (the globe button) | `ICONES-013.png`, the sphere as a disc, centre (45.7, 176.0), 29.2 across | cut from the HD globe block `ICONES-006` (the sphere found by walking to the socket's dark ring) |
+| 29-32, 36 (default set) | the open arrows and the palace plan button | the HUD master's states (`hud_state.py`) |
+| 37-40 (map arrows) | steel arrows | made for the map prototype (`globe.html`: boxes there) |
+| 41 (the map's plaque) | brushed steel, a dark face; 17.0 x 13 from x + 1.0 | Banana Pro, one call with 42-44, the sprites on green, our steel arrows as the style |
+| 42, 43, 44 (travel: left, ahead, right) | brushed steel arrows; 7.9 x 12, 7.0 x 14, 7.9 x 12 | the same call |
+| 49-52 (the small globe's arrows), 53 (the hawk) | | made for the map prototype (`mini_arrows.py`, `hud_insignia.py`) |
+| 3 for the travel set | `ICONES-003-empty.png`: the right block with an empty recess | an edit of the HD base's right block (the arrow cross removed), kept only inside the recess; the HD `ICONES-003` has the cross built in, the game's sprite 3 does not |
+
+On the map and globe screens the panel is the marble one (`globe/web/panel-marble.png`, from the globe work), with its own empty recess; there the map set is drawn as: the plaque 41, the hawk 53 over it, the arrows 37-40.
+
 A button that cannot be used is drawn with another palette offset; a live one normally. In the HD panel the base shows every arrow closed and no button, and an overlay with alpha is drawn for each live arrow and for the palace plan button (`ICONES-029` to `032`, `036`).
 
 ## 4. The head
@@ -262,6 +276,7 @@ All game-derived, in `tripo/hud/` (outside this repo; the pictures are in no rep
 | the head | `hud/pieces/ICONES-015`, `head.png`, `collar-front.png`, and `ICONES-016 to 026` | `hud_head.py`, `hud_cut.py` |
 | the faces | `hud/pieces/ICONES-065 to 073` | `hud_faces.py` |
 | the hawks | `hud/pieces/ICONES-053`, `076` | `hud_insignia.py` |
+| the navigation buttons | `hud/pieces/ICONES-013`, `041` to `044`, `ICONES-003-empty`, `hud/nav/boxes.json` | `nav_buttons.py` (input, then Banana Pro, then cut; empty) |
 | the sun and the moon | `hud/pieces/ICONES-074`, `075`, `hud/sky.json`, `hud/sky-mask.png`, `hud/sky-bg.png` | `hud_sky.py` |
 | the book's pages and crease | `hud/book-page-left.png`, `book-page-right.png`, `hud/book.json`, `hud/book-crease.png` (a check) | `hud_book.py` |
 | the mock-ups | `hud/mock-room.png`, `hud/mock-book.png` | `hud_cut.py` |
@@ -275,7 +290,6 @@ Order to rebuild: `hud_cut.py` (after any state), `hud_faces.py`, `hud_insignia.
 ## 13. Open points
 
 - **Not done in HD:**
-  - the map and travel button sets (1CCAh and 1D72h sprites 37-44, 49);
   - the nudge's own transition;
   - the map screen's blue panel;
   - the edge strips (12) and the in-between side sprites (not needed with layers).
