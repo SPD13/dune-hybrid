@@ -68,6 +68,12 @@ struct Args {
     /// world from the game's files and `--save`, STEPS clock steps by
     /// the native rules, the save written to `<out>/saves/DUNE37S9.SAV`.
     sim_only: Option<u32>,
+    /// `--sim-script FILE`: the acting player's script for `--sim-only`
+    /// (`hand/native_player.rs`: `DAY ship AMOUNT|demand`, `DAY job TROOP
+    /// JOB`, `DAY go TROOP PLACE`).
+    sim_script: Option<PathBuf>,
+    /// `--sim-policy`: the built-in player too (`native_player::policy`).
+    sim_policy: bool,
     /// Follow the drawing with the reference HD compositor at this scale.
     hd: Option<usize>,
     /// Also write HD screenshots.
@@ -127,6 +133,8 @@ fn parse() -> Result<Args, String> {
         snapshot: None,
         save: None,
         sim_only: None,
+        sim_script: None,
+        sim_policy: false,
         hd: None,
         hd_shots: false,
         hd_pack: None,
@@ -157,6 +165,8 @@ fn parse() -> Result<Args, String> {
             "--snapshot" => a.snapshot = Some(v()?.into()),
             "--save" => a.save = Some(v()?.into()),
             "--sim-only" => a.sim_only = Some(v()?.parse().map_err(|e| format!("{e}"))?),
+            "--sim-script" => a.sim_script = Some(v()?.into()),
+            "--sim-policy" => a.sim_policy = true,
             "--hd" => a.hd = Some(v()?.parse().map_err(|e| format!("{e}"))?),
             "--hd-shots" => a.hd_shots = true,
             "--hd-pack" => a.hd_pack = Some(v()?.into()),
@@ -546,7 +556,17 @@ fn sim_only(args: &Args, steps: u32) -> ExitCode {
     };
     let t0 = w.time();
     let start = std::time::Instant::now();
-    let run = dune_rec::hand::native_sim::run(w, steps, 30);
+    let script = match &args.sim_script {
+        None => Vec::new(),
+        Some(p) => match fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display())).and_then(|t| dune_rec::hand::native_player::parse(&t)) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("{e}");
+                return ExitCode::FAILURE;
+            }
+        },
+    };
+    let run = dune_rec::hand::native_sim::run_player(w, steps, 30, &script, args.sim_policy);
     let e = &run.world;
     let out = args.out.join("saves");
     fs::create_dir_all(&out).unwrap();

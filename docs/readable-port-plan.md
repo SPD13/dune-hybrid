@@ -1924,6 +1924,27 @@ simulator reports it. From the day 23 save the idle player is called at
 day 26, from the day 13 save at day 16; from the day 1 save (no demands
 yet) 2000 steps run.
 
+**The acting player** (2026-11-27, decided with the user: a script, then
+a policy, `hand/native_player.rs`). The game's player actions as native
+primitives, each the game's own routine without its screens: `ship` (the
+spice shipped to the Emperor, `loc_02566`: paid, rated against the
+demand, the flags, the demand's next day), `job` (a troop's job,
+`loc_06ad4`), `go` (a troop sent to a place, `loc_084a6`). A script
+(`--sim-script FILE`: `DAY ship AMOUNT|demand`, `DAY job TROOP JOB`, `DAY
+go TROOP PLACE`) runs each action at the first step of its day; the
+built-in player (`--sim-policy`) pays each demand waiting (in full when
+the spice allows) and sets troops awaiting orders mining. The shipment
+is checked at its entry (`world::scene_draws`: its scene's frames and
+voice draw from the random generators, so the random state is fed; the
+rule's own draw still shows in the demand's day): run k's five crafted
+shipments (full, short, double, tiny with flag 8, many demands) all
+equal.
+
+The built-in player keeps the games going: from the day 23 save to day
+68, from day 13 to day 46, from day 9 to day 52, each ended by the
+Emperor's call once the spice no longer pays a demand (the demands grow
+by 150 each).
+
 ## Tools in place
 
 | Tool | What it checks |

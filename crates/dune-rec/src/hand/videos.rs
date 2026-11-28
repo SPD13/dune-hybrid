@@ -404,6 +404,10 @@ fn sal_end(c: &mut Ctx) -> Result<(), Bail> {
 /// scene: transitions, waits, the fading frames (`loc_0e353` with BP
 /// A44h and 26ACh), voices and music, on into `loc_02773`.
 pub fn ship_spice_to_emperor(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x2566, "ship spice", |w, r| { let _ = &r; super::native_player::ship(w, r.ax) }, ship_spice_to_emperor_frame)
+}
+
+fn ship_spice_to_emperor_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::{DX, ES};
     entered(start, 0x2566)?;
     let mut c = Ctx::new(m);

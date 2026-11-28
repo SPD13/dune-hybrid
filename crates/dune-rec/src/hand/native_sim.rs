@@ -32,9 +32,34 @@ pub struct Run {
 }
 
 /// `steps` clock steps from `w`, `frames` main-loop passes after each.
-pub fn run(mut w: World, steps: u32, frames: u32) -> Run {
+pub fn run(w: World, steps: u32, frames: u32) -> Run {
+    run_script(w, steps, frames, &[])
+}
+
+/// [`run`] with the player's script: each action at the first step of
+/// its day (before the step), in the script's order.
+pub fn run_script(w: World, steps: u32, frames: u32, script: &[super::native_player::Timed]) -> Run {
+    run_player(w, steps, frames, script, false)
+}
+
+/// [`run_script`], with the built-in player too when `policy`
+/// ([`super::native_player::policy`], after the script's actions).
+pub fn run_player(mut w: World, steps: u32, frames: u32, script: &[super::native_player::Timed], policy: bool) -> Run {
     let mut told = 0;
+    let mut next = 0;
     for done in 0..steps {
+        while let Some(a) = script.get(next) {
+            if a.day > w.time() >> 4 {
+                break;
+            }
+            next += 1;
+            if super::native_player::act(&mut w, &a.action).is_none() {
+                return Run { world: w, steps: done, stopped: Some(super::world::last_why()), told };
+            }
+        }
+        if policy && super::native_player::policy(&mut w).is_none() {
+            return Run { world: w, steps: done, stopped: Some(super::world::last_why()), told };
+        }
         let t = w.time().wrapping_add(1);
         w.set_word(2, t);
         w.save.day = t;

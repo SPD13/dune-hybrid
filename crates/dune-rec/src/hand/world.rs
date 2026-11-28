@@ -474,6 +474,13 @@ pub fn checked(
     r
 }
 
+/// The pieces whose original plays a scene (frames waited, a voice) that
+/// draws from the random generators: their random state is fed (the
+/// rules' own draws still show in what they decide).
+fn scene_draws(piece: &str) -> bool {
+    piece == "ship spice"
+}
+
 /// The pieces whose original may give up to the interpreter and be
 /// compared at their next entry instead: nothing but the display runs
 /// between (the sequence's steps, between the player's clicks).
@@ -578,6 +585,11 @@ pub fn after(m: &mut Machine, done: bool) {
         return;
     }
     let got = World::from_machine(m);
+    let mut want = want;
+    if scene_draws(piece) {
+        want.save.story[0..2].copy_from_slice(&got.save.story[0..2]);
+        (want.rand_seed, want.rand_masked_seed, want.rand_below_seed) = (got.rand_seed, got.rand_masked_seed, got.rand_below_seed);
+    }
     count(m, piece, 0);
     let d = want.differences(&got, 8);
     if d.is_empty() {
