@@ -1902,6 +1902,28 @@ them, with the cutscene's lines, its 13 time steps run to the evening
 and all their troops' days and jobs. Run k: the three changes into a
 cutscene's phase equal (30 of 30 phase changes).
 
+**The simulator's idle player** (2026-11-27, decided with the user: it
+hears and leaves). The events waiting are told by the clock's step
+(`loc_02b2a`, before each time step) to a player idle on the main screen
+(no call, no sequence, no travel, from phase 14h, 32h ticks since the
+last): `loc_02ad8` tells the next (its teller present; its place
+described, the teller's sentence group 10h in mode 20h), then its scene
+(`loc_03542`: the teller's events at the place dropped, `loc_02a51`;
+the teller's talk started, `loc_093df`), which waits for the player. The
+simulator's player hears the event and leaves the scene: one event
+between two steps (`native_script::idle_player`). The telling and the
+drops are checked at their entries (the suite: 15 drops; the
+cross-check: 2 tellings, equal). Phase 14h's own idle start
+(`loc_02ba1`: after 1000 ticks with no party, phase 15h) is not
+modelled.
+
+A comm call due ([46D9h], played by the main loop, `loc_00d8e`) stops
+the simulation: the Emperor's (7, set when a demand is four days late or
+a call waits) sets the date to day 365 and ends the game; the
+simulator reports it. From the day 23 save the idle player is called at
+day 26, from the day 13 save at day 16; from the day 1 save (no demands
+yet) 2000 steps run.
+
 ## Tools in place
 
 | Tool | What it checks |

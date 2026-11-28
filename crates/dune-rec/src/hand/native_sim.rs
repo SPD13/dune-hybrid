@@ -24,31 +24,49 @@ pub struct Run {
     pub world: World,
     /// Clock steps done.
     pub steps: u32,
-    /// Why it stopped early (a case the rules don't model), if it did.
+    /// Why it stopped early (a case the rules don't model, a comm call),
+    /// if it did.
     pub stopped: Option<&'static str>,
+    /// Events the idle player heard.
+    pub told: u32,
 }
 
 /// `steps` clock steps from `w`, `frames` main-loop passes after each.
 pub fn run(mut w: World, steps: u32, frames: u32) -> Run {
+    let mut told = 0;
     for done in 0..steps {
         let t = w.time().wrapping_add(1);
         w.set_word(2, t);
         w.save.day = t;
         w.set_byte(0x46dd, 1);
         if super::native_step::time_step(&mut w).is_none() {
-            return Run { world: w, steps: done, stopped: Some(super::world::last_why()) };
+            return Run { world: w, steps: done, stopped: Some(super::world::last_why()), told };
         }
         // A sequence the step started plays now, as the main loop's next
-        // passes play it (the clock stopped meanwhile).
-        if super::native_seq::play_sequence(&mut w).is_none() {
-            return Run { world: w, steps: done + 1, stopped: Some(super::world::last_why()) };
+        // passes play it (the clock stopped meanwhile); then the idle
+        // player hears a waiting event and leaves.
+        let waiting = w.byte(super::globals::PENDING_EVENTS);
+        if super::native_seq::play_sequence(&mut w).is_none() || super::native_script::idle_player(&mut w).is_none() {
+            return Run { world: w, steps: done + 1, stopped: Some(super::world::last_why()), told };
+        }
+        if w.byte(super::globals::PENDING_EVENTS) < waiting {
+            told += 1;
+        }
+        // A comm call due (`loc_00d8e` from the main loop): the caller's
+        // screen, which ends the game (the save loaded again after it,
+        // `loc_00e47`): the simulation stops there.
+        match w.byte(super::globals::COMM_CALLER) {
+            0 => {}
+            7 => return Run { world: w, steps: done + 1, stopped: Some("the Emperor's call (the end)"), told },
+            k if k & 0x80 == 0 => return Run { world: w, steps: done + 1, stopped: Some("a comm call"), told },
+            _ => {}
         }
         for _ in 0..frames {
             let r = w.rand();
             w.set_word(super::globals::RANDOM_BITS, r);
         }
     }
-    Run { world: w, steps, stopped: None }
+    Run { world: w, steps, stopped: None, told }
 }
 
 /// The world as a save's image (the map's states packed from its cells).

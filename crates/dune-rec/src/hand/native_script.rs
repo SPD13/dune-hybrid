@@ -698,3 +698,59 @@ fn reward(w: &mut World) -> Option<()> {
 pub fn say_entry_check(w: &mut World, list: u16) -> Option<()> {
     say_entry(w, list)
 }
+
+/// `loc_093df`: the speaker `talker`'s talk started: its group (talker x
+/// 8), met and talked to here ([0Eh], [14h]), its record, nothing pending
+/// or resumed, mode 80h, no line said yet. (Its menu item: display.)
+fn start_speaker(w: &mut World, talker: u16) {
+    let speaker = talker as u8;
+    w.set_word(0x47be, talker & 0xff00 | (speaker as u16) << 3);
+    let shift = speaker & 0x1f;
+    let bit = if shift < 16 { 1u16 << shift } else { 0 };
+    for at in [g::MET, g::TALKED_HERE] {
+        w.set_word(at, w.word(at) | bit);
+    }
+    w.set_word(0x47a2, 0x10 * speaker as u16 + g::CHARACTERS);
+    w.set_word(0x47ba, 0);
+    w.set_word(conv::PHRASE_RESUME, 0);
+    w.set_byte(conv::MODE, 0x80);
+    w.update::<Progress>(|t| t.speaker_said_line = 0);
+}
+
+/// The simulator's idle player (it hears and leaves): where the clock's
+/// step (`loc_02b2a`) tells the next event to a player idle on the main
+/// screen (no call, no sequence, no travel; from phase 14h; events
+/// waiting), it is told (`loc_02ad8`); told, [23h] 0 and its scene
+/// (`loc_03542`: the teller's events at the place dropped, no rescues, the
+/// scene counted, the teller's talk started outside a sequence before
+/// talk 64h); the player then leaves the scene (display). At most one
+/// event between two steps. Phase 14h's own idle start (`loc_02ba1`) is
+/// not modelled.
+pub fn idle_player(w: &mut World) -> Option<()> {
+    if w.byte(g::COMM_CALLER) | w.byte(0x4774) | w.byte(0x11c9) != 0 {
+        return Some(());
+    }
+    let phase = w.get::<Progress>().phase;
+    if phase < 0x14 {
+        return Some(());
+    }
+    if phase == 0x14 {
+        return nm("phase 14h's idle start");
+    }
+    if w.byte(g::PENDING_EVENTS) == 0 {
+        return Some(());
+    }
+    if !tell_event(w)? {
+        return Some(());
+    }
+    w.set_byte(0x23, 0);
+    let talker = w.word(conv::TALKER);
+    let place = w.word(g::PLACE);
+    drop_events(w, talker as u8, place);
+    w.update::<Situation>(|s| s.desert_rescues = 0);
+    w.set_byte(0x47a7, w.byte(0x47a7).wrapping_add(1));
+    if w.byte(0x4774) == 0 && w.byte(0x23) < 0x64 {
+        start_speaker(w, talker);
+    }
+    Some(())
+}

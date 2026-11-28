@@ -552,13 +552,14 @@ fn sim_only(args: &Args, steps: u32) -> ExitCode {
     fs::create_dir_all(&out).unwrap();
     fs::write(out.join("DUNE37S9.SAV"), dune_rec::hand::native_sim::save_image(e).to_file()).unwrap();
     println!(
-        "native sim run (no emulator): {} of {steps} steps from time {t0:04x} (day {}) to {:04x} (day {}){} in {:.2} s; spice {}, our army {}, the Harkonnens' {}; written as {}",
+        "native sim run (no emulator): {} of {steps} steps from time {t0:04x} (day {}) to {:04x} (day {}){} in {:.2} s; {} events heard; spice {}, our army {}, the Harkonnens' {}; written as {}",
         run.steps,
         t0 >> 4,
         e.time(),
         e.time() >> 4,
         run.stopped.map_or(String::new(), |w| format!(", stopped: {w}")),
         start.elapsed().as_secs_f64(),
+        run.told,
         e.word(0xa0),
         e.word(0xaa),
         e.word(0xac),
