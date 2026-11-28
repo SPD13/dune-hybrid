@@ -140,6 +140,7 @@ fn phase_change_step(w: &mut World) -> Option<()> {
 /// nothing. Its action (`loc_0a03f`, the table at CS:A107h), then
 /// marked said and noted in the book.
 fn say_entry(w: &mut World, list: u16) -> Option<()> {
+    speaker_mood(w);
     w.set_word(conv::APPEND_AT, TEXT_BUFFER);
     let mut e = list;
     for _ in 0..4000 {
@@ -155,7 +156,8 @@ fn say_entry(w: &mut World, list: u16) -> Option<()> {
         }
         let high = w.byte(e.wrapping_add(2)).rotate_left(2) & 3;
         if condition(w, (high as u16) << 8 | cond as u16)? {
-            return entry_said(w, e);
+            entry_said(w, e)?;
+            return after_entry(w);
         }
         e = e.wrapping_add(4);
     }
@@ -198,8 +200,17 @@ fn entry_said(w: &mut World, e: u16) -> Option<()> {
 fn entry_action(w: &mut World, action: u8, e: u16) -> Option<()> {
     let said = w.byte(e) & 0x80 != 0;
     match action {
-        // `loc_0a1d0`, `loc_0a1dc`: [47A5h] FFh, 80h.
+        // `loc_0a1d0`, `loc_0a1dc`: [47A5h] FFh, 80h; `loc_0a1d6`: 0.
         1 => w.set_byte(conv::FLAG_47A5, 0xff),
+        2 => w.set_byte(conv::FLAG_47A5, 0),
+        8 => reward(w)?,
+        // `loc_0a172`: Jessica's remark counted; Duncan's (`loc_024a3`)
+        // not modelled.
+        0x0f => match w.word(conv::TALKER) {
+            1 => w.update::<Situation>(|s| s.desert_remarks = s.desert_remarks.wrapping_add(1)),
+            3 => return nm("Duncan's remark"),
+            _ => {}
+        },
         7 => w.set_byte(conv::FLAG_47A5, 0x80),
         // `loc_0a1e8`: the last entry counted.
         6 => w.set_byte(conv::LAST_ENTRY, w.byte(conv::LAST_ENTRY).wrapping_add(1)),
@@ -229,6 +240,11 @@ fn entry_action(w: &mut World, action: u8, e: u16) -> Option<()> {
                 w.update::<Economy>(|t| t.endgame_stage = t.endgame_stage.wrapping_add(1));
             }
         }
+        3 => return nm("a sequence for the phase (action 3)"),
+        4 | 5 => return nm("answers offered (actions 4, 5)"),
+        9 => return nm("action 9 (loc_0a157)"),
+        0x0a => return nm("a scene's voice entry (action 0Ah)"),
+        0x0d => return nm("a person shown on the map (action 0Dh)"),
         _ => return nm("a dialogue entry's action"),
     }
     Some(())
@@ -429,4 +445,138 @@ fn discover(w: &mut World, p: u16) -> Option<()> {
         set_game_phase(w, 0x10)?;
     }
     Some(())
+}
+
+/// The speakers by number (`characters::who`).
+const JESSICA: u16 = 1;
+const THUFIR: u16 = 2;
+const DUNCAN: u16 = 3;
+const STILGAR: u16 = 5;
+const HARKONNEN: u16 = 0x0c;
+const SMUGGLER: u16 = 0x0d;
+
+/// The dialogue entry's hook ([227Eh]: F66h, nothing; Stilgar's reward
+/// sets 2CCFh).
+const HOOK: u16 = g::DIALOGUE_ENTRY_HOOK;
+/// The map view's mode (46EBh).
+const MAP_VIEW_MODE: u16 = 0x46eb;
+
+/// `loc_09761`: the speaker `talker` starts its dialogue: its list (entry
+/// 8 x the speaker + 7 of the table at DS:AA76h), its record
+/// (`loc_09f40`), mode 80h, the first entry said (`loc_09f9e`). The troop
+/// told about (0Eh) and Thufir's sums at the endgame's stage 4 are not
+/// modelled. The text box's margins, the portrait and the voice are
+/// display.
+pub fn speaker_dialogue(w: &mut World, talker: u16) -> Option<()> {
+    w.set_word(conv::TALKER, talker);
+    if talker as u8 == 0x0e {
+        return nm("the troop told about");
+    }
+    let group = talker << 3 | 7;
+    let list = w.word(0xaa76u16.wrapping_add(group << 1));
+    if talker == THUFIR && w.get::<Economy>().endgame_stage == 4 {
+        return nm("Thufir's sums");
+    }
+    w.set_word(0x47a2, (talker & 0xff) * 0x10 + g::CHARACTERS);
+    w.set_byte(conv::MODE, 0x80);
+    say_entry(w, list)
+}
+
+/// `loc_094f3`: for a person (speaker below 10h), its flags and the time
+/// since it was met (word 8 in the party, else word 0Ah) noted; before
+/// phase 64h, for the first eight, the attack's target noted as the
+/// place (`loc_02e98`: the sentence's record, the place's name in the
+/// phrase slots).
+fn speaker_mood(w: &mut World) {
+    let talker = w.word(conv::TALKER);
+    if talker >= 0x10 {
+        return;
+    }
+    let record = w.word(0x47a2);
+    let flags = w.byte(record.wrapping_add(0x0f));
+    let then = w.word(record.wrapping_add(if flags & 0x40 == 0 { 0x0a } else { 8 }));
+    let since = w.time().wrapping_sub(then);
+    w.update::<Progress>(|t| {
+        t.speaker_flags = flags;
+        t.speaker_time_since = since;
+    });
+    if w.get::<Progress>().phase >= 0x64 || talker >= 9 {
+        return;
+    }
+    let place = w.word(g::ATTACK_TARGET);
+    if place == 0 {
+        return;
+    }
+    w.set_word(g::NOTED_RECORD, place);
+    let x = w.byte(place) as u16;
+    let y = (w.byte(place.wrapping_add(1)) as u16).wrapping_add(0x0c);
+    w.update::<super::phrase_args::PhraseArgs>(|t| {
+        t.slots[super::phrase_args::PLACE] = x;
+        t.slots[super::phrase_args::PLACE + 1] = y;
+    });
+}
+
+/// After an entry said, for a person outside the map views: unless the
+/// event's kind is positive, the dialogue entry's hook run once (reset to
+/// F66h; Stilgar's, 2CCFh, not modelled). The scene and the voice are
+/// display.
+fn after_entry(w: &mut World) -> Option<()> {
+    if w.byte(MAP_VIEW_MODE) != 0 || w.word(conv::TALKER) >= 0x10 {
+        return Some(());
+    }
+    if (w.get::<Situation>().event_kind as i8) > 0 {
+        return Some(());
+    }
+    let hook = w.word(HOOK);
+    w.set_word(HOOK, 0xf66);
+    match hook {
+        0xf66 => Some(()),
+        _ => nm("a dialogue entry's hook"),
+    }
+}
+
+/// `loc_0a125`, action 8: the talk's reward by the speaker. Jessica:
+/// with event flag 2, 40 charisma and the reach from FFCEh, else at reach
+/// 1 10 charisma and the reach from 0Ah, else the reach on
+/// (`loc_0a1b3`); Stilgar: his hook; the Harkonnen: the place talked
+/// about discovered; Duncan's (`loc_02239`) and the smuggler's deal
+/// (`loc_02388`) not modelled.
+fn reward(w: &mut World) -> Option<()> {
+    match w.word(conv::TALKER) {
+        JESSICA => {
+            let from = if w.get::<Progress>().event_flags & 2 != 0 {
+                super::native_raids::raise_charisma(w, 0x28);
+                0xffce
+            } else {
+                let reach = w.word(g::REACH);
+                if reach == 1 {
+                    super::native_raids::raise_charisma(w, 0x0a);
+                    0x0a
+                } else {
+                    reach
+                }
+            };
+            let reach = from.wrapping_add(0x14);
+            w.set_word(g::REACH, reach);
+            let d5 = if reach < 0x64 { 0x80u8.wrapping_sub((reach / 6) as u8) } else { 0 };
+            w.update::<Situation>(|s| s.jessica_days = d5);
+        }
+        DUNCAN => return nm("Duncan's reward"),
+        STILGAR => w.set_word(HOOK, 0x2ccf),
+        t => {
+            if t == HARKONNEN {
+                let p = w.word(g::TOPIC_PLACE_RECORD);
+                w.set_byte(p.wrapping_add(0x0a), w.byte(p.wrapping_add(0x0a)) & 0x7f);
+            }
+            if t == SMUGGLER {
+                return nm("a smuggler's deal");
+            }
+        }
+    }
+    Some(())
+}
+
+/// For the check of `loc_09f9e`: the dialogue step from the list `list`.
+pub fn say_entry_check(w: &mut World, list: u16) -> Option<()> {
+    say_entry(w, list)
 }

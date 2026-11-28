@@ -120,6 +120,7 @@ fn conditions_of(m: &Machine) -> std::sync::Arc<Conditions> {
 
 /// The memory outside the story block the rules read and write, by
 /// offset and length: the day changed, the conversation record, the
+/// sentence's noted record, the map view's mode, the dialogue entry's hook, the
 /// clock's steps waiting, the
 /// comm's caller, the trail's pattern, the
 /// map's latitude table and its
@@ -127,9 +128,15 @@ fn conditions_of(m: &Machine) -> std::sync::Arc<Conditions> {
 /// steps' scales by row (a table of the game's), the spice's tenths, the
 /// tick's recheck and location, the troop selected on the map, the troop
 /// shown.
-pub const EXTRAS: [(u16, u16); 14] = [
+pub const EXTRAS: [(u16, u16); 19] = [
     (g::DAY_CHANGED, 1),
-    (0x47a2, 0x24),
+    // The conversation record but the shown text's paging (47B4h, 47B8h).
+    (0x47a2, 0x12),
+    (0x47b6, 2),
+    (0x47ba, 0x0c),
+    (g::NOTED_RECORD, 2),
+    (0x46eb, 1),
+    (g::DIALOGUE_ENTRY_HOOK, 2),
     (0x46dd, 1),
     (g::COMM_CALLER, 1),
     (g::MOVE_TRAIL_PATTERN, 1),

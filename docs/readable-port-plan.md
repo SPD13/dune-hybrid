@@ -1848,7 +1848,35 @@ conversation record (47A2h). Run k: a crafted change into each
 handler's phase (25), the phase change's step (48), the phase 30h check
 (40): all equal. Not modelled: the handlers that start a sequence
 (phases 0Ch, 48h, 58h: the cutscene, the clock stopped), phase 64h's
-(`loc_01f13`), phase 1's start, the other entry actions.
+(`loc_01f13`, since written: the place furthest down without an
+attacker of yours, character 7 there), phase 1's start, the other entry
+actions.
+
+**The conversations' dialogue step** (2026-11-27): the player's talks go
+through `loc_09472` (the speaker's lists), the cutscenes' op 2 and the
+phase change through `loc_09761`; all reach the dialogue step
+`loc_09f9e`, now checked at its entry. For a person (speaker below
+10h) it adds the speaker's mood (`loc_094f3`: the flags, the time since
+met, the attack's target noted as the place) and, after the entry, the
+dialogue entry's hook ([227Eh], once). Actions written besides the phase
+change's: the flag [47A5h] cleared (2), the talk's reward (8: Jessica's
+charisma and reach, Stilgar's hook, the Harkonnen's place discovered),
+Jessica's remark (0Fh). Not modelled, named: a sequence for the phase
+(3), answers offered (4, 5), action 9, a scene's voice entry (0Ah), a
+person shown on the map (0Dh), Duncan's reward and remark, a smuggler's
+deal, Stilgar's hook (2CCFh), the troop told about (0Eh), Thufir's sums.
+
+The world keeps of the sentence only its noted record (47E6h), and of the
+conversation record all but the shown text's paging (47B4h, 47B8h: where
+a long phrase continues, set by laying the text out in the font: display;
+47B6h, which skips an entry's action while a phrase resumes, is kept).
+The suite's monkey play: 192 dialogue steps checked, all equal (89 not
+checked: the original's port giving up to the interpreter, 2 at actions
+not modelled). Run k: 79 of 80; the one differs by display alone: the
+portrait shown sets bit 80h of [47A4h], and the text box and the voice
+part draw from `rand_masked`, the generator the rules draw from too. As
+with the main loop's frames, the display consumes the random state: the
+simulator is exact step by step given it, not the original's own draws.
 
 ## Tools in place
 

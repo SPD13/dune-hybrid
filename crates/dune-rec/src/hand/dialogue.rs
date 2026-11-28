@@ -2496,6 +2496,10 @@ fn view_back_9879(c: &mut Ctx) -> Result<(), Bail> {
 /// and the hook [`g::DIALOGUE_ENTRY_HOOK`] (reset to F66h) run. [`g::TALK_MODE`] =
 /// [28E8h] unless [0FBh] is negative. CF clear.
 pub fn say_dialogue_entry(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x9f9e, "dialogue step", |w, r| { let _ = &r; super::native_script::say_entry_check(w, r.si) }, say_dialogue_entry_frame)
+}
+
+fn say_dialogue_entry_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     
     entered(start, 0x9f9e)?;
     let mut c = Ctx::new(m);
@@ -2736,6 +2740,10 @@ const NOTED: u16 = 0x11bd;
 /// the table [`PHRASES`]), the text set up, the mask (the mode) 80h, then
 /// the first entry said ([`say_dialogue_entry`]).
 pub fn start_speaker_dialogue(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x9761, "speaker dialogue", |w, r| { let _ = &r; super::native_script::speaker_dialogue(w, r.ax) }, start_speaker_dialogue_frame)
+}
+
+fn start_speaker_dialogue_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x9761)?;
     let mut c = Ctx::new(m);
     let talker = c.reg(AX);
