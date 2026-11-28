@@ -596,3 +596,74 @@ A pilot on the room screen's bottom panel (2026-11-26). The specifications for i
 - The map screen recolours the whole panel blue through the palette: a tint or a second master.
 - Time of day: a colour grade from the F0h to FFh ramp.
 - The other interface sheets (`ONMAP`, `ATTACK`, `PALPLAN`, `STARS`, `MIXR`), and the font.
+
+## 12. Animations: the game's videos beside their remakes
+
+Started 2026-11-27. Everything is in `tripo/anim/`; the videos and the frames are game-derived and are in no repo. The preview shows them in its **Animations** tab: [preview.html#anims](http://127.0.0.1:8790/tripo/preview.html#anims) (`#anim-IRULAN` for one video): the list at the left, and two panels of one size, the game's video and its remake (a placeholder until one exists), driven by one set of controls (play, frame by frame, seek, speed, loop, sound).
+
+**The videos.** 37 HNM files in `DUNE.DAT`, 18,570 frames, about 23 minutes: the intro (`CRYO`, `CRYO2`, `VIRGIN`, `PRESENT`, `IRULAN`, `TITLE`), the flights (`DFL2`, `MNT1` to `MNT4`, `PALACE`, `SIET`, `FORT`), three desert videos with their own palette (`MTG1` to `MTG3`), `VER`, `PLANT`, `DEAD`, `DEAD2`, `DEAD3`, the film scenes (`SEQA` to `SEQR`, 13 files) and the credits (`CREDITS`, `AABBBBB`). `SEQB`, `SEQQ` and `AABBBBB` are not in the game's table of videos (DS:33A3h: for each, a flags byte, the timer ticks a frame lasts, the file name).
+
+**The files.**
+
+| File | What it does |
+|---|---|
+| `hnm.js` | The decoder, written from `DNCDPRG.lst` (`hnm_read_header`, `hnm_decode_typed_chunk_video_to_bp`, `hnm_decode_video_frame`, `apply_palette`); the format is described at its top. Used by the page and by `build.mjs` |
+| `build.mjs` | `node build.mjs` writes `hnm/NAME.HNM` (the files as they are in `DUNE.DAT`, 122 MB), `thumbs/`, `sky.json` and `index.json`. `node build.mjs --frames NAME [--time day]` writes every frame to `frames/NAME/f0000.png`: the input for a remake |
+| `anims.js` | The tab: `GROUPS` is the list (file, title), `REMADE` the remakes (`NAME: [video, caption]`; the video is played in step with the game's, its time 0 the first frame) |
+
+**What was checked against the running game** (`dune-run`, screenshots of the intro every half second): `CRYO`, `VIRGIN`, `PRESENT` and `IRULAN` are the same pixel for pixel, and a frame lasts its ticks at 200 a second (12.5 frames a second for 16 ticks).
+
+**What the format means for a remake.**
+- Most videos are whole pictures of 320 x 152 (the view above the panel) or 320 x 200. `TITLE`, `PRESENT` and the credits are a first picture and then small sprites drawn over it (colour 0 left as it is).
+- `IRULAN` and the film scenes are 160 pixels wide (160 x 91 and 160 x 95). The game draws pixel (c, r) at (x + 2c, y + 2r) and black between: a grid of dots. The page shows that, or each pixel as a block of 2 x 2 (**Pixels filled**); `--frames` writes the 160 pixel pictures. Their placement on the screen was checked on `IRULAN` only.
+- These 13 videos carry their sound (8 bits, 11,111 Hz, the first block a Creative Voice File header), and with sound the frames follow it (`hnm_wait_for_frame`; read from the listing, not checked in the running game): a frame lasts as long as its block of samples, 80 to 83 ms on average by the file. The page plays them that way. The runner's check above ran without sound, by the timer.
+- The flights have no palette: they are drawn under the palette of the place and the hour. The page uses the sky palette of the hour (`SKYDN.HSQ`, as `recolour_views.py`) over the throne room's colours, with the four times of day as buttons. This was not compared with the game.
+
+**The first remake: the dunes drawn live** (`anim/flyover.html`, 2026-11-27; the remake of `DFL2` in the tab, [its own page](http://127.0.0.1:8790/tripo/anim/flyover.html) with the hour, the speed and the height as controls). The original flights are a renderer's fly-over stored as pictures; this draws the scene itself, with three.js:
+- **The ground** is a height function, the same in the page (for the camera) and in the shaders: dunes 46 m high and 330 m apart that rise gently into the wind and fall steeply behind their crest, smaller ones between them, slow swells under both, all bent by a table of noise. It has no end and no loop.
+- **The mesh** is eight square grids of 512 cells round the camera, each twice as coarse and as wide as the one inside it, moved in whole cells. The slope, the wind ripples, the shadow of the ground towards the sun (nine steps) and the haze are computed for each pixel from the height function.
+- **The flight** is a function of the time: 46 m a second, 9 m above a smooth maximum of the ground ahead, so any moment can be shown and the tab's controls drive it (`{ t, playing, speed, time }` by `postMessage`).
+- **The hours** are four sets of light, sand and sky colours, chosen by eye after the game's frames in the four palettes (violet sky by day, red at dusk, purple sand at night); the sun stands ahead and to the left, against the wind, so the steep sides facing the camera are in shadow.
+- **Cost:** 2.6 ms a frame at 2640 x 1254 on the RTX 5070.
+- It is a new flight over new dunes, not the path of the original. Nothing of it is in the engine.
+
+**The scenes** (`?scene=`), each after its original clip:
+
+| Scene | Clip | What it shows |
+|---|---|---|
+| `dunes` | `DFL2` | the dunes |
+| `mnt1` | `MNT1` | the dunes, the mountains far ahead (the rock zone begins 2.6 km on) |
+| `mnt2` | `MNT2` | dunes, the arch seen from more than a kilometre, under it at about 10 s, into the rocks |
+| `mnt3` | `MNT3` | among the rocks |
+| `mnt4` | `MNT4` | out of the rocks, back over the dunes |
+| `palace` | `PALACE` | over the dunes from the left, one long turn onto the palace's axis, between its four hawk statues, slowing, settling before the stairs (12.6 s) |
+| `sietch` | `SIET` | the rock comes into view over the dunes, the flight goes round to face the cave's mouth (10.5 s) |
+| `fort` | `FORT` | over the last dunes to the fortress (3.1 s) |
+
+**The rocks.** A zone along the flight (`ZONE`: where it is entered and left, the length over which the mountains rise). In it the height function is rock, a canyon: low hills on the flight's line, walls of 50 to 150 m rising from 55 m beside it, mesas to 360 m over them where a slow noise is high, all cut into ledges every 38 m. The shader gives rock two pictures made by Meshy's text-to-image (nano-banana-pro, 9 credits each; `models/cliff.jpg`, a cliff face of level strata, on the steep sides; `models/slab.jpg`, cracked bedrock, on level ground), each at a large size and again at a small one for the near view, mirrored when repeated so they join. They only colour the rock: a relief taken from their brightness from one pixel to the next glittered on the lit faces and was taken out. Sand lies in drifts on the rock's gentle ground. The sun is turned behind the flight and raised in these scenes, or the ground between the mesas is all in shadow.
+
+**Models from Meshy** (`anim/models/`, 246 credits in all on 2026-11-27, the two rock textures included). Each from a picture of the object alone on a plain ground (`NAME-input.png`), made by Meshy's image-to-image (nano-banana-pro, 9 credits) from the frames or views named:
+
+| Model | Picture from | Model made with | Use |
+|---|---|---|---|
+| `rock.glb` (a mesa) | `MNT3` frames | meshy-t2, 15,000 faces, meshy-n1 texture (15) | set down many times in the zone, 90 to 340 m wide, off the line, in `mnt3` and `mnt4` only |
+| `hoodoo.glb` (a mushroom rock) | `MNT2` frames | the same (15) | not used (the user, 2026-11-27: no mushroom rocks; the canyon alone) |
+| `arch.glb` | `MNT2` frames | the same (15) | once, 330 m wide across the line at z = -1300, the dunes levelled under it |
+| `palace.glb` (40 MB) | our HD views `DP2`, `DP0` | meshy-7.1, meshy-7 texture at 4K with PBR maps (30) | 150 m wide on a mound, where the ground along the line is the most level |
+| `hawk.glb` (19 MB) | our HD views `DP2`, `DP0` (the statues) | the same (30) | four, 52 m high, in two rows on both sides of the way to the stairs |
+| `sietch.glb` (41 MB) | our HD view `DS0` (the rock and its cave mouth, without the dunes and the two boulders) | the same (30) | 300 m wide, its colour multiplied by 1.8 (it came out darker than our view's) |
+| `fort.glb` (73 MB) | our HD view `DF3` (the part the dunes hide completed by the model) | the same (30) | 190 m wide |
+
+- The models' materials have their metal set to 0: Meshy's PBR maps made the stone partly metal, which is black without something to reflect. They are lit by two lights that follow the hour's colours, with a haze of their own.
+- **A place stands on the ground the height function gives under it** (`TOP`: the lowest point of the levelled ground under its footprint), sunk by a few hundredths of its height. Before, it stood on a level taken before the dunes were levelled, up to 12 m higher: the fortress floated 4 m above the sand.
+- **Their shadow on the ground:** the ground's shader knows only the height function, so each model is given to it as upright blocks (the palace 5 x 5 columns, each as tall as the model is there; a hawk one block; the arch 6 x 6): a point is shaded when the way from it to the sun goes through a block. The shadows are those of the blocks, not of the shapes.
+- **A fault found on the way** (the "popping dune"): on some GPUs `fract()` and `mod()` of a point lying exactly on a line of the noise table gave the cell of one side with the fraction of the other, in the vertex shader only, so a row of the ground stood up as a wall for a frame. `nz()` now takes the fraction from the same `floor()` and the cell with `& 255`. Found by rendering every sixtieth of a second and looking for a block of the picture that changes far more than its neighbours in time.
+
+**The flight's motion** (the user, 2026-11-27: the flights were too slow and did not swing and tilt like a flight; the arrival's speed was right). All but the arrival fly at 130 m a second. The line swings from side to side, slowly (62 m, every 18 s) and quicker (9 m, every 7 s), and the canyon follows it. The craft banks with its sideways acceleration, a little ahead of the turn, to about 20 degrees; its nose points where it will be in a second and a half, so it swings into the turns and follows the climbs and the dives; its height is a soft maximum of the ground over the next 290 m, so it dips into the hollows, never nearer the ground than 6 m. It flies 16 m above the dunes (`dunes`, `mnt1`), 12 m in the others and higher among the rocks: 38 m in `mnt2` after its arch, 30 m in `mnt3`, 26 m in `mnt4`. Height, look and lean are means over 0.6 to 0.9 s on each side of the moment (`mean`): the craft's weight.
+
+**Not done.**
+- Not seen in motion by the one who wrote it: judged from single pictures and scripted checks.
+- The dunes cast no shadow on the models. The palace is paler and greyer than our HD view's stone, and Meshy put two figures between its towers.
+- The rock ground is soft seen from close; the mesas are one function, so they look alike.
+- `MTG1` to `MTG3`: not remade. The sietch's two boulders are not there.
+- How a remake is stored and played by the engine is open, and so is how the engine chooses a video from the ground ahead (`loc_04e8e`).
