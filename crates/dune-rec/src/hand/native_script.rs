@@ -636,7 +636,7 @@ fn speaker_mood(w: &mut World) {
 
 /// After an entry said, for a person outside the map views: unless the
 /// event's kind is positive, the dialogue entry's hook run once (reset to
-/// F66h; Stilgar's, 2CCFh, not modelled). The scene and the voice are
+/// F66h; Stilgar's, 2CCFh, its answer 1 not modelled). The scene and the voice are
 /// display.
 fn after_entry(w: &mut World) -> Option<()> {
     if w.byte(MAP_VIEW_MODE) != 0 || w.word(conv::TALKER) >= 0x10 {
@@ -649,6 +649,15 @@ fn after_entry(w: &mut World) -> Option<()> {
     w.set_word(HOOK, 0xf66);
     match hook {
         0xf66 => Some(()),
+        // `loc_02ccf`, Stilgar's: event flag 8; with the answer 1 (yes) his
+        // offer goes on (not modelled).
+        0x2ccf => {
+            w.set_byte(0x0a, w.byte(0x0a) | 8);
+            if w.get::<Economy>().answer == 1 {
+                return nm("Stilgar's offer taken");
+            }
+            Some(())
+        }
         _ => nm("a dialogue entry's hook"),
     }
 }
