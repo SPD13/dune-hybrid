@@ -240,11 +240,37 @@ fn entry_action(w: &mut World, action: u8, e: u16) -> Option<()> {
                 w.update::<Economy>(|t| t.endgame_stage = t.endgame_stage.wrapping_add(1));
             }
         }
-        3 => return nm("a sequence for the phase (action 3)"),
-        4 | 5 => return nm("answers offered (actions 4, 5)"),
-        9 => return nm("action 9 (loc_0a157)"),
-        0x0a => return nm("a scene's voice entry (action 0Ah)"),
-        0x0d => return nm("a person shown on the map (action 0Dh)"),
+        // `loc_0a1f7`: the sequence for the phase started (12F8h before
+        // phase 14h, 134Fh before 18h, 1370h before 30h, else 12DBh).
+        3 => {
+            let p = w.byte(g::GAME_PHASE);
+            let s = if p < 0x14 { 0x12f8 } else if p < 0x18 { 0x134f } else if p < 0x30 { 0x1370 } else { 0x12db };
+            super::native_seq::start_sequence(w, s);
+        }
+        // `loc_0a244`, `loc_0a248`: the answers offered (the mode 0 or 1,
+        // no answer yet; the screen pushed, the voice's numbers: display).
+        4 | 5 => {
+            w.set_byte(g::ANSWER_MODE, action - 4);
+            w.update::<Economy>(|t| t.answer = 0);
+        }
+        // `loc_0a157`: Duncan's, Stilgar's and the smuggler's own ends of a
+        // talk (`loc_024ee`, `loc_02d2c`, `loc_02419`): not modelled.
+        9 => match w.word(conv::TALKER) {
+            3 => return nm("Duncan's end of a talk (action 9)"),
+            5 => return nm("Stilgar's end of a talk (action 9)"),
+            0x0d => return nm("the smuggler's end of a talk (action 9)"),
+            _ => {}
+        },
+        // `loc_0a25b`: the voice's numbers for the scene (sound).
+        0x0a => {}
+        // `loc_0a28e`: the person shown on the map (its mark, the map
+        // drawn and put back: display); unless in the book or at the
+        // player's place, the line's state 0.
+        0x0d => {
+            if w.byte(g::TALK_MODE) != 1 && w.word(g::NOTED_RECORD) != w.word(g::PLACE) {
+                w.set_byte(0x47a4, 0);
+            }
+        }
         _ => return nm("a dialogue entry's action"),
     }
     Some(())
