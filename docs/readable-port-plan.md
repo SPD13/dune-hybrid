@@ -1917,10 +1917,14 @@ cross-check: 2 tellings, equal). Phase 14h's own idle start
 (`loc_02ba1`: after 1000 ticks with no party, phase 15h) is not
 modelled.
 
-A comm call due ([46D9h], played by the main loop, `loc_00d8e`) stops
-the simulation: the Emperor's (7, set when a demand is four days late or
-a call waits) sets the date to day 365 and ends the game; the
-simulator reports it. From the day 23 save the idle player is called at
+The game's end due ([46D9h], played by the main loop, `loc_00d8e`)
+stops the simulation. Every value goes through the same screen (the
+sentence BAh + it, the date set to day 365, nothing restoring it), so
+[46D9h] is the ending, not a call: 2 lost in the desert (`loc_04182`'s
+countdown on the way), 4 caught arriving at a place with Harkonnen
+troops and none of your attackers (`loc_0503c`), 6 the player's place
+fallen (`loc_074b6`, `loc_01bec`), 7 the Emperor's (a demand four days
+late, or a call waiting). The simulator names the ending. From the day 23 save the idle player is called at
 day 26, from the day 13 save at day 16; from the day 1 save (no demands
 yet) 2000 steps run.
 
@@ -1961,8 +1965,26 @@ back; allowed, a troop with an activity loses its harvester.
 `describe_troop` is checked at its entry: the suite's 50 and run k's 8
 equal; the orders menu's own calls give up to the interpreter (its
 display), its parts checked apart. Recruiting and buying need the
-player at the place: the script vouches for the visit (no travel
-action yet).
+player at the place: the script vouches for the visit, or travels.
+
+**Travel** (2026-11-27, decided with the user: instant, the flight's
+time not simulated; `hand/native_travel.rs`). `travel PLACE` runs the
+arrival as `loc_03ff5` does once the flight reaches the place: the place
+and the last place noted, the battle check (`loc_0503c`: the battle's
+balance, the Harkonnen place, ending 4 when caught), the losses cleared,
+the place discovered, its kind and number noted (visited for kinds 20h
+up), the people moved on (`loc_02170`: to the place nearest them, a
+room 2..12 by `loc_021fa`'s roll, their next state at place 1), the
+party following (`loc_040c3`), room 1, and the room's scene
+(`loc_02dbf`, `loc_035ad`: in the comm room the shipment its bearer
+brings; each person here, `loc_03520`: its greeting `loc_096f1`, or its
+waiting event `loc_02aaf` / `loc_02b00`, neither passing it over; its
+events here dropped, the scene counted, its talk started). Checked at
+their entries: the scene's persons 22 of 22 in the suite, the people
+moved 1 and the battle check 4 in run k, all equal. Not modelled: the
+night attack arriving at a Harkonnen place, the scene on the way. From
+the day 23 save eight of twelve places end the game on arrival (their
+Harkonnen troops), the other four take the player in.
 
 ## Tools in place
 

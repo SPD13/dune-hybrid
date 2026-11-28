@@ -24,7 +24,7 @@ pub struct Run {
     pub world: World,
     /// Clock steps done.
     pub steps: u32,
-    /// Why it stopped early (a case the rules don't model, a comm call),
+    /// Why it stopped early (a case the rules don't model, the game's end),
     /// if it did.
     pub stopped: Option<&'static str>,
     /// Events the idle player heard.
@@ -77,14 +77,11 @@ pub fn run_player(mut w: World, steps: u32, frames: u32, script: &[super::native
         if w.byte(super::globals::PENDING_EVENTS) < waiting {
             told += 1;
         }
-        // A comm call due (`loc_00d8e` from the main loop): the caller's
-        // screen, which ends the game (the save loaded again after it,
-        // `loc_00e47`): the simulation stops there.
-        match w.byte(super::globals::COMM_CALLER) {
-            0 => {}
-            7 => return Run { world: w, steps: done + 1, stopped: Some("the Emperor's call (the end)"), told },
-            k if k & 0x80 == 0 => return Run { world: w, steps: done + 1, stopped: Some("a comm call"), told },
-            _ => {}
+        // The game's end due ([46D9h], `loc_00d8e` from the main loop):
+        // its screen (the sentence BAh + it, the time 16C5h, nothing given
+        // back); the simulation stops there.
+        if let Some(why) = ending(w.byte(super::globals::COMM_CALLER)) {
+            return Run { world: w, steps: done + 1, stopped: Some(why), told };
         }
         for _ in 0..frames {
             let r = w.rand();
@@ -97,4 +94,17 @@ pub fn run_player(mut w: World, steps: u32, frames: u32, script: &[super::native
 /// The world as a save's image (the map's states packed from its cells).
 pub fn save_image(w: &World) -> SaveImage {
     SaveImage { day: w.time(), map: w.packed_map(), book: w.save.book.clone(), dialogue: w.save.dialogue.clone(), story: w.save.story.clone() }
+}
+
+/// The game's ending [46D9h] names (bit 7 set: shown already; 0 none).
+pub fn ending(k: u8) -> Option<&'static str> {
+    Some(match k {
+        0 => return None,
+        k if k & 0x80 != 0 => return None,
+        2 => "the end: lost in the desert",
+        4 => "the end: caught at a place of the Harkonnens",
+        6 => "the end: the player's place fell",
+        7 => "the end: the Emperor's call",
+        _ => "the end (another ending)",
+    })
 }
