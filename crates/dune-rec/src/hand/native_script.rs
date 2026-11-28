@@ -298,12 +298,12 @@ fn phase_handler(w: &mut World, p: u8) -> Option<()> {
         }
         // `loc_01027`.
         0x08 => w.set_byte(0x122e, w.byte(0x122e) & 0x7f),
-        // `loc_0102f`: a sequence started (the clock stopped meanwhile).
+        // `loc_0102f`: sequence 1321h started.
         0x0c => {
             w.set_byte(0x124a, w.byte(0x124a) & 0x7f);
             w.set_byte(0x1247, w.byte(0x1247) & 0x7f);
             w.set_word(0x121d, 0xffff);
-            return nm("a sequence started");
+            super::native_seq::start_sequence(w, 0x1321);
         }
         // `loc_01045`.
         0x10 => {
@@ -361,8 +361,27 @@ fn phase_handler(w: &mut World, p: u8) -> Option<()> {
         0x40 => w.set_byte(0x1067, w.byte(0x1067) | 2),
         // `loc_01133`.
         0x44 => discover(w, 0x3d8)?,
-        // `loc_01139`, `loc_01196`: a sequence started.
-        0x48 | 0x58 => return nm("a sequence started"),
+        // `loc_01139`: 10 charisma, sequence 1313h started, record
+        // 1048h's flags (10h on, 2 off), [1178h] the people's count + 2,
+        // places discovered.
+        0x48 => {
+            super::native_raids::raise_charisma(w, 0x0a);
+            super::native_seq::start_sequence(w, 0x1313);
+            w.set_byte(0x1057, (w.byte(0x1057) | 0x10) & 0xfd);
+            w.set_byte(0x1178, w.byte(0x28).wrapping_add(2));
+            for p in [0x3f4, 0x410, 0x3bc, 0x88c] {
+                discover(w, p)?;
+            }
+        }
+        // `loc_01196`: event flag 20h, sequence 12FBh started, places
+        // discovered.
+        0x58 => {
+            w.set_byte(0x0a, w.byte(0x0a) | 0x20);
+            super::native_seq::start_sequence(w, 0x12fb);
+            for p in [0x7e4, 0x790, 0x7ac, 0x854, 0x81c] {
+                discover(w, p)?;
+            }
+        }
         // `loc_01166`.
         0x4c => {
             w.set_byte(0x1141, w.byte(0x1141).wrapping_add(1));

@@ -38,6 +38,11 @@ pub fn run(mut w: World, steps: u32, frames: u32) -> Run {
         if super::native_step::time_step(&mut w).is_none() {
             return Run { world: w, steps: done, stopped: Some(super::world::last_why()) };
         }
+        // A sequence the step started plays now, as the main loop's next
+        // passes play it (the clock stopped meanwhile).
+        if super::native_seq::play_sequence(&mut w).is_none() {
+            return Run { world: w, steps: done + 1, stopped: Some(super::world::last_why()) };
+        }
         for _ in 0..frames {
             let r = w.rand();
             w.set_word(super::globals::RANDOM_BITS, r);

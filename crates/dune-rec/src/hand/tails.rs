@@ -1267,6 +1267,10 @@ pub fn draw_jessica_on_palace_plan(m: &mut Machine, start: u16) -> Result<(), Ba
 /// `loc_0b2be`, and on at 0FA7h (or, with [0FBh] negative, the music
 /// stopped, `loc_068eb`, `loc_0780a`).
 pub fn run_script_next_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x1707, "sequence step", |w, r| { let _ = &r; super::native_seq::sequence_step(w) }, run_script_next_step_frame)
+}
+
+fn run_script_next_step_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     use pc::cpu::CS;
     entered(start, 0x1707)?;
     let mut c = Ctx::new(m);

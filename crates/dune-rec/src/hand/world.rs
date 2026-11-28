@@ -79,6 +79,9 @@ pub struct World {
     pub growth_seed: u16,
     /// The condition scripts (CONDIT.HSQ where [AA72h] points: read-only).
     pub conditions: std::sync::Arc<Conditions>,
+    /// The code segment's region the sequences' scripts are in
+    /// ([`CODE_AT`], [`CODE_LEN`] bytes: read-only game data).
+    pub code: std::sync::Arc<Vec<u8>>,
     /// The map's cells, whole (the resource's bytes: the terrain and the
     /// marks the drawing uses, bits 4..5 the state the save keeps). The
     /// rules read and write these; `save.map` is their states as loaded.
@@ -91,6 +94,28 @@ pub struct World {
 pub struct Conditions {
     pub base: u16,
     pub bytes: Vec<u8>,
+}
+
+/// The code region the world carries (the sequences' scripts).
+pub const CODE_AT: u16 = 0x1200;
+pub const CODE_LEN: usize = 0x500;
+
+thread_local! {
+    static CODE: std::cell::RefCell<Option<std::sync::Arc<Vec<u8>>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The machine's code region (read once).
+fn code_of(m: &Machine) -> std::sync::Arc<Vec<u8>> {
+    CODE.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some(v) = c.as_ref() {
+            return v.clone();
+        }
+        let at = ((pc::LOAD_SEG as u32) << 4) + CODE_AT as u32;
+        let v = std::sync::Arc::new((0..CODE_LEN as u32).map(|k| m.hw.peek(at + k)).collect::<Vec<u8>>());
+        *c = Some(v.clone());
+        v
+    })
 }
 
 /// CONDIT.HSQ's size unpacked.
@@ -120,7 +145,8 @@ fn conditions_of(m: &Machine) -> std::sync::Arc<Conditions> {
 
 /// The memory outside the story block the rules read and write, by
 /// offset and length: the day changed, the conversation record, the
-/// sentence's noted record, the map view's mode, the dialogue entry's hook, the
+/// sentence's noted record, the sequence record, the clock's stops, the
+/// sky shown, the map view's mode, the dialogue entry's hook, the
 /// clock's steps waiting, the
 /// comm's caller, the trail's pattern, the
 /// map's latitude table and its
@@ -128,7 +154,7 @@ fn conditions_of(m: &Machine) -> std::sync::Arc<Conditions> {
 /// steps' scales by row (a table of the game's), the spice's tenths, the
 /// tick's recheck and location, the troop selected on the map, the troop
 /// shown.
-pub const EXTRAS: [(u16, u16); 19] = [
+pub const EXTRAS: [(u16, u16); 22] = [
     (g::DAY_CHANGED, 1),
     // The conversation record but the shown text's paging (47B4h, 47B8h).
     (0x47a2, 0x12),
@@ -137,6 +163,9 @@ pub const EXTRAS: [(u16, u16); 19] = [
     (g::NOTED_RECORD, 2),
     (0x46eb, 1),
     (g::DIALOGUE_ENTRY_HOOK, 2),
+    (0x4774, 8),
+    (0x2788, 1),
+    (0x46e0, 1),
     (0x46dd, 1),
     (g::COMM_CALLER, 1),
     (g::MOVE_TRAIL_PATTERN, 1),
@@ -181,6 +210,7 @@ impl World {
             rand_below_seed: peek_word(m, g::RAND_BELOW_SEED),
             extras: EXTRAS.iter().flat_map(|&(at, len)| (0..len).map(move |k| m.hw.peek(ds(at + k)))).collect(),
             conditions: conditions_of(m),
+            code: code_of(m),
             cells: match super::map_cells::get(m) {
                 Some(mc) => (0..super::map_cells::CELLS).map(|i| mc.cell(i)).collect(),
                 None => {
@@ -224,6 +254,12 @@ impl World {
     pub fn set_word(&mut self, off: u16, v: u16) {
         self.set_byte(off, v as u8);
         self.set_byte(off + 1, (v >> 8) as u8);
+    }
+
+    /// Byte `o` of the code segment's region ([`CODE_AT`]; `None` outside
+    /// it).
+    pub fn code_byte(&self, o: u16) -> Option<u8> {
+        self.code.get(o.wrapping_sub(CODE_AT) as usize).copied()
     }
 
     /// Byte `o` of the condition scripts' segment (`None` outside the
@@ -594,6 +630,10 @@ pub fn sim_before(m: &mut Machine) {
         s.restarts += 1;
     }
     let mut w = s.world.take().unwrap_or_else(|| fresh.clone());
+    // A sequence started at the last step plays between steps.
+    if super::native_seq::play_sequence(&mut w).is_none() {
+        w = fresh.clone();
+    }
     w.save.story[2] = fresh.save.story[2];
     w.save.story[3] = fresh.save.story[3];
     w.save.day = fresh.save.day;

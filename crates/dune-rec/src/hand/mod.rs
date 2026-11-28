@@ -86,6 +86,7 @@ pub mod native_step;
 pub mod native_raids;
 pub mod native_sim;
 pub mod native_script;
+pub mod native_seq;
 pub mod flags_read;
 mod cursor;
 mod dialogue;
