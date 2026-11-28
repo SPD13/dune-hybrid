@@ -5,8 +5,8 @@
 //!
 //! - `ship AMOUNT` or `ship demand`: spice shipped to the Emperor
 //!   (`loc_02566`, the comm's answer);
-//! - `job TROOP JOB`: troop number TROOP given job JOB (`loc_06ad4`, the
-//!   orders menu);
+//! - `job TROOP JOB`: troop number TROOP given job JOB (`loc_06a89`, the
+//!   orders menu: the troop's comment may refuse it);
 //! - `go TROOP PLACE`: troop TROOP sent to the place record PLACE (hex,
 //!   `loc_084a6`);
 //! - `recruit TROOP`: troop TROOP joins you (`loc_066ce`, its leader
@@ -70,11 +70,7 @@ pub fn act(w: &mut World, a: &Action) -> Option<()> {
             let amount = amount.unwrap_or_else(|| w.get::<Economy>().demanded);
             ship(w, amount)
         }
-        Action::Job(n, job) => {
-            let t = super::native_troops::troop_number(n);
-            super::native_jobs::set_job(w, t, job);
-            Some(())
-        }
+        Action::Job(n, job) => super::native_script::order_job(w, super::native_troops::troop_number(n), job),
         Action::Go(n, place) => super::native_moves::set_out(w, super::native_troops::troop_number(n), place),
         Action::Recruit(n) => troop_joins(w, super::native_troops::troop_number(n)),
         Action::Buy => {
@@ -151,8 +147,8 @@ pub fn policy(w: &mut World) -> Option<()> {
     let mut t = super::world::troop::FIRST;
     while t < g::TROOPS_END {
         let s = w.byte(t + super::world::troop::STATE);
-        if s & 0x0f == 2 && s & 0xe0 == 0 && s & 0x40 == 0 {
-            super::native_jobs::set_job(w, t, 0);
+        if s & 0x0f == 2 && s & 0xe0 == 0 {
+            super::native_script::order_job(w, t, 0)?;
         }
         t += super::world::troop::SIZE;
     }

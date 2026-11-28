@@ -4229,6 +4229,10 @@ pub fn creature_step(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// its activity (`loc_0693b`), byte 19h, size, the days since byte 14h,
 /// and its location (`describe_place`).
 pub fn describe_troop(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x31f6, "describe troop", |w, r| { let _ = &r; super::native_script::describe_troop(w, r.si) }, describe_troop_frame)
+}
+
+fn describe_troop_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x31f6)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;

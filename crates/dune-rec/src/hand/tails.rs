@@ -2269,6 +2269,10 @@ pub fn set_shown_troop_job_keeping_bits(m: &mut Machine, start: u16) -> Result<(
 /// [si+19h] bit 7 is cleared, else [si+12h] is put back and set again.
 /// Then `loc_0d2e2`.
 pub fn change_shown_troop_job(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x6a89, "order job", |w, r| { let _ = &r; super::native_script::order_shown_check(w, r.cx as u8) }, change_shown_troop_job_frame)
+}
+
+fn change_shown_troop_job_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     
     entered(start, 0x6a89)?;
     let mut c = Ctx::new(m);

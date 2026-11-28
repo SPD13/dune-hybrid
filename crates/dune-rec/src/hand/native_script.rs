@@ -540,14 +540,149 @@ fn text_setup(w: &mut World) -> Option<()> {
 /// mode given back after).
 fn talk_as(w: &mut World, talker: u16) -> Option<()> {
     w.set_word(conv::TALKER, talker);
+    say_sentence(w, 0x10)
+}
+
+/// `loc_09702`: the speaker says sentence `n` (the list n x 8 + 4 of the
+/// table at DS:AA76h) in mode 20h (given back after).
+fn say_sentence(w: &mut World, n: u16) -> Option<()> {
     text_setup(w)?;
-    let list = w.word(0xaa76u16.wrapping_add(0x84 << 1));
+    let list = w.word(0xaa76u16.wrapping_add((n << 3 | 4) << 1));
     let mode = w.word(conv::MODE);
     w.set_byte(conv::MODE, 0x20);
     say_entry(w, list)?;
     w.set_word(conv::MODE, mode);
     Some(())
 }
+
+/// `loc_07bb9` with AL `reason`: the troop `t` commented on: described
+/// (`loc_031f6`), the talk's reason [23h], nothing pending, speaker 0Fh's
+/// sentence 0Fh (`loc_096f1`). (The voice and the text box: display.)
+pub fn comment_on_troop(w: &mut World, t: u16, reason: u8) -> Option<()> {
+    describe_troop(w, t)?;
+    w.set_byte(0x23, reason);
+    w.set_word(0x47ba, 0);
+    w.set_word(conv::TALKER, 0x0f);
+    say_sentence(w, 0x0f)
+}
+
+/// `loc_031f6`: the troop `t` talked about: the record of the troop
+/// talked about filled (its place, number, state, job, age, rates, words
+/// 10h and 12h, home, motivation, skills, equipment, size, days at its
+/// job) and the phrases for it (the subject: its job + 18h; the detail:
+/// its age's, 70h..74h; its home; its skills' levels, D1h + the skill /
+/// 16; the item it carries), then its place described.
+pub fn describe_troop(w: &mut World, t: u16) -> Option<()> {
+    use super::phrase_args::{self as pa, PhraseArgs};
+    use super::topic_troop::TopicTroop;
+    use super::world::troop;
+    let p = w.word(t + troop::LOCATION);
+    let state = w.byte(t + troop::STATE);
+    let job = state & 0x0f;
+    let id = w.byte(t);
+    w.update::<TopicTroop>(|r| {
+        r.place = p;
+        r.id = id;
+        r.state = state;
+        r.job = job;
+    });
+    w.update::<PhraseArgs>(|a| a.slots[pa::SUBJECT] = job as u16 + 0x18);
+    // `loc_032c7`: its age and the detail's phrase.
+    let age = w.time().wrapping_sub(w.word(t + troop::CHANGED_AT));
+    let detail = if state & 0x10 != 0 {
+        0x74
+    } else if age < 3 {
+        0x70
+    } else if age < 0x10 {
+        0x71
+    } else if age < 0x20 {
+        0x72
+    } else {
+        0x73
+    };
+    w.update::<TopicTroop>(|r| {
+        r.age = age;
+        r.age_days = (age >> 4) as u8;
+    });
+    w.update::<PhraseArgs>(|a| a.slots[pa::DETAIL] = detail);
+    // `loc_0329d`: the average rate over its age, then its rate now.
+    let rate = if state != 0 {
+        w.set_word(t + troop::WORD_10, w.word(t + troop::WORD_10) & !0x0c);
+        0
+    } else {
+        let average = if age == 0 {
+            0
+        } else {
+            let w0e = w.word(t + troop::WORD_0E);
+            w0e / age + (age < (w0e % age) << 1) as u16
+        };
+        w.update::<TopicTroop>(|r| r.average = average);
+        super::native_troops::rate(w, t, p)
+    };
+    let (w10, w12) = (w.word(t + troop::WORD_10), w.word(t + troop::WORD_12));
+    w.update::<TopicTroop>(|r| {
+        r.rate = rate;
+        r.word_10 = w10;
+        r.word_12 = w12;
+        r.home = (w12 & 0x0f) as u8;
+    });
+    w.update::<PhraseArgs>(|a| a.slots[pa::TROOP_HOME] = w12 & 0x0f);
+    let m = super::native_troops::motivation(w, t);
+    w.update::<TopicTroop>(|r| r.motivation = m);
+    let mut phrases = [0u16; 3];
+    for k in 0..3u16 {
+        let b = w.byte(t + troop::SKILLS + k);
+        w.update::<TopicTroop>(|r| r.skills[k as usize] = b);
+        phrases[k as usize] = (b as u16 >> 4) + 0xd1;
+    }
+    w.update::<PhraseArgs>(|a| {
+        for k in 0..3 {
+            a.slots[pa::SKILLS + k] = phrases[k];
+        }
+    });
+    let (w0c, w0e) = (w.word(t + troop::RATE), w.word(t + troop::WORD_0E));
+    let activity = ((w.byte(t + troop::STATE) & 0x0f) >> 2) as u16;
+    let job_skill = w.byte(t + troop::SKILLS + activity);
+    let (equipment, size) = (w.byte(t + troop::EQUIPMENT), w.byte(t + troop::SIZE_FIELD));
+    let days = ((w.time() >> 4) as u8).wrapping_sub(w.byte(t + troop::DAY));
+    w.update::<TopicTroop>(|r| {
+        r.word_0c = w0c;
+        r.word_0e = w0e;
+        r.job_skill = job_skill;
+        r.equipment = equipment;
+        r.size = size;
+        r.days = days;
+    });
+    w.update::<PhraseArgs>(|a| a.slots[pa::SMUGGLER_ITEM] = (w0e & 0xff) + 0xe8);
+    super::native_step::describe_place(w, p)
+}
+
+/// `loc_06a89`, the orders menu: the troop `t` given job `job` unless it
+/// has it (`loc_06acb`), the order allowed ([47A5h] FFh), the troop's
+/// comment (`loc_07bb9`, reason 0Ah); an entry of it may forbid the
+/// order (action 2): then its word 12h and its job are given back; else
+/// a troop with an activity loses its harvester (bit 80h of byte 19h).
+pub fn order_job(w: &mut World, t: u16, job: u8) -> Option<()> {
+    use super::world::troop;
+    let state = w.byte(t + troop::STATE);
+    if state & 0x0f == job {
+        return Some(());
+    }
+    let w12 = w.word(t + troop::WORD_12);
+    super::native_jobs::give_job_unless_same(w, t, job);
+    w.set_byte(conv::FLAG_47A5, 0xff);
+    comment_on_troop(w, t, 0x0a)?;
+    if w.byte(conv::FLAG_47A5) == 0xff {
+        if (w.byte(t + troop::STATE) & 0x0f) >> 2 != 0 {
+            w.set_byte(t + troop::EQUIPMENT, w.byte(t + troop::EQUIPMENT) & 0x7f);
+        }
+        return Some(());
+    }
+    w.set_word(t + troop::WORD_12, w12);
+    super::native_jobs::give_job_unless_same(w, t, state);
+    Some(())
+}
+
 
 /// `loc_02ad8`: the next event waiting told when its teller is present
 /// (its bit of [12h]; teller 0Fh only at its place): its place described
@@ -786,4 +921,14 @@ fn phase_14_start(w: &mut World) -> Option<()> {
     add_pending_event(w, 1, 0);
     on_phase_change(w)?;
     idle_player(w)
+}
+
+/// For the check of `loc_06a89`: the troop shown (in the zoomed map, mode
+/// 80h and up: troop [1954h]; else not modelled) ordered job `job`.
+pub fn order_shown_check(w: &mut World, job: u8) -> Option<()> {
+    if w.byte(MAP_VIEW_MODE) < 0x80 {
+        return nm("the shown troop from the character list");
+    }
+    let t = super::native_troops::troop_number(w.byte(g::SHOWN_TROOP));
+    order_job(w, t, job)
 }

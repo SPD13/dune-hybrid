@@ -1945,6 +1945,25 @@ The built-in player keeps the games going: from the day 23 save to day
 Emperor's call once the spice no longer pays a demand (the demands grow
 by 150 each).
 
+More actions (2026-11-27): `recruit TROOP` (`loc_066ce`: a troop joins,
+the joined count raising phase 4Ch at [1178h], charisma, awaiting
+orders, its place's first growth; run k's three recruitments equal),
+`buy` (the smuggler met: `loc_02388` opens the deal, phase 3Ch, the
+mood, the next kind in stock at its price; `loc_023e6` buys on credit,
+the debts, the stock, the player's place's equipment; run k: 2 and 2
+equal; the smuggler's talk reward opens the deal too). The `job` action
+and the built-in player go through the orders menu (`loc_06a89`): the
+job given unless the same, the order allowed, the troop's comment
+(`loc_07bb9`: the troop described, `loc_031f6`, the story's troop
+talked about and its phrases; speaker 0Fh's sentence 0Fh), whose
+entries may forbid the order (action 2), the job and word 12h then given
+back; allowed, a troop with an activity loses its harvester.
+`describe_troop` is checked at its entry: the suite's 50 and run k's 8
+equal; the orders menu's own calls give up to the interpreter (its
+display), its parts checked apart. Recruiting and buying need the
+player at the place: the script vouches for the visit (no travel
+action yet).
+
 ## Tools in place
 
 | Tool | What it checks |
