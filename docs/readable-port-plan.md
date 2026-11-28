@@ -1878,6 +1878,30 @@ part draw from `rand_masked`, the generator the rules draw from too. As
 with the main loop's frames, the display consumes the random state: the
 simulator is exact step by step given it, not the original's own draws.
 
+**The cutscenes** (2026-11-27, `hand/native_seq.rs`): a story sequence
+is started by `loc_01771` (phases 0Ch, 48h, 58h's handlers: the script's
+address, one more playing, the clock stopped, the room and sky to go
+back to) and played by the main loop, `loc_01707` running its script's
+ops (a byte op from the table at CS:1475h, its arguments after it) on
+while they chain (0, 4, 6) to one that waits (2 a line said by a
+speaker, `loc_09761`; 0Ah the clock run to the evening with its time
+steps; 0Ch a drawing; 0Eh, 10h speaker 0Fh's line), FFh ending (the room
+and sky given back, the clock started). The scripts are game data in the
+code segment: the world carries that region (`World::code`, CS:1200h,
+500h bytes, from the machine or the EXE). The simulator plays a sequence
+at once after the step that started it (the player clicking through).
+Not modelled: ops 12h (a transition into a scene), 14h and 16h (the
+ending and the credits), op 8.
+
+The original's `loc_01707` gives up to the interpreter at each call, so
+its check is deferred (`world::deferrable`): the rules' world is kept
+and compared at the piece's next entry, the random state the display
+drew between fed. A live phase 48h on the day 23 save, clicked through
+(a click every 3 s): every check equal, the sequence's 8 steps among
+them, with the cutscene's lines, its 13 time steps run to the evening
+and all their troops' days and jobs. Run k: the three changes into a
+cutscene's phase equal (30 of 30 phase changes).
+
 ## Tools in place
 
 | Tool | What it checks |

@@ -420,6 +420,8 @@ pub struct NativeChecks {
     /// The worlds the rules made, waiting for the original's to compare
     /// (a stack: a checked piece may call another).
     pub pending: Vec<Option<(&'static str, World)>>,
+    /// Deferrable pieces' worlds waiting for their next entry.
+    pub deferred: Vec<(&'static str, World)>,
     /// The native simulation's state (`NATIVE_SIM`).
     pub sim: Sim,
 }
@@ -459,11 +461,40 @@ pub fn checked(
     if start != entry || !checking() {
         return frame(m, start);
     }
+    deferred_compare(m, piece);
     let regs = Regs::of(m);
     before(m, piece, |w| rules(w, regs));
     let r = frame(m, start);
     after(m, r.is_ok());
     r
+}
+
+/// The pieces whose original may give up to the interpreter and be
+/// compared at their next entry instead: nothing but the display runs
+/// between (the sequence's steps, between the player's clicks).
+fn deferrable(piece: &str) -> bool {
+    piece == "sequence step"
+}
+
+/// At a deferrable piece's entry: the rules' world kept from its last
+/// call the original gave up on, compared with the machine's now (the
+/// random state the display drew meanwhile fed).
+fn deferred_compare(m: &mut Machine, piece: &'static str) {
+    let n = &mut super::native::native(m).native_checks;
+    let Some(k) = n.deferred.iter().position(|e| e.0 == piece) else {
+        return;
+    };
+    let (_, mut want) = n.deferred.remove(k);
+    let got = World::from_machine(m);
+    want.save.story[0..2].copy_from_slice(&got.save.story[0..2]);
+    (want.rand_seed, want.rand_masked_seed, want.rand_below_seed) = (got.rand_seed, got.rand_masked_seed, got.rand_below_seed);
+    count(m, piece, 0);
+    let d = want.differences(&got, 8);
+    if d.is_empty() {
+        count(m, piece, 1);
+    } else {
+        eprintln!("native {piece} (deferred) at time {:04x}: the rules' world vs the original's: {}", got.time(), d.join("; "));
+    }
 }
 
 thread_local! {
@@ -534,7 +565,11 @@ pub fn after(m: &mut Machine, done: bool) {
         return;
     };
     if !done {
-        count(m, piece, 2);
+        if deferrable(piece) {
+            super::native::native(m).native_checks.deferred.push((piece, want));
+        } else {
+            count(m, piece, 2);
+        }
         return;
     }
     let got = World::from_machine(m);
