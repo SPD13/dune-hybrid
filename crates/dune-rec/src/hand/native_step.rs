@@ -758,3 +758,8 @@ pub fn go_to_phase_60(w: &mut World) {
     w.set_word(g::CHARACTERS + 0x70, dx);
     w.set_word(g::CHARACTERS + 0x72, bx);
 }
+
+/// For the travel: [`location_balance`].
+pub fn location_balance_check(w: &World, p: u16) -> Option<u8> {
+    location_balance(w, p)
+}

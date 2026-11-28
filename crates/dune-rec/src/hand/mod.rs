@@ -88,6 +88,7 @@ pub mod native_sim;
 pub mod native_script;
 pub mod native_seq;
 pub mod native_player;
+pub mod native_travel;
 pub mod flags_read;
 mod cursor;
 mod dialogue;

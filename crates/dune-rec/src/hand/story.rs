@@ -2281,6 +2281,10 @@ pub fn show_speaker_screen(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// `location_kind_check` with troops counted (`loc_05098`, DX); else with
 /// CX, [46D9h] = 4.
 pub fn enter_location(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x503c, "enter location", |w, r| { let _ = &r; super::native_travel::enter_location_check(w, r.di) }, enter_location_frame)
+}
+
+fn enter_location_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x503c)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
@@ -4493,6 +4497,10 @@ fn demand_tail(c: &mut Ctx, out: bool) -> Result<(), Bail> {
 /// phase 24h; bit 4 of byte 0Fh cleared); others from 1028h at place 1
 /// get `loc_021fa`'s.
 pub fn update_people(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x2170, "update people", |w, r| { let _ = &r; super::native_travel::update_people_check(w) }, update_people_frame)
+}
+
+fn update_people_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2170)?;
     let mut c = Ctx::new(m);
     c.run(start, 1)?;
@@ -4717,6 +4725,10 @@ pub fn redraw_message_line(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// [1BEAh], [1BF8h] 0; before stage 64h (with no [4774h]) the speaker
 /// started and the panel faded.
 pub fn scene_sentence(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x3520, "scene sentence", |w, r| { let _ = &r; super::native_travel::scene_sentence_check(w, r.si) }, scene_sentence_frame)
+}
+
+fn scene_sentence_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x3520)?;
     let mut c = Ctx::new(m);
     let k = c.conversation().scene_count;

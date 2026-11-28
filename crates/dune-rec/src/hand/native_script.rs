@@ -139,14 +139,14 @@ fn phase_change_step(w: &mut World) -> Option<()> {
 /// 80h without 40h, under the mode's mask) whose condition holds; none,
 /// nothing. Its action (`loc_0a03f`, the table at CS:A107h), then
 /// marked said and noted in the book.
-fn say_entry(w: &mut World, list: u16) -> Option<()> {
+fn say_entry(w: &mut World, list: u16) -> Option<bool> {
     speaker_mood(w);
     w.set_word(conv::APPEND_AT, TEXT_BUFFER);
     let mut e = list;
     for _ in 0..4000 {
         let head = w.word(e);
         if head == 0xffff {
-            return Some(());
+            return Some(false);
         }
         let [flags, cond] = head.to_le_bytes();
         let said_once = flags & 0x80 != 0 && flags & 0x40 == 0;
@@ -157,7 +157,8 @@ fn say_entry(w: &mut World, list: u16) -> Option<()> {
         let high = w.byte(e.wrapping_add(2)).rotate_left(2) & 3;
         if condition(w, (high as u16) << 8 | cond as u16)? {
             entry_said(w, e)?;
-            return after_entry(w);
+            after_entry(w)?;
+            return Some(true);
         }
         e = e.wrapping_add(4);
     }
@@ -475,7 +476,7 @@ fn phase_handler(w: &mut World, p: u8) -> Option<()> {
 /// `loc_0425b`: the place `p` discovered (flag 80h off, byte 0Bh 0); a
 /// sietch (below kind 20h) one more held, and place 603h's discovery
 /// raises the phase to 10h.
-fn discover(w: &mut World, p: u16) -> Option<()> {
+pub fn discover(w: &mut World, p: u16) -> Option<()> {
     let f = w.byte(p + 0x0a);
     if f & 0x80 == 0 {
         return Some(());
@@ -521,7 +522,7 @@ pub fn speaker_dialogue(w: &mut World, talker: u16) -> Option<()> {
     let list = w.word(0xaa76u16.wrapping_add(group << 1));
     text_setup(w)?;
     w.set_byte(conv::MODE, 0x80);
-    say_entry(w, list)
+    say_entry(w, list).map(|_| ())
 }
 
 /// `loc_09f40`: the speaker's record (Thufir's sums at the endgame's
@@ -540,19 +541,29 @@ fn text_setup(w: &mut World) -> Option<()> {
 /// mode given back after).
 fn talk_as(w: &mut World, talker: u16) -> Option<()> {
     w.set_word(conv::TALKER, talker);
-    say_sentence(w, 0x10)
+    say_sentence(w, 0x10).map(|_| ())
 }
 
 /// `loc_09702`: the speaker says sentence `n` (the list n x 8 + 4 of the
 /// table at DS:AA76h) in mode 20h (given back after).
-fn say_sentence(w: &mut World, n: u16) -> Option<()> {
+fn say_sentence(w: &mut World, n: u16) -> Option<bool> {
     text_setup(w)?;
     let list = w.word(0xaa76u16.wrapping_add((n << 3 | 4) << 1));
     let mode = w.word(conv::MODE);
     w.set_byte(conv::MODE, 0x20);
-    say_entry(w, list)?;
+    let said = say_entry(w, list)?;
     w.set_word(conv::MODE, mode);
-    Some(())
+    Some(said)
+}
+
+/// `loc_096f1`: speaker `n` says its sentence `n` (the troop told about,
+/// 0Eh, not modelled). Whether it said a line.
+pub fn say_numbered(w: &mut World, n: u16) -> Option<bool> {
+    w.set_word(conv::TALKER, n);
+    if n & 0xff == 0x0e {
+        return nm("the troop told about");
+    }
+    say_sentence(w, n)
 }
 
 /// `loc_07bb9` with AL `reason`: the troop `t` commented on: described
@@ -563,7 +574,7 @@ pub fn comment_on_troop(w: &mut World, t: u16, reason: u8) -> Option<()> {
     w.set_byte(0x23, reason);
     w.set_word(0x47ba, 0);
     w.set_word(conv::TALKER, 0x0f);
-    say_sentence(w, 0x0f)
+    say_sentence(w, 0x0f).map(|_| ())
 }
 
 /// `loc_031f6`: the troop `t` talked about: the record of the troop
@@ -697,15 +708,22 @@ pub fn tell_event(w: &mut World) -> Option<bool> {
     if !bit || (teller == 0x0f && place != w.word(g::PLACE)) {
         return Some(false);
     }
+    tell_found(w, kind as u16 | (teller as u16) << 8, place)?;
+    Some(true)
+}
+
+/// `loc_02b00`: the event `ev` (kind, teller) at `place` told: its place
+/// described (when it has one), the event's kind noted ([0EAh], then
+/// FFh), the teller's sentence, the place talked about described again.
+pub fn tell_found(w: &mut World, ev: u16, place: u16) -> Option<()> {
     let keep = w.word(g::TOPIC_PLACE_RECORD);
     if place != 0 {
         super::native_step::describe_place(w, place)?;
     }
-    w.update::<Situation>(|s| s.event_kind = kind);
-    talk_as(w, teller as u16)?;
+    w.update::<Situation>(|s| s.event_kind = ev as u8);
+    talk_as(w, ev >> 8)?;
     w.update::<Situation>(|s| s.event_kind = 0xff);
-    super::native_step::describe_place(w, keep)?;
-    Some(true)
+    super::native_step::describe_place(w, keep)
 }
 
 /// `loc_02a51`: the events of the teller `teller` dropped (teller 0Fh's
@@ -840,7 +858,7 @@ fn reward(w: &mut World) -> Option<()> {
 
 /// For the check of `loc_09f9e`: the dialogue step from the list `list`.
 pub fn say_entry_check(w: &mut World, list: u16) -> Option<()> {
-    say_entry(w, list)
+    say_entry(w, list).map(|_| ())
 }
 
 /// `loc_093df`: the speaker `talker`'s talk started: its group (talker x
@@ -931,4 +949,9 @@ pub fn order_shown_check(w: &mut World, job: u8) -> Option<()> {
     }
     let t = super::native_troops::troop_number(w.byte(g::SHOWN_TROOP));
     order_job(w, t, job)
+}
+
+/// [`start_speaker`] for the travel's scenes.
+pub fn start_speaker_pub(w: &mut World, talker: u16) {
+    start_speaker(w, talker)
 }

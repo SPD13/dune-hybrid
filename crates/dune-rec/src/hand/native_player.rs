@@ -13,6 +13,8 @@
 //!   talked to at its sietch: the script vouches for the visit);
 //! - `equip TROOP KIND`: troop TROOP takes a piece of kind KIND (0..6)
 //!   of its place's spare equipment (`loc_077d7`);
+//! - `travel PLACE`: the player goes to the place record PLACE (hex) and
+//!   arrives there at once (`hand/native_travel.rs`);
 //! - `buy`: from the smuggler met (character 0Dh's), the next item it
 //!   has offered (`loc_02388`) and bought on credit (`loc_023e6`), into
 //!   the player's place's equipment (the script vouches for the visit).
@@ -32,6 +34,7 @@ pub enum Action {
     Recruit(u8),
     Buy,
     Equip(u8, u16),
+    Travel(u16),
 }
 
 /// A script's line: on day `day` (counted from 0, the time / 16), `action`.
@@ -60,7 +63,8 @@ pub fn parse(text: &str) -> Result<Vec<Timed>, String> {
             (Some("recruit"), 3) => Action::Recruit(num(f[2])? as u8),
             (Some("buy"), 2) => Action::Buy,
             (Some("equip"), 4) => Action::Equip(num(f[2])? as u8, num(f[3])?),
-            _ => return Err(err("an action (ship, job, go, recruit, buy, equip)")),
+            (Some("travel"), 3) => Action::Travel(u16::from_str_radix(f[2], 16).map_err(|_| err("a place (hex)"))?),
+            _ => return Err(err("an action (ship, job, go, recruit, buy, equip, travel)")),
         };
         out.push(Timed { day, action });
     }
@@ -78,6 +82,7 @@ pub fn act(w: &mut World, a: &Action) -> Option<()> {
         Action::Go(n, place) => super::native_moves::set_out(w, super::native_troops::troop_number(n), place),
         Action::Recruit(n) => troop_joins(w, super::native_troops::troop_number(n)),
         Action::Equip(n, kind) => take_equipment(w, super::native_troops::troop_number(n), kind).map(|_| ()),
+        Action::Travel(p) => super::native_travel::travel(w, p),
         Action::Buy => {
             if open_deal(w)? {
                 buy_on_credit(w);
