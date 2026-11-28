@@ -666,8 +666,8 @@ fn after_entry(w: &mut World) -> Option<()> {
 /// with event flag 2, 40 charisma and the reach from FFCEh, else at reach
 /// 1 10 charisma and the reach from 0Ah, else the reach on
 /// (`loc_0a1b3`); Stilgar: his hook; the Harkonnen: the place talked
-/// about discovered; Duncan's (`loc_02239`) and the smuggler's deal
-/// (`loc_02388`) not modelled.
+/// about discovered; the smuggler's deal opened (`loc_02388`); Duncan's
+/// (`loc_02239`) not modelled.
 fn reward(w: &mut World) -> Option<()> {
     match w.word(conv::TALKER) {
         JESSICA => {
@@ -696,7 +696,7 @@ fn reward(w: &mut World) -> Option<()> {
                 w.set_byte(p.wrapping_add(0x0a), w.byte(p.wrapping_add(0x0a)) & 0x7f);
             }
             if t == SMUGGLER {
-                return nm("a smuggler's deal");
+                return super::native_player::open_deal(w).map(|_| ());
             }
         }
     }

@@ -10,7 +10,10 @@
 //! - `go TROOP PLACE`: troop TROOP sent to the place record PLACE (hex,
 //!   `loc_084a6`);
 //! - `recruit TROOP`: troop TROOP joins you (`loc_066ce`, its leader
-//!   talked to at its sietch: the script vouches for the visit).
+//!   talked to at its sietch: the script vouches for the visit);
+//! - `buy`: from the smuggler met (character 0Dh's), the next item it
+//!   has offered (`loc_02388`) and bought on credit (`loc_023e6`), into
+//!   the player's place's equipment (the script vouches for the visit).
 //!
 //! The decisions are the script's; the rules are the game's.
 
@@ -25,6 +28,7 @@ pub enum Action {
     Job(u8, u8),
     Go(u8, u16),
     Recruit(u8),
+    Buy,
 }
 
 /// A script's line: on day `day` (counted from 0, the time / 16), `action`.
@@ -51,7 +55,8 @@ pub fn parse(text: &str) -> Result<Vec<Timed>, String> {
             (Some("job"), 4) => Action::Job(num(f[2])? as u8, num(f[3])? as u8),
             (Some("go"), 4) => Action::Go(num(f[2])? as u8, u16::from_str_radix(f[3], 16).map_err(|_| err("a place (hex)"))?),
             (Some("recruit"), 3) => Action::Recruit(num(f[2])? as u8),
-            _ => return Err(err("an action (ship, job, go, recruit)")),
+            (Some("buy"), 2) => Action::Buy,
+            _ => return Err(err("an action (ship, job, go, recruit, buy)")),
         };
         out.push(Timed { day, action });
     }
@@ -72,6 +77,12 @@ pub fn act(w: &mut World, a: &Action) -> Option<()> {
         }
         Action::Go(n, place) => super::native_moves::set_out(w, super::native_troops::troop_number(n), place),
         Action::Recruit(n) => troop_joins(w, super::native_troops::troop_number(n)),
+        Action::Buy => {
+            if open_deal(w)? {
+                buy_on_credit(w);
+            }
+            Some(())
+        }
     }
 }
 
@@ -175,4 +186,63 @@ pub fn troop_joins(w: &mut World, t: u16) -> Option<()> {
         super::native_troops::circle(w, p, 2, 0x20)?;
     }
     Some(())
+}
+
+/// The smuggler met (character 0Dh's word 0Ch).
+fn current_smuggler(w: &World) -> u16 {
+    w.word(g::CHARACTERS + 0xd0 + 0x0c)
+}
+
+/// `loc_02388`: the deal opened: phase 3Ch at least, the smuggler's mood
+/// (`rand_masked` 0..3), its visit today, no answers yet; the next kind
+/// in stock after the one offered last
+/// ([`super::smuggler_trade::next_offer`]) offered at twice its price's
+/// low seven bits. Whether one was offered.
+pub fn open_deal(w: &mut World) -> Option<bool> {
+    use super::{phrase_args::PhraseArgs, progress::Progress, smuggler_trade};
+    super::native_script::set_game_phase(w, 0x3c)?;
+    let mood = w.rand_masked(3);
+    w.update::<Economy>(|e| e.smuggler_mood = mood as u8);
+    let day = (w.time() >> 4) as u8;
+    let di = current_smuggler(w);
+    let item = w.get::<PhraseArgs>().slots[super::phrase_args::SMUGGLER_ITEM];
+    let kinds = w.byte(g::ITEMS_OFFERED);
+    let o = smuggler_trade::next_offer(item, kinds, |k| w.byte(di.wrapping_add(4).wrapping_add(k)) != 0);
+    w.set_byte(di.wrapping_add(3), day);
+    w.update::<Progress>(|t| t.answer_count = 0);
+    let Some(k) = o.kind else {
+        return Some(false);
+    };
+    let phrase = k.wrapping_add(smuggler_trade::FIRST_ITEM_PHRASE);
+    w.update::<PhraseArgs>(|t| t.slots[super::phrase_args::SMUGGLER_ITEM] = phrase);
+    let asked = (w.byte(di.wrapping_add(9).wrapping_add(k)) & 0x7f) << 1;
+    w.update::<Economy>(|e| e.smuggler_price = asked);
+    Some(true)
+}
+
+/// `loc_023e6`: the item offered bought on credit: the price added to the
+/// debts (the player's and the smuggler's; a first debt counted, its day
+/// today), the talk not ended, the stock one less, the player's place's
+/// equipment of that kind one more.
+pub fn buy_on_credit(w: &mut World) {
+    use super::{phrase_args::PhraseArgs, progress::Progress, smuggler_trade};
+    let di = current_smuggler(w);
+    let price = w.get::<Economy>().smuggler_price as u16;
+    let debt = w.word(di.wrapping_add(0x0e));
+    let (_, new) = smuggler_trade::bought_on_credit(debt, price as u8);
+    w.set_byte(di.wrapping_add(2), w.byte(di.wrapping_add(2)) & !super::smugglers::smuggler_flag::TALK_ENDED);
+    w.update::<Economy>(|e| e.smuggler_price = 0);
+    w.update::<Progress>(|t| {
+        t.smuggler_debt = t.smuggler_debt.wrapping_add(price);
+        if new {
+            t.debts = t.debts.wrapping_add(1);
+        }
+    });
+    w.set_word(di.wrapping_add(0x0e), debt.wrapping_add(price));
+    w.set_byte(di.wrapping_add(0x10), (w.time() >> 4) as u8);
+    let i = w.get::<PhraseArgs>().slots[super::phrase_args::SMUGGLER_ITEM].wrapping_sub(0xe8);
+    let s = di.wrapping_add(4).wrapping_add(i);
+    w.set_byte(s, w.byte(s).wrapping_sub(1));
+    let at = i.wrapping_add(w.word(g::PLACE)).wrapping_add(0x14);
+    w.set_byte(at, w.byte(at).wrapping_add(1));
 }

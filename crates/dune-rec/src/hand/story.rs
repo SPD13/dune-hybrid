@@ -1125,6 +1125,10 @@ pub fn visit_smuggler(m: &mut Machine, start: u16) -> Result<(), Bail> {
 /// smuggler's byte 4 + i one down, the location [114Eh]'s byte 14h + i
 /// one up (i = [`g::SMUGGLER_ITEM`] - 0E8h).
 pub fn buy_from_smuggler_on_credit(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x23e6, "buy on credit", |w, r| { let _ = &r; super::native_player::buy_on_credit(w); Some(()) }, buy_from_smuggler_on_credit_frame)
+}
+
+fn buy_from_smuggler_on_credit_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x23e6)?;
     let mut c = Ctx::new(m);
     let di = c.reg(DI);
@@ -1181,6 +1185,10 @@ fn current_smuggler(c: &mut Ctx) -> u16 {
 /// [`g::SMUGGLER_ITEM`] offered at its price
 /// ([`smuggler_trade::next_offer`]; none left: nothing offered).
 pub fn open_deal(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x2388, "open deal", |w, r| { let _ = &r; super::native_player::open_deal(w).map(|_| ()) }, open_deal_frame)
+}
+
+fn open_deal_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x2388)?;
     let mut c = Ctx::new(m);
     c.run(start, 2)?;
