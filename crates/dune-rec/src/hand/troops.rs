@@ -1830,6 +1830,10 @@ const SEED_0: u16 = 0;
 /// (`loc_01ac5`); its location's byte 0Bh 2 (and `loc_0644e`) if that was
 /// 0. DI = its location.
 pub fn troop_joins(m: &mut Machine, start: u16) -> Result<(), Bail> {
+    super::world::checked(m, start, 0x66ce, "troop joins", |w, r| { let _ = &r; super::native_player::troop_joins(w, r.si) }, troop_joins_frame)
+}
+
+fn troop_joins_frame(m: &mut Machine, start: u16) -> Result<(), Bail> {
     entered(start, 0x66ce)?;
     let mut c = Ctx::new(m);
     let troop = Troop(c.reg(SI));
